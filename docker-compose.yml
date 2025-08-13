@@ -6,7 +6,15 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=sqlite:///./brandvx.db
+      - REDIS_URL=redis://redis:6379/0
     volumes:
       - .:/app
+    restart: unless-stopped
+    depends_on:
+      - redis
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
     restart: unless-stopped
 

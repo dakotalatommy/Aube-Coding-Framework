@@ -54,7 +54,10 @@
         const contact_id = document.getElementById('contactId').value;
         log(await api('/messages/simulate', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tenant_id, contact_id})}));
       };
-      document.getElementById('metrics').onclick = async () => log(await api('/metrics'));
+      document.getElementById('metrics').onclick = async () => {
+        const tenant_id = document.getElementById('tenant').value;
+        log(await api(`/metrics?tenant_id=${tenant_id}`));
+      };
       document.getElementById('stop').onclick = async () => {
         const tenant_id = document.getElementById('tenant').value;
         const contact_id = document.getElementById('contactId').value;

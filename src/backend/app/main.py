@@ -8,6 +8,7 @@ from .db import Base, engine, get_db
 from . import models as dbm
 from .auth import get_user_context, require_role, UserContext
 from .cadence import get_cadence_definition
+from .kpi import compute_time_saved_minutes, ambassador_candidate
 
 
 app = FastAPI(title="BrandVX Backend", version="0.2.0")
@@ -171,8 +172,12 @@ def get_metrics(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext 
         return {"messages_sent": 0, "time_saved_minutes": 0}
     m = db.query(dbm.Metrics).filter(dbm.Metrics.tenant_id == tenant_id).first()
     if not m:
-        return {"messages_sent": 0, "time_saved_minutes": 0}
-    return {"messages_sent": m.messages_sent, "time_saved_minutes": m.time_saved_minutes}
+        return {"messages_sent": 0, "time_saved_minutes": 0, "ambassador_candidate": False}
+    return {
+        "messages_sent": m.messages_sent,
+        "time_saved_minutes": compute_time_saved_minutes(db, tenant_id),
+        "ambassador_candidate": ambassador_candidate(db, tenant_id),
+    }
 
 
 class PreferenceRequest(BaseModel):
