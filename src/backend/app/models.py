@@ -88,3 +88,13 @@ class Approval(Base):
     status: Mapped[str] = mapped_column(String(16), default="pending")  # pending|approved|rejected
     result_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+
+class Embedding(Base):
+    __tablename__ = "embeddings"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    doc_id: Mapped[str] = mapped_column(String(128), index=True)
+    kind: Mapped[str] = mapped_column(String(32))
+    text: Mapped[str] = mapped_column(Text)
+    vector_json: Mapped[str] = mapped_column(Text)
+

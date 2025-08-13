@@ -20,6 +20,7 @@ from .brand_prompts import BRAND_SYSTEM, cadence_intro_prompt, chat_system_promp
 from .tools import execute_tool
 from .messaging import verify_twilio_signature
 from . import models as dbm
+import json
 
 
 app = FastAPI(title="BrandVX Backend", version="0.2.0")
@@ -229,6 +230,38 @@ async def ai_chat(
         {"tenant_id": req.tenant_id, "length": len(content)},
     )
     return {"text": content}
+
+
+class EmbedRequest(BaseModel):
+    tenant_id: str
+    items: List[Dict[str, str]]  # [{doc_id, kind, text}]
+
+
+@app.post("/ai/embed")
+async def ai_embed(
+    req: EmbedRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"embedded": 0}
+    client = AIClient()
+    vectors = await client.embed([x.get("text", "") for x in req.items])
+    count = 0
+    for i, x in enumerate(req.items):
+        if i < len(vectors):
+            db.add(
+                dbm.Embedding(
+                    tenant_id=req.tenant_id,
+                    doc_id=x.get("doc_id", ""),
+                    kind=x.get("kind", "doc"),
+                    text=x.get("text", ""),
+                    vector_json=json.dumps(vectors[i]),
+                )
+            )
+            count += 1
+    db.commit()
+    return {"embedded": count}
 
 
 class ToolExecRequest(BaseModel):
