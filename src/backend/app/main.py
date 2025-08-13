@@ -259,6 +259,16 @@ def consent_stop(
             tenant_id=req.tenant_id, contact_id=req.contact_id, channel=req.channel, consent="revoked"
         )
     )
+    # lightweight audit
+    db.add(
+        dbm.AuditLog(
+            tenant_id=req.tenant_id,
+            actor_id=ctx.user_id,
+            action="consent.stop",
+            entity_ref=f"contact:{req.contact_id}",
+            payload="{}",
+        )
+    )
     db.commit()
     emit_event(
         "SuppressionAdded",
