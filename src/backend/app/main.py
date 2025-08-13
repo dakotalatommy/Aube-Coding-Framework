@@ -14,6 +14,7 @@ from .messaging import send_message
 from .integrations import crm_hubspot, booking_acuity
 from .utils import normalize_phone
 from .rate_limit import check_and_increment
+from .scheduler import run_tick
 
 
 app = FastAPI(title="BrandVX Backend", version="0.2.0")
@@ -221,6 +222,13 @@ def get_admin_kpis(tenant_id: str, db: Session = Depends(get_db), ctx: UserConte
     if ctx.role != "owner_admin" and ctx.tenant_id != tenant_id:
         return {}
     return admin_kpis(db, tenant_id)
+
+
+@app.post("/scheduler/tick")
+def scheduler_tick(tenant_id: Optional[str] = None, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if tenant_id and ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"processed": 0}
+    return {"processed": run_tick(db, tenant_id)}
 
 
 class PreferenceRequest(BaseModel):
