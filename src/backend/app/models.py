@@ -12,6 +12,7 @@ class Contact(Base):
     phone_hash: Mapped[str | None] = mapped_column(String(128), nullable=True)
     consent_sms: Mapped[bool] = mapped_column(Boolean, default=False)
     consent_email: Mapped[bool] = mapped_column(Boolean, default=False)
+    deleted: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class CadenceState(Base):
@@ -21,6 +22,7 @@ class CadenceState(Base):
     contact_id: Mapped[str] = mapped_column(String(64), index=True)
     cadence_id: Mapped[str] = mapped_column(String(64))
     step_index: Mapped[int] = mapped_column(Integer, default=0)
+    next_action_epoch: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class Metrics(Base):
@@ -64,6 +66,16 @@ class AuditLog(Base):
     actor_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     action: Mapped[str] = mapped_column(String(64))
     entity_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    payload: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class DeadLetter(Base):
+    __tablename__ = "dead_letters"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    provider: Mapped[str] = mapped_column(String(64))
+    reason: Mapped[str] = mapped_column(String(128))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
     payload: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
