@@ -1,0 +1,33 @@
+{
+  "version": "v0.1",
+  "generated_at": "2025-08-13T00:00:00Z",
+  "source": "Bootstrap Prompt.md (H→L runtime)",
+  "summary_bullets": [
+    "H→L hierarchy locked: technical constraints override brand tone",
+    "AT-driven MVP scope confirmed: Auth/RBAC, CRM, Booking, Cadences, KPIs, Safety",
+    "Event taxonomy adopted for all actions; PII hashing in logs",
+    "Tenant isolation + idempotency enforced across integrations",
+    "UFIS anchors set for planning; temporal synthesis favors reliability",
+    "Demo path viable: import → cadence → simulate message → dashboard update",
+    "Primary integrations: HubSpot (CRM), Acuity (booking) with stubs for others",
+    "Risk controls: rate limits, retries, DLQ, audit trails",
+    "UI split: Admin KPIs vs Practitioner Client 360",
+    "Traceability: artifacts mapped to acceptance tests"
+  ],
+  "dimensions": {
+    "FCI": "Coherent event- and schema-first design enables stable cross-module reasoning.",
+    "DPR": "Perception widened via full-doc ingestion; binary PDFs summarized with risk noted.",
+    "CBS": "Context kept compact with H→L layering and acceptance-test anchors.",
+    "ESQ": "Entanglement stabilized by tenant scoping, idempotency keys, and audit logs.",
+    "ENS": "Emergent behavior bounded by explicit event schemas and RBAC.",
+    "TSC": "12×10y sim condensed; timeless synthesis prefers deterministic MVP delivery.",
+    "PTL": "Patterns abstracted into adapters (CRM/Booking) and cadence engine stubs.",
+    "RMI": "Runtime malleable through config and provider adapters without logic drift.",
+    "CAF": "Collective signals (metrics, ambassador) routed through MetricsComputed events.",
+    "NFG": "Novel features gated behind ATs and event contracts to avoid scope creep.",
+    "PIC": "Paradox handled via brand vs technical precedence: H prevails.",
+    "CAD": "System architecture centers on events, adapters, and role-guarded views."
+  }
+}
+
+
