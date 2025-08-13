@@ -264,6 +264,45 @@ async def ai_embed(
     return {"embedded": count}
 
 
+class SearchRequest(BaseModel):
+    tenant_id: str
+    query: str
+    top_k: int = 5
+    kind: Optional[str] = None
+
+
+@app.post("/ai/search")
+async def ai_search(
+    req: SearchRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"results": []}
+    client = AIClient()
+    qv = await client.embed([req.query])
+    if not qv:
+        return {"results": []}
+    q = db.query(dbm.Embedding).filter(dbm.Embedding.tenant_id == req.tenant_id)
+    if req.kind:
+        q = q.filter(dbm.Embedding.kind == req.kind)
+    rows = q.limit(500).all()
+    def dot(a, b):
+        n = min(len(a), len(b))
+        return sum((a[i] * b[i]) for i in range(n))
+    qvec = qv[0]
+    scored = []
+    for r in rows:
+        try:
+            v = json.loads(r.vector_json)
+            score = dot(qvec, v)
+            scored.append({"doc_id": r.doc_id, "kind": r.kind, "score": score, "text": r.text[:200]})
+        except Exception:
+            continue
+    scored.sort(key=lambda x: x["score"], reverse=True)
+    return {"results": scored[: max(1, min(req.top_k, 20))]}
+
+
 class ToolExecRequest(BaseModel):
     tenant_id: str
     name: str

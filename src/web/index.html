@@ -38,6 +38,16 @@
     <div class="row">
       <textarea id="askInput" rows="2" cols="60" placeholder="Ask your brand…"></textarea>
     </div>
+    <div class="row">
+      <input id="searchQ" placeholder="Search query" />
+      <button id="searchBtn">Search (RAG)</button>
+    </div>
+    <div class="row">
+      <button id="listApprovals">List Approvals</button>
+      <input id="approvalId" placeholder="approval_id" />
+      <button id="approve">Approve</button>
+      <button id="reject">Reject</button>
+    </div>
     <pre id="out"></pre>
     <script>
       const api = (p, o={}) => fetch(p, o).then(r=>r.json());
@@ -85,6 +95,25 @@
         const tenant_id = document.getElementById('tenant').value;
         const text = document.getElementById('askInput').value || 'Hello';
         log(await api('/ai/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tenant_id, messages:[{role:'user', content:text}]})}));
+      };
+      document.getElementById('searchBtn').onclick = async () => {
+        const tenant_id = document.getElementById('tenant').value;
+        const query = document.getElementById('searchQ').value || 'test';
+        log(await api('/ai/search', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tenant_id, query})}));
+      };
+      document.getElementById('listApprovals').onclick = async () => {
+        const tenant_id = document.getElementById('tenant').value;
+        log(await api(`/approvals?tenant_id=${tenant_id}`));
+      };
+      document.getElementById('approve').onclick = async () => {
+        const tenant_id = document.getElementById('tenant').value;
+        const approval_id = Number(document.getElementById('approvalId').value || '0');
+        log(await api('/approvals/action', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tenant_id, approval_id, action:'approve'})}));
+      };
+      document.getElementById('reject').onclick = async () => {
+        const tenant_id = document.getElementById('tenant').value;
+        const approval_id = Number(document.getElementById('approvalId').value || '0');
+        log(await api('/approvals/action', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tenant_id, approval_id, action:'reject'})}));
       };
     </script>
   </body>
