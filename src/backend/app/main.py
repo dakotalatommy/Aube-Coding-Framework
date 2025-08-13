@@ -7,6 +7,7 @@ from .events import emit_event
 from .db import Base, engine, get_db
 from . import models as dbm
 from .auth import get_user_context, require_role, UserContext
+from .cadence import get_cadence_definition
 
 
 app = FastAPI(title="BrandVX Backend", version="0.2.0")
@@ -104,12 +105,15 @@ def start_cadence(
         )
     )
     db.commit()
+    # schedule preview (simulated) — could be returned to UI
+    _steps = get_cadence_definition(req.cadence_id)
     emit_event(
         "CadenceStarted",
         {
             "tenant_id": req.tenant_id,
             "contact_id": req.contact_id,
             "cadence_id": req.cadence_id,
+            "steps": _steps,
         },
     )
     return {"status": "started"}
