@@ -10,6 +10,8 @@ class AIClient:
         self.model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 
     async def generate(self, system: str, messages: List[Dict[str, str]], max_tokens: int = 512) -> str:
+        if not self.api_key:
+            return "AI not configured. Add OPENAI_API_KEY to enable chat and message generation."
         headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
         payload: Dict[str, Any] = {
             "model": self.model,

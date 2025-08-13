@@ -16,7 +16,7 @@ from .utils import normalize_phone
 from .rate_limit import check_and_increment
 from .scheduler import run_tick
 from .ai import AIClient
-from .brand_prompts import BRAND_SYSTEM, cadence_intro_prompt
+from .brand_prompts import BRAND_SYSTEM, cadence_intro_prompt, chat_system_prompt
 
 
 app = FastAPI(title="BrandVX Backend", version="0.2.0")
@@ -140,7 +140,7 @@ def start_cadence(
 
 
 @app.post("/messages/simulate")
-def simulate_message(
+async def simulate_message(
     req: MessageSimulateRequest,
     db: Session = Depends(get_db),
     ctx: UserContext = Depends(get_user_context),
@@ -190,6 +190,41 @@ def simulate_message(
         },
     )
     return {"status": "sent"}
+
+
+class ChatMessage(BaseModel):
+    role: str
+    content: str
+
+
+class ChatRequest(BaseModel):
+    tenant_id: str
+    messages: List[ChatMessage]
+    allow_tools: bool = False
+
+
+@app.post("/ai/chat")
+async def ai_chat(
+    req: ChatRequest,
+    ctx: UserContext = Depends(get_user_context),
+) -> Dict[str, str]:
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"text": "forbidden"}
+    system_prompt = chat_system_prompt()
+    client = AIClient()
+    content = await client.generate(
+        system_prompt,
+        [
+            {"role": m.role, "content": m.content}
+            for m in req.messages
+        ],
+        max_tokens=400,
+    )
+    emit_event(
+        "AIChatResponded",
+        {"tenant_id": req.tenant_id, "length": len(content)},
+    )
+    return {"text": content}
 
 
 @app.post("/integrations/crm/hubspot/upsert")
@@ -341,6 +376,7 @@ def get_config() -> Dict[str, object]:
             "notify_list": True,
             "share_prompts": True,
             "ambassador_flags": True,
+            "ai_chat": True,
         },
         "branding": {
             "product_name": "BrandVX",
@@ -389,6 +425,13 @@ def ui_contract() -> Dict[str, object]:
                     {"id": "surface_share_prompt", "endpoint": "/share/surface", "method": "POST"}
                 ],
             },
+            {
+                "id": "ask_vx",
+                "title": "Ask VX",
+                "actions": [
+                    {"id": "ai_chat", "endpoint": "/ai/chat", "method": "POST"}
+                ],
+            },
         ],
         "events": [
             "ContactImported",
@@ -399,6 +442,7 @@ def ui_contract() -> Dict[str, object]:
             "SuppressionAdded",
             "NotifyListCandidateAdded",
             "SharePromptSurfaced",
+            "AIChatResponded",
         ],
     }
 

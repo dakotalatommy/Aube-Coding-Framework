@@ -33,6 +33,10 @@
       <button id="soonest">Set Prefer: Soonest</button>
       <button id="share">Surface Share Prompt</button>
       <button id="adminKpis">Get Admin KPIs</button>
+      <button id="askvx">Ask VX</button>
+    </div>
+    <div class="row">
+      <textarea id="askInput" rows="2" cols="60" placeholder="Ask your brand…"></textarea>
     </div>
     <pre id="out"></pre>
     <script>
@@ -76,6 +80,11 @@
       document.getElementById('adminKpis').onclick = async () => {
         const tenant_id = document.getElementById('tenant').value;
         log(await api(`/admin/kpis?tenant_id=${tenant_id}`));
+      };
+      document.getElementById('askvx').onclick = async () => {
+        const tenant_id = document.getElementById('tenant').value;
+        const text = document.getElementById('askInput').value || 'Hello';
+        log(await api('/ai/chat', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tenant_id, messages:[{role:'user', content:text}]})}));
       };
     </script>
   </body>

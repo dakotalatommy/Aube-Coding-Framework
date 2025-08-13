@@ -12,3 +12,15 @@ def cadence_intro_prompt(service: str = "hair color") -> str:
     ).format(service=service)
 
 
+def chat_system_prompt() -> str:
+    return (
+        BRAND_SYSTEM
+        + "\n"
+        + "Operate under H→L hierarchy: technical, safety, consent, privacy, and RBAC rules override style."
+        + "\n"
+        + "Answer with actionable, concise guidance. If you need tenant data, ask for it explicitly or suggest an action."
+        + "\n"
+        + "Do not fabricate. If uncertain, say so and propose safe next steps."
+    )
+
+
