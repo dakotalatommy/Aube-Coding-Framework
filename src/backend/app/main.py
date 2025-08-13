@@ -24,7 +24,16 @@ from .integrations.sms_twilio import twilio_verify_signature
 import json
 
 
-app = FastAPI(title="BrandVX Backend", version="0.2.0")
+tags_metadata = [
+    {"name": "Health", "description": "Health checks and metrics."},
+    {"name": "Contacts", "description": "Contact import and consent."},
+    {"name": "Cadences", "description": "Cadence scheduling and messaging."},
+    {"name": "AI", "description": "Ask VX chat, tools, embeddings and search."},
+    {"name": "Integrations", "description": "External integrations and provider webhooks."},
+    {"name": "Approvals", "description": "Human-in-the-loop approvals."},
+]
+
+app = FastAPI(title="BrandVX Backend", version="0.2.0", openapi_tags=tags_metadata)
 Base.metadata.create_all(bind=engine)
 
 
@@ -62,7 +71,7 @@ STATE: Dict[str, Dict] = {
 }
 
 
-@app.get("/health")
+@app.get("/health", tags=["Health"])
 def health() -> Dict[str, str]:
     return {"status": "ok"}
 
@@ -74,12 +83,12 @@ app.mount("/app", StaticFiles(directory="src/web", html=True), name="app")
 REQ_COUNTER = Counter("brandvx_requests_total", "Total requests", ["endpoint"]) 
 
 
-@app.get("/metrics/prometheus")
+@app.get("/metrics/prometheus", tags=["Health"])
 def prometheus_metrics():
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
-@app.post("/import/contacts")
+@app.post("/import/contacts", tags=["Contacts"])
 def import_contacts(
     req: ImportContactsRequest,
     db: Session = Depends(get_db),
@@ -112,7 +121,7 @@ def import_contacts(
     return {"imported": imported}
 
 
-@app.post("/cadences/start")
+@app.post("/cadences/start", tags=["Cadences"])
 def start_cadence(
     req: CadenceStartRequest,
     db: Session = Depends(get_db),
@@ -145,7 +154,7 @@ def start_cadence(
     return {"status": "started"}
 
 
-@app.post("/messages/simulate")
+@app.post("/messages/simulate", tags=["Cadences"])
 async def simulate_message(
     req: MessageSimulateRequest,
     db: Session = Depends(get_db),
@@ -209,7 +218,7 @@ class ChatRequest(BaseModel):
     allow_tools: bool = False
 
 
-@app.post("/ai/chat")
+@app.post("/ai/chat", tags=["AI"])
 async def ai_chat(
     req: ChatRequest,
     ctx: UserContext = Depends(get_user_context),
@@ -238,7 +247,7 @@ class EmbedRequest(BaseModel):
     items: List[Dict[str, str]]  # [{doc_id, kind, text}]
 
 
-@app.post("/ai/embed")
+@app.post("/ai/embed", tags=["AI"])
 async def ai_embed(
     req: EmbedRequest,
     db: Session = Depends(get_db),
@@ -272,7 +281,7 @@ class SearchRequest(BaseModel):
     kind: Optional[str] = None
 
 
-@app.post("/ai/search")
+@app.post("/ai/search", tags=["AI"])
 async def ai_search(
     req: SearchRequest,
     db: Session = Depends(get_db),
@@ -317,7 +326,7 @@ class ApprovalActionRequest(BaseModel):
     action: str  # approve|reject
 
 
-@app.post("/ai/tools/execute")
+@app.post("/ai/tools/execute", tags=["AI"])
 async def ai_tool_execute(
     req: ToolExecRequest,
     db: Session = Depends(get_db),
@@ -342,7 +351,7 @@ async def ai_tool_execute(
     return result
 
 
-@app.get("/approvals")
+@app.get("/approvals", tags=["Approvals"])
 def list_approvals(
     tenant_id: str,
     db: Session = Depends(get_db),
@@ -357,7 +366,7 @@ def list_approvals(
     ]
 
 
-@app.post("/approvals/action")
+@app.post("/approvals/action", tags=["Approvals"])
 async def action_approval(
     req: ApprovalActionRequest,
     db: Session = Depends(get_db),
@@ -385,7 +394,7 @@ async def action_approval(
     return {"status": "approved", "result": result}
 
 
-@app.post("/integrations/crm/hubspot/upsert")
+@app.post("/integrations/crm/hubspot/upsert", tags=["Integrations"])
 def crm_upsert(
     tenant_id: str,
     obj_type: str,
@@ -398,7 +407,7 @@ def crm_upsert(
     return crm_hubspot.upsert(tenant_id, obj_type, attrs, idempotency_key)
 
 
-@app.post("/integrations/booking/acuity/import")
+@app.post("/integrations/booking/acuity/import", tags=["Integrations"])
 def booking_import(
     tenant_id: str,
     since: Optional[str] = None,
@@ -411,7 +420,7 @@ def booking_import(
     return booking_acuity.import_appointments(tenant_id, since, until, cursor)
 
 
-@app.get("/metrics")
+@app.get("/metrics", tags=["Health"])
 def get_metrics(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"messages_sent": 0, "time_saved_minutes": 0}
@@ -425,14 +434,14 @@ def get_metrics(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext 
     }
 
 
-@app.get("/admin/kpis")
+@app.get("/admin/kpis", tags=["Health"])
 def get_admin_kpis(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
     if ctx.role != "owner_admin" and ctx.tenant_id != tenant_id:
         return {}
     return admin_kpis(db, tenant_id)
 
 
-@app.post("/scheduler/tick")
+@app.post("/scheduler/tick", tags=["Cadences"])
 def scheduler_tick(tenant_id: Optional[str] = None, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
     if tenant_id and ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"processed": 0}
@@ -445,7 +454,7 @@ class PreferenceRequest(BaseModel):
     preference: str = "soonest"  # soonest|anytime
 
 
-@app.post("/notify-list/set-preference")
+@app.post("/notify-list/set-preference", tags=["Contacts"])
 def set_notify_preference(
     req: PreferenceRequest,
     db: Session = Depends(get_db),
@@ -471,7 +480,7 @@ class SharePromptRequest(BaseModel):
     kind: str
 
 
-@app.post("/share/surface")
+@app.post("/share/surface", tags=["Integrations"])
 def surface_share_prompt(
     req: SharePromptRequest,
     db: Session = Depends(get_db),
@@ -494,7 +503,7 @@ class StopRequest(BaseModel):
     channel: str = "sms"
 
 
-@app.post("/consent/stop")
+@app.post("/consent/stop", tags=["Contacts"])
 def consent_stop(
     req: StopRequest,
     db: Session = Depends(get_db),
@@ -619,7 +628,7 @@ class ProviderWebhook(BaseModel):
     payload: Dict[str, object] = {}
 
 
-@app.post("/webhooks/twilio")
+@app.post("/webhooks/twilio", tags=["Integrations"])
 def webhook_twilio(
     req: ProviderWebhook,
     request: Request,
@@ -634,7 +643,7 @@ def webhook_twilio(
     return {"status": "ok"}
 
 
-@app.post("/webhooks/sendgrid")
+@app.post("/webhooks/sendgrid", tags=["Integrations"])
 async def webhook_sendgrid(
     req: ProviderWebhook,
     request: Request,
