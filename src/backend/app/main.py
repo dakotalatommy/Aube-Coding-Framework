@@ -18,6 +18,7 @@ from .scheduler import run_tick
 from .ai import AIClient
 from .brand_prompts import BRAND_SYSTEM, cadence_intro_prompt, chat_system_prompt
 from .tools import execute_tool
+from .messaging import verify_twilio_signature
 
 
 app = FastAPI(title="BrandVX Backend", version="0.2.0")
@@ -463,7 +464,26 @@ def ui_contract() -> Dict[str, object]:
             "NotifyListCandidateAdded",
             "SharePromptSurfaced",
             "AIChatResponded",
+            "AIToolExecuted",
         ],
     }
+
+
+class ProviderWebhook(BaseModel):
+    tenant_id: str
+    payload: Dict[str, object] = {}
+
+
+@app.post("/webhooks/twilio")
+def webhook_twilio(
+    req: ProviderWebhook,
+    ctx: UserContext = Depends(get_user_context),
+) -> Dict[str, str]:
+    # In production, signature comes from headers; simplified here
+    ok = verify_twilio_signature("/webhooks/twilio", dict(req.payload or {}), signature="sig")
+    if not ok:
+        return {"status": "forbidden"}
+    emit_event("ProviderWebhookReceived", {"tenant_id": req.tenant_id, "provider": "twilio"})
+    return {"status": "ok"}
 
 

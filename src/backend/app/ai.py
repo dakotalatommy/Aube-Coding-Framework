@@ -114,4 +114,33 @@ class AIClient:
                     continue
         return None
 
+    async def embed(self, texts: List[str], model: str | None = None) -> List[List[float]]:
+        if not self.api_key:
+            return []
+        embed_model = model or os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload: Dict[str, Any] = {"model": embed_model, "input": texts}
+        backoff_seconds = 1.0
+        for attempt in range(3):
+            try:
+                async with httpx.AsyncClient(timeout=60) as client:
+                    r = await client.post(f"{self.base_url}/embeddings", headers=headers, json=payload)
+                    if r.status_code in (429,) or r.status_code >= 500:
+                        if attempt < 2:
+                            await asyncio.sleep(backoff_seconds + random.uniform(0, 0.5))
+                            backoff_seconds *= 2
+                            continue
+                    r.raise_for_status()
+                    data = r.json()
+                    return [item["embedding"] for item in data.get("data", [])]
+            except httpx.HTTPError:
+                if attempt < 2:
+                    await asyncio.sleep(backoff_seconds + random.uniform(0, 0.5))
+                    backoff_seconds *= 2
+                    continue
+        return []
+
 
