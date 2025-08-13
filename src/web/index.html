@@ -29,6 +29,9 @@
     <div class="row">
       <button id="simulate">Simulate Message</button>
       <button id="metrics">Get Metrics</button>
+      <button id="stop">STOP (suppress)</button>
+      <button id="soonest">Set Prefer: Soonest</button>
+      <button id="share">Surface Share Prompt</button>
     </div>
     <pre id="out"></pre>
     <script>
@@ -52,6 +55,20 @@
         log(await api('/messages/simulate', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tenant_id, contact_id})}));
       };
       document.getElementById('metrics').onclick = async () => log(await api('/metrics'));
+      document.getElementById('stop').onclick = async () => {
+        const tenant_id = document.getElementById('tenant').value;
+        const contact_id = document.getElementById('contactId').value;
+        log(await api('/consent/stop', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tenant_id, contact_id})}));
+      };
+      document.getElementById('soonest').onclick = async () => {
+        const tenant_id = document.getElementById('tenant').value;
+        const contact_id = document.getElementById('contactId').value;
+        log(await api('/notify-list/set-preference', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tenant_id, contact_id, preference:'soonest'})}));
+      };
+      document.getElementById('share').onclick = async () => {
+        const tenant_id = document.getElementById('tenant').value;
+        log(await api('/share/surface', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tenant_id, kind:'time_saved_10h'})}));
+      };
     </script>
   </body>
   </html>
