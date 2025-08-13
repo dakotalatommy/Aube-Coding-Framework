@@ -1,0 +1,62 @@
+# Health
+GET http://localhost:8000/health
+
+###
+# Import contacts
+POST http://localhost:8000/import/contacts
+Content-Type: application/json
+x-tenant-id: t1
+
+{
+  "tenant_id": "t1",
+  "contacts": [{"contact_id":"c1","email_hash":"e#1","consent_sms":true}]
+}
+
+###
+# Start cadence
+POST http://localhost:8000/cadences/start
+Content-Type: application/json
+x-tenant-id: t1
+
+{
+  "tenant_id": "t1",
+  "contact_id": "c1"
+}
+
+###
+# Simulate message
+POST http://localhost:8000/messages/simulate
+Content-Type: application/json
+x-tenant-id: t1
+
+{
+  "tenant_id": "t1",
+  "contact_id": "c1"
+}
+
+###
+# STOP consent
+POST http://localhost:8000/consent/stop
+Content-Type: application/json
+x-tenant-id: t1
+
+{
+  "tenant_id": "t1",
+  "contact_id": "c1"
+}
+
+###
+# Simulate message again (should be suppressed)
+POST http://localhost:8000/messages/simulate
+Content-Type: application/json
+x-tenant-id: t1
+
+{
+  "tenant_id": "t1",
+  "contact_id": "c1"
+}
+
+###
+# Metrics
+GET http://localhost:8000/metrics?tenant_id=t1
+x-tenant-id: t1
