@@ -1,0 +1,841 @@
+Tonic,Scale_Type,FL_Stamp,Degree,Roman,PitchClass,MIDI,Frequency_Hz,Semitone_Offset,Cents_from_Tonic,ET_Ratio,Interval_Label,Hue_deg,Color_Name,Hex,Emotion_Primary,Valence,Arousal
+C,Ionian (Major),Major,1,I,C,60,261.62557,0,0,2^(0/12),P1,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+C,Ionian (Major),Major,2,II,D,62,293.66477,2,200,2^(2/12),M2,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+C,Ionian (Major),Major,3,III,E,64,329.62756,4,400,2^(4/12),M3,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+C,Ionian (Major),Major,4,IV,F,65,349.22823,5,500,2^(5/12),P4,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+C,Ionian (Major),Major,5,V,G,67,391.99544,7,700,2^(7/12),P5,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+C,Ionian (Major),Major,6,VI,A,69,440.0,9,900,2^(9/12),M6,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+C,Ionian (Major),Major,7,VII,B,71,493.8833,11,1100,2^(11/12),M7,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+C,Dorian,Dorian,1,I,C,60,261.62557,0,0,2^(0/12),P1,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+C,Dorian,Dorian,2,II,D,62,293.66477,2,200,2^(2/12),M2,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+C,Dorian,Dorian,3,III,D#,63,311.12698,3,300,2^(3/12),m3,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+C,Dorian,Dorian,4,IV,F,65,349.22823,5,500,2^(5/12),P4,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+C,Dorian,Dorian,5,V,G,67,391.99544,7,700,2^(7/12),P5,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+C,Dorian,Dorian,6,VI,A,69,440.0,9,900,2^(9/12),M6,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+C,Dorian,Dorian,7,VII,A#,70,466.16376,10,1000,2^(10/12),m7,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+C,Phrygian,Phrygian,1,I,C,60,261.62557,0,0,2^(0/12),P1,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+C,Phrygian,Phrygian,2,II,C#,61,277.18263,1,100,2^(1/12),m2,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+C,Phrygian,Phrygian,3,III,D#,63,311.12698,3,300,2^(3/12),m3,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+C,Phrygian,Phrygian,4,IV,F,65,349.22823,5,500,2^(5/12),P4,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+C,Phrygian,Phrygian,5,V,G,67,391.99544,7,700,2^(7/12),P5,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+C,Phrygian,Phrygian,6,VI,G#,68,415.3047,8,800,2^(8/12),m6,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+C,Phrygian,Phrygian,7,VII,A#,70,466.16376,10,1000,2^(10/12),m7,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+C,Lydian,Lydian,1,I,C,60,261.62557,0,0,2^(0/12),P1,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+C,Lydian,Lydian,2,II,D,62,293.66477,2,200,2^(2/12),M2,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+C,Lydian,Lydian,3,III,E,64,329.62756,4,400,2^(4/12),M3,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+C,Lydian,Lydian,4,IV,F#,66,369.99442,6,600,2^(6/12),TT,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+C,Lydian,Lydian,5,V,G,67,391.99544,7,700,2^(7/12),P5,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+C,Lydian,Lydian,6,VI,A,69,440.0,9,900,2^(9/12),M6,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+C,Lydian,Lydian,7,VII,B,71,493.8833,11,1100,2^(11/12),M7,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+C,Mixolydian,Mixolydian,1,I,C,60,261.62557,0,0,2^(0/12),P1,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+C,Mixolydian,Mixolydian,2,II,D,62,293.66477,2,200,2^(2/12),M2,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+C,Mixolydian,Mixolydian,3,III,E,64,329.62756,4,400,2^(4/12),M3,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+C,Mixolydian,Mixolydian,4,IV,F,65,349.22823,5,500,2^(5/12),P4,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+C,Mixolydian,Mixolydian,5,V,G,67,391.99544,7,700,2^(7/12),P5,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+C,Mixolydian,Mixolydian,6,VI,A,69,440.0,9,900,2^(9/12),M6,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+C,Mixolydian,Mixolydian,7,VII,A#,70,466.16376,10,1000,2^(10/12),m7,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+C,Aeolian (Natural Minor),Natural Minor,1,I,C,60,261.62557,0,0,2^(0/12),P1,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+C,Aeolian (Natural Minor),Natural Minor,2,II,D,62,293.66477,2,200,2^(2/12),M2,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+C,Aeolian (Natural Minor),Natural Minor,3,III,D#,63,311.12698,3,300,2^(3/12),m3,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+C,Aeolian (Natural Minor),Natural Minor,4,IV,F,65,349.22823,5,500,2^(5/12),P4,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+C,Aeolian (Natural Minor),Natural Minor,5,V,G,67,391.99544,7,700,2^(7/12),P5,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+C,Aeolian (Natural Minor),Natural Minor,6,VI,G#,68,415.3047,8,800,2^(8/12),m6,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+C,Aeolian (Natural Minor),Natural Minor,7,VII,A#,70,466.16376,10,1000,2^(10/12),m7,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+C,Locrian,Locrian,1,I,C,60,261.62557,0,0,2^(0/12),P1,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+C,Locrian,Locrian,2,II,C#,61,277.18263,1,100,2^(1/12),m2,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+C,Locrian,Locrian,3,III,D#,63,311.12698,3,300,2^(3/12),m3,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+C,Locrian,Locrian,4,IV,F,65,349.22823,5,500,2^(5/12),P4,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+C,Locrian,Locrian,5,V,F#,66,369.99442,6,600,2^(6/12),TT,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+C,Locrian,Locrian,6,VI,G#,68,415.3047,8,800,2^(8/12),m6,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+C,Locrian,Locrian,7,VII,A#,70,466.16376,10,1000,2^(10/12),m7,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+C,Harmonic Minor,Harmonic Minor,1,I,C,60,261.62557,0,0,2^(0/12),P1,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+C,Harmonic Minor,Harmonic Minor,2,II,D,62,293.66477,2,200,2^(2/12),M2,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+C,Harmonic Minor,Harmonic Minor,3,III,D#,63,311.12698,3,300,2^(3/12),m3,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+C,Harmonic Minor,Harmonic Minor,4,IV,F,65,349.22823,5,500,2^(5/12),P4,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+C,Harmonic Minor,Harmonic Minor,5,V,G,67,391.99544,7,700,2^(7/12),P5,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+C,Harmonic Minor,Harmonic Minor,6,VI,G#,68,415.3047,8,800,2^(8/12),m6,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+C,Harmonic Minor,Harmonic Minor,7,VII,B,71,493.8833,11,1100,2^(11/12),M7,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+C,Melodic Minor (Ascending),Melodic Minor,1,I,C,60,261.62557,0,0,2^(0/12),P1,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+C,Melodic Minor (Ascending),Melodic Minor,2,II,D,62,293.66477,2,200,2^(2/12),M2,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+C,Melodic Minor (Ascending),Melodic Minor,3,III,D#,63,311.12698,3,300,2^(3/12),m3,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+C,Melodic Minor (Ascending),Melodic Minor,4,IV,F,65,349.22823,5,500,2^(5/12),P4,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+C,Melodic Minor (Ascending),Melodic Minor,5,V,G,67,391.99544,7,700,2^(7/12),P5,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+C,Melodic Minor (Ascending),Melodic Minor,6,VI,A,69,440.0,9,900,2^(9/12),M6,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+C,Melodic Minor (Ascending),Melodic Minor,7,VII,B,71,493.8833,11,1100,2^(11/12),M7,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+C,Melodic Minor (Descending=Nat),Natural Minor,1,I,C,60,261.62557,0,0,2^(0/12),P1,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+C,Melodic Minor (Descending=Nat),Natural Minor,2,II,D,62,293.66477,2,200,2^(2/12),M2,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+C,Melodic Minor (Descending=Nat),Natural Minor,3,III,D#,63,311.12698,3,300,2^(3/12),m3,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+C,Melodic Minor (Descending=Nat),Natural Minor,4,IV,F,65,349.22823,5,500,2^(5/12),P4,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+C,Melodic Minor (Descending=Nat),Natural Minor,5,V,G,67,391.99544,7,700,2^(7/12),P5,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+C,Melodic Minor (Descending=Nat),Natural Minor,6,VI,G#,68,415.3047,8,800,2^(8/12),m6,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+C,Melodic Minor (Descending=Nat),Natural Minor,7,VII,A#,70,466.16376,10,1000,2^(10/12),m7,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+G,Ionian (Major),Major,1,I,G,67,391.99544,0,0,2^(0/12),P1,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+G,Ionian (Major),Major,2,II,A,69,440.0,2,200,2^(2/12),M2,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+G,Ionian (Major),Major,3,III,B,71,493.8833,4,400,2^(4/12),M3,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+G,Ionian (Major),Major,4,IV,C,72,523.25113,5,500,2^(5/12),P4,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+G,Ionian (Major),Major,5,V,D,74,587.32954,7,700,2^(7/12),P5,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+G,Ionian (Major),Major,6,VI,E,76,659.25511,9,900,2^(9/12),M6,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+G,Ionian (Major),Major,7,VII,F#,78,739.98885,11,1100,2^(11/12),M7,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+G,Dorian,Dorian,1,I,G,67,391.99544,0,0,2^(0/12),P1,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+G,Dorian,Dorian,2,II,A,69,440.0,2,200,2^(2/12),M2,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+G,Dorian,Dorian,3,III,A#,70,466.16376,3,300,2^(3/12),m3,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+G,Dorian,Dorian,4,IV,C,72,523.25113,5,500,2^(5/12),P4,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+G,Dorian,Dorian,5,V,D,74,587.32954,7,700,2^(7/12),P5,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+G,Dorian,Dorian,6,VI,E,76,659.25511,9,900,2^(9/12),M6,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+G,Dorian,Dorian,7,VII,F,77,698.45646,10,1000,2^(10/12),m7,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+G,Phrygian,Phrygian,1,I,G,67,391.99544,0,0,2^(0/12),P1,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+G,Phrygian,Phrygian,2,II,G#,68,415.3047,1,100,2^(1/12),m2,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+G,Phrygian,Phrygian,3,III,A#,70,466.16376,3,300,2^(3/12),m3,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+G,Phrygian,Phrygian,4,IV,C,72,523.25113,5,500,2^(5/12),P4,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+G,Phrygian,Phrygian,5,V,D,74,587.32954,7,700,2^(7/12),P5,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+G,Phrygian,Phrygian,6,VI,D#,75,622.25397,8,800,2^(8/12),m6,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+G,Phrygian,Phrygian,7,VII,F,77,698.45646,10,1000,2^(10/12),m7,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+G,Lydian,Lydian,1,I,G,67,391.99544,0,0,2^(0/12),P1,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+G,Lydian,Lydian,2,II,A,69,440.0,2,200,2^(2/12),M2,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+G,Lydian,Lydian,3,III,B,71,493.8833,4,400,2^(4/12),M3,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+G,Lydian,Lydian,4,IV,C#,73,554.36526,6,600,2^(6/12),TT,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+G,Lydian,Lydian,5,V,D,74,587.32954,7,700,2^(7/12),P5,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+G,Lydian,Lydian,6,VI,E,76,659.25511,9,900,2^(9/12),M6,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+G,Lydian,Lydian,7,VII,F#,78,739.98885,11,1100,2^(11/12),M7,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+G,Mixolydian,Mixolydian,1,I,G,67,391.99544,0,0,2^(0/12),P1,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+G,Mixolydian,Mixolydian,2,II,A,69,440.0,2,200,2^(2/12),M2,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+G,Mixolydian,Mixolydian,3,III,B,71,493.8833,4,400,2^(4/12),M3,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+G,Mixolydian,Mixolydian,4,IV,C,72,523.25113,5,500,2^(5/12),P4,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+G,Mixolydian,Mixolydian,5,V,D,74,587.32954,7,700,2^(7/12),P5,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+G,Mixolydian,Mixolydian,6,VI,E,76,659.25511,9,900,2^(9/12),M6,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+G,Mixolydian,Mixolydian,7,VII,F,77,698.45646,10,1000,2^(10/12),m7,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+G,Aeolian (Natural Minor),Natural Minor,1,I,G,67,391.99544,0,0,2^(0/12),P1,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+G,Aeolian (Natural Minor),Natural Minor,2,II,A,69,440.0,2,200,2^(2/12),M2,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+G,Aeolian (Natural Minor),Natural Minor,3,III,A#,70,466.16376,3,300,2^(3/12),m3,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+G,Aeolian (Natural Minor),Natural Minor,4,IV,C,72,523.25113,5,500,2^(5/12),P4,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+G,Aeolian (Natural Minor),Natural Minor,5,V,D,74,587.32954,7,700,2^(7/12),P5,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+G,Aeolian (Natural Minor),Natural Minor,6,VI,D#,75,622.25397,8,800,2^(8/12),m6,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+G,Aeolian (Natural Minor),Natural Minor,7,VII,F,77,698.45646,10,1000,2^(10/12),m7,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+G,Locrian,Locrian,1,I,G,67,391.99544,0,0,2^(0/12),P1,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+G,Locrian,Locrian,2,II,G#,68,415.3047,1,100,2^(1/12),m2,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+G,Locrian,Locrian,3,III,A#,70,466.16376,3,300,2^(3/12),m3,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+G,Locrian,Locrian,4,IV,C,72,523.25113,5,500,2^(5/12),P4,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+G,Locrian,Locrian,5,V,C#,73,554.36526,6,600,2^(6/12),TT,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+G,Locrian,Locrian,6,VI,D#,75,622.25397,8,800,2^(8/12),m6,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+G,Locrian,Locrian,7,VII,F,77,698.45646,10,1000,2^(10/12),m7,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+G,Harmonic Minor,Harmonic Minor,1,I,G,67,391.99544,0,0,2^(0/12),P1,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+G,Harmonic Minor,Harmonic Minor,2,II,A,69,440.0,2,200,2^(2/12),M2,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+G,Harmonic Minor,Harmonic Minor,3,III,A#,70,466.16376,3,300,2^(3/12),m3,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+G,Harmonic Minor,Harmonic Minor,4,IV,C,72,523.25113,5,500,2^(5/12),P4,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+G,Harmonic Minor,Harmonic Minor,5,V,D,74,587.32954,7,700,2^(7/12),P5,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+G,Harmonic Minor,Harmonic Minor,6,VI,D#,75,622.25397,8,800,2^(8/12),m6,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+G,Harmonic Minor,Harmonic Minor,7,VII,F#,78,739.98885,11,1100,2^(11/12),M7,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+G,Melodic Minor (Ascending),Melodic Minor,1,I,G,67,391.99544,0,0,2^(0/12),P1,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+G,Melodic Minor (Ascending),Melodic Minor,2,II,A,69,440.0,2,200,2^(2/12),M2,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+G,Melodic Minor (Ascending),Melodic Minor,3,III,A#,70,466.16376,3,300,2^(3/12),m3,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+G,Melodic Minor (Ascending),Melodic Minor,4,IV,C,72,523.25113,5,500,2^(5/12),P4,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+G,Melodic Minor (Ascending),Melodic Minor,5,V,D,74,587.32954,7,700,2^(7/12),P5,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+G,Melodic Minor (Ascending),Melodic Minor,6,VI,E,76,659.25511,9,900,2^(9/12),M6,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+G,Melodic Minor (Ascending),Melodic Minor,7,VII,F#,78,739.98885,11,1100,2^(11/12),M7,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+G,Melodic Minor (Descending=Nat),Natural Minor,1,I,G,67,391.99544,0,0,2^(0/12),P1,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+G,Melodic Minor (Descending=Nat),Natural Minor,2,II,A,69,440.0,2,200,2^(2/12),M2,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+G,Melodic Minor (Descending=Nat),Natural Minor,3,III,A#,70,466.16376,3,300,2^(3/12),m3,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+G,Melodic Minor (Descending=Nat),Natural Minor,4,IV,C,72,523.25113,5,500,2^(5/12),P4,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+G,Melodic Minor (Descending=Nat),Natural Minor,5,V,D,74,587.32954,7,700,2^(7/12),P5,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+G,Melodic Minor (Descending=Nat),Natural Minor,6,VI,D#,75,622.25397,8,800,2^(8/12),m6,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+G,Melodic Minor (Descending=Nat),Natural Minor,7,VII,F,77,698.45646,10,1000,2^(10/12),m7,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+D,Ionian (Major),Major,1,I,D,62,293.66477,0,0,2^(0/12),P1,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+D,Ionian (Major),Major,2,II,E,64,329.62756,2,200,2^(2/12),M2,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+D,Ionian (Major),Major,3,III,F#,66,369.99442,4,400,2^(4/12),M3,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+D,Ionian (Major),Major,4,IV,G,67,391.99544,5,500,2^(5/12),P4,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+D,Ionian (Major),Major,5,V,A,69,440.0,7,700,2^(7/12),P5,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+D,Ionian (Major),Major,6,VI,B,71,493.8833,9,900,2^(9/12),M6,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+D,Ionian (Major),Major,7,VII,C#,73,554.36526,11,1100,2^(11/12),M7,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+D,Dorian,Dorian,1,I,D,62,293.66477,0,0,2^(0/12),P1,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+D,Dorian,Dorian,2,II,E,64,329.62756,2,200,2^(2/12),M2,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+D,Dorian,Dorian,3,III,F,65,349.22823,3,300,2^(3/12),m3,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+D,Dorian,Dorian,4,IV,G,67,391.99544,5,500,2^(5/12),P4,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+D,Dorian,Dorian,5,V,A,69,440.0,7,700,2^(7/12),P5,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+D,Dorian,Dorian,6,VI,B,71,493.8833,9,900,2^(9/12),M6,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+D,Dorian,Dorian,7,VII,C,72,523.25113,10,1000,2^(10/12),m7,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+D,Phrygian,Phrygian,1,I,D,62,293.66477,0,0,2^(0/12),P1,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+D,Phrygian,Phrygian,2,II,D#,63,311.12698,1,100,2^(1/12),m2,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+D,Phrygian,Phrygian,3,III,F,65,349.22823,3,300,2^(3/12),m3,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+D,Phrygian,Phrygian,4,IV,G,67,391.99544,5,500,2^(5/12),P4,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+D,Phrygian,Phrygian,5,V,A,69,440.0,7,700,2^(7/12),P5,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+D,Phrygian,Phrygian,6,VI,A#,70,466.16376,8,800,2^(8/12),m6,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+D,Phrygian,Phrygian,7,VII,C,72,523.25113,10,1000,2^(10/12),m7,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+D,Lydian,Lydian,1,I,D,62,293.66477,0,0,2^(0/12),P1,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+D,Lydian,Lydian,2,II,E,64,329.62756,2,200,2^(2/12),M2,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+D,Lydian,Lydian,3,III,F#,66,369.99442,4,400,2^(4/12),M3,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+D,Lydian,Lydian,4,IV,G#,68,415.3047,6,600,2^(6/12),TT,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+D,Lydian,Lydian,5,V,A,69,440.0,7,700,2^(7/12),P5,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+D,Lydian,Lydian,6,VI,B,71,493.8833,9,900,2^(9/12),M6,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+D,Lydian,Lydian,7,VII,C#,73,554.36526,11,1100,2^(11/12),M7,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+D,Mixolydian,Mixolydian,1,I,D,62,293.66477,0,0,2^(0/12),P1,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+D,Mixolydian,Mixolydian,2,II,E,64,329.62756,2,200,2^(2/12),M2,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+D,Mixolydian,Mixolydian,3,III,F#,66,369.99442,4,400,2^(4/12),M3,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+D,Mixolydian,Mixolydian,4,IV,G,67,391.99544,5,500,2^(5/12),P4,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+D,Mixolydian,Mixolydian,5,V,A,69,440.0,7,700,2^(7/12),P5,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+D,Mixolydian,Mixolydian,6,VI,B,71,493.8833,9,900,2^(9/12),M6,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+D,Mixolydian,Mixolydian,7,VII,C,72,523.25113,10,1000,2^(10/12),m7,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+D,Aeolian (Natural Minor),Natural Minor,1,I,D,62,293.66477,0,0,2^(0/12),P1,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+D,Aeolian (Natural Minor),Natural Minor,2,II,E,64,329.62756,2,200,2^(2/12),M2,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+D,Aeolian (Natural Minor),Natural Minor,3,III,F,65,349.22823,3,300,2^(3/12),m3,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+D,Aeolian (Natural Minor),Natural Minor,4,IV,G,67,391.99544,5,500,2^(5/12),P4,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+D,Aeolian (Natural Minor),Natural Minor,5,V,A,69,440.0,7,700,2^(7/12),P5,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+D,Aeolian (Natural Minor),Natural Minor,6,VI,A#,70,466.16376,8,800,2^(8/12),m6,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+D,Aeolian (Natural Minor),Natural Minor,7,VII,C,72,523.25113,10,1000,2^(10/12),m7,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+D,Locrian,Locrian,1,I,D,62,293.66477,0,0,2^(0/12),P1,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+D,Locrian,Locrian,2,II,D#,63,311.12698,1,100,2^(1/12),m2,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+D,Locrian,Locrian,3,III,F,65,349.22823,3,300,2^(3/12),m3,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+D,Locrian,Locrian,4,IV,G,67,391.99544,5,500,2^(5/12),P4,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+D,Locrian,Locrian,5,V,G#,68,415.3047,6,600,2^(6/12),TT,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+D,Locrian,Locrian,6,VI,A#,70,466.16376,8,800,2^(8/12),m6,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+D,Locrian,Locrian,7,VII,C,72,523.25113,10,1000,2^(10/12),m7,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+D,Harmonic Minor,Harmonic Minor,1,I,D,62,293.66477,0,0,2^(0/12),P1,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+D,Harmonic Minor,Harmonic Minor,2,II,E,64,329.62756,2,200,2^(2/12),M2,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+D,Harmonic Minor,Harmonic Minor,3,III,F,65,349.22823,3,300,2^(3/12),m3,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+D,Harmonic Minor,Harmonic Minor,4,IV,G,67,391.99544,5,500,2^(5/12),P4,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+D,Harmonic Minor,Harmonic Minor,5,V,A,69,440.0,7,700,2^(7/12),P5,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+D,Harmonic Minor,Harmonic Minor,6,VI,A#,70,466.16376,8,800,2^(8/12),m6,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+D,Harmonic Minor,Harmonic Minor,7,VII,C#,73,554.36526,11,1100,2^(11/12),M7,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+D,Melodic Minor (Ascending),Melodic Minor,1,I,D,62,293.66477,0,0,2^(0/12),P1,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+D,Melodic Minor (Ascending),Melodic Minor,2,II,E,64,329.62756,2,200,2^(2/12),M2,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+D,Melodic Minor (Ascending),Melodic Minor,3,III,F,65,349.22823,3,300,2^(3/12),m3,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+D,Melodic Minor (Ascending),Melodic Minor,4,IV,G,67,391.99544,5,500,2^(5/12),P4,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+D,Melodic Minor (Ascending),Melodic Minor,5,V,A,69,440.0,7,700,2^(7/12),P5,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+D,Melodic Minor (Ascending),Melodic Minor,6,VI,B,71,493.8833,9,900,2^(9/12),M6,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+D,Melodic Minor (Ascending),Melodic Minor,7,VII,C#,73,554.36526,11,1100,2^(11/12),M7,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+D,Melodic Minor (Descending=Nat),Natural Minor,1,I,D,62,293.66477,0,0,2^(0/12),P1,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+D,Melodic Minor (Descending=Nat),Natural Minor,2,II,E,64,329.62756,2,200,2^(2/12),M2,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+D,Melodic Minor (Descending=Nat),Natural Minor,3,III,F,65,349.22823,3,300,2^(3/12),m3,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+D,Melodic Minor (Descending=Nat),Natural Minor,4,IV,G,67,391.99544,5,500,2^(5/12),P4,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+D,Melodic Minor (Descending=Nat),Natural Minor,5,V,A,69,440.0,7,700,2^(7/12),P5,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+D,Melodic Minor (Descending=Nat),Natural Minor,6,VI,A#,70,466.16376,8,800,2^(8/12),m6,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+D,Melodic Minor (Descending=Nat),Natural Minor,7,VII,C,72,523.25113,10,1000,2^(10/12),m7,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+A,Ionian (Major),Major,1,I,A,69,440.0,0,0,2^(0/12),P1,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+A,Ionian (Major),Major,2,II,B,71,493.8833,2,200,2^(2/12),M2,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+A,Ionian (Major),Major,3,III,C#,73,554.36526,4,400,2^(4/12),M3,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+A,Ionian (Major),Major,4,IV,D,74,587.32954,5,500,2^(5/12),P4,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+A,Ionian (Major),Major,5,V,E,76,659.25511,7,700,2^(7/12),P5,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+A,Ionian (Major),Major,6,VI,F#,78,739.98885,9,900,2^(9/12),M6,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+A,Ionian (Major),Major,7,VII,G#,80,830.6094,11,1100,2^(11/12),M7,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+A,Dorian,Dorian,1,I,A,69,440.0,0,0,2^(0/12),P1,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+A,Dorian,Dorian,2,II,B,71,493.8833,2,200,2^(2/12),M2,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+A,Dorian,Dorian,3,III,C,72,523.25113,3,300,2^(3/12),m3,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+A,Dorian,Dorian,4,IV,D,74,587.32954,5,500,2^(5/12),P4,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+A,Dorian,Dorian,5,V,E,76,659.25511,7,700,2^(7/12),P5,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+A,Dorian,Dorian,6,VI,F#,78,739.98885,9,900,2^(9/12),M6,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+A,Dorian,Dorian,7,VII,G,79,783.99087,10,1000,2^(10/12),m7,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+A,Phrygian,Phrygian,1,I,A,69,440.0,0,0,2^(0/12),P1,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+A,Phrygian,Phrygian,2,II,A#,70,466.16376,1,100,2^(1/12),m2,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+A,Phrygian,Phrygian,3,III,C,72,523.25113,3,300,2^(3/12),m3,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+A,Phrygian,Phrygian,4,IV,D,74,587.32954,5,500,2^(5/12),P4,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+A,Phrygian,Phrygian,5,V,E,76,659.25511,7,700,2^(7/12),P5,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+A,Phrygian,Phrygian,6,VI,F,77,698.45646,8,800,2^(8/12),m6,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+A,Phrygian,Phrygian,7,VII,G,79,783.99087,10,1000,2^(10/12),m7,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+A,Lydian,Lydian,1,I,A,69,440.0,0,0,2^(0/12),P1,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+A,Lydian,Lydian,2,II,B,71,493.8833,2,200,2^(2/12),M2,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+A,Lydian,Lydian,3,III,C#,73,554.36526,4,400,2^(4/12),M3,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+A,Lydian,Lydian,4,IV,D#,75,622.25397,6,600,2^(6/12),TT,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+A,Lydian,Lydian,5,V,E,76,659.25511,7,700,2^(7/12),P5,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+A,Lydian,Lydian,6,VI,F#,78,739.98885,9,900,2^(9/12),M6,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+A,Lydian,Lydian,7,VII,G#,80,830.6094,11,1100,2^(11/12),M7,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+A,Mixolydian,Mixolydian,1,I,A,69,440.0,0,0,2^(0/12),P1,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+A,Mixolydian,Mixolydian,2,II,B,71,493.8833,2,200,2^(2/12),M2,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+A,Mixolydian,Mixolydian,3,III,C#,73,554.36526,4,400,2^(4/12),M3,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+A,Mixolydian,Mixolydian,4,IV,D,74,587.32954,5,500,2^(5/12),P4,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+A,Mixolydian,Mixolydian,5,V,E,76,659.25511,7,700,2^(7/12),P5,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+A,Mixolydian,Mixolydian,6,VI,F#,78,739.98885,9,900,2^(9/12),M6,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+A,Mixolydian,Mixolydian,7,VII,G,79,783.99087,10,1000,2^(10/12),m7,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+A,Aeolian (Natural Minor),Natural Minor,1,I,A,69,440.0,0,0,2^(0/12),P1,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+A,Aeolian (Natural Minor),Natural Minor,2,II,B,71,493.8833,2,200,2^(2/12),M2,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+A,Aeolian (Natural Minor),Natural Minor,3,III,C,72,523.25113,3,300,2^(3/12),m3,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+A,Aeolian (Natural Minor),Natural Minor,4,IV,D,74,587.32954,5,500,2^(5/12),P4,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+A,Aeolian (Natural Minor),Natural Minor,5,V,E,76,659.25511,7,700,2^(7/12),P5,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+A,Aeolian (Natural Minor),Natural Minor,6,VI,F,77,698.45646,8,800,2^(8/12),m6,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+A,Aeolian (Natural Minor),Natural Minor,7,VII,G,79,783.99087,10,1000,2^(10/12),m7,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+A,Locrian,Locrian,1,I,A,69,440.0,0,0,2^(0/12),P1,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+A,Locrian,Locrian,2,II,A#,70,466.16376,1,100,2^(1/12),m2,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+A,Locrian,Locrian,3,III,C,72,523.25113,3,300,2^(3/12),m3,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+A,Locrian,Locrian,4,IV,D,74,587.32954,5,500,2^(5/12),P4,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+A,Locrian,Locrian,5,V,D#,75,622.25397,6,600,2^(6/12),TT,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+A,Locrian,Locrian,6,VI,F,77,698.45646,8,800,2^(8/12),m6,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+A,Locrian,Locrian,7,VII,G,79,783.99087,10,1000,2^(10/12),m7,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+A,Harmonic Minor,Harmonic Minor,1,I,A,69,440.0,0,0,2^(0/12),P1,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+A,Harmonic Minor,Harmonic Minor,2,II,B,71,493.8833,2,200,2^(2/12),M2,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+A,Harmonic Minor,Harmonic Minor,3,III,C,72,523.25113,3,300,2^(3/12),m3,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+A,Harmonic Minor,Harmonic Minor,4,IV,D,74,587.32954,5,500,2^(5/12),P4,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+A,Harmonic Minor,Harmonic Minor,5,V,E,76,659.25511,7,700,2^(7/12),P5,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+A,Harmonic Minor,Harmonic Minor,6,VI,F,77,698.45646,8,800,2^(8/12),m6,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+A,Harmonic Minor,Harmonic Minor,7,VII,G#,80,830.6094,11,1100,2^(11/12),M7,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+A,Melodic Minor (Ascending),Melodic Minor,1,I,A,69,440.0,0,0,2^(0/12),P1,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+A,Melodic Minor (Ascending),Melodic Minor,2,II,B,71,493.8833,2,200,2^(2/12),M2,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+A,Melodic Minor (Ascending),Melodic Minor,3,III,C,72,523.25113,3,300,2^(3/12),m3,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+A,Melodic Minor (Ascending),Melodic Minor,4,IV,D,74,587.32954,5,500,2^(5/12),P4,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+A,Melodic Minor (Ascending),Melodic Minor,5,V,E,76,659.25511,7,700,2^(7/12),P5,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+A,Melodic Minor (Ascending),Melodic Minor,6,VI,F#,78,739.98885,9,900,2^(9/12),M6,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+A,Melodic Minor (Ascending),Melodic Minor,7,VII,G#,80,830.6094,11,1100,2^(11/12),M7,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+A,Melodic Minor (Descending=Nat),Natural Minor,1,I,A,69,440.0,0,0,2^(0/12),P1,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+A,Melodic Minor (Descending=Nat),Natural Minor,2,II,B,71,493.8833,2,200,2^(2/12),M2,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+A,Melodic Minor (Descending=Nat),Natural Minor,3,III,C,72,523.25113,3,300,2^(3/12),m3,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+A,Melodic Minor (Descending=Nat),Natural Minor,4,IV,D,74,587.32954,5,500,2^(5/12),P4,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+A,Melodic Minor (Descending=Nat),Natural Minor,5,V,E,76,659.25511,7,700,2^(7/12),P5,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+A,Melodic Minor (Descending=Nat),Natural Minor,6,VI,F,77,698.45646,8,800,2^(8/12),m6,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+A,Melodic Minor (Descending=Nat),Natural Minor,7,VII,G,79,783.99087,10,1000,2^(10/12),m7,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+E,Ionian (Major),Major,1,I,E,64,329.62756,0,0,2^(0/12),P1,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+E,Ionian (Major),Major,2,II,F#,66,369.99442,2,200,2^(2/12),M2,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+E,Ionian (Major),Major,3,III,G#,68,415.3047,4,400,2^(4/12),M3,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+E,Ionian (Major),Major,4,IV,A,69,440.0,5,500,2^(5/12),P4,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+E,Ionian (Major),Major,5,V,B,71,493.8833,7,700,2^(7/12),P5,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+E,Ionian (Major),Major,6,VI,C#,73,554.36526,9,900,2^(9/12),M6,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+E,Ionian (Major),Major,7,VII,D#,75,622.25397,11,1100,2^(11/12),M7,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+E,Dorian,Dorian,1,I,E,64,329.62756,0,0,2^(0/12),P1,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+E,Dorian,Dorian,2,II,F#,66,369.99442,2,200,2^(2/12),M2,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+E,Dorian,Dorian,3,III,G,67,391.99544,3,300,2^(3/12),m3,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+E,Dorian,Dorian,4,IV,A,69,440.0,5,500,2^(5/12),P4,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+E,Dorian,Dorian,5,V,B,71,493.8833,7,700,2^(7/12),P5,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+E,Dorian,Dorian,6,VI,C#,73,554.36526,9,900,2^(9/12),M6,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+E,Dorian,Dorian,7,VII,D,74,587.32954,10,1000,2^(10/12),m7,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+E,Phrygian,Phrygian,1,I,E,64,329.62756,0,0,2^(0/12),P1,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+E,Phrygian,Phrygian,2,II,F,65,349.22823,1,100,2^(1/12),m2,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+E,Phrygian,Phrygian,3,III,G,67,391.99544,3,300,2^(3/12),m3,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+E,Phrygian,Phrygian,4,IV,A,69,440.0,5,500,2^(5/12),P4,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+E,Phrygian,Phrygian,5,V,B,71,493.8833,7,700,2^(7/12),P5,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+E,Phrygian,Phrygian,6,VI,C,72,523.25113,8,800,2^(8/12),m6,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+E,Phrygian,Phrygian,7,VII,D,74,587.32954,10,1000,2^(10/12),m7,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+E,Lydian,Lydian,1,I,E,64,329.62756,0,0,2^(0/12),P1,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+E,Lydian,Lydian,2,II,F#,66,369.99442,2,200,2^(2/12),M2,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+E,Lydian,Lydian,3,III,G#,68,415.3047,4,400,2^(4/12),M3,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+E,Lydian,Lydian,4,IV,A#,70,466.16376,6,600,2^(6/12),TT,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+E,Lydian,Lydian,5,V,B,71,493.8833,7,700,2^(7/12),P5,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+E,Lydian,Lydian,6,VI,C#,73,554.36526,9,900,2^(9/12),M6,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+E,Lydian,Lydian,7,VII,D#,75,622.25397,11,1100,2^(11/12),M7,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+E,Mixolydian,Mixolydian,1,I,E,64,329.62756,0,0,2^(0/12),P1,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+E,Mixolydian,Mixolydian,2,II,F#,66,369.99442,2,200,2^(2/12),M2,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+E,Mixolydian,Mixolydian,3,III,G#,68,415.3047,4,400,2^(4/12),M3,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+E,Mixolydian,Mixolydian,4,IV,A,69,440.0,5,500,2^(5/12),P4,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+E,Mixolydian,Mixolydian,5,V,B,71,493.8833,7,700,2^(7/12),P5,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+E,Mixolydian,Mixolydian,6,VI,C#,73,554.36526,9,900,2^(9/12),M6,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+E,Mixolydian,Mixolydian,7,VII,D,74,587.32954,10,1000,2^(10/12),m7,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+E,Aeolian (Natural Minor),Natural Minor,1,I,E,64,329.62756,0,0,2^(0/12),P1,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+E,Aeolian (Natural Minor),Natural Minor,2,II,F#,66,369.99442,2,200,2^(2/12),M2,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+E,Aeolian (Natural Minor),Natural Minor,3,III,G,67,391.99544,3,300,2^(3/12),m3,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+E,Aeolian (Natural Minor),Natural Minor,4,IV,A,69,440.0,5,500,2^(5/12),P4,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+E,Aeolian (Natural Minor),Natural Minor,5,V,B,71,493.8833,7,700,2^(7/12),P5,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+E,Aeolian (Natural Minor),Natural Minor,6,VI,C,72,523.25113,8,800,2^(8/12),m6,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+E,Aeolian (Natural Minor),Natural Minor,7,VII,D,74,587.32954,10,1000,2^(10/12),m7,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+E,Locrian,Locrian,1,I,E,64,329.62756,0,0,2^(0/12),P1,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+E,Locrian,Locrian,2,II,F,65,349.22823,1,100,2^(1/12),m2,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+E,Locrian,Locrian,3,III,G,67,391.99544,3,300,2^(3/12),m3,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+E,Locrian,Locrian,4,IV,A,69,440.0,5,500,2^(5/12),P4,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+E,Locrian,Locrian,5,V,A#,70,466.16376,6,600,2^(6/12),TT,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+E,Locrian,Locrian,6,VI,C,72,523.25113,8,800,2^(8/12),m6,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+E,Locrian,Locrian,7,VII,D,74,587.32954,10,1000,2^(10/12),m7,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+E,Harmonic Minor,Harmonic Minor,1,I,E,64,329.62756,0,0,2^(0/12),P1,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+E,Harmonic Minor,Harmonic Minor,2,II,F#,66,369.99442,2,200,2^(2/12),M2,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+E,Harmonic Minor,Harmonic Minor,3,III,G,67,391.99544,3,300,2^(3/12),m3,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+E,Harmonic Minor,Harmonic Minor,4,IV,A,69,440.0,5,500,2^(5/12),P4,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+E,Harmonic Minor,Harmonic Minor,5,V,B,71,493.8833,7,700,2^(7/12),P5,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+E,Harmonic Minor,Harmonic Minor,6,VI,C,72,523.25113,8,800,2^(8/12),m6,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+E,Harmonic Minor,Harmonic Minor,7,VII,D#,75,622.25397,11,1100,2^(11/12),M7,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+E,Melodic Minor (Ascending),Melodic Minor,1,I,E,64,329.62756,0,0,2^(0/12),P1,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+E,Melodic Minor (Ascending),Melodic Minor,2,II,F#,66,369.99442,2,200,2^(2/12),M2,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+E,Melodic Minor (Ascending),Melodic Minor,3,III,G,67,391.99544,3,300,2^(3/12),m3,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+E,Melodic Minor (Ascending),Melodic Minor,4,IV,A,69,440.0,5,500,2^(5/12),P4,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+E,Melodic Minor (Ascending),Melodic Minor,5,V,B,71,493.8833,7,700,2^(7/12),P5,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+E,Melodic Minor (Ascending),Melodic Minor,6,VI,C#,73,554.36526,9,900,2^(9/12),M6,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+E,Melodic Minor (Ascending),Melodic Minor,7,VII,D#,75,622.25397,11,1100,2^(11/12),M7,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+E,Melodic Minor (Descending=Nat),Natural Minor,1,I,E,64,329.62756,0,0,2^(0/12),P1,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+E,Melodic Minor (Descending=Nat),Natural Minor,2,II,F#,66,369.99442,2,200,2^(2/12),M2,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+E,Melodic Minor (Descending=Nat),Natural Minor,3,III,G,67,391.99544,3,300,2^(3/12),m3,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+E,Melodic Minor (Descending=Nat),Natural Minor,4,IV,A,69,440.0,5,500,2^(5/12),P4,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+E,Melodic Minor (Descending=Nat),Natural Minor,5,V,B,71,493.8833,7,700,2^(7/12),P5,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+E,Melodic Minor (Descending=Nat),Natural Minor,6,VI,C,72,523.25113,8,800,2^(8/12),m6,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+E,Melodic Minor (Descending=Nat),Natural Minor,7,VII,D,74,587.32954,10,1000,2^(10/12),m7,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+B,Ionian (Major),Major,1,I,B,71,493.8833,0,0,2^(0/12),P1,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+B,Ionian (Major),Major,2,II,C#,73,554.36526,2,200,2^(2/12),M2,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+B,Ionian (Major),Major,3,III,D#,75,622.25397,4,400,2^(4/12),M3,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+B,Ionian (Major),Major,4,IV,E,76,659.25511,5,500,2^(5/12),P4,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+B,Ionian (Major),Major,5,V,F#,78,739.98885,7,700,2^(7/12),P5,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+B,Ionian (Major),Major,6,VI,G#,80,830.6094,9,900,2^(9/12),M6,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+B,Ionian (Major),Major,7,VII,A#,82,932.32752,11,1100,2^(11/12),M7,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+B,Dorian,Dorian,1,I,B,71,493.8833,0,0,2^(0/12),P1,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+B,Dorian,Dorian,2,II,C#,73,554.36526,2,200,2^(2/12),M2,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+B,Dorian,Dorian,3,III,D,74,587.32954,3,300,2^(3/12),m3,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+B,Dorian,Dorian,4,IV,E,76,659.25511,5,500,2^(5/12),P4,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+B,Dorian,Dorian,5,V,F#,78,739.98885,7,700,2^(7/12),P5,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+B,Dorian,Dorian,6,VI,G#,80,830.6094,9,900,2^(9/12),M6,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+B,Dorian,Dorian,7,VII,A,81,880.0,10,1000,2^(10/12),m7,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+B,Phrygian,Phrygian,1,I,B,71,493.8833,0,0,2^(0/12),P1,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+B,Phrygian,Phrygian,2,II,C,72,523.25113,1,100,2^(1/12),m2,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+B,Phrygian,Phrygian,3,III,D,74,587.32954,3,300,2^(3/12),m3,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+B,Phrygian,Phrygian,4,IV,E,76,659.25511,5,500,2^(5/12),P4,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+B,Phrygian,Phrygian,5,V,F#,78,739.98885,7,700,2^(7/12),P5,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+B,Phrygian,Phrygian,6,VI,G,79,783.99087,8,800,2^(8/12),m6,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+B,Phrygian,Phrygian,7,VII,A,81,880.0,10,1000,2^(10/12),m7,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+B,Lydian,Lydian,1,I,B,71,493.8833,0,0,2^(0/12),P1,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+B,Lydian,Lydian,2,II,C#,73,554.36526,2,200,2^(2/12),M2,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+B,Lydian,Lydian,3,III,D#,75,622.25397,4,400,2^(4/12),M3,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+B,Lydian,Lydian,4,IV,F,77,698.45646,6,600,2^(6/12),TT,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+B,Lydian,Lydian,5,V,F#,78,739.98885,7,700,2^(7/12),P5,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+B,Lydian,Lydian,6,VI,G#,80,830.6094,9,900,2^(9/12),M6,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+B,Lydian,Lydian,7,VII,A#,82,932.32752,11,1100,2^(11/12),M7,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+B,Mixolydian,Mixolydian,1,I,B,71,493.8833,0,0,2^(0/12),P1,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+B,Mixolydian,Mixolydian,2,II,C#,73,554.36526,2,200,2^(2/12),M2,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+B,Mixolydian,Mixolydian,3,III,D#,75,622.25397,4,400,2^(4/12),M3,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+B,Mixolydian,Mixolydian,4,IV,E,76,659.25511,5,500,2^(5/12),P4,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+B,Mixolydian,Mixolydian,5,V,F#,78,739.98885,7,700,2^(7/12),P5,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+B,Mixolydian,Mixolydian,6,VI,G#,80,830.6094,9,900,2^(9/12),M6,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+B,Mixolydian,Mixolydian,7,VII,A,81,880.0,10,1000,2^(10/12),m7,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+B,Aeolian (Natural Minor),Natural Minor,1,I,B,71,493.8833,0,0,2^(0/12),P1,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+B,Aeolian (Natural Minor),Natural Minor,2,II,C#,73,554.36526,2,200,2^(2/12),M2,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+B,Aeolian (Natural Minor),Natural Minor,3,III,D,74,587.32954,3,300,2^(3/12),m3,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+B,Aeolian (Natural Minor),Natural Minor,4,IV,E,76,659.25511,5,500,2^(5/12),P4,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+B,Aeolian (Natural Minor),Natural Minor,5,V,F#,78,739.98885,7,700,2^(7/12),P5,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+B,Aeolian (Natural Minor),Natural Minor,6,VI,G,79,783.99087,8,800,2^(8/12),m6,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+B,Aeolian (Natural Minor),Natural Minor,7,VII,A,81,880.0,10,1000,2^(10/12),m7,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+B,Locrian,Locrian,1,I,B,71,493.8833,0,0,2^(0/12),P1,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+B,Locrian,Locrian,2,II,C,72,523.25113,1,100,2^(1/12),m2,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+B,Locrian,Locrian,3,III,D,74,587.32954,3,300,2^(3/12),m3,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+B,Locrian,Locrian,4,IV,E,76,659.25511,5,500,2^(5/12),P4,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+B,Locrian,Locrian,5,V,F,77,698.45646,6,600,2^(6/12),TT,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+B,Locrian,Locrian,6,VI,G,79,783.99087,8,800,2^(8/12),m6,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+B,Locrian,Locrian,7,VII,A,81,880.0,10,1000,2^(10/12),m7,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+B,Harmonic Minor,Harmonic Minor,1,I,B,71,493.8833,0,0,2^(0/12),P1,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+B,Harmonic Minor,Harmonic Minor,2,II,C#,73,554.36526,2,200,2^(2/12),M2,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+B,Harmonic Minor,Harmonic Minor,3,III,D,74,587.32954,3,300,2^(3/12),m3,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+B,Harmonic Minor,Harmonic Minor,4,IV,E,76,659.25511,5,500,2^(5/12),P4,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+B,Harmonic Minor,Harmonic Minor,5,V,F#,78,739.98885,7,700,2^(7/12),P5,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+B,Harmonic Minor,Harmonic Minor,6,VI,G,79,783.99087,8,800,2^(8/12),m6,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+B,Harmonic Minor,Harmonic Minor,7,VII,A#,82,932.32752,11,1100,2^(11/12),M7,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+B,Melodic Minor (Ascending),Melodic Minor,1,I,B,71,493.8833,0,0,2^(0/12),P1,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+B,Melodic Minor (Ascending),Melodic Minor,2,II,C#,73,554.36526,2,200,2^(2/12),M2,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+B,Melodic Minor (Ascending),Melodic Minor,3,III,D,74,587.32954,3,300,2^(3/12),m3,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+B,Melodic Minor (Ascending),Melodic Minor,4,IV,E,76,659.25511,5,500,2^(5/12),P4,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+B,Melodic Minor (Ascending),Melodic Minor,5,V,F#,78,739.98885,7,700,2^(7/12),P5,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+B,Melodic Minor (Ascending),Melodic Minor,6,VI,G#,80,830.6094,9,900,2^(9/12),M6,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+B,Melodic Minor (Ascending),Melodic Minor,7,VII,A#,82,932.32752,11,1100,2^(11/12),M7,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+B,Melodic Minor (Descending=Nat),Natural Minor,1,I,B,71,493.8833,0,0,2^(0/12),P1,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+B,Melodic Minor (Descending=Nat),Natural Minor,2,II,C#,73,554.36526,2,200,2^(2/12),M2,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+B,Melodic Minor (Descending=Nat),Natural Minor,3,III,D,74,587.32954,3,300,2^(3/12),m3,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+B,Melodic Minor (Descending=Nat),Natural Minor,4,IV,E,76,659.25511,5,500,2^(5/12),P4,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+B,Melodic Minor (Descending=Nat),Natural Minor,5,V,F#,78,739.98885,7,700,2^(7/12),P5,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+B,Melodic Minor (Descending=Nat),Natural Minor,6,VI,G,79,783.99087,8,800,2^(8/12),m6,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+B,Melodic Minor (Descending=Nat),Natural Minor,7,VII,A,81,880.0,10,1000,2^(10/12),m7,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+F#,Ionian (Major),Major,1,I,F#,66,369.99442,0,0,2^(0/12),P1,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+F#,Ionian (Major),Major,2,II,G#,68,415.3047,2,200,2^(2/12),M2,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+F#,Ionian (Major),Major,3,III,A#,70,466.16376,4,400,2^(4/12),M3,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+F#,Ionian (Major),Major,4,IV,B,71,493.8833,5,500,2^(5/12),P4,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+F#,Ionian (Major),Major,5,V,C#,73,554.36526,7,700,2^(7/12),P5,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+F#,Ionian (Major),Major,6,VI,D#,75,622.25397,9,900,2^(9/12),M6,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+F#,Ionian (Major),Major,7,VII,F,77,698.45646,11,1100,2^(11/12),M7,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+F#,Dorian,Dorian,1,I,F#,66,369.99442,0,0,2^(0/12),P1,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+F#,Dorian,Dorian,2,II,G#,68,415.3047,2,200,2^(2/12),M2,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+F#,Dorian,Dorian,3,III,A,69,440.0,3,300,2^(3/12),m3,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+F#,Dorian,Dorian,4,IV,B,71,493.8833,5,500,2^(5/12),P4,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+F#,Dorian,Dorian,5,V,C#,73,554.36526,7,700,2^(7/12),P5,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+F#,Dorian,Dorian,6,VI,D#,75,622.25397,9,900,2^(9/12),M6,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+F#,Dorian,Dorian,7,VII,E,76,659.25511,10,1000,2^(10/12),m7,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+F#,Phrygian,Phrygian,1,I,F#,66,369.99442,0,0,2^(0/12),P1,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+F#,Phrygian,Phrygian,2,II,G,67,391.99544,1,100,2^(1/12),m2,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+F#,Phrygian,Phrygian,3,III,A,69,440.0,3,300,2^(3/12),m3,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+F#,Phrygian,Phrygian,4,IV,B,71,493.8833,5,500,2^(5/12),P4,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+F#,Phrygian,Phrygian,5,V,C#,73,554.36526,7,700,2^(7/12),P5,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+F#,Phrygian,Phrygian,6,VI,D,74,587.32954,8,800,2^(8/12),m6,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+F#,Phrygian,Phrygian,7,VII,E,76,659.25511,10,1000,2^(10/12),m7,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+F#,Lydian,Lydian,1,I,F#,66,369.99442,0,0,2^(0/12),P1,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+F#,Lydian,Lydian,2,II,G#,68,415.3047,2,200,2^(2/12),M2,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+F#,Lydian,Lydian,3,III,A#,70,466.16376,4,400,2^(4/12),M3,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+F#,Lydian,Lydian,4,IV,C,72,523.25113,6,600,2^(6/12),TT,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+F#,Lydian,Lydian,5,V,C#,73,554.36526,7,700,2^(7/12),P5,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+F#,Lydian,Lydian,6,VI,D#,75,622.25397,9,900,2^(9/12),M6,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+F#,Lydian,Lydian,7,VII,F,77,698.45646,11,1100,2^(11/12),M7,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+F#,Mixolydian,Mixolydian,1,I,F#,66,369.99442,0,0,2^(0/12),P1,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+F#,Mixolydian,Mixolydian,2,II,G#,68,415.3047,2,200,2^(2/12),M2,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+F#,Mixolydian,Mixolydian,3,III,A#,70,466.16376,4,400,2^(4/12),M3,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+F#,Mixolydian,Mixolydian,4,IV,B,71,493.8833,5,500,2^(5/12),P4,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+F#,Mixolydian,Mixolydian,5,V,C#,73,554.36526,7,700,2^(7/12),P5,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+F#,Mixolydian,Mixolydian,6,VI,D#,75,622.25397,9,900,2^(9/12),M6,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+F#,Mixolydian,Mixolydian,7,VII,E,76,659.25511,10,1000,2^(10/12),m7,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+F#,Aeolian (Natural Minor),Natural Minor,1,I,F#,66,369.99442,0,0,2^(0/12),P1,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+F#,Aeolian (Natural Minor),Natural Minor,2,II,G#,68,415.3047,2,200,2^(2/12),M2,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+F#,Aeolian (Natural Minor),Natural Minor,3,III,A,69,440.0,3,300,2^(3/12),m3,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+F#,Aeolian (Natural Minor),Natural Minor,4,IV,B,71,493.8833,5,500,2^(5/12),P4,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+F#,Aeolian (Natural Minor),Natural Minor,5,V,C#,73,554.36526,7,700,2^(7/12),P5,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+F#,Aeolian (Natural Minor),Natural Minor,6,VI,D,74,587.32954,8,800,2^(8/12),m6,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+F#,Aeolian (Natural Minor),Natural Minor,7,VII,E,76,659.25511,10,1000,2^(10/12),m7,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+F#,Locrian,Locrian,1,I,F#,66,369.99442,0,0,2^(0/12),P1,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+F#,Locrian,Locrian,2,II,G,67,391.99544,1,100,2^(1/12),m2,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+F#,Locrian,Locrian,3,III,A,69,440.0,3,300,2^(3/12),m3,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+F#,Locrian,Locrian,4,IV,B,71,493.8833,5,500,2^(5/12),P4,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+F#,Locrian,Locrian,5,V,C,72,523.25113,6,600,2^(6/12),TT,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+F#,Locrian,Locrian,6,VI,D,74,587.32954,8,800,2^(8/12),m6,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+F#,Locrian,Locrian,7,VII,E,76,659.25511,10,1000,2^(10/12),m7,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+F#,Harmonic Minor,Harmonic Minor,1,I,F#,66,369.99442,0,0,2^(0/12),P1,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+F#,Harmonic Minor,Harmonic Minor,2,II,G#,68,415.3047,2,200,2^(2/12),M2,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+F#,Harmonic Minor,Harmonic Minor,3,III,A,69,440.0,3,300,2^(3/12),m3,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+F#,Harmonic Minor,Harmonic Minor,4,IV,B,71,493.8833,5,500,2^(5/12),P4,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+F#,Harmonic Minor,Harmonic Minor,5,V,C#,73,554.36526,7,700,2^(7/12),P5,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+F#,Harmonic Minor,Harmonic Minor,6,VI,D,74,587.32954,8,800,2^(8/12),m6,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+F#,Harmonic Minor,Harmonic Minor,7,VII,F,77,698.45646,11,1100,2^(11/12),M7,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+F#,Melodic Minor (Ascending),Melodic Minor,1,I,F#,66,369.99442,0,0,2^(0/12),P1,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+F#,Melodic Minor (Ascending),Melodic Minor,2,II,G#,68,415.3047,2,200,2^(2/12),M2,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+F#,Melodic Minor (Ascending),Melodic Minor,3,III,A,69,440.0,3,300,2^(3/12),m3,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+F#,Melodic Minor (Ascending),Melodic Minor,4,IV,B,71,493.8833,5,500,2^(5/12),P4,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+F#,Melodic Minor (Ascending),Melodic Minor,5,V,C#,73,554.36526,7,700,2^(7/12),P5,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+F#,Melodic Minor (Ascending),Melodic Minor,6,VI,D#,75,622.25397,9,900,2^(9/12),M6,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+F#,Melodic Minor (Ascending),Melodic Minor,7,VII,F,77,698.45646,11,1100,2^(11/12),M7,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+F#,Melodic Minor (Descending=Nat),Natural Minor,1,I,F#,66,369.99442,0,0,2^(0/12),P1,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+F#,Melodic Minor (Descending=Nat),Natural Minor,2,II,G#,68,415.3047,2,200,2^(2/12),M2,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+F#,Melodic Minor (Descending=Nat),Natural Minor,3,III,A,69,440.0,3,300,2^(3/12),m3,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+F#,Melodic Minor (Descending=Nat),Natural Minor,4,IV,B,71,493.8833,5,500,2^(5/12),P4,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+F#,Melodic Minor (Descending=Nat),Natural Minor,5,V,C#,73,554.36526,7,700,2^(7/12),P5,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+F#,Melodic Minor (Descending=Nat),Natural Minor,6,VI,D,74,587.32954,8,800,2^(8/12),m6,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+F#,Melodic Minor (Descending=Nat),Natural Minor,7,VII,E,76,659.25511,10,1000,2^(10/12),m7,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+C#,Ionian (Major),Major,1,I,C#,61,277.18263,0,0,2^(0/12),P1,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+C#,Ionian (Major),Major,2,II,D#,63,311.12698,2,200,2^(2/12),M2,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+C#,Ionian (Major),Major,3,III,F,65,349.22823,4,400,2^(4/12),M3,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+C#,Ionian (Major),Major,4,IV,F#,66,369.99442,5,500,2^(5/12),P4,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+C#,Ionian (Major),Major,5,V,G#,68,415.3047,7,700,2^(7/12),P5,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+C#,Ionian (Major),Major,6,VI,A#,70,466.16376,9,900,2^(9/12),M6,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+C#,Ionian (Major),Major,7,VII,C,72,523.25113,11,1100,2^(11/12),M7,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+C#,Dorian,Dorian,1,I,C#,61,277.18263,0,0,2^(0/12),P1,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+C#,Dorian,Dorian,2,II,D#,63,311.12698,2,200,2^(2/12),M2,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+C#,Dorian,Dorian,3,III,E,64,329.62756,3,300,2^(3/12),m3,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+C#,Dorian,Dorian,4,IV,F#,66,369.99442,5,500,2^(5/12),P4,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+C#,Dorian,Dorian,5,V,G#,68,415.3047,7,700,2^(7/12),P5,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+C#,Dorian,Dorian,6,VI,A#,70,466.16376,9,900,2^(9/12),M6,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+C#,Dorian,Dorian,7,VII,B,71,493.8833,10,1000,2^(10/12),m7,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+C#,Phrygian,Phrygian,1,I,C#,61,277.18263,0,0,2^(0/12),P1,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+C#,Phrygian,Phrygian,2,II,D,62,293.66477,1,100,2^(1/12),m2,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+C#,Phrygian,Phrygian,3,III,E,64,329.62756,3,300,2^(3/12),m3,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+C#,Phrygian,Phrygian,4,IV,F#,66,369.99442,5,500,2^(5/12),P4,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+C#,Phrygian,Phrygian,5,V,G#,68,415.3047,7,700,2^(7/12),P5,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+C#,Phrygian,Phrygian,6,VI,A,69,440.0,8,800,2^(8/12),m6,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+C#,Phrygian,Phrygian,7,VII,B,71,493.8833,10,1000,2^(10/12),m7,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+C#,Lydian,Lydian,1,I,C#,61,277.18263,0,0,2^(0/12),P1,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+C#,Lydian,Lydian,2,II,D#,63,311.12698,2,200,2^(2/12),M2,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+C#,Lydian,Lydian,3,III,F,65,349.22823,4,400,2^(4/12),M3,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+C#,Lydian,Lydian,4,IV,G,67,391.99544,6,600,2^(6/12),TT,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+C#,Lydian,Lydian,5,V,G#,68,415.3047,7,700,2^(7/12),P5,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+C#,Lydian,Lydian,6,VI,A#,70,466.16376,9,900,2^(9/12),M6,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+C#,Lydian,Lydian,7,VII,C,72,523.25113,11,1100,2^(11/12),M7,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+C#,Mixolydian,Mixolydian,1,I,C#,61,277.18263,0,0,2^(0/12),P1,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+C#,Mixolydian,Mixolydian,2,II,D#,63,311.12698,2,200,2^(2/12),M2,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+C#,Mixolydian,Mixolydian,3,III,F,65,349.22823,4,400,2^(4/12),M3,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+C#,Mixolydian,Mixolydian,4,IV,F#,66,369.99442,5,500,2^(5/12),P4,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+C#,Mixolydian,Mixolydian,5,V,G#,68,415.3047,7,700,2^(7/12),P5,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+C#,Mixolydian,Mixolydian,6,VI,A#,70,466.16376,9,900,2^(9/12),M6,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+C#,Mixolydian,Mixolydian,7,VII,B,71,493.8833,10,1000,2^(10/12),m7,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+C#,Aeolian (Natural Minor),Natural Minor,1,I,C#,61,277.18263,0,0,2^(0/12),P1,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+C#,Aeolian (Natural Minor),Natural Minor,2,II,D#,63,311.12698,2,200,2^(2/12),M2,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+C#,Aeolian (Natural Minor),Natural Minor,3,III,E,64,329.62756,3,300,2^(3/12),m3,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+C#,Aeolian (Natural Minor),Natural Minor,4,IV,F#,66,369.99442,5,500,2^(5/12),P4,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+C#,Aeolian (Natural Minor),Natural Minor,5,V,G#,68,415.3047,7,700,2^(7/12),P5,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+C#,Aeolian (Natural Minor),Natural Minor,6,VI,A,69,440.0,8,800,2^(8/12),m6,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+C#,Aeolian (Natural Minor),Natural Minor,7,VII,B,71,493.8833,10,1000,2^(10/12),m7,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+C#,Locrian,Locrian,1,I,C#,61,277.18263,0,0,2^(0/12),P1,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+C#,Locrian,Locrian,2,II,D,62,293.66477,1,100,2^(1/12),m2,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+C#,Locrian,Locrian,3,III,E,64,329.62756,3,300,2^(3/12),m3,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+C#,Locrian,Locrian,4,IV,F#,66,369.99442,5,500,2^(5/12),P4,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+C#,Locrian,Locrian,5,V,G,67,391.99544,6,600,2^(6/12),TT,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+C#,Locrian,Locrian,6,VI,A,69,440.0,8,800,2^(8/12),m6,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+C#,Locrian,Locrian,7,VII,B,71,493.8833,10,1000,2^(10/12),m7,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+C#,Harmonic Minor,Harmonic Minor,1,I,C#,61,277.18263,0,0,2^(0/12),P1,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+C#,Harmonic Minor,Harmonic Minor,2,II,D#,63,311.12698,2,200,2^(2/12),M2,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+C#,Harmonic Minor,Harmonic Minor,3,III,E,64,329.62756,3,300,2^(3/12),m3,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+C#,Harmonic Minor,Harmonic Minor,4,IV,F#,66,369.99442,5,500,2^(5/12),P4,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+C#,Harmonic Minor,Harmonic Minor,5,V,G#,68,415.3047,7,700,2^(7/12),P5,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+C#,Harmonic Minor,Harmonic Minor,6,VI,A,69,440.0,8,800,2^(8/12),m6,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+C#,Harmonic Minor,Harmonic Minor,7,VII,C,72,523.25113,11,1100,2^(11/12),M7,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+C#,Melodic Minor (Ascending),Melodic Minor,1,I,C#,61,277.18263,0,0,2^(0/12),P1,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+C#,Melodic Minor (Ascending),Melodic Minor,2,II,D#,63,311.12698,2,200,2^(2/12),M2,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+C#,Melodic Minor (Ascending),Melodic Minor,3,III,E,64,329.62756,3,300,2^(3/12),m3,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+C#,Melodic Minor (Ascending),Melodic Minor,4,IV,F#,66,369.99442,5,500,2^(5/12),P4,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+C#,Melodic Minor (Ascending),Melodic Minor,5,V,G#,68,415.3047,7,700,2^(7/12),P5,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+C#,Melodic Minor (Ascending),Melodic Minor,6,VI,A#,70,466.16376,9,900,2^(9/12),M6,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+C#,Melodic Minor (Ascending),Melodic Minor,7,VII,C,72,523.25113,11,1100,2^(11/12),M7,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+C#,Melodic Minor (Descending=Nat),Natural Minor,1,I,C#,61,277.18263,0,0,2^(0/12),P1,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+C#,Melodic Minor (Descending=Nat),Natural Minor,2,II,D#,63,311.12698,2,200,2^(2/12),M2,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+C#,Melodic Minor (Descending=Nat),Natural Minor,3,III,E,64,329.62756,3,300,2^(3/12),m3,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+C#,Melodic Minor (Descending=Nat),Natural Minor,4,IV,F#,66,369.99442,5,500,2^(5/12),P4,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+C#,Melodic Minor (Descending=Nat),Natural Minor,5,V,G#,68,415.3047,7,700,2^(7/12),P5,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+C#,Melodic Minor (Descending=Nat),Natural Minor,6,VI,A,69,440.0,8,800,2^(8/12),m6,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+C#,Melodic Minor (Descending=Nat),Natural Minor,7,VII,B,71,493.8833,10,1000,2^(10/12),m7,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+F,Ionian (Major),Major,1,I,F,65,349.22823,0,0,2^(0/12),P1,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+F,Ionian (Major),Major,2,II,G,67,391.99544,2,200,2^(2/12),M2,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+F,Ionian (Major),Major,3,III,A,69,440.0,4,400,2^(4/12),M3,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+F,Ionian (Major),Major,4,IV,Bb,70,466.16376,5,500,2^(5/12),P4,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+F,Ionian (Major),Major,5,V,C,72,523.25113,7,700,2^(7/12),P5,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+F,Ionian (Major),Major,6,VI,D,74,587.32954,9,900,2^(9/12),M6,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+F,Ionian (Major),Major,7,VII,E,76,659.25511,11,1100,2^(11/12),M7,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+F,Dorian,Dorian,1,I,F,65,349.22823,0,0,2^(0/12),P1,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+F,Dorian,Dorian,2,II,G,67,391.99544,2,200,2^(2/12),M2,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+F,Dorian,Dorian,3,III,Ab,68,415.3047,3,300,2^(3/12),m3,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+F,Dorian,Dorian,4,IV,Bb,70,466.16376,5,500,2^(5/12),P4,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+F,Dorian,Dorian,5,V,C,72,523.25113,7,700,2^(7/12),P5,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+F,Dorian,Dorian,6,VI,D,74,587.32954,9,900,2^(9/12),M6,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+F,Dorian,Dorian,7,VII,Eb,75,622.25397,10,1000,2^(10/12),m7,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+F,Phrygian,Phrygian,1,I,F,65,349.22823,0,0,2^(0/12),P1,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+F,Phrygian,Phrygian,2,II,Gb,66,369.99442,1,100,2^(1/12),m2,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+F,Phrygian,Phrygian,3,III,Ab,68,415.3047,3,300,2^(3/12),m3,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+F,Phrygian,Phrygian,4,IV,Bb,70,466.16376,5,500,2^(5/12),P4,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+F,Phrygian,Phrygian,5,V,C,72,523.25113,7,700,2^(7/12),P5,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+F,Phrygian,Phrygian,6,VI,Db,73,554.36526,8,800,2^(8/12),m6,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+F,Phrygian,Phrygian,7,VII,Eb,75,622.25397,10,1000,2^(10/12),m7,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+F,Lydian,Lydian,1,I,F,65,349.22823,0,0,2^(0/12),P1,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+F,Lydian,Lydian,2,II,G,67,391.99544,2,200,2^(2/12),M2,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+F,Lydian,Lydian,3,III,A,69,440.0,4,400,2^(4/12),M3,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+F,Lydian,Lydian,4,IV,B,71,493.8833,6,600,2^(6/12),TT,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+F,Lydian,Lydian,5,V,C,72,523.25113,7,700,2^(7/12),P5,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+F,Lydian,Lydian,6,VI,D,74,587.32954,9,900,2^(9/12),M6,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+F,Lydian,Lydian,7,VII,E,76,659.25511,11,1100,2^(11/12),M7,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+F,Mixolydian,Mixolydian,1,I,F,65,349.22823,0,0,2^(0/12),P1,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+F,Mixolydian,Mixolydian,2,II,G,67,391.99544,2,200,2^(2/12),M2,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+F,Mixolydian,Mixolydian,3,III,A,69,440.0,4,400,2^(4/12),M3,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+F,Mixolydian,Mixolydian,4,IV,Bb,70,466.16376,5,500,2^(5/12),P4,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+F,Mixolydian,Mixolydian,5,V,C,72,523.25113,7,700,2^(7/12),P5,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+F,Mixolydian,Mixolydian,6,VI,D,74,587.32954,9,900,2^(9/12),M6,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+F,Mixolydian,Mixolydian,7,VII,Eb,75,622.25397,10,1000,2^(10/12),m7,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+F,Aeolian (Natural Minor),Natural Minor,1,I,F,65,349.22823,0,0,2^(0/12),P1,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+F,Aeolian (Natural Minor),Natural Minor,2,II,G,67,391.99544,2,200,2^(2/12),M2,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+F,Aeolian (Natural Minor),Natural Minor,3,III,Ab,68,415.3047,3,300,2^(3/12),m3,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+F,Aeolian (Natural Minor),Natural Minor,4,IV,Bb,70,466.16376,5,500,2^(5/12),P4,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+F,Aeolian (Natural Minor),Natural Minor,5,V,C,72,523.25113,7,700,2^(7/12),P5,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+F,Aeolian (Natural Minor),Natural Minor,6,VI,Db,73,554.36526,8,800,2^(8/12),m6,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+F,Aeolian (Natural Minor),Natural Minor,7,VII,Eb,75,622.25397,10,1000,2^(10/12),m7,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+F,Locrian,Locrian,1,I,F,65,349.22823,0,0,2^(0/12),P1,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+F,Locrian,Locrian,2,II,Gb,66,369.99442,1,100,2^(1/12),m2,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+F,Locrian,Locrian,3,III,Ab,68,415.3047,3,300,2^(3/12),m3,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+F,Locrian,Locrian,4,IV,Bb,70,466.16376,5,500,2^(5/12),P4,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+F,Locrian,Locrian,5,V,B,71,493.8833,6,600,2^(6/12),TT,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+F,Locrian,Locrian,6,VI,Db,73,554.36526,8,800,2^(8/12),m6,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+F,Locrian,Locrian,7,VII,Eb,75,622.25397,10,1000,2^(10/12),m7,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+F,Harmonic Minor,Harmonic Minor,1,I,F,65,349.22823,0,0,2^(0/12),P1,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+F,Harmonic Minor,Harmonic Minor,2,II,G,67,391.99544,2,200,2^(2/12),M2,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+F,Harmonic Minor,Harmonic Minor,3,III,Ab,68,415.3047,3,300,2^(3/12),m3,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+F,Harmonic Minor,Harmonic Minor,4,IV,Bb,70,466.16376,5,500,2^(5/12),P4,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+F,Harmonic Minor,Harmonic Minor,5,V,C,72,523.25113,7,700,2^(7/12),P5,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+F,Harmonic Minor,Harmonic Minor,6,VI,Db,73,554.36526,8,800,2^(8/12),m6,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+F,Harmonic Minor,Harmonic Minor,7,VII,E,76,659.25511,11,1100,2^(11/12),M7,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+F,Melodic Minor (Ascending),Melodic Minor,1,I,F,65,349.22823,0,0,2^(0/12),P1,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+F,Melodic Minor (Ascending),Melodic Minor,2,II,G,67,391.99544,2,200,2^(2/12),M2,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+F,Melodic Minor (Ascending),Melodic Minor,3,III,Ab,68,415.3047,3,300,2^(3/12),m3,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+F,Melodic Minor (Ascending),Melodic Minor,4,IV,Bb,70,466.16376,5,500,2^(5/12),P4,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+F,Melodic Minor (Ascending),Melodic Minor,5,V,C,72,523.25113,7,700,2^(7/12),P5,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+F,Melodic Minor (Ascending),Melodic Minor,6,VI,D,74,587.32954,9,900,2^(9/12),M6,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+F,Melodic Minor (Ascending),Melodic Minor,7,VII,E,76,659.25511,11,1100,2^(11/12),M7,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+F,Melodic Minor (Descending=Nat),Natural Minor,1,I,F,65,349.22823,0,0,2^(0/12),P1,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+F,Melodic Minor (Descending=Nat),Natural Minor,2,II,G,67,391.99544,2,200,2^(2/12),M2,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+F,Melodic Minor (Descending=Nat),Natural Minor,3,III,Ab,68,415.3047,3,300,2^(3/12),m3,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+F,Melodic Minor (Descending=Nat),Natural Minor,4,IV,Bb,70,466.16376,5,500,2^(5/12),P4,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+F,Melodic Minor (Descending=Nat),Natural Minor,5,V,C,72,523.25113,7,700,2^(7/12),P5,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+F,Melodic Minor (Descending=Nat),Natural Minor,6,VI,Db,73,554.36526,8,800,2^(8/12),m6,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+F,Melodic Minor (Descending=Nat),Natural Minor,7,VII,Eb,75,622.25397,10,1000,2^(10/12),m7,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Bb,Ionian (Major),Major,1,I,Bb,70,466.16376,0,0,2^(0/12),P1,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Bb,Ionian (Major),Major,2,II,C,72,523.25113,2,200,2^(2/12),M2,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+Bb,Ionian (Major),Major,3,III,D,74,587.32954,4,400,2^(4/12),M3,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+Bb,Ionian (Major),Major,4,IV,Eb,75,622.25397,5,500,2^(5/12),P4,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Bb,Ionian (Major),Major,5,V,F,77,698.45646,7,700,2^(7/12),P5,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+Bb,Ionian (Major),Major,6,VI,G,79,783.99087,9,900,2^(9/12),M6,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+Bb,Ionian (Major),Major,7,VII,A,81,880.0,11,1100,2^(11/12),M7,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+Bb,Dorian,Dorian,1,I,Bb,70,466.16376,0,0,2^(0/12),P1,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Bb,Dorian,Dorian,2,II,C,72,523.25113,2,200,2^(2/12),M2,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+Bb,Dorian,Dorian,3,III,Db,73,554.36526,3,300,2^(3/12),m3,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+Bb,Dorian,Dorian,4,IV,Eb,75,622.25397,5,500,2^(5/12),P4,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Bb,Dorian,Dorian,5,V,F,77,698.45646,7,700,2^(7/12),P5,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+Bb,Dorian,Dorian,6,VI,G,79,783.99087,9,900,2^(9/12),M6,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+Bb,Dorian,Dorian,7,VII,Ab,80,830.6094,10,1000,2^(10/12),m7,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Bb,Phrygian,Phrygian,1,I,Bb,70,466.16376,0,0,2^(0/12),P1,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Bb,Phrygian,Phrygian,2,II,B,71,493.8833,1,100,2^(1/12),m2,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+Bb,Phrygian,Phrygian,3,III,Db,73,554.36526,3,300,2^(3/12),m3,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+Bb,Phrygian,Phrygian,4,IV,Eb,75,622.25397,5,500,2^(5/12),P4,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Bb,Phrygian,Phrygian,5,V,F,77,698.45646,7,700,2^(7/12),P5,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+Bb,Phrygian,Phrygian,6,VI,Gb,78,739.98885,8,800,2^(8/12),m6,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+Bb,Phrygian,Phrygian,7,VII,Ab,80,830.6094,10,1000,2^(10/12),m7,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Bb,Lydian,Lydian,1,I,Bb,70,466.16376,0,0,2^(0/12),P1,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Bb,Lydian,Lydian,2,II,C,72,523.25113,2,200,2^(2/12),M2,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+Bb,Lydian,Lydian,3,III,D,74,587.32954,4,400,2^(4/12),M3,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+Bb,Lydian,Lydian,4,IV,E,76,659.25511,6,600,2^(6/12),TT,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+Bb,Lydian,Lydian,5,V,F,77,698.45646,7,700,2^(7/12),P5,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+Bb,Lydian,Lydian,6,VI,G,79,783.99087,9,900,2^(9/12),M6,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+Bb,Lydian,Lydian,7,VII,A,81,880.0,11,1100,2^(11/12),M7,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+Bb,Mixolydian,Mixolydian,1,I,Bb,70,466.16376,0,0,2^(0/12),P1,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Bb,Mixolydian,Mixolydian,2,II,C,72,523.25113,2,200,2^(2/12),M2,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+Bb,Mixolydian,Mixolydian,3,III,D,74,587.32954,4,400,2^(4/12),M3,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+Bb,Mixolydian,Mixolydian,4,IV,Eb,75,622.25397,5,500,2^(5/12),P4,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Bb,Mixolydian,Mixolydian,5,V,F,77,698.45646,7,700,2^(7/12),P5,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+Bb,Mixolydian,Mixolydian,6,VI,G,79,783.99087,9,900,2^(9/12),M6,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+Bb,Mixolydian,Mixolydian,7,VII,Ab,80,830.6094,10,1000,2^(10/12),m7,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Bb,Aeolian (Natural Minor),Natural Minor,1,I,Bb,70,466.16376,0,0,2^(0/12),P1,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Bb,Aeolian (Natural Minor),Natural Minor,2,II,C,72,523.25113,2,200,2^(2/12),M2,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+Bb,Aeolian (Natural Minor),Natural Minor,3,III,Db,73,554.36526,3,300,2^(3/12),m3,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+Bb,Aeolian (Natural Minor),Natural Minor,4,IV,Eb,75,622.25397,5,500,2^(5/12),P4,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Bb,Aeolian (Natural Minor),Natural Minor,5,V,F,77,698.45646,7,700,2^(7/12),P5,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+Bb,Aeolian (Natural Minor),Natural Minor,6,VI,Gb,78,739.98885,8,800,2^(8/12),m6,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+Bb,Aeolian (Natural Minor),Natural Minor,7,VII,Ab,80,830.6094,10,1000,2^(10/12),m7,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Bb,Locrian,Locrian,1,I,Bb,70,466.16376,0,0,2^(0/12),P1,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Bb,Locrian,Locrian,2,II,B,71,493.8833,1,100,2^(1/12),m2,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+Bb,Locrian,Locrian,3,III,Db,73,554.36526,3,300,2^(3/12),m3,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+Bb,Locrian,Locrian,4,IV,Eb,75,622.25397,5,500,2^(5/12),P4,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Bb,Locrian,Locrian,5,V,E,76,659.25511,6,600,2^(6/12),TT,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+Bb,Locrian,Locrian,6,VI,Gb,78,739.98885,8,800,2^(8/12),m6,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+Bb,Locrian,Locrian,7,VII,Ab,80,830.6094,10,1000,2^(10/12),m7,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Bb,Harmonic Minor,Harmonic Minor,1,I,Bb,70,466.16376,0,0,2^(0/12),P1,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Bb,Harmonic Minor,Harmonic Minor,2,II,C,72,523.25113,2,200,2^(2/12),M2,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+Bb,Harmonic Minor,Harmonic Minor,3,III,Db,73,554.36526,3,300,2^(3/12),m3,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+Bb,Harmonic Minor,Harmonic Minor,4,IV,Eb,75,622.25397,5,500,2^(5/12),P4,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Bb,Harmonic Minor,Harmonic Minor,5,V,F,77,698.45646,7,700,2^(7/12),P5,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+Bb,Harmonic Minor,Harmonic Minor,6,VI,Gb,78,739.98885,8,800,2^(8/12),m6,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+Bb,Harmonic Minor,Harmonic Minor,7,VII,A,81,880.0,11,1100,2^(11/12),M7,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+Bb,Melodic Minor (Ascending),Melodic Minor,1,I,Bb,70,466.16376,0,0,2^(0/12),P1,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Bb,Melodic Minor (Ascending),Melodic Minor,2,II,C,72,523.25113,2,200,2^(2/12),M2,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+Bb,Melodic Minor (Ascending),Melodic Minor,3,III,Db,73,554.36526,3,300,2^(3/12),m3,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+Bb,Melodic Minor (Ascending),Melodic Minor,4,IV,Eb,75,622.25397,5,500,2^(5/12),P4,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Bb,Melodic Minor (Ascending),Melodic Minor,5,V,F,77,698.45646,7,700,2^(7/12),P5,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+Bb,Melodic Minor (Ascending),Melodic Minor,6,VI,G,79,783.99087,9,900,2^(9/12),M6,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+Bb,Melodic Minor (Ascending),Melodic Minor,7,VII,A,81,880.0,11,1100,2^(11/12),M7,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+Bb,Melodic Minor (Descending=Nat),Natural Minor,1,I,Bb,70,466.16376,0,0,2^(0/12),P1,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Bb,Melodic Minor (Descending=Nat),Natural Minor,2,II,C,72,523.25113,2,200,2^(2/12),M2,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+Bb,Melodic Minor (Descending=Nat),Natural Minor,3,III,Db,73,554.36526,3,300,2^(3/12),m3,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+Bb,Melodic Minor (Descending=Nat),Natural Minor,4,IV,Eb,75,622.25397,5,500,2^(5/12),P4,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Bb,Melodic Minor (Descending=Nat),Natural Minor,5,V,F,77,698.45646,7,700,2^(7/12),P5,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+Bb,Melodic Minor (Descending=Nat),Natural Minor,6,VI,Gb,78,739.98885,8,800,2^(8/12),m6,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+Bb,Melodic Minor (Descending=Nat),Natural Minor,7,VII,Ab,80,830.6094,10,1000,2^(10/12),m7,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Eb,Ionian (Major),Major,1,I,Eb,63,311.12698,0,0,2^(0/12),P1,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Eb,Ionian (Major),Major,2,II,F,65,349.22823,2,200,2^(2/12),M2,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+Eb,Ionian (Major),Major,3,III,G,67,391.99544,4,400,2^(4/12),M3,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+Eb,Ionian (Major),Major,4,IV,Ab,68,415.3047,5,500,2^(5/12),P4,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Eb,Ionian (Major),Major,5,V,Bb,70,466.16376,7,700,2^(7/12),P5,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Eb,Ionian (Major),Major,6,VI,C,72,523.25113,9,900,2^(9/12),M6,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+Eb,Ionian (Major),Major,7,VII,D,74,587.32954,11,1100,2^(11/12),M7,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+Eb,Dorian,Dorian,1,I,Eb,63,311.12698,0,0,2^(0/12),P1,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Eb,Dorian,Dorian,2,II,F,65,349.22823,2,200,2^(2/12),M2,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+Eb,Dorian,Dorian,3,III,Gb,66,369.99442,3,300,2^(3/12),m3,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+Eb,Dorian,Dorian,4,IV,Ab,68,415.3047,5,500,2^(5/12),P4,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Eb,Dorian,Dorian,5,V,Bb,70,466.16376,7,700,2^(7/12),P5,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Eb,Dorian,Dorian,6,VI,C,72,523.25113,9,900,2^(9/12),M6,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+Eb,Dorian,Dorian,7,VII,Db,73,554.36526,10,1000,2^(10/12),m7,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+Eb,Phrygian,Phrygian,1,I,Eb,63,311.12698,0,0,2^(0/12),P1,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Eb,Phrygian,Phrygian,2,II,E,64,329.62756,1,100,2^(1/12),m2,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+Eb,Phrygian,Phrygian,3,III,Gb,66,369.99442,3,300,2^(3/12),m3,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+Eb,Phrygian,Phrygian,4,IV,Ab,68,415.3047,5,500,2^(5/12),P4,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Eb,Phrygian,Phrygian,5,V,Bb,70,466.16376,7,700,2^(7/12),P5,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Eb,Phrygian,Phrygian,6,VI,B,71,493.8833,8,800,2^(8/12),m6,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+Eb,Phrygian,Phrygian,7,VII,Db,73,554.36526,10,1000,2^(10/12),m7,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+Eb,Lydian,Lydian,1,I,Eb,63,311.12698,0,0,2^(0/12),P1,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Eb,Lydian,Lydian,2,II,F,65,349.22823,2,200,2^(2/12),M2,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+Eb,Lydian,Lydian,3,III,G,67,391.99544,4,400,2^(4/12),M3,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+Eb,Lydian,Lydian,4,IV,A,69,440.0,6,600,2^(6/12),TT,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+Eb,Lydian,Lydian,5,V,Bb,70,466.16376,7,700,2^(7/12),P5,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Eb,Lydian,Lydian,6,VI,C,72,523.25113,9,900,2^(9/12),M6,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+Eb,Lydian,Lydian,7,VII,D,74,587.32954,11,1100,2^(11/12),M7,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+Eb,Mixolydian,Mixolydian,1,I,Eb,63,311.12698,0,0,2^(0/12),P1,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Eb,Mixolydian,Mixolydian,2,II,F,65,349.22823,2,200,2^(2/12),M2,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+Eb,Mixolydian,Mixolydian,3,III,G,67,391.99544,4,400,2^(4/12),M3,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+Eb,Mixolydian,Mixolydian,4,IV,Ab,68,415.3047,5,500,2^(5/12),P4,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Eb,Mixolydian,Mixolydian,5,V,Bb,70,466.16376,7,700,2^(7/12),P5,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Eb,Mixolydian,Mixolydian,6,VI,C,72,523.25113,9,900,2^(9/12),M6,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+Eb,Mixolydian,Mixolydian,7,VII,Db,73,554.36526,10,1000,2^(10/12),m7,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+Eb,Aeolian (Natural Minor),Natural Minor,1,I,Eb,63,311.12698,0,0,2^(0/12),P1,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Eb,Aeolian (Natural Minor),Natural Minor,2,II,F,65,349.22823,2,200,2^(2/12),M2,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+Eb,Aeolian (Natural Minor),Natural Minor,3,III,Gb,66,369.99442,3,300,2^(3/12),m3,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+Eb,Aeolian (Natural Minor),Natural Minor,4,IV,Ab,68,415.3047,5,500,2^(5/12),P4,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Eb,Aeolian (Natural Minor),Natural Minor,5,V,Bb,70,466.16376,7,700,2^(7/12),P5,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Eb,Aeolian (Natural Minor),Natural Minor,6,VI,B,71,493.8833,8,800,2^(8/12),m6,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+Eb,Aeolian (Natural Minor),Natural Minor,7,VII,Db,73,554.36526,10,1000,2^(10/12),m7,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+Eb,Locrian,Locrian,1,I,Eb,63,311.12698,0,0,2^(0/12),P1,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Eb,Locrian,Locrian,2,II,E,64,329.62756,1,100,2^(1/12),m2,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+Eb,Locrian,Locrian,3,III,Gb,66,369.99442,3,300,2^(3/12),m3,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+Eb,Locrian,Locrian,4,IV,Ab,68,415.3047,5,500,2^(5/12),P4,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Eb,Locrian,Locrian,5,V,A,69,440.0,6,600,2^(6/12),TT,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+Eb,Locrian,Locrian,6,VI,B,71,493.8833,8,800,2^(8/12),m6,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+Eb,Locrian,Locrian,7,VII,Db,73,554.36526,10,1000,2^(10/12),m7,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+Eb,Harmonic Minor,Harmonic Minor,1,I,Eb,63,311.12698,0,0,2^(0/12),P1,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Eb,Harmonic Minor,Harmonic Minor,2,II,F,65,349.22823,2,200,2^(2/12),M2,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+Eb,Harmonic Minor,Harmonic Minor,3,III,Gb,66,369.99442,3,300,2^(3/12),m3,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+Eb,Harmonic Minor,Harmonic Minor,4,IV,Ab,68,415.3047,5,500,2^(5/12),P4,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Eb,Harmonic Minor,Harmonic Minor,5,V,Bb,70,466.16376,7,700,2^(7/12),P5,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Eb,Harmonic Minor,Harmonic Minor,6,VI,B,71,493.8833,8,800,2^(8/12),m6,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+Eb,Harmonic Minor,Harmonic Minor,7,VII,D,74,587.32954,11,1100,2^(11/12),M7,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+Eb,Melodic Minor (Ascending),Melodic Minor,1,I,Eb,63,311.12698,0,0,2^(0/12),P1,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Eb,Melodic Minor (Ascending),Melodic Minor,2,II,F,65,349.22823,2,200,2^(2/12),M2,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+Eb,Melodic Minor (Ascending),Melodic Minor,3,III,Gb,66,369.99442,3,300,2^(3/12),m3,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+Eb,Melodic Minor (Ascending),Melodic Minor,4,IV,Ab,68,415.3047,5,500,2^(5/12),P4,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Eb,Melodic Minor (Ascending),Melodic Minor,5,V,Bb,70,466.16376,7,700,2^(7/12),P5,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Eb,Melodic Minor (Ascending),Melodic Minor,6,VI,C,72,523.25113,9,900,2^(9/12),M6,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+Eb,Melodic Minor (Ascending),Melodic Minor,7,VII,D,74,587.32954,11,1100,2^(11/12),M7,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+Eb,Melodic Minor (Descending=Nat),Natural Minor,1,I,Eb,63,311.12698,0,0,2^(0/12),P1,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Eb,Melodic Minor (Descending=Nat),Natural Minor,2,II,F,65,349.22823,2,200,2^(2/12),M2,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+Eb,Melodic Minor (Descending=Nat),Natural Minor,3,III,Gb,66,369.99442,3,300,2^(3/12),m3,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+Eb,Melodic Minor (Descending=Nat),Natural Minor,4,IV,Ab,68,415.3047,5,500,2^(5/12),P4,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Eb,Melodic Minor (Descending=Nat),Natural Minor,5,V,Bb,70,466.16376,7,700,2^(7/12),P5,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Eb,Melodic Minor (Descending=Nat),Natural Minor,6,VI,B,71,493.8833,8,800,2^(8/12),m6,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+Eb,Melodic Minor (Descending=Nat),Natural Minor,7,VII,Db,73,554.36526,10,1000,2^(10/12),m7,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+Ab,Ionian (Major),Major,1,I,Ab,68,415.3047,0,0,2^(0/12),P1,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Ab,Ionian (Major),Major,2,II,Bb,70,466.16376,2,200,2^(2/12),M2,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Ab,Ionian (Major),Major,3,III,C,72,523.25113,4,400,2^(4/12),M3,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+Ab,Ionian (Major),Major,4,IV,Db,73,554.36526,5,500,2^(5/12),P4,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+Ab,Ionian (Major),Major,5,V,Eb,75,622.25397,7,700,2^(7/12),P5,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Ab,Ionian (Major),Major,6,VI,F,77,698.45646,9,900,2^(9/12),M6,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+Ab,Ionian (Major),Major,7,VII,G,79,783.99087,11,1100,2^(11/12),M7,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+Ab,Dorian,Dorian,1,I,Ab,68,415.3047,0,0,2^(0/12),P1,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Ab,Dorian,Dorian,2,II,Bb,70,466.16376,2,200,2^(2/12),M2,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Ab,Dorian,Dorian,3,III,B,71,493.8833,3,300,2^(3/12),m3,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+Ab,Dorian,Dorian,4,IV,Db,73,554.36526,5,500,2^(5/12),P4,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+Ab,Dorian,Dorian,5,V,Eb,75,622.25397,7,700,2^(7/12),P5,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Ab,Dorian,Dorian,6,VI,F,77,698.45646,9,900,2^(9/12),M6,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+Ab,Dorian,Dorian,7,VII,Gb,78,739.98885,10,1000,2^(10/12),m7,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+Ab,Phrygian,Phrygian,1,I,Ab,68,415.3047,0,0,2^(0/12),P1,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Ab,Phrygian,Phrygian,2,II,A,69,440.0,1,100,2^(1/12),m2,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+Ab,Phrygian,Phrygian,3,III,B,71,493.8833,3,300,2^(3/12),m3,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+Ab,Phrygian,Phrygian,4,IV,Db,73,554.36526,5,500,2^(5/12),P4,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+Ab,Phrygian,Phrygian,5,V,Eb,75,622.25397,7,700,2^(7/12),P5,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Ab,Phrygian,Phrygian,6,VI,E,76,659.25511,8,800,2^(8/12),m6,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+Ab,Phrygian,Phrygian,7,VII,Gb,78,739.98885,10,1000,2^(10/12),m7,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+Ab,Lydian,Lydian,1,I,Ab,68,415.3047,0,0,2^(0/12),P1,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Ab,Lydian,Lydian,2,II,Bb,70,466.16376,2,200,2^(2/12),M2,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Ab,Lydian,Lydian,3,III,C,72,523.25113,4,400,2^(4/12),M3,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+Ab,Lydian,Lydian,4,IV,D,74,587.32954,6,600,2^(6/12),TT,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+Ab,Lydian,Lydian,5,V,Eb,75,622.25397,7,700,2^(7/12),P5,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Ab,Lydian,Lydian,6,VI,F,77,698.45646,9,900,2^(9/12),M6,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+Ab,Lydian,Lydian,7,VII,G,79,783.99087,11,1100,2^(11/12),M7,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+Ab,Mixolydian,Mixolydian,1,I,Ab,68,415.3047,0,0,2^(0/12),P1,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Ab,Mixolydian,Mixolydian,2,II,Bb,70,466.16376,2,200,2^(2/12),M2,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Ab,Mixolydian,Mixolydian,3,III,C,72,523.25113,4,400,2^(4/12),M3,0,Red,#FF0000,Angry → Courageous (assertive action),− → +,High
+Ab,Mixolydian,Mixolydian,4,IV,Db,73,554.36526,5,500,2^(5/12),P4,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+Ab,Mixolydian,Mixolydian,5,V,Eb,75,622.25397,7,700,2^(7/12),P5,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Ab,Mixolydian,Mixolydian,6,VI,F,77,698.45646,9,900,2^(9/12),M6,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+Ab,Mixolydian,Mixolydian,7,VII,Gb,78,739.98885,10,1000,2^(10/12),m7,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+Ab,Aeolian (Natural Minor),Natural Minor,1,I,Ab,68,415.3047,0,0,2^(0/12),P1,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Ab,Aeolian (Natural Minor),Natural Minor,2,II,Bb,70,466.16376,2,200,2^(2/12),M2,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Ab,Aeolian (Natural Minor),Natural Minor,3,III,B,71,493.8833,3,300,2^(3/12),m3,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+Ab,Aeolian (Natural Minor),Natural Minor,4,IV,Db,73,554.36526,5,500,2^(5/12),P4,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+Ab,Aeolian (Natural Minor),Natural Minor,5,V,Eb,75,622.25397,7,700,2^(7/12),P5,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Ab,Aeolian (Natural Minor),Natural Minor,6,VI,E,76,659.25511,8,800,2^(8/12),m6,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+Ab,Aeolian (Natural Minor),Natural Minor,7,VII,Gb,78,739.98885,10,1000,2^(10/12),m7,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+Ab,Locrian,Locrian,1,I,Ab,68,415.3047,0,0,2^(0/12),P1,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Ab,Locrian,Locrian,2,II,A,69,440.0,1,100,2^(1/12),m2,270,Violet,#8B00FF,"Creative, Inspired → Imagination",+,Med
+Ab,Locrian,Locrian,3,III,B,71,493.8833,3,300,2^(3/12),m3,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+Ab,Locrian,Locrian,4,IV,Db,73,554.36526,5,500,2^(5/12),P4,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+Ab,Locrian,Locrian,5,V,D,74,587.32954,6,600,2^(6/12),TT,60,Yellow,#FFFF00,"Joyful, Optimistic → Shine",++,Med-High
+Ab,Locrian,Locrian,6,VI,E,76,659.25511,8,800,2^(8/12),m6,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+Ab,Locrian,Locrian,7,VII,Gb,78,739.98885,10,1000,2^(10/12),m7,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
+Ab,Harmonic Minor,Harmonic Minor,1,I,Ab,68,415.3047,0,0,2^(0/12),P1,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Ab,Harmonic Minor,Harmonic Minor,2,II,Bb,70,466.16376,2,200,2^(2/12),M2,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Ab,Harmonic Minor,Harmonic Minor,3,III,B,71,493.8833,3,300,2^(3/12),m3,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+Ab,Harmonic Minor,Harmonic Minor,4,IV,Db,73,554.36526,5,500,2^(5/12),P4,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+Ab,Harmonic Minor,Harmonic Minor,5,V,Eb,75,622.25397,7,700,2^(7/12),P5,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Ab,Harmonic Minor,Harmonic Minor,6,VI,E,76,659.25511,8,800,2^(8/12),m6,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+Ab,Harmonic Minor,Harmonic Minor,7,VII,G,79,783.99087,11,1100,2^(11/12),M7,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+Ab,Melodic Minor (Ascending),Melodic Minor,1,I,Ab,68,415.3047,0,0,2^(0/12),P1,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Ab,Melodic Minor (Ascending),Melodic Minor,2,II,Bb,70,466.16376,2,200,2^(2/12),M2,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Ab,Melodic Minor (Ascending),Melodic Minor,3,III,B,71,493.8833,3,300,2^(3/12),m3,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+Ab,Melodic Minor (Ascending),Melodic Minor,4,IV,Db,73,554.36526,5,500,2^(5/12),P4,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+Ab,Melodic Minor (Ascending),Melodic Minor,5,V,Eb,75,622.25397,7,700,2^(7/12),P5,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Ab,Melodic Minor (Ascending),Melodic Minor,6,VI,F,77,698.45646,9,900,2^(9/12),M6,150,Spring Green,#00FF7F,"Trusting, Intimate → Bond",++,Low-Med
+Ab,Melodic Minor (Ascending),Melodic Minor,7,VII,G,79,783.99087,11,1100,2^(11/12),M7,210,Azure,#007FFF,"Interested, Inquisitive → Focus",+,Med
+Ab,Melodic Minor (Descending=Nat),Natural Minor,1,I,Ab,68,415.3047,0,0,2^(0/12),P1,240,Blue,#0000FF,"Reflective, Sensitive (safe processing)",−,Low
+Ab,Melodic Minor (Descending=Nat),Natural Minor,2,II,Bb,70,466.16376,2,200,2^(2/12),M2,300,Magenta,#FF00FF,"Loving, Thankful → Connection",++,Med
+Ab,Melodic Minor (Descending=Nat),Natural Minor,3,III,B,71,493.8833,3,300,2^(3/12),m3,330,Rose,#FF007F,"Proud, Confident → Claim",++,Med-High
+Ab,Melodic Minor (Descending=Nat),Natural Minor,4,IV,Db,73,554.36526,5,500,2^(5/12),P4,30,Orange,#FFA500,"Energetic, Provoked → Drive",+,High
+Ab,Melodic Minor (Descending=Nat),Natural Minor,5,V,Eb,75,622.25397,7,700,2^(7/12),P5,90,Yellow-Green,#ADFF2F,"Playful, Curious → Exploration",+,Medium
+Ab,Melodic Minor (Descending=Nat),Natural Minor,6,VI,E,76,659.25511,8,800,2^(8/12),m6,120,Green,#00FF00,"Calm, Peaceful → Center",++,Low-Med
+Ab,Melodic Minor (Descending=Nat),Natural Minor,7,VII,Gb,78,739.98885,10,1000,2^(10/12),m7,180,Cyan,#00FFFF,"Content, Clear-minded → Stability",+,Low
