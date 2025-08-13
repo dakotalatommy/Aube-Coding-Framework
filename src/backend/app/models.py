@@ -79,3 +79,12 @@ class DeadLetter(Base):
     payload: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
+class Approval(Base):
+    __tablename__ = "approvals"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tool_name: Mapped[str] = mapped_column(String(64))
+    params_json: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), default="pending")  # pending|approved|rejected
+    result_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+

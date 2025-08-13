@@ -19,6 +19,7 @@ from .ai import AIClient
 from .brand_prompts import BRAND_SYSTEM, cadence_intro_prompt, chat_system_prompt
 from .tools import execute_tool
 from .messaging import verify_twilio_signature
+from . import models as dbm
 
 
 app = FastAPI(title="BrandVX Backend", version="0.2.0")
@@ -234,6 +235,13 @@ class ToolExecRequest(BaseModel):
     tenant_id: str
     name: str
     params: Dict[str, object] = {}
+    require_approval: bool = False
+
+
+class ApprovalActionRequest(BaseModel):
+    tenant_id: str
+    approval_id: int
+    action: str  # approve|reject
 
 
 @app.post("/ai/tools/execute")
@@ -244,9 +252,64 @@ async def ai_tool_execute(
 ):
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
+    if req.require_approval:
+        db.add(
+            dbm.Approval(
+                tenant_id=req.tenant_id,
+                tool_name=req.name,
+                params_json=str(dict(req.params or {})),
+                status="pending",
+            )
+        )
+        db.commit()
+        emit_event("AIToolExecuted", {"tenant_id": req.tenant_id, "tool": req.name, "status": "pending"})
+        return {"status": "pending"}
     result = await execute_tool(req.name, dict(req.params or {}), db, ctx)
     emit_event("AIToolExecuted", {"tenant_id": req.tenant_id, "tool": req.name, "status": result.get("status")})
     return result
+
+
+@app.get("/approvals")
+def list_approvals(
+    tenant_id: str,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return []
+    rows = db.query(dbm.Approval).filter(dbm.Approval.tenant_id == tenant_id).all()
+    return [
+        {"id": r.id, "tool": r.tool_name, "status": r.status, "params": r.params_json, "result": r.result_json}
+        for r in rows
+    ]
+
+
+@app.post("/approvals/action")
+async def action_approval(
+    req: ApprovalActionRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    row = db.query(dbm.Approval).filter(dbm.Approval.id == req.approval_id, dbm.Approval.tenant_id == req.tenant_id).first()
+    if not row:
+        return {"status": "not_found"}
+    if req.action == "reject":
+        row.status = "rejected"
+        db.commit()
+        return {"status": "rejected"}
+    # approve: execute tool now
+    params = {}
+    try:
+        params = eval(row.params_json)
+    except Exception:
+        params = {}
+    result = await execute_tool(row.tool_name, params, db, ctx)
+    row.status = "approved"
+    row.result_json = str(result)
+    db.commit()
+    return {"status": "approved", "result": result}
 
 
 @app.post("/integrations/crm/hubspot/upsert")
