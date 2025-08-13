@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from .events import emit_event
 from .db import Base, engine, get_db
 from . import models as dbm
+from .auth import get_user_context, require_role, UserContext
 
 
 app = FastAPI(title="BrandVX Backend", version="0.2.0")
@@ -53,7 +54,13 @@ app.mount("/app", StaticFiles(directory="src/web", html=True), name="app")
 
 
 @app.post("/import/contacts")
-def import_contacts(req: ImportContactsRequest, db: Session = Depends(get_db)) -> Dict[str, int]:
+def import_contacts(
+    req: ImportContactsRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+) -> Dict[str, int]:
+    if ctx.tenant_id != req.tenant_id:
+        return {"imported": 0}
     imported = 0
     for _ in req.contacts:
         imported += 1
@@ -80,7 +87,13 @@ def import_contacts(req: ImportContactsRequest, db: Session = Depends(get_db)) -
 
 
 @app.post("/cadences/start")
-def start_cadence(req: CadenceStartRequest, db: Session = Depends(get_db)) -> Dict[str, str]:
+def start_cadence(
+    req: CadenceStartRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+) -> Dict[str, str]:
+    if ctx.tenant_id != req.tenant_id:
+        return {"status": "forbidden"}
     STATE["cadences"].setdefault(req.tenant_id, {})[req.contact_id] = req.cadence_id
     db.add(
         dbm.CadenceState(
@@ -103,7 +116,13 @@ def start_cadence(req: CadenceStartRequest, db: Session = Depends(get_db)) -> Di
 
 
 @app.post("/messages/simulate")
-def simulate_message(req: MessageSimulateRequest, db: Session = Depends(get_db)) -> Dict[str, str]:
+def simulate_message(
+    req: MessageSimulateRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+) -> Dict[str, str]:
+    if ctx.tenant_id != req.tenant_id:
+        return {"status": "forbidden"}
     emit_event(
         "MessageQueued",
         {
@@ -143,7 +162,9 @@ def simulate_message(req: MessageSimulateRequest, db: Session = Depends(get_db))
 
 
 @app.get("/metrics")
-def get_metrics(tenant_id: str, db: Session = Depends(get_db)) -> Dict[str, int]:
+def get_metrics(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"messages_sent": 0, "time_saved_minutes": 0}
     m = db.query(dbm.Metrics).filter(dbm.Metrics.tenant_id == tenant_id).first()
     if not m:
         return {"messages_sent": 0, "time_saved_minutes": 0}
@@ -157,7 +178,13 @@ class PreferenceRequest(BaseModel):
 
 
 @app.post("/notify-list/set-preference")
-def set_notify_preference(req: PreferenceRequest, db: Session = Depends(get_db)) -> Dict[str, str]:
+def set_notify_preference(
+    req: PreferenceRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+) -> Dict[str, str]:
+    if ctx.tenant_id != req.tenant_id:
+        return {"status": "forbidden"}
     db.add(
         dbm.NotifyListEntry(
             tenant_id=req.tenant_id, contact_id=req.contact_id, preference=req.preference
@@ -177,7 +204,13 @@ class SharePromptRequest(BaseModel):
 
 
 @app.post("/share/surface")
-def surface_share_prompt(req: SharePromptRequest, db: Session = Depends(get_db)) -> Dict[str, str]:
+def surface_share_prompt(
+    req: SharePromptRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+) -> Dict[str, str]:
+    if ctx.tenant_id != req.tenant_id:
+        return {"status": "forbidden"}
     db.add(dbm.SharePrompt(tenant_id=req.tenant_id, kind=req.kind, surfaced=True))
     db.commit()
     emit_event(
@@ -194,7 +227,13 @@ class StopRequest(BaseModel):
 
 
 @app.post("/consent/stop")
-def consent_stop(req: StopRequest, db: Session = Depends(get_db)) -> Dict[str, str]:
+def consent_stop(
+    req: StopRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+) -> Dict[str, str]:
+    if ctx.tenant_id != req.tenant_id:
+        return {"status": "forbidden"}
     db.add(
         dbm.ConsentLog(
             tenant_id=req.tenant_id, contact_id=req.contact_id, channel=req.channel, consent="revoked"
@@ -206,5 +245,76 @@ def consent_stop(req: StopRequest, db: Session = Depends(get_db)) -> Dict[str, s
         {"tenant_id": req.tenant_id, "contact_id": req.contact_id, "channel": req.channel, "keyword": "STOP"},
     )
     return {"status": "suppressed"}
+
+
+@app.get("/config")
+def get_config() -> Dict[str, object]:
+    return {
+        "version": "v1",
+        "features": {
+            "cadences": True,
+            "notify_list": True,
+            "share_prompts": True,
+            "ambassador_flags": True,
+        },
+        "branding": {
+            "product_name": "BrandVX",
+            "primary_color": "#0EA5E9",
+            "accent_color": "#22C55E",
+        },
+    }
+
+
+@app.get("/ui/contract")
+def ui_contract() -> Dict[str, object]:
+    return {
+        "surfaces": [
+            {
+                "id": "operator_dashboard",
+                "title": "Operator Dashboard",
+                "widgets": [
+                    {"id": "time_saved", "endpoint": "/metrics?tenant_id={tenant_id}"},
+                    {"id": "usage_index", "endpoint": "/metrics?tenant_id={tenant_id}"},
+                ],
+                "actions": [
+                    {"id": "import_contacts", "endpoint": "/import/contacts", "method": "POST"},
+                    {"id": "start_cadence", "endpoint": "/cadences/start", "method": "POST"},
+                    {"id": "simulate_message", "endpoint": "/messages/simulate", "method": "POST"},
+                    {"id": "stop_keyword", "endpoint": "/consent/stop", "method": "POST"},
+                ],
+            },
+            {
+                "id": "admin_kpis",
+                "title": "Admin KPIs",
+                "widgets": [
+                    {"id": "tenants_health", "endpoint": "/metrics?tenant_id={tenant_id}"}
+                ],
+            },
+            {
+                "id": "integrations",
+                "title": "Integrations",
+                "actions": [
+                    {"id": "set_notify_preference", "endpoint": "/notify-list/set-preference", "method": "POST"}
+                ],
+            },
+            {
+                "id": "sharing",
+                "title": "Sharing & Milestones",
+                "actions": [
+                    {"id": "surface_share_prompt", "endpoint": "/share/surface", "method": "POST"}
+                ],
+            },
+        ],
+        "events": [
+            "ContactImported",
+            "CadenceStarted",
+            "MessageQueued",
+            "MessageSent",
+            "MetricsComputed",
+            "SuppressionAdded",
+            "NotifyListCandidateAdded",
+            "SharePromptSurfaced",
+        ],
+    }
 
 
