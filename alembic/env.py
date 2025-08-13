@@ -1,6 +1,8 @@
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
+import sys, os
+sys.path.append('/app')
 from src.backend.app.db import Base
 from src.backend.app import models  # noqa: F401
 config = context.config

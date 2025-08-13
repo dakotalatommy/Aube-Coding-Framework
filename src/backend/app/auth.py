@@ -4,6 +4,7 @@ from typing import Optional
 import os
 import time
 import jwt
+from jwt import PyJWKClient
 
 
 @dataclass
@@ -23,13 +24,25 @@ async def get_user_context(
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization.split(" ", 1)[1]
         try:
-            payload = jwt.decode(
-                token,
-                os.getenv("JWT_SECRET", "dev_secret"),
-                algorithms=["HS256"],
-                audience=os.getenv("JWT_AUDIENCE", "brandvx-users"),
-                issuer=os.getenv("JWT_ISSUER", "brandvx"),
-            )
+            jwks_url = os.getenv("JWT_JWKS_URL")
+            if jwks_url:
+                jwk_client = PyJWKClient(jwks_url)
+                signing_key = jwk_client.get_signing_key_from_jwt(token)
+                payload = jwt.decode(
+                    token,
+                    signing_key.key,
+                    algorithms=["RS256", "ES256"],
+                    audience=os.getenv("JWT_AUDIENCE", "brandvx-users"),
+                    issuer=os.getenv("JWT_ISSUER", "brandvx"),
+                )
+            else:
+                payload = jwt.decode(
+                    token,
+                    os.getenv("JWT_SECRET", "dev_secret"),
+                    algorithms=["HS256"],
+                    audience=os.getenv("JWT_AUDIENCE", "brandvx-users"),
+                    issuer=os.getenv("JWT_ISSUER", "brandvx"),
+                )
             return UserContext(
                 user_id=str(payload.get("sub", "user")),
                 role=str(payload.get("role", "practitioner")),

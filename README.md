@@ -44,5 +44,19 @@ AI setup
       - `OPENAI_AGENT_ID=...` (your agent ID)
       - `OPENAI_AGENTS_URL` (default: `$OPENAI_BASE_URL/responses`)
 
+Webhooks
+- Twilio: set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` and POST to `/webhooks/twilio`.
+- SendGrid: set `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`. Signature verify is pluggable via `sendgrid_verify_signature`.
+
+Auth
+- For JWT via JWKS: set `JWT_JWKS_URL`, `JWT_AUDIENCE`, `JWT_ISSUER`.
+
+Migrations
+- Alembic is configured; run locally if you change models:
+  ```bash
+  alembic revision --autogenerate -m "change"
+  alembic upgrade head
+  ```
+
 
 

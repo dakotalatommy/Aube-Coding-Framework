@@ -1,3 +1,34 @@
+### Health
+GET http://localhost:8000/health
+
+### Import
+POST http://localhost:8000/import/contacts
+Content-Type: application/json
+
+{
+  "tenant_id": "t1",
+  "contacts": [{"contact_id":"c1","consent_sms":true}]
+}
+
+### Start cadence
+POST http://localhost:8000/cadences/start
+Content-Type: application/json
+
+{
+  "tenant_id": "t1",
+  "contact_id": "c1",
+  "cadence_id": "never_answered"
+}
+
+### AI chat
+POST http://localhost:8000/ai/chat
+Content-Type: application/json
+
+{
+  "tenant_id": "t1",
+  "messages": [{"role":"user","content":"hello"}]
+}
+
 # Health
 GET http://localhost:8000/health
 

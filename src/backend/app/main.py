@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, Response
+from fastapi import FastAPI, Depends, Response, Request
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional
@@ -12,14 +12,15 @@ from .cadence import get_cadence_definition, schedule_initial_next_action
 from .kpi import compute_time_saved_minutes, ambassador_candidate, admin_kpis
 from .messaging import send_message
 from .integrations import crm_hubspot, booking_acuity
+from .integrations.email_sendgrid import sendgrid_verify_signature
 from .utils import normalize_phone
 from .rate_limit import check_and_increment
 from .scheduler import run_tick
 from .ai import AIClient
 from .brand_prompts import BRAND_SYSTEM, cadence_intro_prompt, chat_system_prompt
 from .tools import execute_tool
-from .messaging import verify_twilio_signature
 from . import models as dbm
+from .integrations.sms_twilio import twilio_verify_signature
 import json
 
 
@@ -621,13 +622,29 @@ class ProviderWebhook(BaseModel):
 @app.post("/webhooks/twilio")
 def webhook_twilio(
     req: ProviderWebhook,
+    request: Request,
     ctx: UserContext = Depends(get_user_context),
 ) -> Dict[str, str]:
-    # In production, signature comes from headers; simplified here
-    ok = verify_twilio_signature("/webhooks/twilio", dict(req.payload or {}), signature="sig")
+    sig = request.headers.get("X-Twilio-Signature", "")
+    url = str(request.url)
+    ok = twilio_verify_signature(url, dict(req.payload or {}), signature=sig)
     if not ok:
         return {"status": "forbidden"}
     emit_event("ProviderWebhookReceived", {"tenant_id": req.tenant_id, "provider": "twilio"})
+    return {"status": "ok"}
+
+
+@app.post("/webhooks/sendgrid")
+async def webhook_sendgrid(
+    req: ProviderWebhook,
+    request: Request,
+    ctx: UserContext = Depends(get_user_context),
+):
+    raw = await request.body()
+    headers = {k: v for k, v in request.headers.items()}
+    if not sendgrid_verify_signature(headers, raw):
+        return {"status": "forbidden"}
+    emit_event("ProviderWebhookReceived", {"tenant_id": req.tenant_id, "provider": "sendgrid"})
     return {"status": "ok"}
 
 

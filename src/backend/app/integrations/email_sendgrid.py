@@ -23,3 +23,10 @@ def sendgrid_send_email(to_email: str, subject: str, body_html: str) -> Dict[str
         return {"status": "queued", "provider_id": r.headers.get("X-Message-Id", "")}
 
 
+def sendgrid_verify_signature(headers: Dict[str, str], payload: bytes) -> bool:
+    # Placeholder: SendGrid uses Ed25519 signature verification with a public key
+    # Expose env to toggle acceptance until keys are configured
+    accept_unsigned = os.getenv("SENDGRID_ACCEPT_UNSIGNED", "false").lower() == "true"
+    return accept_unsigned
+
+
