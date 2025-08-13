@@ -5,7 +5,7 @@ from typing import List, Dict, Optional
 from sqlalchemy.orm import Session
 from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST
 from .events import emit_event
-from .db import Base, engine, get_db
+from .db import Base, engine, get_db, get_l_db
 from . import models as dbm
 from .auth import get_user_context, require_role, UserContext
 from .cadence import get_cadence_definition, schedule_initial_next_action
@@ -587,6 +587,14 @@ def ui_contract() -> Dict[str, object]:
                 "title": "Ask VX",
                 "actions": [
                     {"id": "ai_chat", "endpoint": "/ai/chat", "method": "POST"}
+                ],
+            },
+            {
+                "id": "approvals",
+                "title": "Approvals",
+                "actions": [
+                    {"id": "list_approvals", "endpoint": "/approvals?tenant_id={tenant_id}", "method": "GET"},
+                    {"id": "action_approval", "endpoint": "/approvals/action", "method": "POST"}
                 ],
             },
         ],
