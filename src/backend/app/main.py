@@ -15,6 +15,8 @@ from .integrations import crm_hubspot, booking_acuity
 from .utils import normalize_phone
 from .rate_limit import check_and_increment
 from .scheduler import run_tick
+from .ai import AIClient
+from .brand_prompts import BRAND_SYSTEM, cadence_intro_prompt
 
 
 app = FastAPI(title="BrandVX Backend", version="0.2.0")
@@ -45,6 +47,8 @@ class MessageSimulateRequest(BaseModel):
     contact_id: str
     channel: str = "sms"
     template_id: Optional[str] = None
+    generate: bool = False
+    service: Optional[str] = None
 
 
 STATE: Dict[str, Dict] = {
@@ -156,7 +160,18 @@ def simulate_message(
             },
         )
         return {"status": "rate_limited"}
-    send_message(db, req.tenant_id, req.contact_id, req.channel, req.template_id)
+    # Optional AI content
+    if req.generate:
+        client = AIClient()
+        body = await client.generate(
+            BRAND_SYSTEM,
+            [{"role": "user", "content": cadence_intro_prompt(req.service or "service")}],
+            max_tokens=120,
+        )
+        emit_event("MessageQueued", {"tenant_id": req.tenant_id, "contact_id": req.contact_id, "channel": req.channel, "body": body})
+        emit_event("MessageSent", {"tenant_id": req.tenant_id, "contact_id": req.contact_id, "channel": req.channel, "body": body})
+    else:
+        send_message(db, req.tenant_id, req.contact_id, req.channel, req.template_id)
     STATE["metrics"]["messages_sent"] += 1
     STATE["metrics"]["time_saved_minutes"] += 2
     # upsert metrics
