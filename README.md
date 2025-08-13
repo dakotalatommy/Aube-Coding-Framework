@@ -23,4 +23,20 @@ Notes
 - Events print to stdout (replace with bus later).
 - SQLite file persists in container volume; switch DATABASE_URL for Postgres.
 
+AI setup
+- Copy your OpenAI key into environment variables. Two options:
+  - Temporary (current shell):
+    ```bash
+    export OPENAI_API_KEY=sk-...yourkey...
+    ```
+  - Persistent via Compose: create a `.env` file next to `docker-compose.yml`:
+    ```bash
+    echo "OPENAI_API_KEY=sk-...yourkey..." > .env
+    ```
+    Then `docker compose up --build` (Compose auto-loads `.env`).
+  - Optional:
+    - `OPENAI_MODEL` (default: gpt-4o-mini)
+    - `OPENAI_BASE_URL` (default: https://api.openai.com/v1)
+
+
 

@@ -7,6 +7,9 @@ services:
     environment:
       - DATABASE_URL=sqlite:///./brandvx.db
       - REDIS_URL=redis://redis:6379/0
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
     volumes:
       - .:/app
     restart: unless-stopped
