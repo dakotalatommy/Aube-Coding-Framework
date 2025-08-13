@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional
 from sqlalchemy.orm import Session
@@ -46,6 +47,9 @@ STATE: Dict[str, Dict] = {
 @app.get("/health")
 def health() -> Dict[str, str]:
     return {"status": "ok"}
+
+# Serve static web
+app.mount("/app", StaticFiles(directory="src/web", html=True), name="app")
 
 
 @app.post("/import/contacts")

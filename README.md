@@ -4,13 +4,14 @@ Prereqs
 - Python 3.10+
 - `pip install fastapi uvicorn pydantic`
 
-Run backend
+Run with Docker (recommended)
 ```
-uvicorn src.backend.app.main:app --reload
+docker compose up --build
 ```
 
-Open web UI
-- Serve `src/web/index.html` with any static server, or open directly and proxy to backend on `http://localhost:8000`.
+App
+- Backend: http://localhost:8000/health
+- Web UI (served by backend): http://localhost:8000/app
 
 Demo path
 1) Import contacts
@@ -19,7 +20,7 @@ Demo path
 4) Fetch metrics
 
 Notes
-- Events are printed to stdout. Replace with real bus later.
-- In-memory state only; for demo purposes.
+- Events print to stdout (replace with bus later).
+- SQLite file persists in container volume; switch DATABASE_URL for Postgres.
 
 

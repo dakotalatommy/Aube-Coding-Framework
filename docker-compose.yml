@@ -1,0 +1,12 @@
+version: '3.9'
+services:
+  brandvx:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./brandvx.db
+    volumes:
+      - .:/app
+    restart: unless-stopped
+
