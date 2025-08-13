@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Depends, Response, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional
@@ -22,6 +23,7 @@ from .tools import execute_tool
 from . import models as dbm
 from .integrations.sms_twilio import twilio_verify_signature
 import json
+from .adapters.supabase_adapter import SupabaseAdapter
 
 
 tags_metadata = [
@@ -34,6 +36,13 @@ tags_metadata = [
 ]
 
 app = FastAPI(title="BrandVX Backend", version="0.2.0", openapi_tags=tags_metadata)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 Base.metadata.create_all(bind=engine)
 
 
@@ -313,6 +322,22 @@ async def ai_search(
     return {"results": scored[: max(1, min(req.top_k, 20))]}
 
 
+class LAuditRequest(BaseModel):
+    tenant_id: str
+
+
+@app.get("/l/audit/cadences", tags=["Integrations"])
+async def l_audit_cadences(tenant_id: str, ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    adapter = SupabaseAdapter()
+    rules = await adapter.get_cadence_rules(tenant_id)
+    templates = await adapter.get_cadence_templates(tenant_id)
+    ch = SupabaseAdapter.validate_channels(rules)
+    fk = SupabaseAdapter.check_rule_template_fk(rules, templates)
+    return {"channels": ch, "template_fk": fk, "rules": len(rules), "templates": len(templates)}
+
+
 class ToolExecRequest(BaseModel):
     tenant_id: str
     name: str
@@ -339,7 +364,7 @@ async def ai_tool_execute(
             dbm.Approval(
                 tenant_id=req.tenant_id,
                 tool_name=req.name,
-                params_json=str(dict(req.params or {})),
+                params_json=json.dumps(dict(req.params or {})),
                 status="pending",
             )
         )
@@ -384,12 +409,12 @@ async def action_approval(
     # approve: execute tool now
     params = {}
     try:
-        params = eval(row.params_json)
+        params = json.loads(row.params_json or "{}")
     except Exception:
         params = {}
     result = await execute_tool(row.tool_name, params, db, ctx)
     row.status = "approved"
-    row.result_json = str(result)
+    row.result_json = json.dumps(result)
     db.commit()
     return {"status": "approved", "result": result}
 

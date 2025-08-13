@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from . import models as dbm
 from .events import emit_event
 from .messaging import send_message
+from .cadence import get_cadence_definition
 
 
 def run_tick(db: Session, tenant_id: Optional[str] = None) -> int:
@@ -30,8 +31,12 @@ def run_tick(db: Session, tenant_id: Optional[str] = None) -> int:
             next_epoch = (now // 3600 + ((next_hour - local_hour) % 24)) * 3600
             cs.next_action_epoch = next_epoch
             continue
-        # Simplified step progression
-        send_message(db, cs.tenant_id, cs.contact_id, "sms", None)
+        # Step-aware progression
+        steps = get_cadence_definition(cs.cadence_id)
+        if cs.step_index < len(steps):
+            step = steps[cs.step_index]
+            channel = str(step.get("channel", "sms"))
+            send_message(db, cs.tenant_id, cs.contact_id, channel, None)
         cs.step_index += 1
         cs.next_action_epoch = None
         processed += 1

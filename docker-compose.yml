@@ -18,6 +18,9 @@ services:
       - QUIET_HOURS_START=${QUIET_HOURS_START:-21}
       - QUIET_HOURS_END=${QUIET_HOURS_END:-8}
       - DEFAULT_TZ_OFFSET=${DEFAULT_TZ_OFFSET:-0}
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY:-}
+      - LOVABLE_DATABASE_URL=${LOVABLE_DATABASE_URL:-}
     volumes:
       - .:/app
     restart: unless-stopped

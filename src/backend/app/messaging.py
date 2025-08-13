@@ -24,6 +24,21 @@ def _is_suppressed(db: Session, tenant_id: str, contact_id: str, channel: str) -
     return log is not None
 
 
+def _has_opt_in(db: Session, tenant_id: str, contact_id: str, channel: str) -> bool:
+    contact = (
+        db.query(dbm.Contact)
+        .filter(dbm.Contact.tenant_id == tenant_id, dbm.Contact.contact_id == contact_id)
+        .first()
+    )
+    if not contact:
+        return False
+    if channel == "sms":
+        return bool(contact.consent_sms)
+    if channel == "email":
+        return bool(contact.consent_email)
+    return False
+
+
 def send_message(
     db: Session,
     tenant_id: str,
@@ -45,6 +60,18 @@ def send_message(
             },
         )
         return {"status": "suppressed"}
+    if not _has_opt_in(db, tenant_id, contact_id, channel):
+        emit_event(
+            "MessageFailed",
+            {
+                "tenant_id": tenant_id,
+                "contact_id": contact_id,
+                "channel": channel,
+                "template_id": template_id,
+                "failure_code": "no_consent",
+            },
+        )
+        return {"status": "no_consent"}
     emit_event(
         "MessageQueued",
         {"tenant_id": tenant_id, "contact_id": contact_id, "channel": channel, "template_id": template_id},
