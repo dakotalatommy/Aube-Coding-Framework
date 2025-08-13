@@ -8,7 +8,7 @@ from .events import emit_event
 from .db import Base, engine, get_db
 from . import models as dbm
 from .auth import get_user_context, require_role, UserContext
-from .cadence import get_cadence_definition
+from .cadence import get_cadence_definition, schedule_initial_next_action
 from .kpi import compute_time_saved_minutes, ambassador_candidate, admin_kpis
 from .messaging import send_message
 from .integrations import crm_hubspot, booking_acuity
@@ -127,6 +127,7 @@ def start_cadence(
         )
     )
     db.commit()
+    schedule_initial_next_action(db, req.tenant_id, req.contact_id, req.cadence_id)
     # schedule preview (simulated) — could be returned to UI
     _steps = get_cadence_definition(req.cadence_id)
     emit_event(

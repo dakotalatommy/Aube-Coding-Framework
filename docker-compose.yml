@@ -5,7 +5,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=sqlite:///./brandvx.db
+      - DATABASE_URL=postgresql+psycopg2://brandvx:brandvx@db:5432/brandvx
       - REDIS_URL=redis://redis:6379/0
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
@@ -14,14 +14,32 @@ services:
       - AI_PROVIDER=${AI_PROVIDER:-chat}
       - OPENAI_AGENT_ID=${OPENAI_AGENT_ID:-}
       - OPENAI_AGENTS_URL=${OPENAI_AGENTS_URL:-https://api.openai.com/v1/responses}
+      - QUIET_HOURS_START=${QUIET_HOURS_START:-21}
+      - QUIET_HOURS_END=${QUIET_HOURS_END:-8}
+      - DEFAULT_TZ_OFFSET=${DEFAULT_TZ_OFFSET:-0}
     volumes:
       - .:/app
     restart: unless-stopped
     depends_on:
       - redis
+      - db
+    command: sh -c "alembic upgrade head && uvicorn src.backend.app.main:app --host 0.0.0.0 --port 8000"
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
     restart: unless-stopped
+  db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_DB=brandvx
+      - POSTGRES_USER=brandvx
+      - POSTGRES_PASSWORD=brandvx
+    ports:
+      - "5432:5432"
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    restart: unless-stopped
+volumes:
+  dbdata:
 

@@ -38,6 +38,8 @@ def send_message(db: Session, tenant_id: str, contact_id: str, channel: str, tem
         "MessageQueued",
         {"tenant_id": tenant_id, "contact_id": contact_id, "channel": channel, "template_id": template_id},
     )
+    # Provider dispatch stub (to be replaced by Twilio/SendGrid adapters)
+    # On success
     emit_event(
         "MessageSent",
         {"tenant_id": tenant_id, "contact_id": contact_id, "channel": channel, "template_id": template_id},
