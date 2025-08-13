@@ -3,12 +3,22 @@ import hmac
 import hashlib
 import base64
 from typing import Dict, Any
+import httpx
 
 
 def twilio_send_sms(to_e164: str, body: str) -> Dict[str, Any]:
-    # placeholder: wire httpx to Twilio Messages API
-    # returns a stubbed success
-    return {"status": "queued", "provider_id": "twilio-stub"}
+    account_sid = os.getenv("TWILIO_ACCOUNT_SID", "")
+    auth_token = os.getenv("TWILIO_AUTH_TOKEN", "")
+    from_number = os.getenv("TWILIO_FROM_NUMBER", "")
+    if not (account_sid and auth_token and from_number and to_e164):
+        raise RuntimeError("twilio not configured")
+    url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json"
+    data = {"To": to_e164, "From": from_number, "Body": body}
+    with httpx.Client(timeout=20) as client:
+        r = client.post(url, data=data, auth=(account_sid, auth_token))
+        r.raise_for_status()
+        j = r.json()
+        return {"status": j.get("status", "queued"), "provider_id": j.get("sid", "")}
 
 
 def twilio_verify_signature(url: str, payload: Dict[str, Any], signature: str) -> bool:
