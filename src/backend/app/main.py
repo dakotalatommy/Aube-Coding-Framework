@@ -17,6 +17,7 @@ from .rate_limit import check_and_increment
 from .scheduler import run_tick
 from .ai import AIClient
 from .brand_prompts import BRAND_SYSTEM, cadence_intro_prompt, chat_system_prompt
+from .tools import execute_tool
 
 
 app = FastAPI(title="BrandVX Backend", version="0.2.0")
@@ -225,6 +226,25 @@ async def ai_chat(
         {"tenant_id": req.tenant_id, "length": len(content)},
     )
     return {"text": content}
+
+
+class ToolExecRequest(BaseModel):
+    tenant_id: str
+    name: str
+    params: Dict[str, object] = {}
+
+
+@app.post("/ai/tools/execute")
+async def ai_tool_execute(
+    req: ToolExecRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    result = await execute_tool(req.name, dict(req.params or {}), db, ctx)
+    emit_event("AIToolExecuted", {"tenant_id": req.tenant_id, "tool": req.name, "status": result.get("status")})
+    return result
 
 
 @app.post("/integrations/crm/hubspot/upsert")
