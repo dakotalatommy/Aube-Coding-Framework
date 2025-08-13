@@ -32,11 +32,17 @@ AI setup
   - Persistent via Compose: create a `.env` file next to `docker-compose.yml`:
     ```bash
     echo "OPENAI_API_KEY=sk-...yourkey..." > .env
+    echo "OPENAI_MODEL=gpt-5" >> .env
+    # Optional model fallbacks, comma-separated. Example:
+    echo "OPENAI_FALLBACK_MODELS=gpt-4o-mini" >> .env
     ```
     Then `docker compose up --build` (Compose auto-loads `.env`).
   - Optional:
     - `OPENAI_MODEL` (default: gpt-4o-mini)
     - `OPENAI_BASE_URL` (default: https://api.openai.com/v1)
+    - `AI_PROVIDER` (chat|agents). For GPT‑5 Agents SDK set `AI_PROVIDER=agents` and provide:
+      - `OPENAI_AGENT_ID=...` (your agent ID)
+      - `OPENAI_AGENTS_URL` (default: `$OPENAI_BASE_URL/responses`)
 
 
 
