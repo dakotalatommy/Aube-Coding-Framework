@@ -12,6 +12,8 @@ from .cadence import get_cadence_definition
 from .kpi import compute_time_saved_minutes, ambassador_candidate, admin_kpis
 from .messaging import send_message
 from .integrations import crm_hubspot, booking_acuity
+from .utils import normalize_phone
+from .rate_limit import check_and_increment
 
 
 app = FastAPI(title="BrandVX Backend", version="0.2.0")
@@ -140,6 +142,19 @@ def simulate_message(
 ) -> Dict[str, str]:
     if ctx.tenant_id != req.tenant_id:
         return {"status": "forbidden"}
+    ok, current = check_and_increment(req.tenant_id, f"msg:{req.channel}", max_per_minute=60)
+    if not ok:
+        emit_event(
+            "MessageFailed",
+            {
+                "tenant_id": req.tenant_id,
+                "contact_id": req.contact_id,
+                "channel": req.channel,
+                "template_id": req.template_id,
+                "failure_code": "rate_limited",
+            },
+        )
+        return {"status": "rate_limited"}
     send_message(db, req.tenant_id, req.contact_id, req.channel, req.template_id)
     STATE["metrics"]["messages_sent"] += 1
     STATE["metrics"]["time_saved_minutes"] += 2

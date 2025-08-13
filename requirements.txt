@@ -7,3 +7,5 @@ psycopg2-binary==2.9.9
 redis==5.0.7
 PyJWT==2.9.0
 prometheus-client==0.20.0
+alembic==1.13.2
+phonenumbers==8.13.43
