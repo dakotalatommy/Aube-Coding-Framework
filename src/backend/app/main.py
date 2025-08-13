@@ -130,7 +130,7 @@ def simulate_message(
 ) -> Dict[str, str]:
     if ctx.tenant_id != req.tenant_id:
         return {"status": "forbidden"}
-    send_message(req.tenant_id, req.contact_id, req.channel, req.template_id)
+    send_message(db, req.tenant_id, req.contact_id, req.channel, req.template_id)
     STATE["metrics"]["messages_sent"] += 1
     STATE["metrics"]["time_saved_minutes"] += 2
     # upsert metrics
