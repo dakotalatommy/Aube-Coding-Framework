@@ -30,8 +30,9 @@ def upsert(tenant_id: str, obj_type: str, attrs: Dict[str, Any], idempotency_key
             )
             return {"external_id": external_id, "status": "ok"}
         except Exception:
-            # naive backoff
-            time.sleep(0.2 * (attempt + 1))
+            # exponential backoff with jitter (placeholder)
+            delay = (0.25 * (2 ** attempt)) + (hash(key) % 50) / 1000.0
+            time.sleep(delay)
     return {"status": "error", "idempotency_key": key}
 
 

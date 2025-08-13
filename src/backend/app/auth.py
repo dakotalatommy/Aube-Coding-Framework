@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from fastapi import Header, HTTPException
 from typing import Optional
+import os
+import time
+import jwt
 
 
 @dataclass
@@ -14,8 +17,27 @@ async def get_user_context(
     x_user_id: Optional[str] = Header(default=None),
     x_role: Optional[str] = Header(default=None),
     x_tenant_id: Optional[str] = Header(default=None),
+    authorization: Optional[str] = Header(default=None),
 ) -> UserContext:
-    # Minimal dev default; replace with JWT/session in production
+    # Prefer JWT if provided
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1]
+        try:
+            payload = jwt.decode(
+                token,
+                os.getenv("JWT_SECRET", "dev_secret"),
+                algorithms=["HS256"],
+                audience=os.getenv("JWT_AUDIENCE", "brandvx-users"),
+                issuer=os.getenv("JWT_ISSUER", "brandvx"),
+            )
+            return UserContext(
+                user_id=str(payload.get("sub", "user")),
+                role=str(payload.get("role", "practitioner")),
+                tenant_id=str(payload.get("tenant_id", "t1")),
+            )
+        except Exception:
+            raise HTTPException(status_code=401, detail="invalid token")
+    # Minimal dev default via headers
     user_id = x_user_id or "dev-user"
     role = (x_role or "practitioner").lower()
     tenant_id = x_tenant_id or "t1"

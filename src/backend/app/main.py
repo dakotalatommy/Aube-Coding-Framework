@@ -1,8 +1,9 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional
 from sqlalchemy.orm import Session
+from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST
 from .events import emit_event
 from .db import Base, engine, get_db
 from . import models as dbm
@@ -55,6 +56,15 @@ def health() -> Dict[str, str]:
 
 # Serve static web
 app.mount("/app", StaticFiles(directory="src/web", html=True), name="app")
+
+
+# Prometheus metrics (basic request counters)
+REQ_COUNTER = Counter("brandvx_requests_total", "Total requests", ["endpoint"]) 
+
+
+@app.get("/metrics/prometheus")
+def prometheus_metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 @app.post("/import/contacts")
