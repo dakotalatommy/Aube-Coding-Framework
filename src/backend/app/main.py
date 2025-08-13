@@ -9,6 +9,8 @@ from . import models as dbm
 from .auth import get_user_context, require_role, UserContext
 from .cadence import get_cadence_definition
 from .kpi import compute_time_saved_minutes, ambassador_candidate
+from .messaging import send_message
+from .integrations import crm_hubspot, booking_acuity
 
 
 app = FastAPI(title="BrandVX Backend", version="0.2.0")
@@ -128,24 +130,7 @@ def simulate_message(
 ) -> Dict[str, str]:
     if ctx.tenant_id != req.tenant_id:
         return {"status": "forbidden"}
-    emit_event(
-        "MessageQueued",
-        {
-            "tenant_id": req.tenant_id,
-            "contact_id": req.contact_id,
-            "channel": req.channel,
-            "template_id": req.template_id,
-        },
-    )
-    emit_event(
-        "MessageSent",
-        {
-            "tenant_id": req.tenant_id,
-            "contact_id": req.contact_id,
-            "channel": req.channel,
-            "template_id": req.template_id,
-        },
-    )
+    send_message(req.tenant_id, req.contact_id, req.channel, req.template_id)
     STATE["metrics"]["messages_sent"] += 1
     STATE["metrics"]["time_saved_minutes"] += 2
     # upsert metrics
@@ -164,6 +149,32 @@ def simulate_message(
         },
     )
     return {"status": "sent"}
+
+
+@app.post("/integrations/crm/hubspot/upsert")
+def crm_upsert(
+    tenant_id: str,
+    obj_type: str,
+    attrs: Dict[str, str],
+    idempotency_key: Optional[str] = None,
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != tenant_id:
+        return {"status": "forbidden"}
+    return crm_hubspot.upsert(tenant_id, obj_type, attrs, idempotency_key)
+
+
+@app.post("/integrations/booking/acuity/import")
+def booking_import(
+    tenant_id: str,
+    since: Optional[str] = None,
+    until: Optional[str] = None,
+    cursor: Optional[str] = None,
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != tenant_id:
+        return {"status": "forbidden"}
+    return booking_acuity.import_appointments(tenant_id, since, until, cursor)
 
 
 @app.get("/metrics")
