@@ -32,6 +32,7 @@
       <button id="stop">STOP (suppress)</button>
       <button id="soonest">Set Prefer: Soonest</button>
       <button id="share">Surface Share Prompt</button>
+      <button id="adminKpis">Get Admin KPIs</button>
     </div>
     <pre id="out"></pre>
     <script>
@@ -71,6 +72,10 @@
       document.getElementById('share').onclick = async () => {
         const tenant_id = document.getElementById('tenant').value;
         log(await api('/share/surface', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({tenant_id, kind:'time_saved_10h'})}));
+      };
+      document.getElementById('adminKpis').onclick = async () => {
+        const tenant_id = document.getElementById('tenant').value;
+        log(await api(`/admin/kpis?tenant_id=${tenant_id}`));
       };
     </script>
   </body>

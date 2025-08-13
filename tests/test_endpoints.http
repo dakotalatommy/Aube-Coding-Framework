@@ -60,3 +60,8 @@ x-tenant-id: t1
 # Metrics
 GET http://localhost:8000/metrics?tenant_id=t1
 x-tenant-id: t1
+
+###
+# Admin KPIs
+GET http://localhost:8000/admin/kpis?tenant_id=t1
+x-tenant-id: t1

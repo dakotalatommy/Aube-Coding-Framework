@@ -8,7 +8,7 @@ from .db import Base, engine, get_db
 from . import models as dbm
 from .auth import get_user_context, require_role, UserContext
 from .cadence import get_cadence_definition
-from .kpi import compute_time_saved_minutes, ambassador_candidate
+from .kpi import compute_time_saved_minutes, ambassador_candidate, admin_kpis
 from .messaging import send_message
 from .integrations import crm_hubspot, booking_acuity
 
@@ -189,6 +189,13 @@ def get_metrics(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext 
         "time_saved_minutes": compute_time_saved_minutes(db, tenant_id),
         "ambassador_candidate": ambassador_candidate(db, tenant_id),
     }
+
+
+@app.get("/admin/kpis")
+def get_admin_kpis(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
+    if ctx.role != "owner_admin" and ctx.tenant_id != tenant_id:
+        return {}
+    return admin_kpis(db, tenant_id)
 
 
 class PreferenceRequest(BaseModel):
