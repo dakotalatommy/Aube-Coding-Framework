@@ -231,7 +231,7 @@ export default function Onboarding(){
   };
 
   const startTour = () => {
-    // Ensure the connect tools section is visible for the tour
+    // Start at Connect section
     setStep(2);
     setTimeout(() => {
       const d = driver({
@@ -240,10 +240,11 @@ export default function Onboarding(){
         prevBtnText: 'Back',
         doneBtnText: 'Done',
         steps: [
-          { element: '[data-tour="steps"]', popover: { title: 'Steps', description: 'Quick 5 steps — you can jump around anytime.' } },
-          { element: '[data-tour="connect"]', popover: { title: 'Connect tools', description: 'Link booking, messages, payments, and CRM. We keep it human and consent-first.' } },
-          { element: '[data-tour="analyze"]', popover: { title: 'Analyze setup', description: 'After connecting, run a quick analysis to see what’s configured.' } },
-          { element: '[data-tour="cta"]', popover: { title: 'Ready when you are', description: 'White‑glove or self-serve — you approve everything before it sends.' } },
+          { element: '[data-tour="steps"]', popover: { title: 'Steps', description: '5 quick steps — you can jump around anytime.' }, onNextClick: () => setStep(2) },
+          { element: '[data-tour="connect"]', popover: { title: 'Connect tools', description: 'Link booking, messages, payments, and CRM. Human and consent‑first.' }, onNextClick: () => setStep(3) },
+          { element: '[data-tour="brand"]', popover: { title: 'Your vibe & services', description: 'Pick tone and services so messages feel like you.' }, onNextClick: () => setStep(4) },
+          { element: '[data-tour="preview"]', popover: { title: 'Preview messages', description: 'Approve examples before anything goes live.' }, onNextClick: () => setStep(4) },
+          { element: '[data-tour="timing"]', popover: { title: 'Timing & defaults', description: 'Choose reminder steps and lead reply defaults.' } },
         ],
       } as any);
       d.drive();
@@ -271,7 +272,7 @@ export default function Onboarding(){
           <div className="flex items-center gap-3">
             <div className="h-9 w-9 rounded-xl bg-white/70 backdrop-blur shadow grid place-items-center"><span className="text-sky-600 font-bold">BVX</span></div>
             <div>
-              <h1 className="font-semibold tracking-tight text-slate-900 text-xl" style={{ fontFamily: 'Space Grotesk, Inter, system-ui' }}>BrandVX Onboarding</h1>
+              <h1 className="font-semibold tracking-tight text-slate-900 text-xl" style={{ fontFamily: 'Space Grotesk, Inter, system-ui' }}>Onboarding — 5 quick steps</h1>
               <p className="text-slate-600 text-sm">Beauty pros • gentle setup • your voice, your clients</p>
             </div>
           </div>
@@ -294,7 +295,7 @@ export default function Onboarding(){
             <button onClick={startTour} className="ml-auto px-3 py-2 rounded-full border border-slate-200 text-slate-900" aria-label="Open onboarding guide">Guide me</button>
           </div>
           <div className="mt-3">
-            <div className="text-xs text-slate-600 mb-1">Progress</div>
+            <div className="text-xs text-slate-600 mb-1">Progress (step {step}/{steps.length})</div>
             <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
               <div className="h-full bg-gradient-to-r from-pink-400 to-violet-400" style={{ width: `${Math.round((step/steps.length)*100)}%` }} />
             </div>
@@ -478,7 +479,7 @@ export default function Onboarding(){
 
               {step === 3 && (
                 <motion.section key="s3" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.25 }}>
-                  <PrettyCard>
+                  <PrettyCard data-tour="brand">
                     <h2 className="text-lg font-semibold text-slate-900">Your vibe & services</h2>
                     <div className="mt-4 grid md:grid-cols-2 gap-6">
                       <div>
@@ -523,7 +524,7 @@ export default function Onboarding(){
 
               {step === 4 && (
                 <motion.section key="s4" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.25 }}>
-                  <PrettyCard>
+                  <PrettyCard data-tour="preview">
                     <h2 className="text-lg font-semibold text-slate-900">Preview messages</h2>
                     <p className="mt-1 text-slate-600">Examples only — you approve before anything sends.</p>
                     <div className="mt-4 grid gap-3">
@@ -551,7 +552,7 @@ export default function Onboarding(){
                       </ul>
                       <div className="mt-2 text-xs text-slate-500">Clients can reply STOP/HELP at any time. You can pause or edit messages whenever you like.</div>
                     </div>
-                    <div className="mt-4 rounded-xl bg-white/70 p-4 border border-white/70">
+                    <div className="mt-4 rounded-xl bg-white/70 p-4 border border-white/70" data-tour="timing">
                       <div className="font-medium text-slate-900">Choose timing & defaults</div>
                       <div className="mt-2 grid sm:grid-cols-2 gap-3 text-sm text-slate-700">
                         <div>

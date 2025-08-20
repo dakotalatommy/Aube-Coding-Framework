@@ -27,11 +27,20 @@ export default function Ask(){
   });
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
+  const [sessions, setSessions] = useState<Array<{session_id:string; last_message_at:number}>>([]);
+  const [shareUrl, setShareUrl] = useState<string>("");
   const loadHistory = async () => {
     try{
       const tid = await getTenant();
       const r = await api.get(`/ai/chat/logs?tenant_id=${encodeURIComponent(tid)}&session_id=${encodeURIComponent(sessionId)}&limit=200`);
       setHistory(r?.items||[]);
+    } catch{}
+  };
+  const loadSessions = async () => {
+    try{
+      const tid = await getTenant();
+      const r = await api.get(`/ai/chat/sessions?tenant_id=${encodeURIComponent(tid)}&limit=50`);
+      setSessions(Array.isArray(r?.items) ? r.items : []);
     } catch{}
   };
 
@@ -246,7 +255,38 @@ export default function Ask(){
       <div className="flex items-center gap-2 text-sm">
         <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ setHistoryOpen(h=>!h); if (!historyOpen) void loadHistory(); }}>{historyOpen ? 'Hide history' : 'Show history'}</button>
         <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ const sid = 's_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('bvx_chat_session', sid); window.location.reload(); }}>New session</button>
+        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ void loadSessions(); }}>Sessions</button>
+        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{
+          try{
+            const tid = await getTenant();
+            const last = messages.filter(m=>m.role==='assistant').slice(-1)[0]?.content || messages.slice(-1)[0]?.content || 'Shared from BrandVX';
+            const title = (last || 'BrandVX').slice(0, 80);
+            const r = await api.post('/share/create', { tenant_id: tid, title, description: last, image_url: '', caption: '', kind: 'ask_share' });
+            const url = String(r?.url || '');
+            if (url) {
+              setShareUrl(url);
+              try { await navigator.clipboard.writeText(url); } catch {}
+            }
+          } catch {}
+        }}>Share</button>
       </div>
+      {shareUrl && (
+        <div className="text-xs text-slate-600 mt-1">Share link copied: <a className="underline" href={shareUrl} target="_blank" rel="noreferrer">{shareUrl}</a></div>
+      )}
+      {sessions.length > 0 && (
+        <div className="border rounded-xl bg-white shadow-sm p-3 max-h-32 overflow-auto text-xs text-slate-700 mt-2">
+          <ul className="space-y-1">
+            {sessions.map(s => (
+              <li key={s.session_id}>
+                <button className="underline" onClick={() => { localStorage.setItem('bvx_chat_session', s.session_id); window.location.reload(); }}>
+                  {s.session_id}
+                </button>
+                <span className="text-slate-500 ml-2">{new Date((s.last_message_at<1e12? s.last_message_at*1000 : s.last_message_at)).toLocaleString()}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       {historyOpen && (
         <div className="border rounded-xl bg-white shadow-sm p-3 max-h-40 overflow-auto text-xs text-slate-700">
           {history.length === 0 ? <div>No messages yet.</div> : (
