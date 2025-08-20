@@ -1,10 +1,10 @@
-from typing import List, Dict
+from typing import List, Dict, Union
 import time
 from sqlalchemy.orm import Session
 from . import models as dbm
 
 
-NEVER_ANSWERED_STEPS: List[Dict[str, str | int]] = [
+NEVER_ANSWERED_STEPS: List[Dict[str, Union[str, int]]] = [
     {"day": 2, "channel": "sms"},
     {"day": 5, "channel": "email"},
     {"day": 9, "channel": "email"},
@@ -16,16 +16,33 @@ NEVER_ANSWERED_STEPS: List[Dict[str, str | int]] = [
 ]
 
 
-RETARGETING_NO_ANSWER: List[Dict[str, str | int]] = [
+RETARGETING_NO_ANSWER: List[Dict[str, Union[str, int]]] = [
     {"day": 60, "channel": "sms"},
 ]
 
 
-def get_cadence_definition(cadence_id: str) -> List[Dict[str, str | int]]:
+ENGAGED_STEPS: List[Dict[str, Union[str, int]]] = [
+    {"day": 3, "channel": "sms"},
+]
+
+
+REMINDER_STEPS: List[Dict[str, Union[str, int]]] = [
+    {"day": 7, "channel": "sms"},
+    {"day": 3, "channel": "sms"},
+    {"day": 1, "channel": "sms"},
+    {"day": 0, "channel": "sms"},  # 2h could be handled by hour-based delay in scheduler
+]
+
+
+def get_cadence_definition(cadence_id: str) -> List[Dict[str, Union[str, int]]]:
     if cadence_id == "never_answered":
         return NEVER_ANSWERED_STEPS
     if cadence_id == "retargeting_no_answer":
         return RETARGETING_NO_ANSWER
+    if cadence_id == "engaged_default":
+        return ENGAGED_STEPS
+    if cadence_id == "reminder_schedule":
+        return REMINDER_STEPS
     return []
 
 

@@ -1,0 +1,341 @@
+import { useEffect, useRef, useState } from 'react';
+import { api, getTenant } from '../lib/api';
+import { useToast } from '../components/ui/Toast';
+import { startGuide } from '../lib/guide';
+import { track } from '../lib/analytics';
+
+type Msg = { role: 'user' | 'assistant'; content: string };
+
+export default function Ask(){
+  const { showToast } = useToast();
+  const [input, setInput] = useState('What KPIs should I look at today?');
+  const [messages, setMessages] = useState<Msg[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [streaming, setStreaming] = useState(false);
+  const streamId = useRef<number | null>(null);
+  const [firstNoteShown, setFirstNoteShown] = useState<boolean>(() => {
+    const k = 'bvx_first_prompt_note';
+    return localStorage.getItem(k) === '1';
+  });
+  const [sessionId] = useState<string>(() => {
+    const key = 'bvx_chat_session';
+    const existing = localStorage.getItem(key);
+    if (existing) return existing;
+    const sid = 's_' + Math.random().toString(36).slice(2, 10);
+    localStorage.setItem(key, sid);
+    return sid;
+  });
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [history, setHistory] = useState<any[]>([]);
+  const loadHistory = async () => {
+    try{
+      const tid = await getTenant();
+      const r = await api.get(`/ai/chat/logs?tenant_id=${encodeURIComponent(tid)}&session_id=${encodeURIComponent(sessionId)}&limit=200`);
+      setHistory(r?.items||[]);
+    } catch{}
+  };
+
+  const send = async () => {
+    const prompt = input.trim();
+    if (!prompt || loading) return;
+    const next = [...messages, { role: 'user' as const, content: prompt }];
+    setMessages(next);
+    setInput('');
+    setLoading(true);
+    try{
+      const r = await api.post('/ai/chat', {
+        tenant_id: await getTenant(),
+        messages: next,
+        allow_tools: false,
+        session_id: sessionId,
+      });
+      const text = String(r?.text || '');
+      if (!firstNoteShown) {
+        setFirstNoteShown(true);
+        localStorage.setItem('bvx_first_prompt_note', '1');
+      }
+      setStreaming(true);
+      setMessages(curr => [...curr, { role: 'assistant', content: '' }]);
+      const step = Math.max(2, Math.floor(text.length / 200));
+      let i = 0;
+      if (streamId.current) { window.clearInterval(streamId.current); streamId.current = null; }
+      streamId.current = window.setInterval(() => {
+        i = Math.min(text.length, i + step);
+        const chunk = text.slice(0, i);
+        setMessages(curr => {
+          const out = curr.slice();
+          const lastIdx = out.length - 1;
+          if (lastIdx >= 0 && out[lastIdx].role === 'assistant') {
+            out[lastIdx] = { role: 'assistant', content: chunk };
+          }
+          return out;
+        });
+        if (i >= text.length) {
+          if (streamId.current) { window.clearInterval(streamId.current); streamId.current = null; }
+          setStreaming(false);
+        }
+      }, 20);
+    } catch(e:any){
+      setMessages(curr => [...curr, { role: 'assistant', content: String(e?.message||e) }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      void send();
+    }
+  };
+
+  const reset = () => { setMessages([]); setInput(''); };
+  const setShortcut = (text: string) => { setInput(text); };
+  const guideTo = (page: 'dashboard'|'integrations'|'onboarding') => {
+    const map = { dashboard: '/dashboard?tour=1', integrations: '/integrations', onboarding: '/onboarding?tour=1' } as const;
+    const href = map[page];
+    if (page === 'integrations') {
+      window.location.href = '/integrations';
+      setTimeout(()=>{ try{ new URLSearchParams(window.location.search).set('tour','1'); } catch{} }, 10);
+    } else {
+      window.location.href = href;
+    }
+  };
+
+  useEffect(() => {
+    return () => { if (streamId.current) { window.clearInterval(streamId.current); streamId.current = null; } };
+  }, []);
+
+  const sp = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
+  const embedded = sp.get('embed') === '1';
+
+  const [running, setRunning] = useState<string>('');
+  const [TENANT_ID, setTenantId] = useState<string>(localStorage.getItem('bvx_tenant') || 't1');
+  useEffect(()=>{ (async()=>{ try{ setTenantId(await getTenant()); } catch{} })(); },[]);
+  const planKey = (name?: string) => `bvx_plan_queue_${TENANT_ID}${name?`_${name}`:''}`;
+  const getSavedQueue = () => {
+    try { const v = localStorage.getItem(planKey()); return v? JSON.parse(v): null; } catch { return null; }
+  };
+  const saveQueue = (name: string, stepsLeft: any[]) => {
+    try { localStorage.setItem(planKey(), JSON.stringify({ name, stepsLeft })); } catch {}
+  };
+  const clearQueue = () => { try { localStorage.removeItem(planKey()); } catch {} };
+  const runPlan = async (name: 'crm_organization'|'book_filling'|'inventory_tracking'|'social_automation') => {
+    if (running) return;
+    setRunning(name);
+    try{
+      // Optionally kick off a tour on the workflows page in parallel
+      try { startGuide('workflows'); } catch {}
+      const plan = await api.post('/ai/workflow/plan', { tenant_id: TENANT_ID, name });
+      try { track('ask_plan_start', { name }); } catch {}
+      const steps = Array.isArray(plan?.steps) ? plan.steps : [];
+      for (let i = 0; i < steps.length; i++) {
+        const step = steps[i];
+        const tool = step.tool as string;
+        const requires = Boolean(step.requiresApproval);
+        // Handle pseudo-tools for link/oauth/import/preview
+        if (tool === 'link.hubspot.signup') {
+          window.open('https://app.hubspot.com/signup', '_blank');
+          continue;
+        }
+        if (tool === 'oauth.hubspot.connect') {
+          try {
+            const j = await api.get(`/oauth/hubspot/login?tenant_id=${TENANT_ID}`);
+            if (j?.url) window.open(j.url, '_blank');
+            showToast({ title:'Connect HubSpot', description:'Opened HubSpot connect in a new tab.' });
+          } catch {}
+          continue;
+        }
+        if (tool === 'crm.hubspot.import') {
+          try {
+            const r = await api.post('/crm/hubspot/import', { tenant_id: TENANT_ID });
+            showToast({ title:'Imported', description:`${Number(r?.imported||0)} contacts imported from HubSpot.` });
+          } catch (e:any) { showToast({ title:'Import error', description:String(e?.message||e) }); }
+          continue;
+        }
+        if (tool === 'segment.dormant.preview' || tool === 'campaigns.dormant.preview') {
+          try {
+            const r = await api.get(`/campaigns/dormant/preview?tenant_id=${TENANT_ID}&threshold_days=60`);
+            showToast({ title:'Segment preview', description:`${Number(r?.count||0)} contacts dormant ≥60d.` });
+          } catch {}
+          continue;
+        }
+        const res = await api.post('/ai/tools/execute', {
+          tenant_id: TENANT_ID,
+          name: tool,
+          params: { tenant_id: TENANT_ID },
+          require_approval: requires,
+        });
+        if (res?.status === 'pending') {
+          try { track('ask_plan_step_pending', { name, tool }); } catch {}
+          showToast({ title: 'Approval required', description: `"${tool}" is pending. Review in Approvals.` });
+          // Save remaining steps (including current) to resume later
+          saveQueue(name, steps.slice(i));
+          // Stop execution and guide the user to Approvals
+          window.open('/approvals', '_self');
+          return;
+        }
+        if (res?.status === 'error') {
+          try { track('ask_plan_step_error', { name, tool }); } catch {}
+          showToast({ title: 'Step failed', description: String(res?.message || res?.detail || tool) });
+          return;
+        }
+        try { track('ask_plan_step_done', { name, tool }); } catch {}
+        showToast({ title: 'Step complete', description: `${tool} → ${res?.status||'ok'}` });
+      }
+      try { track('ask_plan_done', { name }); } catch {}
+      showToast({ title: 'Plan finished', description: 'All steps completed.' });
+      clearQueue();
+    } catch(e:any){
+      showToast({ title: 'Plan error', description: String(e?.message||e) });
+    } finally {
+      setRunning('');
+    }
+  };
+
+  const resumePlan = async () => {
+    if (running) return;
+    const saved = getSavedQueue();
+    if (!saved?.name || !Array.isArray(saved.stepsLeft) || saved.stepsLeft.length === 0) {
+      showToast({ title: 'Nothing to resume', description: 'No pending plan was found.' });
+      return;
+    }
+    const name = saved.name as 'crm_organization'|'book_filling'|'inventory_tracking'|'social_automation';
+    setRunning(name);
+    try {
+      for (let i = 0; i < saved.stepsLeft.length; i++) {
+        const step = saved.stepsLeft[i];
+        const tool = step.tool as string;
+        const requires = Boolean(step.requiresApproval);
+        if (tool === 'link.hubspot.signup') { window.open('https://app.hubspot.com/signup','_blank'); continue; }
+        if (tool === 'oauth.hubspot.connect') {
+          try { const j = await api.get(`/oauth/hubspot/login?tenant_id=${TENANT_ID}`); if (j?.url) window.open(j.url,'_blank'); showToast({ title:'Connect HubSpot', description:'Opened HubSpot connect in a new tab.' }); } catch {}
+          continue;
+        }
+        if (tool === 'crm.hubspot.import') { try { const r = await api.post('/crm/hubspot/import', { tenant_id: TENANT_ID }); showToast({ title:'Imported', description:`${Number(r?.imported||0)} contacts imported from HubSpot.` }); } catch(e:any){ showToast({ title:'Import error', description:String(e?.message||e) }); } continue; }
+        if (tool === 'segment.dormant.preview' || tool === 'campaigns.dormant.preview') { try { const r = await api.get(`/campaigns/dormant/preview?tenant_id=${TENANT_ID}&threshold_days=60`); showToast({ title:'Segment preview', description:`${Number(r?.count||0)} contacts dormant ≥60d.` }); } catch{} continue; }
+        const res = await api.post('/ai/tools/execute', {
+          tenant_id: TENANT_ID,
+          name: tool,
+          params: { tenant_id: TENANT_ID },
+          require_approval: requires,
+        });
+        if (res?.status === 'pending') {
+          saveQueue(name, saved.stepsLeft.slice(i));
+          showToast({ title: 'Still pending', description: `"${tool}" requires approval. Review in Approvals.` });
+          window.open('/approvals', '_self');
+          return;
+        }
+        if (res?.status === 'error') {
+          showToast({ title: 'Step failed', description: String(res?.message || res?.detail || tool) });
+          return;
+        }
+        showToast({ title: 'Step complete', description: `${tool} → ${res?.status||'ok'}` });
+      }
+      clearQueue();
+      showToast({ title: 'Plan finished', description: 'All steps completed.' });
+    } catch(e:any){
+      showToast({ title: 'Resume error', description: String(e?.message||e) });
+    } finally {
+      setRunning('');
+    }
+  };
+  return (
+    <div className={`space-y-3 ${embedded ? '' : ''}`}>
+      {!embedded && <h3 className="text-lg font-semibold">Ask VX</h3>}
+      <div className="flex items-center gap-2 text-sm">
+        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ setHistoryOpen(h=>!h); if (!historyOpen) void loadHistory(); }}>{historyOpen ? 'Hide history' : 'Show history'}</button>
+        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ const sid = 's_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('bvx_chat_session', sid); window.location.reload(); }}>New session</button>
+      </div>
+      {historyOpen && (
+        <div className="border rounded-xl bg-white shadow-sm p-3 max-h-40 overflow-auto text-xs text-slate-700">
+          {history.length === 0 ? <div>No messages yet.</div> : (
+            <ul className="space-y-1">
+              {history.map(h=> (
+                <li key={h.id}><span className="font-medium">{h.role}</span>: {h.content}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+      <div className="border rounded-xl bg-white shadow-sm p-3 h-72 overflow-auto">
+        {messages.length === 0 && (
+          <div className="text-sm text-slate-500">Start a conversation below.</div>
+        )}
+        <div className="space-y-2">
+          {messages.map((m, i) => (
+            <div key={i} className={m.role === 'user' ? 'text-right' : 'text-left'}>
+              <span className={
+                'inline-block px-3 py-2 rounded-lg text-sm ' +
+                (m.role === 'user' ? 'bg-sky-100 text-slate-900' : 'bg-slate-100 text-slate-900')
+              }>
+                {m.content}
+              </span>
+            </div>
+          ))}
+          {(loading || streaming) && (
+            <div className="text-left">
+              <span className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-slate-100 text-slate-900">
+                <span>BrandVX is typing</span>
+                <span className="inline-flex">
+                  <span className="w-1 h-1 bg-slate-600 rounded-full animate-bounce" style={{animationDelay:'0ms'}}></span>
+                  <span className="w-1 h-1 bg-slate-600 rounded-full animate-bounce ml-1" style={{animationDelay:'120ms'}}></span>
+                  <span className="w-1 h-1 bg-slate-600 rounded-full animate-bounce ml-1" style={{animationDelay:'240ms'}}></span>
+                </span>
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2 text-xs">
+        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Create a 30‑day content plan for a balayage specialist posting 3x/week.')}>Content Plan</button>
+        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Draft a price‑increase announcement and client FAQ for a luxury but friendly tone.')}>Price Increase</button>
+        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Make a pre‑appointment text and aftercare card for brow lamination with placeholders.')}>Pre/Post Visit</button>
+        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Compute effective hourly given price $225, product cost $28, service time 210 minutes.')}>
+          Pricing Model
+        </button>
+      </div>
+      <div className="flex gap-2 items-start">
+        <textarea
+          className="flex-1 border rounded-md px-3 py-2"
+          rows={3}
+          placeholder="Type your message (Cmd/Ctrl+Enter to send)"
+          value={input}
+          onChange={e=>setInput(e.target.value)}
+          onKeyDown={onKeyDown}
+        />
+        <div className="flex flex-col gap-2">
+          <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" onClick={send} disabled={loading || streaming}>
+            {loading ? 'Sending…' : 'Send'}
+          </button>
+          <button className="text-sm text-slate-600 hover:underline" onClick={reset}>Clear</button>
+        </div>
+      </div>
+      {!firstNoteShown && (
+        <div className="text-xs text-slate-500 mt-1">(Responses may take a moment to ensure quality!)</div>
+      )}
+      {messages.length > 0 && messages[messages.length - 1]?.role === 'assistant' && (
+        <div className="mt-2">
+          <a href="/onboarding?tour=1" className="inline-flex items-center gap-2">
+            <span className="px-3 py-2 border rounded-md bg-white hover:shadow-sm text-sm text-slate-800">Get Started!</span>
+          </a>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('dashboard')}>Guide me: Dashboard</button>
+            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('integrations')}>Guide me: Integrations</button>
+            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('onboarding')}>Guide me: Onboarding</button>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs">
+            <button disabled={!!running} className="px-2 py-1 border rounded-md bg-white hover:shadow-sm disabled:opacity-50" onClick={()=>runPlan('crm_organization')}>{running==='crm_organization' ? 'Running…' : 'Run plan: CRM Organization'}</button>
+            <button disabled={!!running} className="px-2 py-1 border rounded-md bg-white hover:shadow-sm disabled:opacity-50" onClick={()=>runPlan('book_filling')}>{running==='book_filling' ? 'Running…' : 'Run plan: Book-Filling'}</button>
+            <button disabled={!!running} className="px-2 py-1 border rounded-md bg-white hover:shadow-sm disabled:opacity-50" onClick={()=>runPlan('social_automation')}>{running==='social_automation' ? 'Running…' : 'Run plan: Social (14‑day)'}</button>
+            {getSavedQueue() && (
+              <button disabled={!!running} className="px-2 py-1 border rounded-md bg-white hover:shadow-sm disabled:opacity-50" onClick={resumePlan}>{running ? 'Running…' : 'Resume last plan'}</button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+

@@ -1,6 +1,12 @@
 from alembic import op
 import sqlalchemy as sa
 
+revision = '0003_scheduler_deadletter_softdelete'
+down_revision = '0002_audit_logs'
+branch_labels = None
+depends_on = None
+
+
 def upgrade():
     op.add_column('contacts', sa.Column('deleted', sa.Boolean, server_default=sa.text('0')))
     op.add_column('cadence_states', sa.Column('next_action_epoch', sa.Integer))

@@ -1,0 +1,51 @@
+databases:
+- name: brandvx-db
+  databaseName: brandvx
+  user: brandvx
+  plan: starter
+
+services:
+- type: web
+  name: brandvx-app
+  env: docker
+  plan: starter
+  autoDeploy: true
+  dockerfilePath: Dockerfile
+  healthCheckPath: /health
+  envVars:
+  - key: DATABASE_URL
+    fromDatabase:
+      name: brandvx-db
+      property: connectionString
+  - key: BACKEND_BASE_URL
+    value: https://api.brandvx.io
+  - key: FRONTEND_BASE_URL
+    value: https://app.brandvx.io
+  - key: CORS_ORIGINS
+    value: https://app.brandvx.io
+  - key: JWT_SECRET
+    generateValue: true
+  - key: JWT_AUDIENCE
+    value: brandvx-users
+  - key: JWT_ISSUER
+    value: brandvx
+  - key: SUPABASE_URL
+    sync: false
+  - key: SUPABASE_SERVICE_ROLE_KEY
+    sync: false
+  - key: ENABLE_SCHEDULER
+    value: "1"
+  - key: POSTHOG_API_KEY
+    sync: false
+  - key: POSTHOG_HOST
+    value: https://app.posthog.com
+  - key: OPENAI_API_KEY
+    sync: false
+  - key: OPENAI_USE_RESPONSES
+    value: true
+  - key: OPENAI_FALLBACK_MODELS
+    value: gpt-4o-mini
+  - key: REDIS_URL
+    sync: false
+
+

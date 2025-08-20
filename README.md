@@ -58,5 +58,10 @@ Migrations
   alembic upgrade head
   ```
 
+Supabase (L-layer)
+- Set `SUPABASE_URL` (Project URL) and `SUPABASE_SERVICE_ROLE_KEY` in `.env`.
+- Seed example (run in Supabase SQL editor): insert a template and a rule using your `tenant_id` from `profiles`.
+- The backend reads Supabase via an adapter, filtered by `tenant_id`; writes remain in H.
+
 
 

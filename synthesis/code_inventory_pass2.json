@@ -1,0 +1,429 @@
+{
+  "ts": "2025-08-20T02:29:59Z",
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/oauth/refresh",
+      "line": 402
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "line": 495
+    },
+    {
+      "method": "GET",
+      "path": "/ready",
+      "line": 500
+    },
+    {
+      "method": "GET",
+      "path": "/live",
+      "line": 511
+    },
+    {
+      "method": "GET",
+      "path": "/",
+      "line": 516
+    },
+    {
+      "method": "GET",
+      "path": "/debug/state",
+      "line": 524
+    },
+    {
+      "method": "GET",
+      "path": "/metrics/prometheus",
+      "line": 553
+    },
+    {
+      "method": "POST",
+      "path": "/import/contacts",
+      "line": 558
+    },
+    {
+      "method": "GET",
+      "path": "/import/candidates",
+      "line": 595
+    },
+    {
+      "method": "POST",
+      "path": "/cadences/start",
+      "line": 637
+    },
+    {
+      "method": "POST",
+      "path": "/messages/simulate",
+      "line": 670
+    },
+    {
+      "method": "POST",
+      "path": "/messages/send",
+      "line": 729
+    },
+    {
+      "method": "POST",
+      "path": "/ai/chat",
+      "line": 787
+    },
+    {
+      "method": "POST",
+      "path": "/ai/proxy/specialist-router",
+      "line": 871
+    },
+    {
+      "method": "POST",
+      "path": "/ai/proxy/ai-recommendations",
+      "line": 883
+    },
+    {
+      "method": "POST",
+      "path": "/ai/proxy/master-agent-orchestrator",
+      "line": 895
+    },
+    {
+      "method": "POST",
+      "path": "/ai/proxy/realtime-token",
+      "line": 907
+    },
+    {
+      "method": "GET",
+      "path": "/ai/chat/logs",
+      "line": 919
+    },
+    {
+      "method": "POST",
+      "path": "/ai/embed",
+      "line": 944
+    },
+    {
+      "method": "POST",
+      "path": "/ai/search",
+      "line": 978
+    },
+    {
+      "method": "POST",
+      "path": "/ai/vision",
+      "line": 1016
+    },
+    {
+      "method": "POST",
+      "path": "/ai/image",
+      "line": 1037
+    },
+    {
+      "method": "POST",
+      "path": "/ai/tools/execute",
+      "line": 1064
+    },
+    {
+      "method": "POST",
+      "path": "/reconciliation/import_missing_contacts",
+      "line": 1127
+    },
+    {
+      "method": "GET",
+      "path": "/approvals",
+      "line": 1156
+    },
+    {
+      "method": "POST",
+      "path": "/approvals/action",
+      "line": 1171
+    },
+    {
+      "method": "POST",
+      "path": "/l/seed",
+      "line": 1207
+    },
+    {
+      "method": "POST",
+      "path": "/integrations/crm/hubspot/upsert",
+      "line": 1261
+    },
+    {
+      "method": "POST",
+      "path": "/integrations/booking/acuity/import",
+      "line": 1274
+    },
+    {
+      "method": "GET",
+      "path": "/metrics",
+      "line": 1287
+    },
+    {
+      "method": "GET",
+      "path": "/admin/kpis",
+      "line": 1306
+    },
+    {
+      "method": "GET",
+      "path": "/analysis/time",
+      "line": 1323
+    },
+    {
+      "method": "GET",
+      "path": "/metrics/explain",
+      "line": 1355
+    },
+    {
+      "method": "POST",
+      "path": "/scheduler/tick",
+      "line": 1373
+    },
+    {
+      "method": "POST",
+      "path": "/marts/recompute",
+      "line": 1384
+    },
+    {
+      "method": "POST",
+      "path": "/notify-list/set-preference",
+      "line": 1403
+    },
+    {
+      "method": "POST",
+      "path": "/appointments",
+      "line": 1433
+    },
+    {
+      "method": "POST",
+      "path": "/share/surface",
+      "line": 1465
+    },
+    {
+      "method": "GET",
+      "path": "/settings",
+      "line": 1492
+    },
+    {
+      "method": "POST",
+      "path": "/settings",
+      "line": 1504
+    },
+    {
+      "method": "POST",
+      "path": "/onboarding/complete",
+      "line": 1543
+    },
+    {
+      "method": "GET",
+      "path": "/messages/list",
+      "line": 1573
+    },
+    {
+      "method": "GET",
+      "path": "/appointments/list",
+      "line": 1602
+    },
+    {
+      "method": "POST",
+      "path": "/consent/stop",
+      "line": 1636
+    },
+    {
+      "method": "POST",
+      "path": "/cadences/stop",
+      "line": 1667
+    },
+    {
+      "method": "GET",
+      "path": "/config",
+      "line": 1692
+    },
+    {
+      "method": "GET",
+      "path": "/ai/tools/schema",
+      "line": 1711
+    },
+    {
+      "method": "POST",
+      "path": "/ai/workflow/plan",
+      "line": 1788
+    },
+    {
+      "method": "GET",
+      "path": "/ui/contract",
+      "line": 1815
+    },
+    {
+      "method": "POST",
+      "path": "/webhooks/twilio",
+      "line": 1892
+    },
+    {
+      "method": "POST",
+      "path": "/lead-status/update",
+      "line": 1955
+    },
+    {
+      "method": "POST",
+      "path": "/dlq/replay",
+      "line": 1992
+    },
+    {
+      "method": "GET",
+      "path": "/buckets/distribution",
+      "line": 2008
+    },
+    {
+      "method": "GET",
+      "path": "/cadences/queue",
+      "line": 2038
+    },
+    {
+      "method": "GET",
+      "path": "/funnel/daily",
+      "line": 2068
+    },
+    {
+      "method": "GET",
+      "path": "/oauth/{provider}/login",
+      "line": 2080
+    },
+    {
+      "method": "GET",
+      "path": "/oauth/{provider}/callback",
+      "line": 2099
+    },
+    {
+      "method": "POST",
+      "path": "/onboarding/analyze",
+      "line": 2152
+    },
+    {
+      "method": "GET",
+      "path": "/onboarding/status",
+      "line": 2196
+    },
+    {
+      "method": "POST",
+      "path": "/webhooks/sendgrid",
+      "line": 2227
+    },
+    {
+      "method": "POST",
+      "path": "/webhooks/acuity",
+      "line": 2241
+    },
+    {
+      "method": "POST",
+      "path": "/webhooks/square",
+      "line": 2276
+    },
+    {
+      "method": "POST",
+      "path": "/webhooks/facebook",
+      "line": 2309
+    },
+    {
+      "method": "POST",
+      "path": "/webhooks/instagram",
+      "line": 2333
+    },
+    {
+      "method": "POST",
+      "path": "/notify-list/trigger-cancellation",
+      "line": 2360
+    },
+    {
+      "method": "GET",
+      "path": "/admin/audit",
+      "line": 2385
+    },
+    {
+      "method": "POST",
+      "path": "/maintenance/chat/cleanup",
+      "line": 2413
+    },
+    {
+      "method": "GET",
+      "path": "/exports/contacts",
+      "line": 2430
+    },
+    {
+      "method": "GET",
+      "path": "/inbox/list",
+      "line": 2453
+    },
+    {
+      "method": "GET",
+      "path": "/calendar/list",
+      "line": 2493
+    },
+    {
+      "method": "GET",
+      "path": "/inventory/metrics",
+      "line": 2541
+    },
+    {
+      "method": "POST",
+      "path": "/inventory/sync",
+      "line": 2590
+    },
+    {
+      "method": "POST",
+      "path": "/calendar/sync",
+      "line": 2646
+    },
+    {
+      "method": "POST",
+      "path": "/calendar/merge",
+      "line": 2697
+    },
+    {
+      "method": "POST",
+      "path": "/data/erase",
+      "line": 2725
+    },
+    {
+      "method": "POST",
+      "path": "/dev/connect",
+      "line": 2761
+    },
+    {
+      "method": "POST",
+      "path": "/curation/list",
+      "line": 2790
+    },
+    {
+      "method": "POST",
+      "path": "/curation/decide",
+      "line": 2822
+    },
+    {
+      "method": "POST",
+      "path": "/curation/undo",
+      "line": 2838
+    },
+    {
+      "method": "GET",
+      "path": "/integrations/booking/square/link",
+      "line": 2856
+    }
+  ],
+  "models": [
+    "Contact",
+    "CadenceState",
+    "Metrics",
+    "ConsentLog",
+    "NotifyListEntry",
+    "SharePrompt",
+    "AuditLog",
+    "DeadLetter",
+    "Approval",
+    "Embedding",
+    "IdempotencyKey",
+    "Settings",
+    "LeadStatus",
+    "Appointment",
+    "Message",
+    "EventLedger",
+    "ChatLog",
+    "ConnectedAccount",
+    "CurationDecision",
+    "InventoryItem",
+    "InventorySummary",
+    "CalendarEvent"
+  ]
+}

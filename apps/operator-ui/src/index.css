@@ -1,0 +1,133 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+	/* Design tokens */
+	--primary: #db2777; /* pink-600 */
+	--primary-600: #be185d;
+	--accent: #60a5fa; /* light blue */
+	--bg: #ffffff;
+	--bg-subtle: #fff5f7; /* soft pink */
+	--fg: #0f172a;
+	--muted: #64748b;
+	--border: #f1e5ec;
+	--ring: rgba(219, 39, 119, 0.35);
+	--radius: 14px;
+	--shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+	--shadow-md: 0 10px 30px rgba(219, 39, 119, 0.08);
+
+	/* Type scale */
+	--fs-hero: clamp(2rem, 3vw + 1rem, 3.5rem);
+	--fs-h1: clamp(1.75rem, 2vw + 1rem, 2.5rem);
+	--fs-h2: clamp(1.25rem, 1.2vw + 1rem, 1.5rem);
+	--fs-h3: 1.125rem;
+	--fs-body: 0.95rem;
+
+	font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+	line-height: 1.5;
+	font-weight: 400;
+	color-scheme: light;
+	color: var(--fg);
+	background-color: var(--bg);
+	text-rendering: optimizeLegibility;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1020;
+    --bg-subtle: #0f162a;
+    --fg: #e5e7eb;
+    --muted: #9aa4b2;
+    --border: #1f2a44;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.35);
+    --shadow-md: 0 10px 30px rgba(0,0,0,0.35);
+  }
+  body { background: linear-gradient(180deg, #0b1020 0%, #0f162a 40%); }
+  a { color: #f472b6; }
+  a:hover { color: #fb7185; }
+}
+
+/* Manual theme override */
+[data-theme="dark"] {
+  --bg: #0b1020;
+  --bg-subtle: #0f162a;
+  --fg: #e5e7eb;
+  --muted: #9aa4b2;
+  --border: #1f2a44;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.35);
+  --shadow-md: 0 10px 30px rgba(0,0,0,0.35);
+}
+[data-theme="dark"] body { background: linear-gradient(180deg, #0b1020 0%, #0f162a 40%); }
+[data-theme="dark"] a { color: #f472b6; }
+[data-theme="dark"] a:hover { color: #fb7185; }
+
+[data-theme="light"] {
+  --bg: #ffffff;
+  --bg-subtle: #fff5f7;
+  --fg: #0f172a;
+  --muted: #64748b;
+  --border: #f1e5ec;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 10px 30px rgba(219, 39, 119, 0.08);
+}
+[data-theme="light"] body { background: linear-gradient(180deg, #fff7fb 0%, #fff 40%); }
+* { box-sizing: border-box; }
+
+body {
+	margin: 0;
+	min-width: 320px;
+	min-height: 100vh;
+	background: linear-gradient(180deg, #fff7fb 0%, #fff 40%);
+}
+
+h1, h2, h3 { margin: 0.2rem 0 0.4rem; font-family: "Space Grotesk", Inter, ui-sans-serif; letter-spacing: -0.02em; }
+h1 { font-size: var(--fs-h1); }
+h2 { font-size: var(--fs-h2); }
+h3 { font-size: var(--fs-h3); }
+body { font-size: var(--fs-body); }
+
+a { color: var(--primary); text-decoration: none; }
+a:hover { color: var(--primary-600); }
+
+/* Controls */
+button, input, select, textarea { font-family: inherit; font-size: 14px; }
+
+button {
+	appearance: none;
+	border: 1px solid var(--border);
+	background: linear-gradient(180deg, #fff, #fffafc);
+	color: var(--fg);
+	padding: 10px 14px;
+	border-radius: 12px;
+	box-shadow: var(--shadow-sm);
+	transition: box-shadow 0.15s ease, transform 0.05s ease, border-color 0.15s ease, background 0.15s ease;
+}
+button:hover { box-shadow: var(--shadow-md); }
+button:active { transform: translateY(1px); }
+button:focus { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+input, select, textarea {
+	border: 1px solid var(--border);
+	border-radius: 12px;
+	padding: 10px 12px;
+	background: #fff;
+	color: var(--fg);
+	box-shadow: var(--shadow-sm);
+}
+input:focus, select:focus, textarea:focus { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow-sm); }
+th, td { padding: 10px 8px; border-bottom: 1px solid var(--border); font-size: 13px; }
+thead tr { background: #fff0f7; }
+tbody tr:hover { background: #fff7fb; }
+
+/* Card/section polish */
+/* Remove global section borders; use scoped cards instead */
+/* section { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow-sm); } */
+
+/* Utility */
+.muted { color: var(--muted); }

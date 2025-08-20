@@ -1,0 +1,38 @@
+{
+  "ts": "2025-08-20T02:29:59Z",
+  "git": {
+    "sha": ""
+  },
+  "env": {
+    "PYTHON": "",
+    "OPENAI_MODEL": ""
+  },
+  "docs": [
+    {
+      "path": "GitHub Repo Docs/The Unified Field Intelligence Scale.md",
+      "sha": "79741d72d553",
+      "size": 50300
+    },
+    {
+      "path": "GitHub Repo Docs/UFIS Defense Kit.md",
+      "sha": "5366c35b94c4",
+      "size": 28595
+    },
+    {
+      "path": "GitHub Repo Docs/ACE INSTRUCTIONS.md",
+      "sha": "3241c8f4cee5",
+      "size": 82589
+    },
+    {
+      "path": "GitHub Repo Docs/The Paradox Crucible - An Ignorant Attempt to Measure God.md",
+      "sha": "b2e6cca74bc3",
+      "size": 110400
+    },
+    {
+      "path": "GitHub Repo Docs/User Experience.md",
+      "sha": "59e69cdafa53",
+      "size": 12771
+    }
+  ],
+  "note": "Bootstrap Orchestrator v1"
+}

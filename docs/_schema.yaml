@@ -1,0 +1,14 @@
+$id: https://brandvx.app/docs/schema/frontmatter
+type: object
+required: [id, domain, goal, updated_at]
+properties:
+  id: { type: string }
+  domain: { type: string, enum: [tech, brand, ux, acceptance, prompt] }
+  goal: { type: string }
+  inputs: { type: array, items: { type: string } }
+  outputs: { type: array, items: { type: string } }
+  ufis: { type: object, additionalProperties: { type: number } }
+  owner: { type: string }
+  updated_at: { type: string }
+
+

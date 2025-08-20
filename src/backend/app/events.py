@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Dict, Any
 import os
+import json
 
 _redis_client = None
 
@@ -38,5 +39,22 @@ def emit_event(name: str, payload: Dict[str, Any]) -> None:
             client.publish("brandvx.events", str(event))
         except Exception:
             pass
+    # optional DB write to events_ledger if available
+    try:
+        from .db import engine  # local import to avoid circulars at startup
+        tenant_id = str(payload.get("tenant_id", ""))
+        ts_epoch = int(__import__("time").time())
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                "INSERT INTO events_ledger (ts, tenant_id, name, payload) VALUES (:ts, :tenant_id, :name, :payload)",
+                {
+                    "ts": ts_epoch,
+                    "tenant_id": tenant_id,
+                    "name": name,
+                    "payload": json.dumps(payload),
+                },
+            )
+    except Exception:
+        pass
 
 

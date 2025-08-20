@@ -1,5 +1,7 @@
 from sqlalchemy.orm import Session
 from . import models as dbm
+from sqlalchemy import text
+from .metrics_counters import sum_counter, CACHE_HIT, CACHE_MISS  # type: ignore
 
 
 def compute_time_saved_minutes(db: Session, tenant_id: str) -> int:
@@ -28,14 +30,45 @@ def admin_kpis(db: Session, tenant_id: str) -> dict:
     active_cadences = db.query(dbm.CadenceState).filter(dbm.CadenceState.tenant_id == tenant_id).count()
     notify = db.query(dbm.NotifyListEntry).filter(dbm.NotifyListEntry.tenant_id == tenant_id).count()
     shares = db.query(dbm.SharePrompt).filter(dbm.SharePrompt.tenant_id == tenant_id).count()
+    # revenue uplift (placeholder: last snapshot) — table may not exist in dev
+    revenue_uplift = 0
+    try:
+        rev = db.execute(text("SELECT amount_cents FROM revenue_snapshot WHERE tenant_id=:t ORDER BY id DESC LIMIT 1"), {"t": tenant_id}).fetchone()
+        revenue_uplift = int(rev[0]) if rev else 0
+    except Exception:
+        revenue_uplift = 0
+    # referrals (placeholder: count of SharePrompt)
+    referrals_30d = shares
     return {
         "time_saved_minutes": time_saved,
         "usage_index": msgs,
         "ambassador_candidate": amb,
+        "revenue_uplift": revenue_uplift,
+        "referrals_30d": referrals_30d,
         "contacts": contacts,
         "active_cadences": active_cadences,
         "notify_list_count": notify,
         "share_prompts": shares,
+        "cache_hits": sum_counter(CACHE_HIT),
+        "cache_misses": sum_counter(CACHE_MISS),
     }
+
+
+def funnel_daily_series(db: Session, tenant_id: str, days: int = 30) -> dict:
+    try:
+        q = db.execute(
+            text(
+                """
+                SELECT day, impressions, waitlist, demo, trial, paid, retained
+                FROM funnel_daily WHERE tenant_id=:t ORDER BY day DESC LIMIT :n
+                """
+            ),
+            {"t": tenant_id, "n": max(1, min(days, 90))},
+        )
+        rows = [dict(r._mapping) for r in q]
+        rows.reverse()
+        return {"days": days, "series": rows}
+    except Exception:
+        return {"days": days, "series": []}
 
 

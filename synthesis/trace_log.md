@@ -6,6 +6,11 @@
 - Loaded (L): `BrandVX Brand-Voice/*` including runtime brand boot, UX overview, one-shot brand guide, file map
 - Context library acknowledged (binary docs summarized by title only; see risks): PDFs/DOCX under `GitHub Repo Docs/`
 
+UFIS simulation (3 dimensions)
+- FCI: Event taxonomy aligned with backend emitters; add admin events viewer.
+- TSC: Quiet-hours deferral respected; reminder schedule windows codified.
+- CAD: Onboarding emphasizes 5 quick steps; auto-start tour with ?tour=1.
+
 Key decisions
 - Use FastAPI backend scaffold with event emitters matching `BRANDVX_DATA_MODEL_EVENTS.md`
 - Provide minimal web UI stub; split Admin vs Practitioner in future sprints

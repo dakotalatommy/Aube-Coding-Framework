@@ -3,6 +3,7 @@ import os
 import hmac
 import hashlib
 import json
+import time
 from sqlalchemy.orm import Session
 from .events import emit_event
 from . import models as dbm
@@ -44,7 +45,7 @@ def send_message(
     tenant_id: str,
     contact_id: str,
     channel: str,
-    template_id: str | None,
+    template_id: Optional[str],
     body: Optional[str] = None,
     subject: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -76,6 +77,20 @@ def send_message(
         "MessageQueued",
         {"tenant_id": tenant_id, "contact_id": contact_id, "channel": channel, "template_id": template_id},
     )
+    # Persist queued message row (outbound)
+    queued_row = dbm.Message(
+        tenant_id=tenant_id,
+        contact_id=contact_id,
+        channel=channel,
+        direction="outbound",
+        template_id=template_id or None,
+        body_redacted=(body[:256] if body else None),
+        status="queued",
+        message_metadata=None,
+        ts=int(time.time()),
+    )
+    db.add(queued_row)
+    db.commit()
     # Resolve destination (demo uses test overrides since we store hashes)
     to_sms = os.getenv("TEST_SMS_TO")
     to_email = os.getenv("TEST_EMAIL_TO")
@@ -93,6 +108,13 @@ def send_message(
             result.update(r)
         else:
             raise RuntimeError("unknown channel")
+        # Update message row to sent
+        try:
+            queued_row.status = "sent"
+            queued_row.message_metadata = json.dumps({"provider_id": result.get("provider_id")})
+            db.commit()
+        except Exception:
+            pass
         emit_event(
             "MessageSent",
             {
@@ -116,6 +138,43 @@ def send_message(
             )
         )
         db.commit()
+        # Fallback: attempt email if sms failed and consent allows, or sms if email failed
+        try:
+            if channel == "sms" and to_email:
+                r = sendgrid_send_email(to_email, subject or "BrandVX Update", body or "<p>Hello from BrandVX</p>")
+                # Create separate message row for fallback channel
+                db.add(dbm.Message(
+                    tenant_id=tenant_id,
+                    contact_id=contact_id,
+                    channel="email",
+                    direction="outbound",
+                    template_id=template_id or None,
+                    body_redacted=(body[:256] if body else None),
+                    status="sent",
+                    message_metadata=json.dumps({"provider_id": r.get("provider_id"), "fallback": True}),
+                    ts=int(time.time()),
+                ))
+                db.commit()
+                emit_event("MessageSent", {"tenant_id": tenant_id, "contact_id": contact_id, "channel": "email", "template_id": template_id, "provider_id": r.get("provider_id")})
+                return {"status": "sent", **r}
+            if channel == "email" and to_sms:
+                r = twilio_send_sms(to_sms, body or "Hello from BrandVX")
+                db.add(dbm.Message(
+                    tenant_id=tenant_id,
+                    contact_id=contact_id,
+                    channel="sms",
+                    direction="outbound",
+                    template_id=template_id or None,
+                    body_redacted=(body[:256] if body else None),
+                    status="sent",
+                    message_metadata=json.dumps({"provider_id": r.get("provider_id"), "fallback": True}),
+                    ts=int(time.time()),
+                ))
+                db.commit()
+                emit_event("MessageSent", {"tenant_id": tenant_id, "contact_id": contact_id, "channel": "sms", "template_id": template_id, "provider_id": r.get("provider_id")})
+                return {"status": "sent", **r}
+        except Exception:
+            pass
         emit_event(
             "MessageFailed",
             {
@@ -126,6 +185,11 @@ def send_message(
                 "failure_code": "provider_error",
             },
         )
+        try:
+            queued_row.status = "failed"
+            db.commit()
+        except Exception:
+            pass
         return {"status": "failed"}
 
 

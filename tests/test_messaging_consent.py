@@ -12,3 +12,8 @@ def test_no_consent_blocks_email():
     assert r.status_code == 200
     assert r.json().get("status") in {"no_consent", "sent", "rate_limited"}
 
+
+
+
+
+

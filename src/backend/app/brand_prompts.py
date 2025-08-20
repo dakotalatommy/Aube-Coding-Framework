@@ -12,8 +12,8 @@ def cadence_intro_prompt(service: str = "hair color") -> str:
     ).format(service=service)
 
 
-def chat_system_prompt() -> str:
-    return (
+def chat_system_prompt(capabilities_text: str = "") -> str:
+    base = (
         BRAND_SYSTEM
         + "\n"
         + "Operate under H→L hierarchy: technical, safety, consent, privacy, and RBAC rules override style."
@@ -22,5 +22,8 @@ def chat_system_prompt() -> str:
         + "\n"
         + "Do not fabricate. If uncertain, say so and propose safe next steps."
     )
+    if capabilities_text:
+        base += "\n\nCapabilities (truth source; do not over-claim):\n" + capabilities_text.strip()
+    return base
 
 

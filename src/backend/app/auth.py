@@ -49,7 +49,10 @@ async def get_user_context(
                 tenant_id=str(payload.get("tenant_id", "t1")),
             )
         except Exception:
-            raise HTTPException(status_code=401, detail="invalid token")
+            # Only allow fallback in explicit dev mode
+            dev_allow = os.getenv("DEV_AUTH_ALLOW", "0") == "1"
+            if not dev_allow:
+                raise HTTPException(status_code=401, detail="invalid_token")
     # Minimal dev default via headers
     user_id = x_user_id or "dev-user"
     role = (x_role or "practitioner").lower()

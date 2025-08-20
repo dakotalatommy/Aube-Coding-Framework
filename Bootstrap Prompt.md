@@ -48,7 +48,13 @@ If any file is missing, ask once for the path; otherwise summarize from context 
 \- \`/github\_repo\_docs/soft\_reality\_chords\_matrix.csv\`  
 \- \`/github\_repo\_docs/soft\_reality\_scales\_matrix.csv\`
 
-\*\*RCLP discipline:\*\* acknowledge each filename; if tokens are tight, produce a 3–8 line summary per file and log any omissions to \`synthesis/risks.md\`.
+MD equivalents present in this repo (load these if the PDF/DOCX variants are not available):
+- `GitHub Repo Docs/The Unified Field Intelligence Scale.md`
+- `GitHub Repo Docs/UFIS Defense Kit.md`
+- `GitHub Repo Docs/ACE INSTRUCTIONS.md`
+- `GitHub Repo Docs/The Paradox Crucible - An Ignorant Attempt to Measure God.md`
+
+**RCLP discipline:** acknowledge each filename; if tokens are tight, produce a 3–8 line summary per file and log any omissions to \`synthesis/risks.md\`.
 
 \#\# STEP 5 — UFIS & FTSS  
 \- Run 12 iterations mapped to UFIS dimensions (10‑year sim each) → Timeless Synthesis.  
