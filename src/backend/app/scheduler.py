@@ -1,6 +1,7 @@
 import time
 import os
 from typing import Optional
+import json
 from sqlalchemy.orm import Session
 from . import models as dbm
 from .events import emit_event
@@ -15,6 +16,17 @@ def run_tick(db: Session, tenant_id: Optional[str] = None) -> int:
     quiet_start = int(os.getenv("QUIET_HOURS_START", "21"))  # 24h clock
     quiet_end = int(os.getenv("QUIET_HOURS_END", "8"))
     tz_offset = int(os.getenv("DEFAULT_TZ_OFFSET", "0"))  # hours offset from UTC
+    # Try to use per-tenant timezone offset hint from settings.preferences.user_timezone_offset
+    try:
+        if tenant_id:
+            row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == tenant_id).first()
+            if row and row.data_json:
+                data = json.loads(row.data_json)
+                prefs = data.get("preferences") or {}
+                # Expect frontend to compute offset in hours and save it; fallback to env
+                tz_offset = int(prefs.get("user_timezone_offset", tz_offset))
+    except Exception:
+        pass
     q = db.query(dbm.CadenceState)
     if tenant_id:
         q = q.filter(dbm.CadenceState.tenant_id == tenant_id)
@@ -63,6 +75,15 @@ def schedule_appointment_reminders(db: Session, tenant_id: Optional[str] = None)
     quiet_start = int(os.getenv("QUIET_HOURS_START", "21"))
     quiet_end = int(os.getenv("QUIET_HOURS_END", "8"))
     tz_offset = int(os.getenv("DEFAULT_TZ_OFFSET", "0"))
+    try:
+        if tenant_id:
+            row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == tenant_id).first()
+            if row and row.data_json:
+                data = json.loads(row.data_json)
+                prefs = data.get("preferences") or {}
+                tz_offset = int(prefs.get("user_timezone_offset", tz_offset))
+    except Exception:
+        pass
     processed = 0
     q = db.query(dbm.Appointment).filter(dbm.Appointment.status == "booked")
     if tenant_id:

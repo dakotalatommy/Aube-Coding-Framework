@@ -69,6 +69,12 @@ CURRENT_ROLE: ContextVar[Optional[str]] = ContextVar("CURRENT_ROLE", default=Non
 
 def _apply_rls_settings(session, transaction, connection):
     try:
+        # Only attempt Postgres RLS GUCs when explicitly enabled. Some Postgres
+        # installations will error on unknown GUCs and abort the transaction.
+        if connection.dialect.name != "postgresql":
+            return
+        if os.getenv("ENABLE_PG_RLS", "0") != "1":
+            return
         tenant_id = CURRENT_TENANT_ID.get()
         if tenant_id:
             connection.exec_driver_sql("SET LOCAL app.tenant_id = :t", {"t": tenant_id})
@@ -76,8 +82,11 @@ def _apply_rls_settings(session, transaction, connection):
         if role:
             connection.exec_driver_sql("SET LOCAL app.role = :r", {"r": role})
     except Exception:
-        # Non-fatal; continue without RLS GUCs
-        pass
+        # Non-fatal; skip GUCs entirely to avoid leaving transaction in failed state
+        try:
+            connection.rollback()
+        except Exception:
+            pass
 
 
 event.listen(SessionLocal, "after_begin", _apply_rls_settings)

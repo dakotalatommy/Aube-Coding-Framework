@@ -2,14 +2,20 @@ import os
 import hmac
 import hashlib
 import base64
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import httpx
 
 
-def twilio_send_sms(to_e164: str, body: str) -> Dict[str, Any]:
-    account_sid = os.getenv("TWILIO_ACCOUNT_SID", "")
-    auth_token = os.getenv("TWILIO_AUTH_TOKEN", "")
-    from_number = os.getenv("TWILIO_FROM_NUMBER", "")
+def twilio_send_sms(
+    to_e164: str,
+    body: str,
+    account_sid: Optional[str] = None,
+    auth_token: Optional[str] = None,
+    from_number: Optional[str] = None,
+) -> Dict[str, Any]:
+    account_sid = account_sid or os.getenv("TWILIO_ACCOUNT_SID", "")
+    auth_token = auth_token or os.getenv("TWILIO_AUTH_TOKEN", "")
+    from_number = from_number or os.getenv("TWILIO_FROM_NUMBER", "")
     if not (account_sid and auth_token and from_number and to_e164):
         raise RuntimeError("twilio not configured")
     url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json"

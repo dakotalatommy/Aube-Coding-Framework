@@ -1,0 +1,125 @@
+import React, { Suspense, lazy, useMemo, useRef, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Home, MessageSquare, Users, Calendar, Layers, Package2, Plug, CheckCircle2 } from 'lucide-react';
+import { supabase } from '../lib/supabase';
+
+type PaneKey = 'dashboard' | 'messages' | 'contacts' | 'calendar' | 'cadences' | 'inventory' | 'integrations' | 'approvals';
+
+const PANES: { key: PaneKey; label: string; icon: React.ReactNode }[] = [
+  { key: 'dashboard', label: 'Dashboard', icon: <Home size={18} /> },
+  { key: 'messages', label: 'Messages', icon: <MessageSquare size={18} /> },
+  { key: 'contacts', label: 'Contacts', icon: <Users size={18} /> },
+  { key: 'calendar', label: 'Calendar', icon: <Calendar size={18} /> },
+  { key: 'cadences', label: 'Cadences', icon: <Layers size={18} /> },
+  { key: 'inventory', label: 'Inventory', icon: <Package2 size={18} /> },
+  { key: 'integrations', label: 'Integrations', icon: <Plug size={18} /> },
+  { key: 'approvals', label: 'Approvals', icon: <CheckCircle2 size={18} /> },
+];
+
+export default function WorkspaceShell(){
+  const loc = useLocation();
+  const nav = useNavigate();
+  const params = new URLSearchParams(loc.search);
+  const pane = (params.get('pane') as PaneKey) || 'dashboard';
+
+  const setPane = (key: PaneKey) => {
+    const next = new URLSearchParams(loc.search);
+    next.set('pane', key);
+    nav(`/workspace?${next.toString()}`);
+  };
+
+  const PaneView = (() => {
+    switch (pane) {
+      case 'dashboard': return <LazyDashboard/>;
+      case 'messages': return <LazyMessages/>;
+      case 'contacts': return <LazyContacts/>;
+      case 'calendar': return <LazyCalendar/>;
+      case 'cadences': return <LazyCadences/>;
+      case 'inventory': return <LazyInventory/>;
+      case 'integrations': return <LazyIntegrations/>;
+      case 'approvals': return <LazyApprovals/>;
+      default: return <div/>;
+    }
+  })();
+
+  const items = useMemo(()=> PANES, []);
+  const refs = useRef<HTMLButtonElement[]>([]);
+  useEffect(()=>{ refs.current = refs.current.slice(0, items.length); }, [items.length]);
+
+  const onKeyDown: React.KeyboardEventHandler<HTMLDivElement> = (e) => {
+    const idx = items.findIndex(p=>p.key===pane);
+    if (e.key === 'ArrowDown') { e.preventDefault(); const n = (idx+1) % items.length; setPane(items[n].key); refs.current[n]?.focus(); }
+    if (e.key === 'ArrowUp') { e.preventDefault(); const n = (idx-1+items.length) % items.length; setPane(items[n].key); refs.current[n]?.focus(); }
+    if (e.key === 'Enter') { e.preventDefault(); setPane(items[idx].key); }
+    // number shortcuts 1..8
+    const num = parseInt(e.key, 10);
+    if (!Number.isNaN(num) && num >= 1 && num <= items.length) {
+      e.preventDefault();
+      const n = num - 1;
+      setPane(items[n].key);
+      refs.current[n]?.focus();
+    }
+  };
+
+  return (
+    <div className="max-w-6xl mx-auto supports-[padding:env(safe-area-inset-bottom)]:pb-[env(safe-area-inset-bottom)]">
+      <div className="h-[calc(100vh-140px)] grid grid-cols-[theme(spacing.56)_1fr] gap-4 md:gap-5 overflow-hidden">
+        {/* Left dock */}
+        <aside className="h-full bg-white/70 backdrop-blur border rounded-2xl p-3 md:p-4 flex flex-col" aria-label="Primary navigation">
+          <nav className="flex flex-col gap-2" role="tablist" aria-orientation="vertical" onKeyDown={onKeyDown}>
+            {items.map((p, i) => {
+              const active = pane===p.key;
+              return (
+                <button
+                  key={p.key}
+                  ref={el=>{ if (el) refs.current[i]=el; }}
+                  onClick={()=>setPane(p.key)}
+                  role="tab"
+                  aria-selected={active}
+                  aria-current={active ? 'page' : undefined}
+                  title={`${p.label}  •  ${i+1}`}
+                  className={`relative w-full flex items-center gap-3 px-3 py-2 rounded-xl border text-slate-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white hover:bg-white hover:ring-1 hover:ring-pink-100 ${active?'bg-gradient-to-r from-pink-50 to-white shadow ring-1 ring-pink-100 text-slate-900 pl-2 border-l-4 border-pink-400':''}`}
+                >
+                  {active && <span aria-hidden className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-pink-400 to-violet-400 rounded-l-xl" />}
+                  <span className="shrink-0">{p.icon}</span>
+                  <span className="text-sm">{p.label}</span>
+                  <span className="ml-auto text-[10px] text-slate-400">{i+1}</span>
+                </button>
+              );
+            })}
+          </nav>
+          <div className="mt-auto pt-3">
+            <button
+              className="w-full px-3 py-2 rounded-xl border text-slate-700 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60"
+              onClick={async()=>{
+                try { await supabase.auth.signOut(); } catch {}
+                try { localStorage.removeItem('bvx_tenant'); localStorage.removeItem('bvx_demo_profile'); localStorage.removeItem('bvx_demo_preferences'); } catch {}
+                window.location.href = '/brandvx';
+              }}
+            >Sign out</button>
+          </div>
+        </aside>
+        {/* Canvas */}
+        <main className="h-full rounded-2xl border bg-white/90 backdrop-blur p-4 md:p-5 shadow-sm overflow-hidden">
+          <div className="h-full rounded-xl bg-white/70 backdrop-blur border overflow-auto">
+            <Suspense fallback={<div className="p-4 text-slate-600 text-sm">Loading {PANES.find(p=>p.key===pane)?.label}…</div>}>
+              {PaneView}
+            </Suspense>
+          </div>
+        </main>
+      </div>
+    </div>
+  );
+}
+
+// Lazy panes (reuse existing pages)
+const LazyDashboard = lazy(()=> import('../pages/Dashboard'));
+const LazyMessages = lazy(()=> import('../pages/Messages'));
+const LazyContacts = lazy(()=> import('../pages/Contacts'));
+const LazyCalendar = lazy(()=> import('../pages/Calendar'));
+const LazyCadences = lazy(()=> import('../pages/Cadences'));
+const LazyInventory = lazy(()=> import('../pages/Inventory'));
+const LazyIntegrations = lazy(()=> import('../pages/Integrations'));
+const LazyApprovals = lazy(()=> import('../pages/Approvals'));
+
+

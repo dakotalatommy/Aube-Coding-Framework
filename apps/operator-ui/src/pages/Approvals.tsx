@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api, getTenant } from '../lib/api';
 import Button from '../components/ui/Button';
+import { startGuide } from '../lib/guide';
 import { Table, THead, TR, TH, TD } from '../components/ui/Table';
+import EmptyState from '../components/ui/EmptyState';
 import Skeleton from '../components/ui/Skeleton';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
 
@@ -13,6 +15,7 @@ export default function Approvals(){
   const [q, setQ] = useState('');
   const [onlyPending, setOnlyPending] = useState(true);
   const [selected, setSelected] = useState<any|null>(null);
+  const [labels, setLabels] = useState<Record<string,string>>({});
   const load = async () => {
     try{
       const r = await api.get(`/approvals?tenant_id=${encodeURIComponent(await getTenant())}`);
@@ -21,6 +24,7 @@ export default function Approvals(){
     } catch(e:any){ setStatus(String(e?.message||e)); }
   };
   useEffect(()=>{ (async()=>{ try { setLoading(true); await load(); } finally { setLoading(false); } })(); },[]);
+  useEffect(()=>{ (async()=>{ try { const s = await api.get('/ai/tools/schema_human'); const map:Record<string,string>={}; if (Array.isArray(s?.tools)) { for (const t of s.tools) { map[String(t?.id||t?.name||'')] = String(t?.label||t?.title||''); } } setLabels(map);} catch {} })(); },[]);
   const act = async (id:string, decision:'approve'|'reject') => {
     try{
       const r = await api.post('/approvals/action',{ tenant_id: await getTenant(), approval_id: Number(id), action: decision });
@@ -40,7 +44,10 @@ export default function Approvals(){
     } catch(e:any){ setStatus(String(e?.message||e)); }
   };
 
-  const humanTool = (r:any) => r.tool || r.tool_name || r.kind || r.type || 'tool';
+  const humanTool = (r:any) => {
+    const n = r.tool || r.tool_name || r.kind || r.type || 'tool';
+    return labels[n] || n;
+  };
   const parseParams = (r:any) => {
     try{
       if (r.params && typeof r.params !== 'string') return r.params;
@@ -65,6 +72,12 @@ export default function Approvals(){
           </div>
         </div>
         <div className="mt-3 grid sm:grid-cols-2 gap-3">
+          {row.explain && (
+            <div className="rounded-xl border bg-white p-3 sm:col-span-2">
+              <div className="font-medium text-slate-800 text-sm">Explanation</div>
+              <div className="text-sm text-slate-700 mt-1 whitespace-pre-wrap">{String(row.explain)}</div>
+            </div>
+          )}
           <div className="rounded-xl border bg-white p-3">
             <div className="font-medium text-slate-800 text-sm">Summary</div>
             <div className="text-sm text-slate-700 mt-1">
@@ -94,15 +107,18 @@ export default function Approvals(){
   };
   return (
     <div className="space-y-3">
-      <h3 className="text-lg font-semibold">Approvals</h3>
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold">Approvals</h3>
+        <Button variant="outline" size="sm" onClick={()=> startGuide('approvals')}>Guide me</Button>
+      </div>
       <div className="text-xs text-slate-600">When BrandVX needs your OK for an action, it shows up here. Review the details and Approve or Reject.</div>
-      <div className="flex flex-wrap items-center gap-2 text-sm">
+      <div className="flex flex-wrap items-center gap-2 text-sm" data-guide="filters">
         <input className="border rounded-md px-2 py-1 bg-white" placeholder="Search…" value={q} onChange={e=>setQ(e.target.value)} />
         <label className="flex items-center gap-2 text-xs text-slate-700"><input type="checkbox" checked={onlyPending} onChange={e=>setOnlyPending(e.target.checked)} /> Show only pending</label>
       </div>
       <pre className="whitespace-pre-wrap text-sm text-slate-700">{status}</pre>
       {!loading && items.length > 0 && (
-        <div className="flex gap-2">
+        <div className="flex gap-2" data-guide="actions">
           <Button variant="outline" onClick={()=>setConfirmAll('approve')}>Approve All</Button>
           <Button variant="outline" onClick={()=>setConfirmAll('reject')}>Reject All</Button>
         </div>
@@ -122,12 +138,10 @@ export default function Approvals(){
         </div>
       ) : (
       (items.filter(f=> (onlyPending ? (f.status||'pending')==='pending' : true) && (q? JSON.stringify(f).toLowerCase().includes(q.toLowerCase()): true)).length === 0) ? (
-        <div className="rounded-xl border bg-white shadow-sm p-6 text-center text-slate-600">
-          No approvals waiting. New actions that affect clients will appear here for your review.
-        </div>
+        <EmptyState title="No approvals waiting" description="New actions that affect clients will appear here for your review." />
       ) : (
         <>
-          <Table>
+          <Table data-guide="table">
             <THead>
               <TR><TH>ID</TH><TH>Status</TH><TH>Type</TH><TH>Payload</TH><TH>Action</TH></TR>
             </THead>
@@ -149,7 +163,7 @@ export default function Approvals(){
             </tbody>
           </Table>
           {selected && (
-            <div className="mt-4">
+            <div className="mt-4" data-guide="details">
               <ItemDetails row={selected} />
             </div>
           )}

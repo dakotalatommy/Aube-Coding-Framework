@@ -2,6 +2,7 @@
 import { MessageSquareText, CalendarClock, Timer, ShieldCheck, Sparkles, Users } from 'lucide-react';
 import AnnouncementBar from '../components/AnnouncementBar';
 import Hero from '../components/Hero';
+import Hero3D from '../components/Hero3D';
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import FeatureGrid from '../components/sections/FeatureGrid';
@@ -26,7 +27,10 @@ export default function Landing() {
     <div className="mx-auto max-w-6xl">
       <AnnouncementBar />
       <div className="mt-4">
+        {/* Place copy first to avoid a blank first viewport; Spline follows as cinematic section */}
         <Hero />
+        <div className="mt-6" />
+        <Hero3D height="64vh" className="rounded-3xl overflow-hidden" />
       </div>
 
       <div className="mt-8 grid grid-cols-1 sm:grid-cols-3 gap-3">

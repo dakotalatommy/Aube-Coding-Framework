@@ -2,13 +2,13 @@ databases:
 - name: brandvx-db
   databaseName: brandvx
   user: brandvx
-  plan: starter
+  plan: free
 
 services:
 - type: web
   name: brandvx-app
   env: docker
-  plan: starter
+  plan: free
   autoDeploy: true
   dockerfilePath: Dockerfile
   healthCheckPath: /health
@@ -17,6 +17,8 @@ services:
     fromDatabase:
       name: brandvx-db
       property: connectionString
+  - key: ENABLE_PG_RLS
+    value: "0"
   - key: BACKEND_BASE_URL
     value: https://api.brandvx.io
   - key: FRONTEND_BASE_URL
@@ -29,23 +31,79 @@ services:
     value: brandvx-users
   - key: JWT_ISSUER
     value: brandvx
+  - key: SECRET_KEY
+    generateValue: true
   - key: SUPABASE_URL
     sync: false
   - key: SUPABASE_SERVICE_ROLE_KEY
     sync: false
+  - key: SUPABASE_READ_ONLY
+    value: "true"
   - key: ENABLE_SCHEDULER
     value: "1"
+  - key: SCHEDULER_INTERVAL_SECS
+    value: "60"
   - key: POSTHOG_API_KEY
     sync: false
   - key: POSTHOG_HOST
     value: https://app.posthog.com
   - key: OPENAI_API_KEY
     sync: false
+  - key: OPENAI_MODEL
+    value: gpt-4o-mini
+  - key: OPENAI_FALLBACK_MODELS
+    value: gpt-4o-mini
+  - key: OPENAI_USE_RESPONSES
+    value: true
   - key: OPENAI_USE_RESPONSES
     value: true
   - key: OPENAI_FALLBACK_MODELS
     value: gpt-4o-mini
   - key: REDIS_URL
     sync: false
+  - key: TWILIO_ACCOUNT_SID
+    sync: false
+  - key: TWILIO_AUTH_TOKEN
+    sync: false
+  - key: TWILIO_FROM_NUMBER
+    sync: false
+  - key: SENDGRID_API_KEY
+    sync: false
+  - key: SENDGRID_FROM_EMAIL
+    sync: false
+  - key: SENDGRID_PUBLIC_KEY
+    sync: false
+  - key: SENDGRID_ACCEPT_UNSIGNED
+    value: "false"
+  - key: SQUARE_CLIENT_ID
+    sync: false
+  - key: SQUARE_CLIENT_SECRET
+    sync: false
+  - key: SQUARE_AUTH_URL
+    value: https://connect.squareupsandbox.com/oauth2/authorize
+  - key: SQUARE_TOKEN_URL
+    value: https://connect.squareupsandbox.com/oauth2/token
+  - key: SQUARE_SCOPES
+    value: MERCHANT_PROFILE_READ PAYMENTS_READ
+  - key: SQUARE_WEBHOOK_SECRET
+    sync: false
+  - key: ACUITY_CLIENT_ID
+    sync: false
+  - key: ACUITY_WEBHOOK_SECRET
+    sync: false
+  - key: HUBSPOT_CLIENT_ID
+    sync: false
+  - key: HUBSPOT_CLIENT_SECRET
+    sync: false
+  - key: FB_APP_SECRET
+    sync: false
+  - key: QUIET_HOURS_START
+    value: "21"
+  - key: QUIET_HOURS_END
+    value: "8"
+  - key: DEFAULT_TZ_OFFSET
+    value: "0"
+  - key: DEV_OAUTH_AUTOCONNECT
+    value: "0"
 
 

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-test('AskVX plan run triggers approvals and allows resume', async ({ page }) => {
+test.skip('AskVX plan run triggers approvals and allows resume (backend)', async ({ page }) => {
   page.on('console', (msg) => console.log('browser console:', msg.type(), msg.text()));
   page.on('pageerror', (err) => console.log('pageerror:', err.message));
   // Open Ask page

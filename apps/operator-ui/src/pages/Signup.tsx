@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { track } from '../lib/analytics';
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -14,14 +15,26 @@ export default function Signup() {
     e.preventDefault();
     setLoading(true);
     try{
-      const redirectTo = `${window.location.origin}/onboarding?tour=1`;
+      const redirectTo = `${window.location.origin}/onboarding`;
       const { error } = await supabase.auth.signUp({
         email,
         password,
         options: { data: { name, business }, emailRedirectTo: redirectTo }
       });
       if (error) throw error;
-      navigate('/onboarding?tour=1');
+      // Referral attribution
+      try {
+        const ref = localStorage.getItem('bvx_ref');
+        const me = (await supabase.auth.getUser()).data.user?.id;
+        if (ref && me) {
+          const { data: rc } = await supabase.from('referral_codes').select('user_id, code').eq('code', ref).single();
+          if (rc?.user_id) {
+            await supabase.from('referrals').insert({ ref_code: rc.code, referrer_user_id: rc.user_id, referred_user_id: me, landing_url: window.location.href });
+            try { track('referral_attributed', { ref }); } catch {}
+          }
+        }
+      } catch {}
+      navigate('/onboarding');
     }catch(err){
       alert(String((err as Error).message || err));
     }finally{

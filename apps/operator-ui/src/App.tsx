@@ -1,15 +1,12 @@
 //
-import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
-import { Suspense, lazy } from 'react';
-import Nav from './components/Nav';
+import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
+import { Suspense, lazy, useEffect } from 'react';
 import Breadcrumbs from './components/Breadcrumbs';
 import { ToastProvider } from './components/ui/Toast';
 import { useLenis } from './hooks/useLenis';
 import { Provider as TooltipProvider } from '@radix-ui/react-tooltip';
-import CommandPalette from './components/CommandPalette';
 import AskFloat from './components/AskFloat';
 import { initAnalytics, trackPage } from './lib/analytics';
-const Landing = lazy(() => import('./pages/Landing'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Messages = lazy(() => import('./pages/Messages'));
 const Contacts = lazy(() => import('./pages/Contacts'));
@@ -29,21 +26,32 @@ const Workflows = lazy(() => import('./pages/Workflows'));
 const Login = lazy(() => import('./pages/Login'));
 const Signup = lazy(() => import('./pages/Signup'));
 const Tutorial = lazy(() => import('./pages/Tutorial'));
+const Billing = lazy(() => import('./pages/Billing'));
+const PlasmicPage = lazy(() => import('./pages/PlasmicPage'));
+const PlasmicHost = lazy(() => import('./pages/PlasmicHost'));
+const LandingV2 = lazy(() => import('./pages/LandingV2'));
+const DemoFlow = lazy(() => import('./pages/DemoFlow'));
+const DemoIntake = lazy(() => import('./pages/DemoIntake'));
+const Workspace = lazy(() => import('./pages/Workspace'));
 
 function RouteContent() {
   const loc = useLocation();
   const embed = new URLSearchParams(loc.search).get('embed') === '1';
+  const hideCrumbs = loc.pathname === '/workspace';
   initAnalytics();
   try { trackPage(loc.pathname + loc.search); } catch {}
+  if (loc.pathname === '/landing-v2') {
+    window.history.replaceState({}, '', '/brandvx' + loc.search);
+  }
   return (
     <>
-      {loc.pathname !== '/' && !embed && (
+      {!embed && !hideCrumbs && (
         <div className="max-w-5xl mx-auto px-1 mb-2">
           <Breadcrumbs />
         </div>
       )}
       <Routes>
-        <Route path="/" element={<Landing />} />
+        <Route path="/" element={<Navigate to="/brandvx" replace />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
         <Route path="/dashboard" element={<Dashboard />} />
@@ -63,6 +71,14 @@ function RouteContent() {
         <Route path="/admin" element={<Admin />} />
         <Route path="/agent" element={<Agent />} />
         <Route path="/tutorial" element={<Tutorial />} />
+        <Route path="/billing" element={<Billing />} />
+        <Route path="/plasmic" element={<PlasmicPage />} />
+        <Route path="/plasmic-host" element={<PlasmicHost />} />
+        <Route path="/landing-v2" element={<LandingV2 />} />
+        <Route path="/brandvx" element={<LandingV2 />} />
+        <Route path="/workspace" element={<Workspace />} />
+        <Route path="/demo-intake" element={<DemoIntake />} />
+        <Route path="/ask-vx-demo" element={<DemoFlow />} />
       </Routes>
     </>
   );
@@ -84,6 +100,20 @@ export default function App() {
 function Shell() {
   const loc = useLocation();
   const embed = new URLSearchParams(loc.search).get('embed') === '1';
+  const qs = new URLSearchParams(loc.search);
+  const onLanding = loc.pathname === '/brandvx';
+  const onAskPage = loc.pathname === '/ask';
+  const showAsk = !embed && !onAskPage && (!onLanding || qs.get('demo') === '1');
+
+  // Clear Ask VX persisted state on pure landing to avoid stray artifacts
+  useEffect(()=>{
+    if (onLanding && qs.get('demo') !== '1') {
+      try {
+        localStorage.setItem('bvx-ask-open','0');
+      } catch {}
+    }
+  }, [onLanding, loc.search]);
+
   return (
     <>
       {!embed && (
@@ -95,26 +125,14 @@ function Shell() {
             background: 'radial-gradient(1200px 400px at 10% -10%, rgba(236,72,153,0.14), transparent), radial-gradient(900px 300px at 90% -20%, rgba(99,102,241,0.12), transparent)'
           }} />
         )}
-        <div className="px-6 pt-6">
-          {!embed && (
-            <div className="max-w-5xl mx-auto">
-              <header className="rounded-3xl backdrop-blur bg-white/60 border border-white/70 shadow-md px-6 py-5 md:px-8 md:py-7">
-                <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-slate-900" style={{fontFamily:'\"Space Grotesk\", Inter, ui-sans-serif'}}>BrandVX</h1>
-              </header>
-            </div>
-          )}
-          {!embed && (
-            <div className="max-w-5xl mx-auto mt-4">
-              <Nav />
-            </div>
-          )}
+        <div className="px-6 pt-4 md:pt-6">
+          {/* Header bar removed per request to keep workspace minimal */}
           <main id="main">
             <Suspense fallback={<div className="max-w-5xl mx-auto p-4"><div className="h-10 w-40 bg-slate-100 rounded mb-3" /><div className="h-6 w-64 bg-slate-100 rounded mb-2" /><div className="h-24 w-full bg-slate-100 rounded" /></div>}>
               <RouteContent />
             </Suspense>
           </main>
-          {!embed && <CommandPalette />}
-          {!embed && <AskFloat />}
+          {!embed && showAsk && <AskFloat />}
         </div>
       </div>
     </>

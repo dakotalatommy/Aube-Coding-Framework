@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, getTenant } from '../lib/api';
 import { useToast } from '../components/ui/Toast';
-import { startGuide } from '../lib/guide';
+import { startGuide, startWorkflowGuide } from '../lib/guide';
 import { track } from '../lib/analytics';
 
 type Msg = { role: 'user' | 'assistant'; content: string };
@@ -29,6 +29,18 @@ export default function Ask(){
   const [history, setHistory] = useState<any[]>([]);
   const [sessions, setSessions] = useState<Array<{session_id:string; last_message_at:number}>>([]);
   const [shareUrl, setShareUrl] = useState<string>("");
+  // Plan builder state: fetch plan, show steps as radio, execute selected or all
+  const [planName, setPlanName] = useState<''|'crm_organization'|'book_filling'|'inventory_tracking'|'social_automation'>('');
+  const [planSteps, setPlanSteps] = useState<any[]>([]);
+  const [selectedStepIdx, setSelectedStepIdx] = useState<number>(0);
+  // Friendly error surface for unknown plans or planner errors
+  const [friendlyError, setFriendlyError] = useState<string>('');
+  // Human-readable tool labels
+  const [toolLabels, setToolLabels] = useState<Record<string,string>>({});
+  const getToolLabel = (toolName: string): string => {
+    const name = String(toolName||'');
+    return toolLabels[name] || name;
+  };
   const loadHistory = async () => {
     try{
       const tid = await getTenant();
@@ -115,6 +127,31 @@ export default function Ask(){
     return () => { if (streamId.current) { window.clearInterval(streamId.current); streamId.current = null; } };
   }, []);
 
+  // Load human-readable tool labels for AskVX plan/toasts
+  useEffect(() => {
+    (async () => {
+      try{
+        const schema = await api.get('/ai/tools/schema_human');
+        // Accept either { tools: [{name,label|title}]} or { [name]: label }
+        const map: Record<string,string> = {};
+        if (schema && Array.isArray(schema.tools)) {
+          for (const t of schema.tools) {
+            const n = t?.name || t?.id || '';
+            const lbl = t?.label || t?.title || t?.description || '';
+            if (n && lbl) map[String(n)] = String(lbl);
+          }
+        } else if (schema && typeof schema === 'object') {
+          for (const k of Object.keys(schema)) {
+            const v = (schema as any)[k];
+            if (typeof v === 'string') map[k] = v;
+            else if (v && typeof v === 'object' && (v.label || v.title)) map[k] = String(v.label || v.title);
+          }
+        }
+        if (Object.keys(map).length > 0) setToolLabels(map);
+      } catch {}
+    })();
+  }, []);
+
   const sp = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
   const embedded = sp.get('embed') === '1';
 
@@ -177,7 +214,7 @@ export default function Ask(){
         });
         if (res?.status === 'pending') {
           try { track('ask_plan_step_pending', { name, tool }); } catch {}
-          showToast({ title: 'Approval required', description: `"${tool}" is pending. Review in Approvals.` });
+          showToast({ title: 'Approval required', description: `"${getToolLabel(tool)}" is pending. Review in Approvals.` });
           // Save remaining steps (including current) to resume later
           saveQueue(name, steps.slice(i));
           // Stop execution and guide the user to Approvals
@@ -186,11 +223,11 @@ export default function Ask(){
         }
         if (res?.status === 'error') {
           try { track('ask_plan_step_error', { name, tool }); } catch {}
-          showToast({ title: 'Step failed', description: String(res?.message || res?.detail || tool) });
+          showToast({ title: 'Step failed', description: String(res?.message || res?.detail || getToolLabel(tool)) });
           return;
         }
         try { track('ask_plan_step_done', { name, tool }); } catch {}
-        showToast({ title: 'Step complete', description: `${tool} → ${res?.status||'ok'}` });
+        showToast({ title: 'Step complete', description: `${getToolLabel(tool)} → ${res?.status||'ok'}` });
       }
       try { track('ask_plan_done', { name }); } catch {}
       showToast({ title: 'Plan finished', description: 'All steps completed.' });
@@ -199,6 +236,90 @@ export default function Ask(){
       showToast({ title: 'Plan error', description: String(e?.message||e) });
     } finally {
       setRunning('');
+    }
+  };
+
+  const openPlan = async (name: 'crm_organization'|'book_filling'|'inventory_tracking'|'social_automation') => {
+    if (running) return;
+    try {
+      setPlanName(name);
+      const plan = await api.post('/ai/workflow/plan', { tenant_id: TENANT_ID, name });
+      const steps = Array.isArray(plan?.steps) ? plan.steps : [];
+      setPlanSteps(steps);
+      setSelectedStepIdx(0);
+      if (steps.length === 0) {
+        setFriendlyError('I couldn’t map that request to a known workflow. Try one of the preset plans below or ask me again in different words.');
+      } else {
+        setFriendlyError('');
+      }
+      try { track('ask_plan_builder_open', { name, steps: steps.length }); } catch {}
+    } catch (e:any) {
+      showToast({ title: 'Plan error', description: String(e?.message||e) });
+      setPlanName(''); setPlanSteps([]);
+      setFriendlyError('Something went wrong generating the plan. Please try again, or pick a preset below — we’ll guide you.');
+    }
+  };
+
+  const executeOneStep = async () => {
+    if (running || !planName || !Array.isArray(planSteps) || planSteps.length === 0) return;
+    const idx = Math.max(0, Math.min(selectedStepIdx || 0, planSteps.length - 1));
+    const step = planSteps[idx];
+    await executeStepInternal(planName, step, idx, true);
+  };
+
+  const executeAllSteps = async () => {
+    if (running || !planName || !Array.isArray(planSteps) || planSteps.length === 0) return;
+    setRunning(planName);
+    try {
+      for (let i = 0; i < planSteps.length; i++) {
+        const step = planSteps[i];
+        const cont = await executeStepInternal(planName, step, i, false);
+        if (!cont) return; // stopped due to approval or error
+      }
+      showToast({ title: 'Plan finished', description: 'All steps completed.' });
+      clearQueue();
+    } catch(e:any){
+      showToast({ title: 'Plan error', description: String(e?.message||e) });
+    } finally {
+      setRunning('');
+    }
+  };
+
+  const executeStepInternal = async (name: string, step: any, index: number, single: boolean): Promise<boolean> => {
+    const tool = String(step?.tool||'');
+    const requires = Boolean(step?.requiresApproval);
+    try {
+      // Same pseudo-tools handling as runPlan
+      if (tool === 'link.hubspot.signup') { window.open('https://app.hubspot.com/signup','_blank'); showToast({ title:'Open HubSpot', description:'Sign up in the new tab, then return.' }); return true; }
+      if (tool === 'oauth.hubspot.connect') {
+        try { const j = await api.get(`/oauth/hubspot/login?tenant_id=${TENANT_ID}`); if (j?.url) window.open(j.url,'_blank'); showToast({ title:'Connect HubSpot', description:'Opened HubSpot connect in a new tab.' }); } catch {}
+        return true;
+      }
+      if (tool === 'crm.hubspot.import') {
+        try { const r = await api.post('/crm/hubspot/import', { tenant_id: TENANT_ID }); showToast({ title:'Imported', description:`${Number(r?.imported||0)} contacts imported from HubSpot.` }); } catch(e:any){ showToast({ title:'Import error', description:String(e?.message||e) }); }
+        return true;
+      }
+      if (tool === 'segment.dormant.preview' || tool === 'campaigns.dormant.preview') {
+        try { const r = await api.get(`/campaigns/dormant/preview?tenant_id=${TENANT_ID}&threshold_days=60`); showToast({ title:'Segment preview', description:`${Number(r?.count||0)} contacts dormant ≥60d.` }); } catch {}
+        return true;
+      }
+      // Execute real tool
+      const res = await api.post('/ai/tools/execute', { tenant_id: TENANT_ID, name: tool, params: { tenant_id: TENANT_ID }, require_approval: requires });
+      if (res?.status === 'pending') {
+        showToast({ title: 'Approval required', description: `"${getToolLabel(tool)}" is pending. Review in Approvals.` });
+        saveQueue(name, single ? [step] : planSteps.slice(index));
+        window.open('/approvals', '_self');
+        return false;
+      }
+      if (res?.status === 'error') {
+        showToast({ title: 'Step failed', description: String(res?.message||res?.detail||getToolLabel(tool)) });
+        return false;
+      }
+      showToast({ title: 'Step complete', description: `${getToolLabel(tool)} → ${res?.status||'ok'}` });
+      return true;
+    } catch(e:any) {
+      showToast({ title: 'Step error', description: String(e?.message||e) });
+      return false;
     }
   };
 
@@ -231,15 +352,15 @@ export default function Ask(){
         });
         if (res?.status === 'pending') {
           saveQueue(name, saved.stepsLeft.slice(i));
-          showToast({ title: 'Still pending', description: `"${tool}" requires approval. Review in Approvals.` });
+          showToast({ title: 'Still pending', description: `"${getToolLabel(tool)}" requires approval. Review in Approvals.` });
           window.open('/approvals', '_self');
           return;
         }
         if (res?.status === 'error') {
-          showToast({ title: 'Step failed', description: String(res?.message || res?.detail || tool) });
+          showToast({ title: 'Step failed', description: String(res?.message || res?.detail || getToolLabel(tool)) });
           return;
         }
-        showToast({ title: 'Step complete', description: `${tool} → ${res?.status||'ok'}` });
+        showToast({ title: 'Step complete', description: `${getToolLabel(tool)} → ${res?.status||'ok'}` });
       }
       clearQueue();
       showToast({ title: 'Plan finished', description: 'All steps completed.' });
@@ -251,7 +372,12 @@ export default function Ask(){
   };
   return (
     <div className={`space-y-3 ${embedded ? '' : ''}`}>
-      {!embedded && <h3 className="text-lg font-semibold">Ask VX</h3>}
+      {!embedded && (
+        <div className="flex items-center justify-between">
+          <h3 className="text-xl font-semibold" style={{fontFamily:'var(--font-display)'}}>Brand&nbsp;VX</h3>
+          <a href="/onboarding" className="inline-flex items-center px-3 py-2 rounded-full text-sm text-white shadow bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600">Get started</a>
+        </div>
+      )}
       <div className="flex items-center gap-2 text-sm">
         <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ setHistoryOpen(h=>!h); if (!historyOpen) void loadHistory(); }}>{historyOpen ? 'Hide history' : 'Show history'}</button>
         <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ const sid = 's_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('bvx_chat_session', sid); window.location.reload(); }}>New session</button>
@@ -274,7 +400,7 @@ export default function Ask(){
         <div className="text-xs text-slate-600 mt-1">Share link copied: <a className="underline" href={shareUrl} target="_blank" rel="noreferrer">{shareUrl}</a></div>
       )}
       {sessions.length > 0 && (
-        <div className="border rounded-xl bg-white shadow-sm p-3 max-h-32 overflow-auto text-xs text-slate-700 mt-2">
+        <div className="rounded-xl bg-white shadow-sm p-3 max-h-32 overflow-auto text-xs text-slate-700 mt-2 border">
           <ul className="space-y-1">
             {sessions.map(s => (
               <li key={s.session_id}>
@@ -287,8 +413,20 @@ export default function Ask(){
           </ul>
         </div>
       )}
+      {friendlyError && (
+        <div className="rounded-xl bg-amber-50 border border-amber-200 text-amber-900 p-3 text-sm">
+          <div className="font-medium">Let’s try a preset</div>
+          <div className="mt-1">{friendlyError}</div>
+          <div className="mt-2 flex flex-wrap gap-2 text-xs">
+            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>openPlan('crm_organization')}>CRM Organization</button>
+            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>openPlan('book_filling')}>Book‑Filling</button>
+            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>openPlan('inventory_tracking')}>Inventory Tracking</button>
+            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>openPlan('social_automation')}>Social (14‑day)</button>
+          </div>
+        </div>
+      )}
       {historyOpen && (
-        <div className="border rounded-xl bg-white shadow-sm p-3 max-h-40 overflow-auto text-xs text-slate-700">
+        <div className="rounded-xl bg-white shadow-sm p-3 max-h-40 overflow-auto text-xs text-slate-700 border">
           {history.length === 0 ? <div>No messages yet.</div> : (
             <ul className="space-y-1">
               {history.map(h=> (
@@ -298,7 +436,7 @@ export default function Ask(){
           )}
         </div>
       )}
-      <div className="border rounded-xl bg-white shadow-sm p-3 h-72 overflow-auto">
+      <div className={`rounded-xl bg-white shadow-sm p-3 border ${embedded ? 'h-auto overflow-hidden' : 'h-72 overflow-auto'}`}>
         {messages.length === 0 && (
           <div className="text-sm text-slate-500">Start a conversation below.</div>
         )}
@@ -331,9 +469,7 @@ export default function Ask(){
         <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Create a 30‑day content plan for a balayage specialist posting 3x/week.')}>Content Plan</button>
         <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Draft a price‑increase announcement and client FAQ for a luxury but friendly tone.')}>Price Increase</button>
         <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Make a pre‑appointment text and aftercare card for brow lamination with placeholders.')}>Pre/Post Visit</button>
-        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Compute effective hourly given price $225, product cost $28, service time 210 minutes.')}>
-          Pricing Model
-        </button>
+        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Compute effective hourly given price $225, product cost $28, service time 210 minutes.')}>Pricing Model</button>
       </div>
       <div className="flex gap-2 items-start">
         <textarea
@@ -345,7 +481,7 @@ export default function Ask(){
           onKeyDown={onKeyDown}
         />
         <div className="flex flex-col gap-2">
-          <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" onClick={send} disabled={loading || streaming}>
+          <button className="border rounded-full px-4 py-2 bg-gradient-to-r from-blue-100 to-blue-300 hover:from-blue-200 hover:to-blue-400 shadow text-slate-900" onClick={send} disabled={loading || streaming}>
             {loading ? 'Sending…' : 'Send'}
           </button>
           <button className="text-sm text-slate-600 hover:underline" onClick={reset}>Clear</button>
@@ -357,12 +493,13 @@ export default function Ask(){
       {messages.length > 0 && messages[messages.length - 1]?.role === 'assistant' && (
         <div className="mt-2">
           <a href="/onboarding?tour=1" className="inline-flex items-center gap-2">
-            <span className="px-3 py-2 border rounded-md bg-white hover:shadow-sm text-sm text-slate-800">Get Started!</span>
+            <span className="px-3 py-2 border rounded-full bg-white hover:shadow-sm text-sm text-slate-800">Get Started!</span>
           </a>
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
             <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('dashboard')}>Guide me: Dashboard</button>
             <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('integrations')}>Guide me: Integrations</button>
             <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('onboarding')}>Guide me: Onboarding</button>
+            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>{ window.location.href = '/integrations?tour=twilio'; }}>Connect SMS (Twilio)</button>
           </div>
           <div className="mt-3 flex flex-wrap gap-2 text-xs">
             <button disabled={!!running} className="px-2 py-1 border rounded-md bg-white hover:shadow-sm disabled:opacity-50" onClick={()=>runPlan('crm_organization')}>{running==='crm_organization' ? 'Running…' : 'Run plan: CRM Organization'}</button>
@@ -371,7 +508,36 @@ export default function Ask(){
             {getSavedQueue() && (
               <button disabled={!!running} className="px-2 py-1 border rounded-md bg-white hover:shadow-sm disabled:opacity-50" onClick={resumePlan}>{running ? 'Running…' : 'Resume last plan'}</button>
             )}
+            {/* Plan Builder: select steps and execute without navigating */}
+            <button disabled={!!running} className="px-2 py-1 border rounded-md bg-white hover:shadow-sm disabled:opacity-50" onClick={()=>openPlan('crm_organization')}>Plan builder: CRM</button>
+            <button disabled={!!running} className="px-2 py-1 border rounded-md bg-white hover:shadow-sm disabled:opacity-50" onClick={()=>openPlan('book_filling')}>Plan builder: Book‑Filling</button>
+            <button disabled={!!running} className="px-2 py-1 border rounded-md bg-white hover:shadow-sm disabled:opacity-50" onClick={()=>openPlan('social_automation')}>Plan builder: Social</button>
+            {planName && (
+              <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> startWorkflowGuide(planName)}>Guide this plan</button>
+            )}
           </div>
+          {planName && Array.isArray(planSteps) && planSteps.length > 0 && (
+            <div className="mt-3 rounded-xl border bg-white p-3">
+              <div className="text-sm font-medium text-slate-800">Plan steps ({planName})</div>
+              <ul className="mt-2 space-y-1 text-xs text-slate-700">
+                {planSteps.map((s, idx) => (
+                  <li key={idx} className="flex flex-col gap-1">
+                    <input id={`step_${idx}`} type="radio" name="plan_step" checked={selectedStepIdx===idx} onChange={()=>setSelectedStepIdx(idx)} />
+                    <label htmlFor={`step_${idx}`} className="cursor-pointer">
+                      {getToolLabel(String(s?.tool||''))}
+                    </label>
+                    {s?.params && (
+                      <pre className="ml-5 mt-0.5 rounded-md border bg-slate-50 p-2 text-[11px] text-slate-700 whitespace-pre-wrap">{JSON.stringify(s.params, null, 2)}</pre>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-2 flex gap-2">
+                <button disabled={!!running} className="px-2 py-1 border rounded-md bg-white hover:shadow-sm disabled:opacity-50" onClick={executeOneStep}>Run selected step</button>
+                <button disabled={!!running} className="px-2 py-1 border rounded-md bg-white hover:shadow-sm disabled:opacity-50" onClick={executeAllSteps}>Run all steps</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

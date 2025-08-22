@@ -1,0 +1,77 @@
+# Render (Backend) Environment Variables
+# Copy/paste these into your Render Web Service env settings.
+
+# --- Core URLs & CORS ---
+BACKEND_BASE_URL=https://api.brandvx.io
+FRONTEND_BASE_URL=https://app.brandvx.io
+CORS_ORIGINS=https://app.brandvx.io
+
+# --- Database ---
+# Use Render Postgres (auto-provisioned) or Supabase connection string
+# Example for Supabase: postgresql+psycopg2://USER:PASS@HOST:5432/DB
+DATABASE_URL=
+ENABLE_PG_RLS=0
+
+# --- Auth / JWT ---
+JWT_SECRET=
+JWT_AUDIENCE=brandvx-users
+JWT_ISSUER=brandvx
+SECRET_KEY=
+
+# --- Supabase (server-side)
+SUPABASE_URL=
+SUPABASE_SERVICE_ROLE_KEY=
+SUPABASE_READ_ONLY=true
+
+# --- Scheduler ---
+ENABLE_SCHEDULER=1
+SCHEDULER_INTERVAL_SECS=60
+QUIET_HOURS_START=21
+QUIET_HOURS_END=8
+DEFAULT_TZ_OFFSET=0
+
+# --- Observability / Analytics ---
+POSTHOG_API_KEY=
+POSTHOG_HOST=https://app.posthog.com
+
+# --- OpenAI ---
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-4o-mini
+OPENAI_FALLBACK_MODELS=gpt-4o-mini
+OPENAI_USE_RESPONSES=true
+
+# --- Redis (optional) ---
+REDIS_URL=
+
+# --- Twilio (SMS) ---
+# BYO model: tenants use their own Twilio. Leave these BLANK in production.
+# These are only for demo/quicksend or a platform-owned default profile.
+TWILIO_ACCOUNT_SID=
+TWILIO_AUTH_TOKEN=
+TWILIO_FROM_NUMBER=
+
+# --- SendGrid (Email) ---
+# BYO model: tenants use their own SendGrid/domain. Leave these BLANK in production.
+# These are only for demo/quicksend or a platform-owned default profile.
+SENDGRID_API_KEY=
+SENDGRID_FROM_EMAIL=
+SENDGRID_PUBLIC_KEY=
+SENDGRID_ACCEPT_UNSIGNED=false
+
+# --- Square / Acuity / HubSpot / FB ---
+SQUARE_CLIENT_ID=
+SQUARE_CLIENT_SECRET=
+SQUARE_AUTH_URL=https://connect.squareupsandbox.com/oauth2/authorize
+SQUARE_TOKEN_URL=https://connect.squareupsandbox.com/oauth2/token
+SQUARE_SCOPES=MERCHANT_PROFILE_READ PAYMENTS_READ
+SQUARE_WEBHOOK_SECRET=
+ACUITY_CLIENT_ID=
+ACUITY_WEBHOOK_SECRET=
+HUBSPOT_CLIENT_ID=
+HUBSPOT_CLIENT_SECRET=
+FB_APP_SECRET=
+
+# --- Dev toggles ---
+DEV_OAUTH_AUTOCONNECT=0
+
+

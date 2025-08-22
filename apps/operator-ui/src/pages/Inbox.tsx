@@ -6,6 +6,9 @@ type InboxItem = { channel?: string; from?: string; to?: string; ts?: number; pr
 
 export default function Inbox(){
   const [items, setItems] = useState<InboxItem[]>([]);
+  const [gmailThreads, setGmailThreads] = useState<any[]>([]);
+  const [gmailLoading, setGmailLoading] = useState(false);
+  const [gmailError, setGmailError] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [oauthError, setOauthError] = useState('');
@@ -17,6 +20,13 @@ export default function Inbox(){
   const [connected, setConnected] = useState<Record<string,string>>({});
   const [connecting, setConnecting] = useState<Record<string, boolean>>({});
   const [selected, setSelected] = useState<InboxItem|null>(null);
+  const [threadMsgs, setThreadMsgs] = useState<any[]>([]);
+  const [replyTo, setReplyTo] = useState('');
+  const [replySubject, setReplySubject] = useState('');
+  const [replyBody, setReplyBody] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState('');
+  const [sendOk, setSendOk] = useState(false);
   const loadMsgs = async()=>{
     try{ const tid = await getTenant(); const r = await api.get(`/inbox/list?tenant_id=${encodeURIComponent(tid)}`); setItems(r?.items||[]); }
     catch(e:any){ setError(String(e?.message||e)); }
@@ -36,6 +46,15 @@ export default function Inbox(){
         const r = await api.post('/onboarding/analyze', { tenant_id: tid });
         setReady(Boolean(r?.summary?.inbox_ready));
         if (r?.summary?.connected) setConnected(r.summary.connected);
+        // Load Gmail threads if Google connected
+        if ((r?.summary?.connected||{}).google === 'connected') {
+          setGmailLoading(true);
+          try {
+            const t = await api.get(`/gmail/threads?tenant_id=${encodeURIComponent(tid)}&q=${encodeURIComponent(q)}&limit=20`);
+            setGmailThreads(Array.isArray(t?.items) ? t.items : []);
+          } catch(e:any) { setGmailError(String(e?.message||e)); }
+          finally { setGmailLoading(false); }
+        }
       }catch{}
     })();
   },[]);
@@ -85,6 +104,13 @@ export default function Inbox(){
         <h3 className="text-lg font-semibold">Inbox</h3>
         <button className="text-sm text-slate-600 hover:underline" aria-label="Open inbox guide" onClick={()=> startGuide('inbox')}>Guide me</button>
       </div>
+      {/* Gmail connect CTA when not connected */}
+      {connected.google !== 'connected' && (
+        <div className="rounded-md border bg-white p-3 shadow-sm flex flex-wrap items-center gap-2 text-sm">
+          <div className="text-slate-700">Connect Gmail to see your threads and reply in BrandVX.</div>
+          <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm text-sm disabled:opacity-50" disabled={!!connecting.google} onClick={()=> connect('google')}>{connecting.google ? 'Connecting…' : 'Connect Gmail'}</button>
+        </div>
+      )}
       {oauthError && (
         <div className="text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-md px-2 py-1 inline-block">OAuth error: {oauthError}</div>
       )}
@@ -126,6 +152,56 @@ export default function Inbox(){
       </div>
       {Object.values(connected).some(s=>s==='pending_config') && (
         <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Some connections are pending configuration. Complete app credentials to activate.</div>
+      )}
+      {/* Gmail threads (when connected) */}
+      {connected.google === 'connected' && (
+        <section className="rounded-2xl border bg-white p-3 shadow-sm">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-sm font-medium text-slate-800">Gmail</div>
+            <button className="text-xs px-2 py-1 rounded-md border bg-white hover:shadow-sm" onClick={async()=>{
+              setGmailLoading(true); setGmailError('');
+              try{ const tid = await getTenant(); const t = await api.get(`/gmail/threads?tenant_id=${encodeURIComponent(tid)}&q=${encodeURIComponent(q)}&limit=20`); setGmailThreads(Array.isArray(t?.items)?t.items:[]); }
+              catch(e:any){ setGmailError(String(e?.message||e)); }
+              finally{ setGmailLoading(false); }
+            }}>Refresh</button>
+          </div>
+          {gmailError && <div className="text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-md px-2 py-1 inline-block">{gmailError}</div>}
+          {gmailLoading ? <div className="text-sm text-slate-600">Loading…</div> : (
+            gmailThreads.length === 0 ? (
+              <div className="text-sm text-slate-600">No Gmail threads yet.</div>
+            ) : (
+              <div className="rounded-xl border bg-white overflow-hidden">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-slate-50"><tr><th className="px-3 py-2 text-left">Subject</th><th className="px-3 py-2 text-left">From</th><th className="px-3 py-2 text-left">To</th><th className="px-3 py-2 text-left">Snippet</th><th className="px-3 py-2 text-left">Time</th></tr></thead>
+                  <tbody className="divide-y">
+                    {gmailThreads.map((t:any, i:number)=> (
+                      <tr key={i} className="hover:bg-slate-50 cursor-pointer" onClick={async()=>{
+                        try{
+                          const tid = await getTenant();
+                          const r = await api.get(`/gmail/thread?tenant_id=${encodeURIComponent(tid)}&id=${encodeURIComponent(t.id)}`);
+                          setSelected({ channel:'email', from:t.from, to:t.to, preview:t.subject||t.snippet, ts:t.ts });
+                          const msgs = Array.isArray(r?.messages)? r.messages : [];
+                          setThreadMsgs(msgs);
+                          // Prefill reply fields
+                          setReplyTo((t.from||'').toString());
+                          setReplySubject(t.subject ? `Re: ${t.subject}` : 'Re:');
+                          setReplyBody('');
+                          setSendOk(false); setSendError('');
+                        } catch(e:any){ setGmailError(String(e?.message||e)); }
+                      }}>
+                        <td className="px-3 py-2">{t.subject||'—'}</td>
+                        <td className="px-3 py-2">{t.from||'—'}</td>
+                        <td className="px-3 py-2">{t.to||'—'}</td>
+                        <td className="px-3 py-2">{t.snippet||'—'}</td>
+                        <td className="px-3 py-2">{t.ts ? new Date((t.ts as number)*1000).toLocaleString() : ''}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+        </section>
       )}
       {filtered.length === 0 ? (
         <div className="rounded-xl border bg-white p-3 shadow-sm text-sm text-slate-600">
@@ -205,6 +281,50 @@ export default function Inbox(){
               <div className="mt-3"><span className="text-slate-500 block">Preview:</span>
                 <div className="mt-1 rounded-md border bg-slate-50 p-2 text-slate-800">{selected.preview||'—'}</div>
               </div>
+              {connected.google === 'connected' && selected.channel === 'email' && (
+                <div className="mt-3 space-y-2">
+                  <div className="font-medium text-slate-900">Thread</div>
+                  <div className="max-h-48 overflow-auto border rounded-md bg-slate-50 p-2">
+                    <ul className="space-y-2">
+                      {threadMsgs.map((m:any, i:number)=> (
+                        <li key={i} className="text-xs">
+                          <div className="text-slate-500">{m.date||''} · {m.from||''} → {m.to||''}</div>
+                          <div className="text-slate-800">{m.snippet||''}</div>
+                        </li>
+                      ))}
+                      {threadMsgs.length === 0 && <li className="text-xs text-slate-500">No messages yet.</li>}
+                    </ul>
+                  </div>
+                  <div className="font-medium text-slate-900">Reply</div>
+                  {sendError && <div className="text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-md px-2 py-1 inline-block">{sendError}</div>}
+                  {sendOk && <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-2 py-1 inline-block">Sent.</div>}
+                  <div className="grid gap-2">
+                    <input className="border rounded-md px-2 py-1 bg-white" placeholder="To" value={replyTo} onChange={e=> setReplyTo(e.target.value)} />
+                    <input className="border rounded-md px-2 py-1 bg-white" placeholder="Subject" value={replySubject} onChange={e=> setReplySubject(e.target.value)} />
+                    <textarea className="border rounded-md px-2 py-2 bg-white min-h-[96px]" placeholder="Write your reply…" value={replyBody} onChange={e=> setReplyBody(e.target.value)} />
+                    <div className="flex items-center gap-2">
+                      <button className="px-3 py-2 rounded-md bg-slate-900 text-white disabled:opacity-50" disabled={sending || !replyTo || !replyBody} onClick={async()=>{
+                        setSending(true); setSendError(''); setSendOk(false);
+                        try{
+                          const tid = await getTenant();
+                          // Use the threadId from the last message if available
+                          const tId = (threadMsgs[threadMsgs.length-1]?.threadId) || '';
+                          const r = await api.post('/gmail/send', { tenant_id: tid, to: replyTo, subject: replySubject||'Re:', body_html: replyBody, threadId: tId });
+                          if (r?.status !== 'sent') throw new Error(r?.error || 'Failed to send');
+                          setSendOk(true); setReplyBody('');
+                          // Refresh thread
+                          if (tId) {
+                            const rr = await api.get(`/gmail/thread?tenant_id=${encodeURIComponent(tid)}&id=${encodeURIComponent(tId)}`);
+                            setThreadMsgs(Array.isArray(rr?.messages)? rr.messages : threadMsgs);
+                          }
+                        } catch(e:any){ setSendError(String(e?.message||e)); }
+                        finally{ setSending(false); }
+                      }}>Send</button>
+                      <button className="px-3 py-2 rounded-md border bg-white" onClick={()=>{ setReplyBody(''); setSendError(''); setSendOk(false); }}>Clear</button>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>

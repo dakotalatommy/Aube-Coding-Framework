@@ -32,6 +32,7 @@ from .tools import execute_tool
 from .marts import recompute_funnel_daily, recompute_time_saved
 from . import models as dbm
 from .integrations.sms_twilio import twilio_verify_signature
+from .integrations.sms_twilio import twilio_send_sms
 import threading as _threading
 from .adapters.supabase_adapter import SupabaseAdapter
 import json
@@ -50,6 +51,8 @@ import httpx
 import hmac as _hmac
 import hashlib as _hashlib
 import base64 as _b64
+import json as _json
+import stripe as _stripe
 
 
 tags_metadata = [
@@ -177,6 +180,138 @@ def _start_scheduler_if_enabled():
 # --- OAuth scaffolding helpers (env-driven) ---
 def _env(name: str, default: str = "") -> str:
     return os.getenv(name, default)
+
+
+# --------------------------- Billing (Stripe) ---------------------------
+def _stripe_client():
+    secret = _env("STRIPE_SECRET_KEY")
+    if not secret:
+        raise HTTPException(status_code=500, detail="stripe_not_configured")
+    _stripe.api_key = secret
+    return _stripe
+
+
+@app.post("/billing/create-customer", tags=["Integrations"])
+def create_customer(ctx: UserContext = Depends(get_user_context)):
+    s = _stripe_client()
+    # Store stripe customer id in settings table per tenant
+    with next(get_db()) as db:  # type: ignore
+        row = db.execute(
+            _sql_text("SELECT data_json FROM settings WHERE tenant_id = :tid ORDER BY id DESC LIMIT 1"),
+            {"tid": ctx.tenant_id},
+        ).fetchone()
+        data = {}
+        if row and row[0]:
+            try:
+                data = _json.loads(row[0])
+            except Exception:
+                data = {}
+        cust_id = data.get("stripe_customer_id")
+        if not cust_id:
+            customer = s.Customer.create(metadata={"tenant_id": ctx.tenant_id})
+            cust_id = customer["id"]
+            data["stripe_customer_id"] = cust_id
+            payload = {"tenant_id": ctx.tenant_id, "data_json": _json.dumps(data)}
+            db.execute(_sql_text("INSERT INTO settings(tenant_id, data_json) VALUES (:tenant_id, :data_json)"), payload)
+            db.commit()
+        return {"customer_id": cust_id}
+
+
+@app.post("/billing/create-setup-intent", tags=["Integrations"])
+def create_setup_intent(ctx: UserContext = Depends(get_user_context)):
+    s = _stripe_client()
+    # Ensure a customer first
+    cust = create_customer(ctx)
+    setup_intent = s.SetupIntent.create(customer=cust["customer_id"])  # type: ignore
+    return {"client_secret": setup_intent["client_secret"]}
+
+
+@app.post("/billing/create-checkout-session", tags=["Integrations"])
+def create_checkout_session(req: dict, ctx: UserContext = Depends(get_user_context)):
+    s = _stripe_client()
+    price_id = str(req.get("price_id", "")).strip()
+    price_cents = int(req.get("price_cents", 0) or 0)
+    currency = str(req.get("currency", "usd")).strip() or "usd"
+    product_name = str(req.get("product_name", "BrandVX Membership")).strip() or "BrandVX Membership"
+    if not price_id and price_cents <= 0:
+        raise HTTPException(status_code=400, detail="missing price_id_or_amount")
+    cust = create_customer(ctx)
+    origin = _env("APP_ORIGIN", "http://localhost:5173")
+    line_items = (
+        [{"price": price_id, "quantity": 1}]
+        if price_id
+        else [{
+            "price_data": {
+                "currency": currency,
+                "product_data": {"name": product_name},
+                "unit_amount": price_cents,
+                "recurring": {"interval": "month"},
+            },
+            "quantity": 1,
+        }]
+    )
+    session = s.checkout.Session.create(
+        mode="subscription",
+        line_items=line_items,
+        success_url=f"{origin}/workspace?pane=dashboard&billing=success",
+        cancel_url=f"{origin}/billing?cancel=1",
+        customer=cust["customer_id"],  # type: ignore
+        allow_promotion_codes=True,
+    )
+    return {"url": session["url"]}
+
+
+@app.post("/billing/portal", tags=["Integrations"])
+def billing_portal(ctx: UserContext = Depends(get_user_context)):
+    s = _stripe_client()
+    cust = create_customer(ctx)
+    origin = _env("APP_ORIGIN", "http://localhost:5173")
+    portal = s.billing_portal.Session.create(customer=cust["customer_id"], return_url=f"{origin}/billing")  # type: ignore
+    return {"url": portal["url"]}
+
+
+@app.post("/billing/webhook", tags=["Integrations"])
+async def stripe_webhook(request: Request):
+    payload = await request.body()
+    sig = request.headers.get("Stripe-Signature", "")
+    secret = _env("STRIPE_WEBHOOK_SECRET")
+    s = _stripe_client()
+    try:
+        event = s.Webhook.construct_event(payload, sig, secret)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid_signature")
+    t_update: dict = {}
+    typ = event.get("type")
+    data = event.get("data", {}).get("object", {})
+    if typ == "payment_method.attached":
+        cust_id = data.get("customer")
+        t_update = {"has_payment_method": True}
+    elif typ == "customer.subscription.updated" or typ == "customer.subscription.created":
+        cust_id = data.get("customer")
+        t_update = {
+            "subscription_status": data.get("status"),
+            "current_period_end": int(data.get("current_period_end", 0)),
+        }
+    else:
+        return JSONResponse({"status": "ignored"})
+    # Persist to settings for the tenant owning this customer (lookup by metadata if available)
+    try:
+        # Note: for a full system, map customer->tenant using a dedicated table; here we scan latest settings rows
+        with next(get_db()) as db:  # type: ignore
+            rows = db.execute(_sql_text("SELECT tenant_id, data_json, id FROM settings ORDER BY id DESC LIMIT 200")).fetchall()
+            for tenant_id, data_json, sid in rows:
+                try:
+                    d = _json.loads(data_json or "{}")
+                except Exception:
+                    d = {}
+                if d.get("stripe_customer_id") == cust_id:
+                    d.update(t_update)
+                    db.execute(_sql_text("UPDATE settings SET data_json = :dj WHERE id = :sid"), {"dj": _json.dumps(d), "sid": sid})
+                    db.commit()
+                    break
+    except Exception:
+        pass
+    return JSONResponse({"status": "ok"})
 
 
 def _backend_base_url() -> str:
@@ -696,8 +831,12 @@ def start_cadence(
     db: Session = Depends(get_db),
     ctx: UserContext = Depends(get_user_context),
 ) -> Dict[str, str]:
-    if ctx.tenant_id != req.tenant_id:
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
+    try:
+        db.rollback()
+    except Exception:
+        pass
     db.add(
         dbm.CadenceState(
             tenant_id=req.tenant_id,
@@ -1217,6 +1356,9 @@ async def ai_tool_execute(
             emit_event("AIToolExecuted", {"tenant_id": req.tenant_id, "tool": req.name, "status": "pending"})
             return {"status": "pending"}
         result = await execute_tool(req.name, dict(req.params or {}), db, ctx)
+        # Normalize return shape minimally
+        if not isinstance(result, dict) or "status" not in result:
+            result = {"status": str(result)} if not isinstance(result, dict) else {**result, "status": result.get("status", "ok")}
         emit_event("AIToolExecuted", {"tenant_id": req.tenant_id, "tool": req.name, "status": result.get("status")})
         return result
     except Exception as e:
@@ -1269,10 +1411,34 @@ def list_approvals(
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return []
     rows = db.query(dbm.Approval).filter(dbm.Approval.tenant_id == tenant_id).all()
-    return [
-        {"id": r.id, "tool": r.tool_name, "status": r.status, "params": r.params_json, "result": r.result_json}
-        for r in rows
-    ]
+    def _explain(tool: str, params_json: str) -> str:
+        try:
+            _p = json.loads(params_json or "{}")
+        except Exception:
+            _p = {}
+        t = (tool or "").lower()
+        if t == "social.schedule.14days":
+            return "Draft a 14‑day posting plan (no posts published until scheduled)."
+        if t == "contacts.dedupe":
+            return "Deduplicate contacts by email/phone hashes."
+        if t == "campaigns.dormant.start":
+            return "Start a dormant reactivation campaign for inactive clients."
+        if t == "appointments.schedule_reminders":
+            return "Schedule appointment reminder messages for upcoming bookings."
+        if t == "export.contacts":
+            return "Export contacts as CSV."
+        return f"Review request for {tool}"
+    out = []
+    for r in rows:
+        out.append({
+            "id": r.id,
+            "tool": r.tool_name,
+            "status": r.status,
+            "params": r.params_json,
+            "result": r.result_json,
+            "explain": _explain(r.tool_name, r.params_json),
+        })
+    return out
 
 
 @app.post("/approvals/action", tags=["Approvals"])
@@ -1302,6 +1468,76 @@ async def action_approval(
     row.result_json = _json.dumps(result)
     db.commit()
     return {"status": "approved", "result": result}
+
+
+# --- Lightweight consent/docs endpoints ---
+@app.get("/consent/policy", tags=["Docs"])
+def consent_policy() -> Dict[str, str]:
+    html = (
+        "<h3>Consent and data</h3>"
+        "<p>BrandVX only sends messages when the contact has opted in. STOP/HELP are honored automatically. "
+        "You can revoke consent at any time. We store minimal metadata for audit and compliance.</p>"
+    )
+    return {"html": html}
+
+
+@app.get("/consent/faq", tags=["Docs"])
+def consent_faq() -> Dict[str, object]:
+    return {
+        "items": [
+            {"q": "What is consent?", "a": "Explicit permission to message via SMS/Email. We record STOP/HELP and opt‑outs."},
+            {"q": "How do I stop messages?", "a": "Reply STOP to SMS or use unsubscribe links; operators can also set consent off."},
+            {"q": "What data is stored?", "a": "Hashes or IDs plus message metadata for audit; no raw PII is required for demo."},
+        ]
+    }
+
+
+# --- Contacts predictive search ---
+@app.get("/contacts/search", tags=["Contacts"])
+def contacts_search(
+    tenant_id: str,
+    q: str = "",
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"items": []}
+    q = (q or "").strip()
+    base = db.query(dbm.Contact).filter(dbm.Contact.tenant_id == tenant_id, dbm.Contact.deleted == False)  # type: ignore
+    if q:
+        like = f"%{q}%"
+        try:
+            base = base.filter(
+                (dbm.Contact.contact_id.ilike(like))
+                | (dbm.Contact.email_hash.ilike(like))
+                | (dbm.Contact.phone_hash.ilike(like))
+            )
+        except Exception:
+            base = base.filter(dbm.Contact.contact_id.like(like))
+    rows = base.order_by(dbm.Contact.id.asc()).limit(max(1, min(limit, 50))).all()
+    return {"items": [
+        {"id": r.contact_id, "name": r.contact_id, "email_hash": r.email_hash, "phone_hash": r.phone_hash, "favorite": False}
+        for r in rows
+    ]}
+
+
+# --- Human-friendly tool schema for AskVX palette ---
+@app.get("/ai/tools/schema_human", tags=["AI"])
+def ai_tools_schema_human() -> Dict[str, object]:
+    tools = [
+        {"id": "draft_message", "label": "Draft message", "gated": False, "category": "messaging"},
+        {"id": "pricing_model", "label": "Pricing model", "gated": False, "category": "analytics"},
+        {"id": "safety_check", "label": "Safety check", "gated": False, "category": "assist"},
+        {"id": "contacts.dedupe", "label": "Deduplicate contacts", "gated": True, "category": "crm"},
+        {"id": "export.contacts", "label": "Export contacts (CSV)", "gated": True, "category": "crm"},
+        {"id": "campaigns.dormant.preview", "label": "Preview dormant segment", "gated": False, "category": "campaigns"},
+        {"id": "campaigns.dormant.start", "label": "Start dormant campaign", "gated": True, "category": "campaigns"},
+        {"id": "appointments.schedule_reminders", "label": "Schedule reminders", "gated": True, "category": "appointments"},
+        {"id": "inventory.alerts.get", "label": "Low‑stock alerts", "gated": True, "category": "inventory"},
+        {"id": "social.schedule.14days", "label": "Draft 14‑day social plan", "gated": True, "category": "social"},
+    ]
+    return {"version": "v1", "tools": tools}
 
 
 # Temporarily commented audit route; keep adapter in place
@@ -1605,6 +1841,8 @@ class SettingsRequest(BaseModel):
     # Onboarding/tour persistence
     tour_completed: Optional[bool] = None
     onboarding_step: Optional[int] = None
+    # Timezone support
+    user_timezone: Optional[str] = None  # e.g., "America/Chicago"
 
 
 @app.get("/settings", tags=["Integrations"])
@@ -1651,6 +1889,10 @@ def update_settings(
             data["onboarding_step"] = int(req.onboarding_step)
         except Exception:
             data["onboarding_step"] = 0
+    if req.user_timezone is not None:
+        prefs = dict(data.get("preferences") or {})
+        prefs["user_timezone"] = req.user_timezone
+        data["preferences"] = prefs
     if not row:
         row = dbm.Settings(tenant_id=req.tenant_id, data_json=json.dumps(data))
         db.add(row)
@@ -1938,7 +2180,41 @@ def ai_workflow_plan(req: WorkflowPlanRequest, ctx: UserContext = Depends(get_us
             {"title": "Draft 14‑day schedule", "tool": "social.schedule.14days", "requiresApproval": True},
         ],
     }
-    return {"steps": plans.get(req.name, [])}
+    steps = plans.get(req.name)
+    if steps is None:
+        return {
+            "steps": [],
+            "friendly_error": "I couldn’t find that workflow. Try one of: crm_organization, book_filling, inventory_tracking, client_communication, social_automation.",
+        }
+    return {"steps": steps}
+
+
+# Minimal cross-panel workflow guide manifest for AskVX
+@app.get("/guide/manifest", tags=["AI"])
+def guide_manifest() -> Dict[str, object]:
+    return {
+        "version": 1,
+        "workflows": {
+            "crm_organization": [
+                {"panel": "integrations", "selector": "[data-tour=connect]", "title": "Connect CRM", "desc": "Link HubSpot to import contacts."},
+                {"panel": "onboarding", "selector": "[data-tour=analyze]", "title": "Analyze setup", "desc": "See what’s ready and what’s missing."},
+            ],
+            "book_filling": [
+                {"panel": "cadences", "selector": "[data-guide=dormant-preview]", "title": "Preview dormant", "desc": "Find clients not seen recently."},
+                {"panel": "cadences", "selector": "[data-guide=dormant-start]", "title": "Start campaign", "desc": "Queue messages with consent and approvals."},
+            ],
+            "inventory_tracking": [
+                {"panel": "inventory", "selector": "[data-guide=sync]", "title": "Run sync", "desc": "Pull stock from Shopify/Square."},
+                {"panel": "inventory", "selector": "[data-guide=low-threshold]", "title": "Low stock alerts", "desc": "Adjust threshold to watch items."},
+            ],
+            "client_communication": [
+                {"panel": "inbox", "selector": "[data-guide=templates]", "title": "Message templates", "desc": "Pick and schedule reminders."},
+            ],
+            "social_automation": [
+                {"panel": "social", "selector": "[data-guide=plan-14]", "title": "Draft 14‑day plan", "desc": "Review and approve posts."},
+            ],
+        },
+    }
 
 
 @app.get("/ui/contract")
@@ -2016,6 +2292,101 @@ def ui_contract() -> Dict[str, object]:
 class ProviderWebhook(BaseModel):
     tenant_id: str
     payload: Dict[str, object] = {}
+
+
+class ProvisionSmsRequest(BaseModel):
+    tenant_id: str
+    area_code: Optional[str] = None  # attempt local number if provided
+
+
+@app.post("/integrations/twilio/provision", tags=["Integrations"])
+def twilio_provision(req: ProvisionSmsRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        raise HTTPException(status_code=403, detail="forbidden")
+    # Require master Twilio creds at platform level
+    master_sid = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
+    master_token = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
+    if not (master_sid and master_token):
+        return {"status": "error", "detail": "platform_twilio_not_configured"}
+    # Create subaccount and buy a number
+    sub_sid = ""
+    sub_token = ""
+    from_num = ""
+    try:
+        # 1) create subaccount
+        with httpx.Client(timeout=20, auth=(master_sid, master_token)) as client:
+            r = client.post(f"https://api.twilio.com/2010-04-01/Accounts.json", data={"FriendlyName": f"BrandVX {req.tenant_id}"})
+            r.raise_for_status()
+            j = r.json()
+            sub_sid = j.get("sid", "")
+            sub_token = j.get("auth_token", "")
+        if not (sub_sid and sub_token):
+            return {"status": "error", "detail": "subaccount_create_failed"}
+        # 2) buy a local number (fallback to toll-free search could be added later)
+        with httpx.Client(timeout=20, auth=(sub_sid, sub_token)) as client:
+            q = {"Country": "US", "Type": "Local"}
+            if req.area_code: q["AreaCode"] = req.area_code
+            r = client.get(f"https://api.twilio.com/2010-04-01/Accounts/{sub_sid}/AvailablePhoneNumbers/US/Local.json", params=q)
+            r.raise_for_status()
+            nums = (r.json() or {}).get("available_phone_numbers") or []
+            if not nums:
+                return {"status": "error", "detail": "no_numbers_available"}
+            cand = nums[0].get("phone_number", "")
+            if not cand:
+                return {"status": "error", "detail": "no_numbers_available"}
+            # Purchase
+            r2 = client.post(f"https://api.twilio.com/2010-04-01/Accounts/{sub_sid}/IncomingPhoneNumbers.json", data={"PhoneNumber": cand})
+            r2.raise_for_status()
+            from_num = cand
+        # 3) set webhook (inbound SMS)
+        try:
+            with httpx.Client(timeout=20, auth=(sub_sid, sub_token)) as client:
+                url = f"{_backend_base_url()}/webhooks/twilio?tenant_id={req.tenant_id}"
+                # Fetch list again to get SID of purchased number
+                r = client.get(f"https://api.twilio.com/2010-04-01/Accounts/{sub_sid}/IncomingPhoneNumbers.json")
+                sid = ""
+                for it in (r.json() or {}).get("incoming_phone_numbers", []):
+                    if str(it.get("phone_number")) == from_num:
+                        sid = str(it.get("sid"))
+                        break
+                if sid:
+                    client.post(f"https://api.twilio.com/2010-04-01/Accounts/{sub_sid}/IncomingPhoneNumbers/{sid}.json", data={
+                        "SmsUrl": url,
+                        "SmsMethod": "POST",
+                    })
+        except Exception:
+            pass
+        # 4) persist into Settings
+        row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == req.tenant_id).first()
+        data = {}
+        try:
+            data = json.loads(row.data_json) if row else {}
+        except Exception:
+            data = {}
+        data.setdefault("messaging", {})
+        data["messaging"].update({
+            "twilio_subaccount_sid": sub_sid,
+            "twilio_auth_token": sub_token,
+            "sms_from_number": from_num,
+        })
+        if not row:
+            row = dbm.Settings(tenant_id=req.tenant_id, data_json=json.dumps(data))
+            db.add(row)
+        else:
+            row.data_json = json.dumps(data)
+        db.commit()
+        # 5) test send (optional)
+        try:
+            test_to = os.getenv("TEST_SMS_TO", "")
+            if test_to:
+                twilio_send_sms(test_to, "BrandVX SMS enabled.", sub_sid, sub_token, from_num)
+        except Exception:
+            pass
+        return {"status": "ok", "from": from_num}
+    except Exception as e:
+        try: db.rollback()
+        except Exception: pass
+        return {"status": "error", "detail": str(e)}
 
 
 @app.post("/webhooks/twilio", tags=["Integrations"])
@@ -2291,12 +2662,27 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                     expires_at = int(_time.time()) + int(exp)
             except Exception:
                 pass
-        db.add(dbm.ConnectedAccount(
-            tenant_id=t_id, user_id="dev", provider=provider, scopes=None,
-            access_token_enc=access_token_enc, refresh_token_enc=refresh_token_enc, expires_at=expires_at, status=status
-        ))
-        db.add(dbm.AuditLog(tenant_id=t_id, actor_id="system", action=f"oauth.callback.{provider}", entity_ref="oauth", payload=str({"code": bool(code), "error": error or ""})))
-        db.commit()
+        try:
+            db.add(dbm.ConnectedAccount(
+                tenant_id=t_id, user_id="dev", provider=provider, scopes=None,
+                access_token_enc=access_token_enc, refresh_token_enc=refresh_token_enc, expires_at=expires_at, status=status
+            ))
+            db.commit()
+        except Exception:
+            try: db.rollback()
+            except Exception: pass
+        try:
+            db.add(dbm.AuditLog(tenant_id=t_id, actor_id="system", action=f"oauth.callback.{provider}", entity_ref="oauth", payload=str({"code": bool(code), "error": error or ""})))
+            db.commit()
+        except Exception:
+            try: db.rollback()
+            except Exception: pass
+        try:
+            if provider in {"shopify", "square"}:
+                # Fire an initial inventory sync so onboarding analysis shows results fast
+                _ = inventory_sync(SyncRequest(tenant_id=t_id, provider=provider), db=db, ctx=UserContext(tenant_id=t_id, role="owner_admin", user_id="system"))
+        except Exception:
+            pass
     except Exception:
         pass
     dest = f"{_frontend_base_url()}/onboarding?connected={provider}"
@@ -2913,6 +3299,173 @@ def inbox_list(
     except Exception:
         pass
     return {"items": items}
+
+
+# --------------------------- Gmail (threads/read/send) ---------------------------
+def _google_oauth_creds() -> tuple[str, str]:
+    return _env("GOOGLE_CLIENT_ID", ""), _env("GOOGLE_CLIENT_SECRET", "")
+
+
+def _load_connected_account(db: Session, tenant_id: str, provider: str):
+    return (
+        db.query(dbm.ConnectedAccount)
+        .filter(dbm.ConnectedAccount.tenant_id == tenant_id, dbm.ConnectedAccount.provider == provider)
+        .order_by(dbm.ConnectedAccount.id.desc())
+        .first()
+    )
+
+
+def _maybe_refresh_google_token(db: Session, ca) -> str:
+    # Returns valid access token, refreshing if needed
+    access = decrypt_text(ca.access_token_enc or "") or ""
+    if ca.expires_at and int(ca.expires_at) - int(_time.time()) > 60 and access:
+        return access
+    # Try refresh
+    client_id, client_secret = _google_oauth_creds()
+    rt = decrypt_text(ca.refresh_token_enc or "") or ""
+    if not (client_id and client_secret and rt):
+        return access
+    try:
+        data = {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "grant_type": "refresh_token",
+            "refresh_token": rt,
+        }
+        r = httpx.post("https://oauth2.googleapis.com/token", data=data, timeout=15)
+        if r.status_code == 200:
+            j = r.json()
+            at = str(j.get("access_token") or "")
+            expires_in = int(j.get("expires_in") or 0)
+            if at:
+                ca.access_token_enc = encrypt_text(at)
+                if expires_in:
+                    ca.expires_at = int(_time.time()) + int(expires_in)
+                db.add(ca)
+                db.commit()
+                return at
+    except Exception:
+        pass
+    return access
+
+
+@app.get("/gmail/threads", tags=["Integrations"])
+def gmail_threads(tenant_id: str, q: str = "", limit: int = 20, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"items": []}
+    try:
+        ca = _load_connected_account(db, tenant_id, "google")
+        if not ca or ca.status != "connected":
+            return {"items": []}
+        at = _maybe_refresh_google_token(db, ca)
+        if not at:
+            return {"items": []}
+        headers = {"Authorization": f"Bearer {at}"}
+        params = {"q": q, "maxResults": max(1, min(limit, 100))}
+        r = httpx.get("https://gmail.googleapis.com/gmail/v1/users/me/threads", headers=headers, params=params, timeout=20)
+        if r.status_code >= 400:
+            return {"items": []}
+        threads = r.json().get("threads", [])
+        items = []
+        for t in threads[: params["maxResults"]]:
+            tid = t.get("id")
+            if not tid:
+                continue
+            gr = httpx.get(f"https://gmail.googleapis.com/gmail/v1/users/me/threads/{tid}", headers=headers, params={"format": "metadata", "metadataHeaders": ["From","To","Subject","Date"]}, timeout=20)
+            if gr.status_code >= 400:
+                continue
+            tj = gr.json()
+            msgs = tj.get("messages", [])
+            first = msgs[0] if msgs else {}
+            headers_list = (first.get("payload", {}) or {}).get("headers", [])
+            hmap = {h.get("name"): h.get("value") for h in headers_list}
+            items.append({
+                "id": tid,
+                "snippet": t.get("snippet", ""),
+                "from": hmap.get("From", ""),
+                "to": hmap.get("To", ""),
+                "subject": hmap.get("Subject", ""),
+                "ts": first.get("internalDate") and int(int(first.get("internalDate")) / 1000) or 0,
+            })
+        return {"items": items}
+    except Exception:
+        return {"items": []}
+
+
+@app.get("/gmail/thread", tags=["Integrations"])
+def gmail_thread(tenant_id: str, id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"messages": []}
+    try:
+        ca = _load_connected_account(db, tenant_id, "google")
+        if not ca or ca.status != "connected":
+            return {"messages": []}
+        at = _maybe_refresh_google_token(db, ca)
+        if not at:
+            return {"messages": []}
+        headers = {"Authorization": f"Bearer {at}"}
+        gr = httpx.get(f"https://gmail.googleapis.com/gmail/v1/users/me/threads/{id}", headers=headers, params={"format": "full"}, timeout=20)
+        if gr.status_code >= 400:
+            return {"messages": []}
+        tj = gr.json()
+        out = []
+        for m in tj.get("messages", []) or []:
+            hs = (m.get("payload", {}) or {}).get("headers", [])
+            hmap = {h.get("name"): h.get("value") for h in hs}
+            snippet = m.get("snippet", "")
+            out.append({
+                "id": m.get("id"),
+                "from": hmap.get("From", ""),
+                "to": hmap.get("To", ""),
+                "subject": hmap.get("Subject", ""),
+                "date": hmap.get("Date", ""),
+                "snippet": snippet,
+                "threadId": m.get("threadId"),
+            })
+        return {"messages": out}
+    except Exception:
+        return {"messages": []}
+
+
+@app.post("/gmail/send", tags=["Integrations"])
+def gmail_send(req: dict, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    tenant_id = str(req.get("tenant_id", ctx.tenant_id or ""))
+    to = str(req.get("to", "")).strip()
+    subject = str(req.get("subject", "")).strip()
+    body_html = str(req.get("body_html", "")).strip()
+    thread_id = str(req.get("threadId", "")).strip()
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    if not to:
+        return {"status": "error", "error": "missing_to"}
+    try:
+        ca = _load_connected_account(db, tenant_id, "google")
+        if not ca or ca.status != "connected":
+            return {"status": "not_connected"}
+        at = _maybe_refresh_google_token(db, ca)
+        if not at:
+            return {"status": "not_connected"}
+        headers = {"Authorization": f"Bearer {at}", "Content-Type": "application/json"}
+        # Minimal RFC822 MIME
+        from_addr = "me"
+        raw = (
+            f"To: {to}\r\n"
+            f"Subject: {subject}\r\n"
+            f"MIME-Version: 1.0\r\n"
+            f"Content-Type: text/html; charset=UTF-8\r\n\r\n"
+            f"{body_html}"
+        ).encode("utf-8")
+        import base64 as _b64
+        raw_b64 = _b64.urlsafe_b64encode(raw).decode("utf-8").rstrip("=")
+        payload = {"raw": raw_b64}
+        if thread_id:
+            payload["threadId"] = thread_id
+        r = httpx.post("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", headers=headers, json=payload, timeout=20)
+        if r.status_code >= 400:
+            return {"status": "error", "error": r.text}
+        return {"status": "sent", "id": r.json().get("id"), "threadId": r.json().get("threadId")}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
 
 
 @app.get("/calendar/list", tags=["Integrations"])

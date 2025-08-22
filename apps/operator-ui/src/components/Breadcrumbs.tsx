@@ -15,17 +15,51 @@ const LABELS: Record<string, string> = {
   'agent': 'Agent',
   'login': 'Login',
   'signup': 'Signup',
+  'landing-v2': 'BrandVX',
+  'brandvx': 'BrandVX',
+  'workspace': 'Workspace',
 };
 
 export default function Breadcrumbs() {
   const loc = useLocation();
-  const parts = loc.pathname.replace(/^\/+/, '').split('/').filter(Boolean);
+  const qs = new URLSearchParams(loc.search);
+
+  // Special-case workspace: show plain 'Workspace' only (no duplicate segments)
+  if (loc.pathname === '/workspace') {
+    return (
+      <nav aria-label="Breadcrumb" className="text-sm text-slate-600">
+        <ol className="flex items-center gap-1 flex-wrap">
+          <li className="flex items-center gap-1">
+            <span className="text-slate-800">Workspace</span>
+          </li>
+        </ol>
+      </nav>
+    );
+  }
+
+  // On the landing surface, hide crumbs unless demo mode is active
+  if (loc.pathname === '/brandvx') {
+    if (qs.get('demo') === '1') {
+      return (
+        <nav aria-label="Breadcrumb" className="text-sm text-slate-600">
+          <ol className="flex items-center gap-1 flex-wrap">
+            <li className="flex items-center gap-1">
+              <span className="text-slate-800">Workspace</span>
+            </li>
+          </ol>
+        </nav>
+      );
+    }
+    return null;
+  }
+
+  const parts = loc.pathname.replace(/^\/+/,'').split('/').filter(Boolean);
   const segments = ['/', ...parts.map((_, i) => '/' + parts.slice(0, i + 1).join('/'))];
   return (
     <nav aria-label="Breadcrumb" className="text-sm text-slate-600">
       <ol className="flex items-center gap-1 flex-wrap">
         {segments.map((seg, idx) => {
-          const nameKey = seg.replace(/^\/+/, '').split('/').filter(Boolean).pop() || '';
+          const nameKey = seg.replace(/^\/+/,'').split('/').filter(Boolean).pop() || '';
           const label = LABELS[nameKey] || nameKey || 'Home';
           const isLast = idx === segments.length - 1;
           return (

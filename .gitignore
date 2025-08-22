@@ -1,0 +1,22 @@
+# Node / Vite
+node_modules/
+dist/
+apps/operator-ui/.vite/
+
+# Python venv & caches
+.venv/
+__pycache__/
+*.pyc
+
+# Local env & secrets
+.env
+*.env*
+apps/operator-ui/.env
+
+# OS/Editor
+.DS_Store
+.vscode/
+
+# Local databases & artifacts
+test_brandvx.db
+synthesis/chat_logs.jsonl

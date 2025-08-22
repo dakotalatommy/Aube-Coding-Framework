@@ -1,10 +1,12 @@
 import { Link } from 'react-router-dom';
+import Button, { ButtonLink } from '../components/ui/Button';
 import { startGuide } from '../lib/guide';
 import ShareCard from '../components/ui/ShareCard';
 import { useEffect, useState } from 'react';
 import { api, getTenant } from '../lib/api';
 import { track } from '../lib/analytics';
 import { useToast } from '../components/ui/Toast';
+import { useLocation } from 'react-router-dom';
 
 type W = { title: string; description: string; to: string; cta?: string };
 
@@ -28,6 +30,16 @@ export default function Workflows(){
   const [hasResume, setHasResume] = useState<boolean>(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [shareUrl, setShareUrl] = useState('');
+  const loc = useLocation(); void loc; // avoid TS6133 when not used
+  const [connected, setConnected] = useState<Record<string,string>>({});
+  const [packState, setPackState] = useState<Record<string, 'pending'|'skipped'|'done'>>({
+    warm5: 'pending',
+    reminders: 'pending',
+    dormantPreview: 'pending',
+    dedupe: 'pending',
+    lowstock: 'pending',
+  });
+  // const [skipNote, setSkipNote] = useState<Record<string,string>>({});
 
   useEffect(()=>{
     (async()=>{
@@ -41,8 +53,54 @@ export default function Workflows(){
         const v = localStorage.getItem(`bvx_plan_queue_${tid}`);
         setHasResume(!!v);
       } catch { setHasResume(false); }
+      try {
+        const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() });
+        if (a?.summary?.connected) setConnected(a.summary.connected);
+      } catch {}
     })();
   }, []);
+
+  const twilioReady = (connected['twilio']||'') === 'connected';
+
+  const markDone = (k: string) => setPackState(s=> ({ ...s, [k]: 'done' }));
+  const markSkip = (k: string) => setPackState(s=> ({ ...s, [k]: 'skipped' }));
+
+  const runWarmFive = async () => {
+    if (!twilioReady) { showToast({ title:'Connect Twilio', description:'Please connect Twilio to send SMS.' }); return; }
+    setBusy(true);
+    try {
+      const r = await api.post('/ai/tools/execute', {
+        tenant_id: await getTenant(),
+        name: 'notify_trigger_send',
+        params: { tenant_id: await getTenant(), max_candidates: 5, message_template: 'Quick nudge to book or confirm.' },
+        require_approval: true,
+      });
+      showToast({ title: 'Warm leads', description: r.status === 'pending' ? 'Awaiting approval for 5 texts.' : 'Sent 5 warm nudges.' });
+      markDone('warm5');
+    } catch(e:any) {
+      showToast({ title:'Error', description:String(e?.message||e) });
+    } finally { setBusy(false); }
+  };
+
+  const runReminders = async () => {
+    setBusy(true);
+    try {
+      const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'appointments.schedule_reminders', params:{ tenant_id: await getTenant() }, require_approval: false });
+      showToast({ title: 'Reminders', description: r?.status||'ok' });
+      markDone('reminders'); setLastRun(s=>({...s, reminders: Date.now()}));
+    } catch(e:any) { showToast({ title:'Error', description:String(e?.message||e) }); }
+    finally { setBusy(false); }
+  };
+
+  const runDormantPreview = async () => {
+    setBusy(true);
+    try {
+      const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'campaigns.dormant.preview', params:{ tenant_id: await getTenant(), threshold_days: 60 }, require_approval: false });
+      showToast({ title:'Dormant preview', description:`Preview ready${r?.count? ` for ${r.count}`:''}.` });
+      markDone('dormantPreview'); setLastRun(s=>({...s, dormantPreview: Date.now()}));
+    } catch(e:any){ showToast({ title:'Error', description:String(e?.message||e) }); }
+    finally { setBusy(false); }
+  };
 
   const runDedupe = async () => {
     setBusy(true);
@@ -111,7 +169,7 @@ export default function Workflows(){
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">Workflows</h3>
-        <button className="text-sm text-slate-600 hover:underline" aria-label="Open workflows guide" onClick={()=> startGuide('workflows')}>Guide me</button>
+        <Button variant="outline" size="sm" aria-label="Open workflows guide" onClick={()=> startGuide('workflows')}>Guide me</Button>
       </div>
       <p className="text-sm text-slate-600">Everything you can do in BrandVX, in one place. Consent-first, simple language, step-by-step.</p>
       <div className="grid md:grid-cols-2 gap-4">
@@ -120,11 +178,89 @@ export default function Workflows(){
             <div className="font-medium text-slate-900">{w.title}</div>
             <div className="text-sm text-slate-600 mt-1">{w.description}</div>
             <div className="mt-3">
-              <Link to={w.to} className="px-3 py-2 rounded-md text-white shadow hover:shadow-md bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600">{w.cta || 'Open'}</Link>
+              <ButtonLink href={w.to}>{w.cta || 'Open'}</ButtonLink>
             </div>
           </section>
         ))}
       </div>
+      <section className="rounded-2xl p-4 bg-white/70 backdrop-blur border border-white/70 shadow-sm">
+        <div className="flex items-center justify-between">
+          <h4 className="text-md font-semibold">48‑hour impact pack</h4>
+          {Object.values(packState).every(s=> s!=='pending') && (
+            <span className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-2 py-0.5">Completed</span>
+          )}
+        </div>
+        <p className="text-sm text-slate-600 mt-1">Run a few high‑impact steps now. You can skip any step.</p>
+        <div className="mt-3 grid sm:grid-cols-2 gap-3 text-sm">
+          <div className="rounded-xl border bg-white p-3">
+            <div className="font-medium text-slate-900">Text 5 warm leads</div>
+            <div className="text-slate-600 mt-1">Send 5 consent‑first nudges to likely bookers.</div>
+            <div className="mt-2 flex gap-2">
+              <Button size="sm" disabled={busy || packState.warm5!=='pending'} onClick={runWarmFive}>Run</Button>
+              <Button size="sm" variant="outline" disabled={packState.warm5!=='pending'} onClick={()=> markSkip('warm5')}>Skip</Button>
+            </div>
+            {packState.warm5==='skipped' && (
+              <div className="mt-2 text-xs text-slate-600">Skipped</div>
+            )}
+          </div>
+          <div className="rounded-xl border bg-white p-3">
+            <div className="font-medium text-slate-900">Schedule reminders</div>
+            <div className="text-slate-600 mt-1">Gentle reminders with quiet hours respected.</div>
+            <div className="mt-2 flex gap-2">
+              <Button size="sm" disabled={busy || packState.reminders!=='pending'} onClick={runReminders}>Run</Button>
+              <Button size="sm" variant="outline" disabled={packState.reminders!=='pending'} onClick={()=> markSkip('reminders')}>Skip</Button>
+            </div>
+          </div>
+          <div className="rounded-xl border bg-white p-3">
+            <div className="font-medium text-slate-900">Preview dormant (≥60d)</div>
+            <div className="text-slate-600 mt-1">See who to re‑engage; approve campaign later.</div>
+            <div className="mt-2 flex gap-2">
+              <Button size="sm" disabled={busy || packState.dormantPreview!=='pending'} onClick={runDormantPreview}>Run</Button>
+              <Button size="sm" variant="outline" disabled={packState.dormantPreview!=='pending'} onClick={()=> markSkip('dormantPreview')}>Skip</Button>
+            </div>
+          </div>
+          <div className="rounded-xl border bg-white p-3">
+            <div className="font-medium text-slate-900">Dedupe contacts</div>
+            <div className="text-slate-600 mt-1">Clean duplicates for better deliverability.</div>
+            <div className="mt-2 flex gap-2">
+              <Button size="sm" disabled={busy || packState.dedupe!=='pending'} onClick={runDedupe}>Run</Button>
+              <Button size="sm" variant="outline" disabled={packState.dedupe!=='pending'} onClick={()=> markSkip('dedupe')}>Skip</Button>
+            </div>
+          </div>
+          <div className="rounded-xl border bg-white p-3">
+            <div className="font-medium text-slate-900">Low‑stock alerts</div>
+            <div className="text-slate-600 mt-1">Find items to restock or promote as add‑ons.</div>
+            <div className="mt-2 flex gap-2">
+              <Button size="sm" disabled={busy || packState.lowstock!=='pending'} onClick={checkLow}>Run</Button>
+              <Button size="sm" variant="outline" disabled={packState.lowstock!=='pending'} onClick={()=> markSkip('lowstock')}>Skip</Button>
+            </div>
+          </div>
+        </div>
+        {Object.values(packState).some(s=> s==='skipped') && (
+          <div className="mt-3 text-xs text-slate-600">You skipped some steps. You can run them later from here.</div>
+        )}
+      </section>
+      {/* End-of-pack summary */}
+      {(() => {
+        const vals = Object.values(packState);
+        const done = vals.filter(v=> v==='done').length;
+        const skipped = vals.filter(v=> v==='skipped').length;
+        const pending = vals.filter(v=> v==='pending').length;
+        if (done + skipped === 0) return null;
+        return (
+          <section className="rounded-2xl p-4 bg-white/70 backdrop-blur border border-white/70 shadow-sm">
+            <div className="flex items-center justify-between">
+              <h4 className="text-md font-semibold">Impact pack summary</h4>
+              {pending === 0 && <span className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-md px-2 py-0.5">All steps reviewed</span>}
+            </div>
+            <div className="text-sm text-slate-700 mt-1">{done} completed · {skipped} skipped{pending? ` · ${pending} pending`: ''}</div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link to="/workspace?pane=dashboard" className="px-3 py-2 rounded-full bg-slate-900 text-white text-sm">Back to dashboard</Link>
+              {pending > 0 && <button className="px-3 py-2 rounded-full border bg-white text-sm" onClick={()=> window.scrollTo({ top: 0, behavior: 'smooth' })}>Review pending</button>}
+            </div>
+          </section>
+        );
+      })()}
       <section className="rounded-2xl p-4 bg-white/70 backdrop-blur border border-white/70 shadow-sm" data-tour="wf-quick">
         <div className="font-medium text-slate-900">Quick actions</div>
         <div className="text-sm text-slate-600 mt-1 flex flex-wrap gap-2 items-center">
@@ -137,9 +273,9 @@ export default function Workflows(){
           )}
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
-          <button data-tour="wf-dedupe" disabled={busy} onClick={runDedupe} className="px-3 py-1.5 rounded-md border bg-white hover:bg-slate-50">Dedupe contacts</button>
-          <button data-tour="wf-lowstock" disabled={busy} onClick={checkLow} className="px-3 py-1.5 rounded-md border bg-white hover:bg-slate-50">Check low stock</button>
-          <button data-tour="wf-social" disabled={busy} onClick={draftSocial} className="px-3 py-1.5 rounded-md border bg-white hover:bg-slate-50">Draft social 14‑day</button>
+          <Button variant="outline" size="sm" data-tour="wf-dedupe" disabled={busy} onClick={runDedupe}>Dedupe contacts</Button>
+          <Button variant="outline" size="sm" data-tour="wf-lowstock" disabled={busy} onClick={checkLow}>Check low stock</Button>
+          <Button variant="outline" size="sm" data-tour="wf-social" disabled={busy} onClick={draftSocial}>Draft social 14‑day</Button>
         </div>
         <div className="mt-2 grid sm:grid-cols-3 gap-2 text-xs text-slate-600">
           <div className="rounded-md border bg-white p-2"><div className="font-medium text-slate-800">Dedupe</div><div>{lastRun.dedupe ? `Last run: ${new Date(lastRun.dedupe).toLocaleTimeString()}` : 'Not run yet'}</div></div>
@@ -167,19 +303,19 @@ export default function Workflows(){
             </div>
             <div className="text-xs text-slate-500 mt-1">Showing first 6 of {socialPreview.days.length} days.</div>
             <div className="mt-2 flex gap-2">
-              <button className="px-3 py-1.5 rounded-md border bg-white hover:bg-slate-50" onClick={()=>{
+              <Button variant="outline" size="sm" onClick={()=>{
                 const data = JSON.stringify(socialPreview, null, 2);
                 const blob = new Blob([data], { type:'application/json' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a'); a.href = url; a.download = 'social_plan.json'; a.click(); URL.revokeObjectURL(url);
-              }}>Export JSON</button>
-              <button className="px-3 py-1.5 rounded-md border bg-white hover:bg-slate-50" onClick={()=>{
+              }}>Export JSON</Button>
+              <Button variant="outline" size="sm" onClick={()=>{
                 const rows = [['date','channels']].concat((socialPreview.days||[]).map((d:any)=> [d.date, (d.channels||[]).join('|')]));
                 const csv = rows.map(r=> r.map((x:string)=> '"'+String(x).replace(/"/g,'""')+'"').join(',')).join('\n');
                 const blob = new Blob([csv], { type:'text/csv' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a'); a.href = url; a.download = 'social_plan.csv'; a.click(); URL.revokeObjectURL(url);
-              }}>Export CSV</button>
+              }}>Export CSV</Button>
             </div>
           </div>
         )}

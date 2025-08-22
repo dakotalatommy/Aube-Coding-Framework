@@ -15,6 +15,8 @@ export default function Agent() {
   const [cadence, setCadence] = useState({ contact_id: 'c_demo', cadence_id: 'warm_lead_default' });
   const [audit, setAudit] = useState<any[]>([]);
   const [proxyOut, setProxyOut] = useState<any | null>(null);
+  const [suggestions, setSuggestions] = useState<Array<{id:string;name:string}>>([]);
+  const [showSug, setShowSug] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -25,6 +27,18 @@ export default function Agent() {
       } catch {}
     })();
   }, []);
+  // Contact typeahead
+  useEffect(()=>{
+    const t = setTimeout(async () => {
+      try {
+        const q = (draft.contact_id||cadence.contact_id||'').trim();
+        if (!q) { setSuggestions([]); return; }
+        const r = await api.get(`/contacts/search?tenant_id=${encodeURIComponent(await getTenant())}&q=${encodeURIComponent(q)}&limit=8`);
+        setSuggestions(Array.isArray(r?.items)? r.items : []);
+      } catch { setSuggestions([]); }
+    }, 200);
+    return () => clearTimeout(t);
+  }, [draft.contact_id, cadence.contact_id]);
 
   const runDraft = async () => {
     setStatus('');
@@ -84,7 +98,18 @@ export default function Agent() {
       <section className="border rounded-xl p-3 bg-white shadow-sm">
         <div className="font-semibold mb-2">Run a Public Tool: draft_message</div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <input className="border rounded-md px-3 py-2" placeholder="contact_id" value={draft.contact_id} onChange={e=>setDraft({...draft, contact_id: e.target.value})} />
+          <div className="relative">
+            <input className="border rounded-md px-3 py-2 w-full" placeholder="contact_id" value={draft.contact_id} onFocus={()=>setShowSug(true)} onBlur={()=> setTimeout(()=>setShowSug(false), 120)} onChange={e=>setDraft({...draft, contact_id: e.target.value})} />
+            {showSug && suggestions.length > 0 && (
+              <div className="absolute z-10 mt-1 max-h-40 overflow-auto bg-white border rounded-md shadow-sm text-xs w-full">
+                {suggestions.map(s => (
+                  <button key={s.id} className="block w-full text-left px-2 py-1 hover:bg-slate-50" onMouseDown={(ev)=>{ ev.preventDefault(); setDraft({...draft, contact_id: s.id}); setShowSug(false); }}>
+                    {s.name || s.id}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <select className="border rounded-md px-3 py-2" value={draft.channel} onChange={e=>setDraft({...draft, channel: e.target.value})}>
             <option value="sms">sms</option>
             <option value="email">email</option>
@@ -97,7 +122,18 @@ export default function Agent() {
       <section className="border rounded-xl p-3 bg-white shadow-sm">
         <div className="font-semibold mb-2">Request a Gated Action: start_cadence (approval)</div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          <input className="border rounded-md px-3 py-2" placeholder="contact_id" value={cadence.contact_id} onChange={e=>setCadence({...cadence, contact_id: e.target.value})} />
+          <div className="relative">
+            <input className="border rounded-md px-3 py-2 w-full" placeholder="contact_id" value={cadence.contact_id} onFocus={()=>setShowSug(true)} onBlur={()=> setTimeout(()=>setShowSug(false), 120)} onChange={e=>setCadence({...cadence, contact_id: e.target.value})} />
+            {showSug && suggestions.length > 0 && (
+              <div className="absolute z-10 mt-1 max-h-40 overflow-auto bg-white border rounded-md shadow-sm text-xs w-full">
+                {suggestions.map(s => (
+                  <button key={s.id} className="block w-full text-left px-2 py-1 hover:bg-slate-50" onMouseDown={(ev)=>{ ev.preventDefault(); setCadence({...cadence, contact_id: s.id}); setShowSug(false); }}>
+                    {s.name || s.id}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <input className="border rounded-md px-3 py-2" placeholder="cadence_id" value={cadence.cadence_id} onChange={e=>setCadence({...cadence, cadence_id: e.target.value})} />
         </div>
         <button className="mt-2 border rounded-md px-3 py-2 bg-white hover:shadow-sm" onClick={requestStartCadence}>Request Approval</button>

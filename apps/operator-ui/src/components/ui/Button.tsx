@@ -26,3 +26,16 @@ export default function Button({ variant = 'primary', size = 'md', className = '
 }
 
 
+type ButtonLinkProps = React.AnchorHTMLAttributes<HTMLAnchorElement> & {
+  href: string;
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  className?: string;
+};
+
+export function ButtonLink({ href, variant = 'primary', size = 'md', className = '', ...props }: ButtonLinkProps) {
+  const classes = `${base} ${sizes[size]} ${variants[variant]} ${className}`.trim();
+  return <a href={href} className={classes} {...props} />;
+}
+
+

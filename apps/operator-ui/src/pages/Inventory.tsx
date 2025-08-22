@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, getTenant } from '../lib/api';
 import { startGuide } from '../lib/guide';
+import EmptyState from '../components/ui/EmptyState';
 
 export default function Inventory(){
   const [summary, setSummary] = useState<any>({});
@@ -46,27 +47,31 @@ export default function Inventory(){
         <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>syncNow('manual')}>Recompute (Manual)</button>
       </div>
       <div className="text-[11px] text-amber-700">Some actions may require approval when auto-approve is off. Review in Approvals.</div>
-      <div className="rounded-xl border bg-white p-0 shadow-sm overflow-hidden" role="region" aria-label="Inventory table" data-guide="table">
-        <table className="min-w-full text-sm">
-          <thead className="bg-slate-50"><tr><th className="px-3 py-2 text-left">SKU</th><th className="px-3 py-2 text-left">Name</th><th className="px-3 py-2 text-left">Stock</th><th className="px-3 py-2 text-left">Cost</th><th className="px-3 py-2 text-left">Price</th><th className="px-3 py-2 text-left">Provider</th></tr></thead>
-          <tbody className="divide-y">
-            {items.map((it,i)=> (
-              <tr key={i} className={`hover:bg-slate-50 ${Number(it.stock)<=0? 'bg-rose-50': Number(it.stock)<=5? 'bg-amber-50':''}`}>
-                <td className="px-3 py-2">{it.sku}</td>
-                <td className="px-3 py-2">{it.name}</td>
-                <td className="px-3 py-2">
-                  {it.stock}
-                  {Number(it.stock)<=0 && <span className="ml-2 text-[11px] text-rose-700">Out</span>}
-                  {Number(it.stock)>0 && Number(it.stock)<=5 && <span className="ml-2 text-[11px] text-amber-700">Low</span>}
-                </td>
-                <td className="px-3 py-2">${'{'}it.cost{'}'}</td>
-                <td className="px-3 py-2">${'{'}it.price{'}'}</td>
-                <td className="px-3 py-2">{it.provider}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {items.length === 0 ? (
+        <EmptyState title="No inventory yet" description="Connect Shopify/Square and sync to see items here." />
+      ) : (
+        <div className="rounded-xl border bg-white p-0 shadow-sm overflow-hidden" role="region" aria-label="Inventory table" data-guide="table">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-50"><tr><th className="px-3 py-2 text-left">SKU</th><th className="px-3 py-2 text-left">Name</th><th className="px-3 py-2 text-left">Stock</th><th className="px-3 py-2 text-left">Cost</th><th className="px-3 py-2 text-left">Price</th><th className="px-3 py-2 text-left">Provider</th></tr></thead>
+            <tbody className="divide-y">
+              {items.map((it,i)=> (
+                <tr key={i} className={`hover:bg-slate-50 ${Number(it.stock)<=0? 'bg-rose-50': Number(it.stock)<=5? 'bg-amber-50':''}`}>
+                  <td className="px-3 py-2">{it.sku}</td>
+                  <td className="px-3 py-2">{it.name}</td>
+                  <td className="px-3 py-2">
+                    {it.stock}
+                    {Number(it.stock)<=0 && <span className="ml-2 text-[11px] text-rose-700">Out</span>}
+                    {Number(it.stock)>0 && Number(it.stock)<=5 && <span className="ml-2 text-[11px] text-amber-700">Low</span>}
+                  </td>
+                  <td className="px-3 py-2">${'{'}it.cost{'}'}</td>
+                  <td className="px-3 py-2">${'{'}it.price{'}'}</td>
+                  <td className="px-3 py-2">{it.provider}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       {status && <pre className="text-xs text-slate-700 whitespace-pre-wrap">{status}</pre>}
     </div>
   );

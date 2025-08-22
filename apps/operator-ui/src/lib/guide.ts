@@ -1,5 +1,6 @@
 export type GuideStep = { element?: string; popover: { title: string; description: string } };
 import { driver } from 'driver.js';
+import { track } from './analytics';
 import 'driver.js/dist/driver.css';
 
 const registry: Record<string, GuideStep[]> = {
@@ -11,16 +12,24 @@ const registry: Record<string, GuideStep[]> = {
   ],
   dashboard: [
     { popover: { title: 'Welcome to your dashboard', description: 'Time saved, funnel, and quick actions live here.' } },
-    { element: '[data-guide="kpis"]', popover: { title: 'KPIs', description: 'Track time saved and messages at a glance.' } },
-    { element: '[data-guide="actions"]', popover: { title: 'Quick actions', description: 'Import contacts, start a cadence, and more.' } },
+    { element: '[data-guide="quick-actions"]', popover: { title: 'Quick actions', description: 'Import contacts, start a cadence, simulate a message, or connect tools.' } },
+    { element: '[data-guide="kpis"]', popover: { title: 'KPIs', description: 'Track time saved, messages, revenue uplift, and referrals.' } },
+    { element: '[data-guide="chart"]', popover: { title: 'Trend', description: 'Daily progress over the last 30 days.' } },
+    { element: '[data-guide="queue"]', popover: { title: 'Cadence queue', description: 'What’s coming next, by contact and flow step.' } },
   ],
   integrations: [
     { popover: { title: 'Integrations', description: 'Connect booking, CRM, messaging, and inventory.' } },
     { element: '[data-guide="providers"]', popover: { title: 'Providers', description: 'Each card shows connection status and actions.' } },
+    { element: '[data-guide="twilio"]', popover: { title: 'SMS via Twilio', description: 'Use a dedicated business number. Personal numbers are not supported yet.' } },
   ],
   messages: [
     { popover: { title: 'Messages', description: 'Simulate or send, consent-first. STOP/HELP honored automatically.' } },
-    { element: 'button:has(> :where(.not-real))', popover: { title: 'Presets', description: 'Use presets to draft quickly, then edit before sending.' } },
+    { element: '[data-guide="filter"]', popover: { title: 'Filter & refresh', description: 'Search by contact_id and refresh the list.' } },
+    { element: '[data-guide="simulate"]', popover: { title: 'Simulate', description: 'Generate SMS/Email examples without sending.' } },
+    { element: '[data-guide="quiet"]', popover: { title: 'Quiet hours', description: 'Sends are blocked during your quiet window.' } },
+    { element: '[data-guide="send-form"]', popover: { title: 'Send form', description: 'Choose channel, subject (email), and body.' } },
+    { element: '[data-guide="presets"]', popover: { title: 'Presets', description: 'Draft quickly; you can edit before sending.' } },
+    { element: '[data-guide="table"]', popover: { title: 'History', description: 'Recent messages with status and timestamps.' } },
   ],
   cadences: [
     { popover: { title: 'Cadences', description: 'Start/stop flows; scheduler tick processes due actions.' } },
@@ -48,6 +57,20 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-tour="wf-lowstock"]', popover: { title: 'Low stock check', description: 'Find items at or below threshold for restock.' } },
     { element: '[data-tour="wf-social"]', popover: { title: 'Draft 14‑day social', description: 'Creates a two‑week plan; you approve before scheduling.' } },
   ],
+  approvals: [
+    { popover: { title: 'Approvals', description: 'When BrandVX needs your OK, items appear here.' } },
+    { element: '[data-guide="filters"]', popover: { title: 'Filter & pending', description: 'Search and toggle pending-only.' } },
+    { element: '[data-guide="table"]', popover: { title: 'Items', description: 'Click a row to view details.' } },
+    { element: '[data-guide="details"]', popover: { title: 'Details', description: 'Human-readable summary and parameters.' } },
+    { element: '[data-guide="actions"]', popover: { title: 'Actions', description: 'Approve or Reject. Some bulk actions are available.' } },
+  ],
+  contacts: [
+    { popover: { title: 'Contacts', description: 'Import/export and manage consent/data requests.' } },
+    { element: '[data-guide="import"]', popover: { title: 'Import JSON', description: 'Paste a simple list and import.' } },
+    { element: '[data-guide="export"]', popover: { title: 'Export', description: 'Download your contacts.' } },
+    { element: '[data-guide="consent"]', popover: { title: 'Consent & data', description: 'Send STOP or erase personal data.' } },
+    { element: '[data-guide="status"]', popover: { title: 'Status', description: 'See the result of recent actions.' } },
+  ],
 };
 
 export function getGuideSteps(page: string): GuideStep[] {
@@ -57,6 +80,7 @@ export function getGuideSteps(page: string): GuideStep[] {
 export function startGuide(page: string) {
   const steps = getGuideSteps(page);
   if (!steps || steps.length === 0) return;
+  try { track('tour_start', { page }); } catch {}
   const d = driver({
     showProgress: true,
     nextBtnText: 'Next',
@@ -67,4 +91,29 @@ export function startGuide(page: string) {
   d.drive();
 }
 
+
+// Cross-panel workflow guide orchestrator
+export async function startWorkflowGuide(name: string) {
+  try {
+    try { track('workflow_tour_start', { name }); } catch {}
+    const res = await fetch('/guide/manifest');
+    const manifest = await res.json();
+    const flows = manifest?.workflows || {};
+    const steps = flows[name];
+    if (!Array.isArray(steps) || steps.length === 0) return;
+    // Navigate to first panel, then run a minimal step-highlighting driver
+    const first = steps[0];
+    if (first?.panel) {
+      window.location.href = `/${first.panel}`;
+      // Allow route transition
+      setTimeout(() => {
+        const d = driver({
+          showProgress: true,
+          steps: steps.map((s:any) => ({ element: s.selector, popover: { title: s.title, description: s.desc } }))
+        } as any);
+        d.drive();
+      }, 400);
+    }
+  } catch {}
+}
 

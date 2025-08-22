@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { getPersisted, setPersisted } from '../lib/state';
 import { useNavigate } from 'react-router-dom';
-import Button from '../components/ui/Button';
+import Button, { ButtonLink } from '../components/ui/Button';
 import { api, getTenant } from '../lib/api';
 import { motion, AnimatePresence } from 'framer-motion';
 //
@@ -153,6 +153,10 @@ export default function Onboarding(){
     // Auto-start tour if ?tour=1
     try{
       const sp = new URLSearchParams(window.location.search);
+      if (sp.get('skip_onboarding') === '1') {
+        navigate('/workspace?pane=dashboard&tour=1');
+        return;
+      }
       if (sp.get('tour') === '1') {
         startTour();
       }
@@ -170,6 +174,39 @@ export default function Onboarding(){
       }
     } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Auto-forward to dashboard tour after finishing (step 5) when launched with ?tour=1
+  useEffect(() => {
+    try{
+      const sp = new URLSearchParams(window.location.search);
+      if (sp.get('tour') === '1' && step === 5) {
+        const t = window.setTimeout(() => {
+          navigate('/workspace?pane=dashboard&tour=1');
+        }, 1200);
+        return () => window.clearTimeout(t);
+      }
+    } catch {}
+  }, [step, navigate]);
+
+  // When launched with ?tour=1, gently auto-advance through steps to 5 (for guided auto-forward)
+  useEffect(() => {
+    try{
+      const sp = new URLSearchParams(window.location.search);
+      if (sp.get('tour') === '1') {
+        let cancelled = false;
+        const timers: number[] = [];
+        const schedule = (s: number, delay: number) => {
+          timers.push(window.setTimeout(() => { if (!cancelled) setStep(s); }, delay) as unknown as number);
+        };
+        // step 1 already; progress over ~2s total
+        schedule(2, 400);
+        schedule(3, 900);
+        schedule(4, 1400);
+        schedule(5, 1900);
+        return () => { cancelled = true; timers.forEach(t => window.clearTimeout(t)); };
+      }
+    } catch {}
   }, []);
 
   // Show post-onboarding nudge on final step
@@ -244,7 +281,8 @@ export default function Onboarding(){
           { element: '[data-tour="connect"]', popover: { title: 'Connect tools', description: 'Link booking, messages, payments, and CRM. Human and consent‑first.' }, onNextClick: () => setStep(3) },
           { element: '[data-tour="brand"]', popover: { title: 'Your vibe & services', description: 'Pick tone and services so messages feel like you.' }, onNextClick: () => setStep(4) },
           { element: '[data-tour="preview"]', popover: { title: 'Preview messages', description: 'Approve examples before anything goes live.' }, onNextClick: () => setStep(4) },
-          { element: '[data-tour="timing"]', popover: { title: 'Timing & defaults', description: 'Choose reminder steps and lead reply defaults.' } },
+          { element: '[data-tour="timing"]', popover: { title: 'Timing & defaults', description: 'Choose reminder steps and lead reply defaults.' }, onNextClick: () => setStep(5) },
+          { element: '[data-tour="cta"]', popover: { title: 'Finish', description: 'You’re set — let’s open your dashboard.' }, onNextClick: () => setStep(5) },
         ],
       } as any);
       d.drive();
@@ -269,14 +307,15 @@ export default function Onboarding(){
       <WaveBackground />
       <header className="relative z-10 mx-auto max-w-6xl px-6 pt-8 pb-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-xl bg-white/70 backdrop-blur shadow grid place-items-center"><span className="text-sky-600 font-bold">BVX</span></div>
-            <div>
-              <h1 className="font-semibold tracking-tight text-slate-900 text-xl" style={{ fontFamily: 'Space Grotesk, Inter, system-ui' }}>Onboarding — 5 quick steps</h1>
-              <p className="text-slate-600 text-sm">Beauty pros • gentle setup • your voice, your clients</p>
-            </div>
+          <div>
+            <h1 className="font-semibold tracking-tight text-slate-900 text-xl" style={{ fontFamily: 'Space Grotesk, Inter, system-ui' }}>Onboarding — 5 quick steps</h1>
+            <p className="text-slate-600 text-sm">Beauty pros • Gentle setup • Your voice • Your clients</p>
           </div>
-          <Button size="sm" onClick={onBook} disabled={!bookingUrl} className="rounded-full">{bookingUrl ? 'Book my onboarding' : 'Loading booking link…'}</Button>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={()=> navigate('/workspace?pane=dashboard&tour=1&demo=1')} className="rounded-full">Skip for now</Button>
+            <Button size="sm" variant="outline" onClick={()=> navigate('/workflows')} className="rounded-full">Run 48h impact pack</Button>
+            <Button size="sm" onClick={onBook} disabled={!bookingUrl} className="rounded-full">{bookingUrl ? 'Book my onboarding' : 'Loading booking link…'}</Button>
+          </div>
         </div>
       </header>
 
@@ -287,12 +326,12 @@ export default function Onboarding(){
           )}
           <div className="flex flex-wrap items-center gap-3">
             {steps.map((s) => (
-              <button key={s.id} onClick={() => setStep(s.id)} className={`group relative flex items-center gap-2 rounded-full px-3 py-2 text-sm transition ${step === s.id ? 'bg-gradient-to-r from-pink-50 to-sky-50 text-slate-900' : 'bg-white/70 text-slate-600 hover:bg-white'}`} aria-current={step === s.id}>
+              <button key={s.id} onClick={() => setStep(s.id)} className={`group relative flex items-center gap-3 rounded-full px-3 py-2 text-sm transition ${step === s.id ? 'bg-gradient-to-r from-pink-50 to-sky-50 text-slate-900' : 'bg-white/70 text-slate-600 hover:bg-white'}`} aria-current={step === s.id}>
                 <span className={`h-6 w-6 grid place-items-center rounded-full text-xs font-semibold ${step === s.id ? 'bg-pink-500 text-white' : 'bg-slate-200 text-slate-700'}`}>{s.id}</span>
                 <span className="font-medium">{s.title}</span>
               </button>
             ))}
-            <button onClick={startTour} className="ml-auto px-3 py-2 rounded-full border border-slate-200 text-slate-900" aria-label="Open onboarding guide">Guide me</button>
+            <Button variant="outline" size="sm" onClick={startTour} className="ml-auto rounded-full" aria-label="Open onboarding guide">Guide me</Button>
           </div>
           <div className="mt-3">
             <div className="text-xs text-slate-600 mb-1">Progress (step {step}/{steps.length})</div>
@@ -371,7 +410,7 @@ export default function Onboarding(){
                         <div className="font-medium text-slate-800">HubSpot</div>
                         <div className="text-xs text-slate-600">CRM</div>
                         <div className="mt-2 flex flex-wrap gap-2">
-                          <a href="https://app.hubspot.com/signup" target="_blank" rel="noreferrer" className="px-2 py-1 text-xs rounded-md border bg-white hover:bg-slate-50">Create (free)</a>
+                          <ButtonLink href="https://app.hubspot.com/signup" target="_blank" rel="noreferrer" variant="outline" size="sm">Create (free)</ButtonLink>
                           <Button variant="outline" size="sm" onClick={()=> connect('hubspot')} disabled={analyzeSummary?.providers?.hubspot===false}>Connect</Button>
                           <Button variant="outline" size="sm" onClick={async()=>{
                             try{
@@ -512,10 +551,10 @@ export default function Onboarding(){
                         <textarea className="w-full border rounded-md px-3 py-2" rows={3} value={brandProfile.specialties} onChange={e=>setBrandProfile({...brandProfile, specialties:e.target.value})} placeholder="e.g., Balayage, blonding, brows" />
                       </div>
                       <div className="md:col-span-2">
-                        <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={async()=>{
+                        <Button variant="outline" size="sm" onClick={async()=>{
                           await api.post('/settings', { tenant_id: await getTenant(), tone: toneLabel, services, brand_profile: brandProfile });
                           showToast({ title: 'Saved', description: 'Brand profile and tone saved.' });
-                        }}>Save brand profile</button>
+                        }}>Save brand profile</Button>
                       </div>
                     </div>
                   </PrettyCard>
@@ -601,7 +640,7 @@ export default function Onboarding(){
                     </ol>
                     <div className="mt-4 flex flex-wrap gap-2">
                       <Button variant="primary" size="sm" onClick={()=> navigate('/workflows')}>Open Workflows</Button>
-                      <Button variant="outline" size="sm" onClick={()=> navigate('/dashboard')}>View Dashboard</Button>
+                      <Button variant="outline" size="sm" onClick={()=> navigate('/workspace?pane=dashboard&tour=1')}>View Dashboard</Button>
                       <Button variant="outline" size="sm" onClick={()=> navigate('/ask')}>Ask VX</Button>
                     </div>
                   </PrettyCard>
@@ -645,7 +684,7 @@ export default function Onboarding(){
                 <Button variant="primary" size="md" onClick={() => setStep(Math.min(5, step + 1))}>Next step</Button>
                 <Button variant="outline" size="md" onClick={() => setStep(Math.max(1, step - 1))}>Back</Button>
                 {step === 5 && (
-                  <Button variant="outline" size="md" onClick={()=> navigate('/dashboard')}>Finish & view dashboard</Button>
+                  <Button variant="outline" size="md" onClick={()=> navigate('/workspace?pane=dashboard&tour=1')}>Finish & view dashboard</Button>
                 )}
               </div>
             </PrettyCard>
@@ -660,7 +699,7 @@ export default function Onboarding(){
               <span className="text-sm text-slate-800">You’re set — want a quick guided start?</span>
               <Button size="sm" variant="primary" onClick={()=> navigate('/workflows')}>Get Started</Button>
               <Button size="sm" variant="outline" onClick={()=> startGuide('workflows')}>Guide me</Button>
-              <button className="text-xs text-slate-500 hover:text-slate-700" onClick={()=> setShowNudge(false)}>Dismiss</button>
+              <Button variant="ghost" size="sm" onClick={()=> setShowNudge(false)}>Dismiss</Button>
             </div>
           </motion.div>
         )}

@@ -8,16 +8,16 @@ export default function Hero(){
         initial={{ opacity: 0, y: 12 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
-        className="max-w-3xl"
+        className="max-w-3xl mx-auto text-center"
       >
         <span className="inline-flex items-center rounded-full bg-pink-50 text-pink-600 px-3 py-1 text-sm border border-pink-100">For beauty professionals</span>
         <h1 className="mt-4 font-semibold tracking-tight text-slate-900" style={{fontFamily:'"Space Grotesk", Inter, ui-sans-serif', fontSize:'var(--fs-hero)'}}>
           Intuitive ops, luxe client experience
         </h1>
         <p className="mt-3 text-slate-600 text-lg md:text-xl">Cadences, reminders, and follow-ups that feel human—so you stay in your craft while BrandVX fills your calendar.</p>
-        <div className="flex flex-wrap gap-4 mt-7">
+        <div className="flex flex-wrap justify-center gap-4 mt-7">
+          {/* Keep primary CTA only in the header nav; remove duplicate here per UX decision */}
           <Link to="/onboarding" className="px-6 py-3 rounded-xl text-white shadow hover:shadow-md bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 transition">Get started</Link>
-          <Link to="/login" className="px-6 py-3 rounded-xl border border-slate-200 bg-white text-slate-900 hover:bg-slate-50 transition shadow-sm">Sign in</Link>
         </div>
       </motion.div>
 
