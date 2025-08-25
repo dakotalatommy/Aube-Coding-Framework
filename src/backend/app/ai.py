@@ -10,8 +10,8 @@ class AIClient:
     def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None, model: Optional[str] = None):
         self.api_key = api_key or os.getenv("OPENAI_API_KEY", "")
         self.base_url = base_url or os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-        # Default to GPT-5 if available; override via OPENAI_MODEL
-        self.model = model or os.getenv("OPENAI_MODEL", "gpt-5")
+        # Default to GPT-5 Mini; no GPT-4 fallbacks
+        self.model = model or os.getenv("OPENAI_MODEL", "gpt-5-mini")
         self.fallback_models = [m.strip() for m in os.getenv("OPENAI_FALLBACK_MODELS", "").split(",") if m.strip()]
         self.provider = os.getenv("AI_PROVIDER", "chat").lower()  # chat | agents
         self.agent_id = os.getenv("OPENAI_AGENT_ID", "")
@@ -31,7 +31,7 @@ class AIClient:
             if text:
                 return text
         # If model suggests Responses API (e.g., gpt-5) or explicitly requested, try Responses first
-        try_responses = os.getenv("OPENAI_USE_RESPONSES", "false").lower() == "true" or self.model.lower().startswith("gpt-5")
+        try_responses = os.getenv("OPENAI_USE_RESPONSES", "true").lower() == "true" or self.model.lower().startswith("gpt-5")
         if try_responses:
             text = await self._generate_via_responses(system, messages, max_tokens)
             if text:
@@ -41,11 +41,7 @@ class AIClient:
         # Chat Completions with that same GPT-5 model (it will 400). Prefer safe fallbacks.
         candidates: List[str]
         if try_responses and self.model.lower().startswith("gpt-5"):
-            fallbacks = [m for m in self.fallback_models if m]
-            # Ensure a sane default fallback exists
-            if not fallbacks:
-                fallbacks = ["gpt-4o-mini"]
-            candidates = fallbacks
+            candidates = [self.model] + [m for m in self.fallback_models if m]
         else:
             candidates = [self.model] + [m for m in self.fallback_models if m]
         last_error_message = None

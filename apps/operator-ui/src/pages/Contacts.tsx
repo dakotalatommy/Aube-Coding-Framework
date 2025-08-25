@@ -27,6 +27,7 @@ export default function Contacts(){
       try { const f = await api.get('/consent/faq'); setFaqItems(Array.isArray(f?.items) ? f.items : []); } catch {}
     })();
   }, []);
+  useEffect(()=>{ try{ const sp = new URLSearchParams(window.location.search); if (sp.get('tour')==='1') startGuide('contacts'); } catch {} },[]);
 
   useEffect(()=>{
     const t = setTimeout(async()=>{
@@ -42,9 +43,9 @@ export default function Contacts(){
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center">
         <h3 className="text-lg font-semibold">Contacts</h3>
-        <Button variant="outline" size="sm" onClick={()=> startGuide('contacts')}>Guide me</Button>
+        <Button variant="outline" size="sm" className="ml-auto" onClick={()=> startGuide('contacts')}>Guide me</Button>
       </div>
       <div className="grid gap-4">
         <section className="border rounded-xl p-3 bg-white shadow-sm" data-guide="import">

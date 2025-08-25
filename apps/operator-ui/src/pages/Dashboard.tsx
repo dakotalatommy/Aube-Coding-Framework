@@ -7,7 +7,7 @@ import { motion } from 'framer-motion';
 import { lazy, Suspense, useRef } from 'react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 const FunnelChart = lazy(()=> import('../components/charts/FunnelChart'));
-import { startGuide } from '../lib/guide';
+import { startGuide, startDemoMegaTour } from '../lib/guide';
 import { Card, CardBody } from '../components/ui/Card';
 import Skeleton from '../components/ui/Skeleton';
 import { Table, THead, TR, TH, TD } from '../components/ui/Table';
@@ -24,8 +24,11 @@ export default function Dashboard(){
   const chartRef = useRef<HTMLDivElement|null>(null);
   const [chartVisible, setChartVisible] = useState(false);
   const prefetchChart = () => { try { import('../components/charts/FunnelChart'); } catch {} };
+  const [planNotice, setPlanNotice] = useState('');
 
   useEffect(()=>{
+    let mounted = true;
+    const abort = new AbortController();
     (async()=>{
       if (isDemo) {
         // Friendly demo placeholders (no red error state)
@@ -35,20 +38,49 @@ export default function Dashboard(){
           { contact_id:'c_demo2', cadence_id:'no_show_followup', step_index:2, next_action_at:'today 5:10 PM' },
         ]});
         setFunnel({ series:[{ day:'Mon', count:12 }, { day:'Tue', count:18 }, { day:'Wed', count:16 }, { day:'Thu', count:22 }, { day:'Fri', count:19 }] });
-        setLoading(false);
-        setError('');
+        if (mounted) { setLoading(false); setError(''); }
         return;
       }
       try{
-        const [m,q,f] = await Promise.all([
-          api.get(`/metrics?tenant_id=${encodeURIComponent(await getTenant())}`),
-          api.get(`/cadences/queue?tenant_id=${encodeURIComponent(await getTenant())}`),
-          api.get(`/funnel/daily?tenant_id=${encodeURIComponent(await getTenant())}&days=30`),
-        ]);
+        const tid = await getTenant();
+        const timeoutMs = 7000;
+        const tasks = [
+          api.get(`/metrics?tenant_id=${encodeURIComponent(tid)}`, { signal: abort.signal, timeoutMs }),
+          api.get(`/cadences/queue?tenant_id=${encodeURIComponent(tid)}`, { signal: abort.signal, timeoutMs }),
+          api.get(`/funnel/daily?tenant_id=${encodeURIComponent(tid)}&days=30`, { signal: abort.signal, timeoutMs }),
+          api.post('/messages/simulate', { tenant_id: tid, contact_id: 'demo', channel: 'email' }, { signal: abort.signal, timeoutMs }),
+        ];
+        const [mRes,qRes,fRes,simRes] = await Promise.allSettled(tasks);
+        if (!mounted) return;
+        const m = mRes.status==='fulfilled'? mRes.value : {};
+        const q = qRes.status==='fulfilled'? qRes.value : { items: [] };
+        const f = fRes.status==='fulfilled'? fRes.value : { series: [] };
         setMetrics(m||{}); setQueue(q||{items:[]}); setFunnel(f||{series:[]});
-      } catch(e:any){ setError(String(e?.message||e)); }
-      finally{ setLoading(false); }
+        const failed = [mRes,qRes,fRes].some(r=>r.status==='rejected');
+        if (failed && !isDemo) setError('Some widgets failed to load. Retrying soon…');
+        try { if (simRes.status==='fulfilled' && simRes.value?.plan_notice) setPlanNotice(String(simRes.value.plan_notice)); } catch {}
+        // Gentle retry for failed widgets without blocking UI
+        if (failed) {
+          window.setTimeout(async()=>{
+            if (!mounted) return;
+            try {
+              const retry = await Promise.allSettled([
+                mRes.status==='rejected'? api.get(`/metrics?tenant_id=${encodeURIComponent(tid)}`, { timeoutMs: 8000 }): Promise.resolve(null as any),
+                qRes.status==='rejected'? api.get(`/cadences/queue?tenant_id=${encodeURIComponent(tid)}`, { timeoutMs: 8000 }): Promise.resolve(null as any),
+                fRes.status==='rejected'? api.get(`/funnel/daily?tenant_id=${encodeURIComponent(tid)}&days=30`, { timeoutMs: 8000 }): Promise.resolve(null as any),
+              ]);
+              if (!mounted) return;
+              if (mRes.status==='rejected' && retry[0].status==='fulfilled') setMetrics(retry[0].value||{});
+              if (qRes.status==='rejected' && retry[1].status==='fulfilled') setQueue(retry[1].value||{items:[]});
+              if (fRes.status==='rejected' && retry[2].status==='fulfilled') setFunnel(retry[2].value||{series:[]});
+              setError('');
+            } catch {}
+          }, 2000);
+        }
+      } catch(e:any){ if (mounted) setError(String(e?.message||e)); }
+      finally{ if (mounted) setLoading(false); }
     })();
+    return ()=> { mounted = false; try{ abort.abort(); }catch{} };
   },[isDemo]);
 
   useEffect(()=>{
@@ -72,26 +104,39 @@ export default function Dashboard(){
   useEffect(()=>{
     try{
       const sp = new URLSearchParams(window.location.search);
-      if (sp.get('tour') === '1') {
+      const signedOut = localStorage.getItem('bvx_signed_out') === '1';
+      if (signedOut) { try{ localStorage.removeItem('bvx_signed_out'); }catch{} }
+      const seen = localStorage.getItem('bvx_tour_seen_dashboard') === '1';
+      if (sp.get('tour') === 'all' && !signedOut) {
+        startDemoMegaTour();
+        return;
+      }
+      if (sp.get('tour') === '1' && !seen && !signedOut) {
         startGuide('dashboard');
-        // After the tour completes, prompt signup then onboarding
-        // driver.js doesn't expose a promise, so we poll for end by tracking a flag
         const t = window.setTimeout(()=>{
           setShowSignupModal(true);
         }, 4000);
         return () => window.clearTimeout(t);
       }
     } catch {}
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
   const chartData = (funnel.series||[]).map((p:any)=>({ day:p.day || p.date || '', value: p.count || 0 }));
-  // chartOption removed in favor of lazy-loaded FunnelChart
 
   const startTour = () => startGuide('dashboard');
+  const startFullDemoTour = () => {
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get('demo') !== '1') { window.location.href = '/workspace?pane=dashboard&demo=1&tour=all'; return; }
+    startDemoMegaTour();
+  };
   const [showSignupModal, setShowSignupModal] = useState(false);
   const [refLink, setRefLink] = useState<string>('');
   const [showBillingNudge, setShowBillingNudge] = useState(false);
+  const [billingAdded, setBillingAdded] = useState(false);
+  const [wfProgress, setWfProgress] = useState<Record<string, boolean>>({});
+  const [shareUrl, setShareUrl] = useState<string>('');
+  const [shareCopied, setShareCopied] = useState<boolean>(false);
+
   useEffect(()=>{
     (async()=>{
       try{
@@ -110,7 +155,17 @@ export default function Dashboard(){
     })();
   },[]);
 
-  // Demo start marker and 2-day billing reminder
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const tid = await getTenant();
+        const r = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+        const wp = r?.data?.wf_progress || {};
+        setWfProgress(wp);
+      } catch {}
+    })();
+  },[]);
+
   useEffect(()=>{
     try {
       const sp = new URLSearchParams(window.location.search);
@@ -119,13 +174,26 @@ export default function Dashboard(){
         if (!localStorage.getItem(k)) localStorage.setItem(k, String(Date.now()));
       }
       const startedAt = Number(localStorage.getItem('bvx_demo_started_at')||'0');
-      const billingAdded = localStorage.getItem('bvx_billing_added') === '1';
-      if (startedAt && !billingAdded) {
+      const covered = localStorage.getItem('bvx_billing_added') === '1';
+      setBillingAdded(covered);
+      if (startedAt && !covered) {
         const twoDaysMs = 2*24*60*60*1000;
         if (Date.now() - startedAt > twoDaysMs) setShowBillingNudge(true);
       }
     } catch {}
   }, []);
+
+  const handleCreateShare = async () => {
+    try {
+      const tid = await getTenant();
+      const title = 'BrandVX Results';
+      const description = 'Automation results powered by BrandVX';
+      const res = await api.post('/share/create', { tenant_id: tid, title, description });
+      const url = String(res?.url || `${window.location.origin}/s/${res?.token || ''}`);
+      setShareUrl(url);
+      try { await navigator.clipboard.writeText(url); setShareCopied(true); } catch { setShareCopied(false); }
+    } catch {}
+  };
 
   if (loading) return (
     <div className="space-y-4">
@@ -141,6 +209,28 @@ export default function Dashboard(){
   if (!isDemo && error) return <div style={{color:'#b91c1c'}}>Error: {error}</div>;
   return (
     <div className="space-y-4">
+      {isDemo && (
+        <section className="rounded-2xl p-3 border bg-amber-50/80 border-amber-200 text-amber-900">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm">Demo mode — data is simulated. Create your account to keep progress.</span>
+            <ButtonLink href="/signup" size="sm" className="rounded-full px-3 py-1.5">Create account</ButtonLink>
+            <ButtonLink href="/billing" size="sm" variant="outline" className="rounded-full px-3 py-1.5">Add payment</ButtonLink>
+          </div>
+        </section>
+      )}
+      {(!billingAdded) && planNotice && (
+        <section className="rounded-2xl p-3 border bg-amber-50 border-amber-200 text-amber-900">
+          <div className="text-sm">Trial nearing limit — add a payment method to continue without interruptions.</div>
+          <div className="mt-1">
+            <ButtonLink href="/billing" size="sm" className="rounded-full px-3 py-1.5">Add payment</ButtonLink>
+          </div>
+        </section>
+      )}
+      {billingAdded && (
+        <section className="rounded-2xl p-3 border bg-emerald-50 border-emerald-200 text-emerald-900">
+          <div className="flex items-center gap-2 text-sm"><span className="inline-flex items-center justify-center w-2 h-2 rounded-full bg-emerald-500" /> You’re covered — billing active.</div>
+        </section>
+      )}
       {showSignupModal && (
         <section className="rounded-2xl p-4 backdrop-blur bg-white/80 border border-white/70 shadow-lg">
           <div className="flex flex-wrap items-center gap-3">
@@ -152,13 +242,24 @@ export default function Dashboard(){
       )}
       <section className="rounded-2xl p-4 backdrop-blur bg-white/60 border border-white/70 shadow-sm" data-guide="quick-actions">
         <div className="flex flex-wrap items-center gap-3">
-          <ButtonLink href="/contacts" variant="outline" size="md" className="rounded-full px-4 py-2">Import Contacts</ButtonLink>
-          <ButtonLink href="/cadences" variant="outline" size="md" className="rounded-full px-4 py-2">Start Cadence</ButtonLink>
-          <ButtonLink href="/messages" variant="outline" size="md" className="rounded-full px-4 py-2">Simulate Message</ButtonLink>
-          <ButtonLink href="/integrations" size="md" className="rounded-full px-4 py-2">Connect Tools</ButtonLink>
+          <ButtonLink href="/workspace?pane=contacts" variant="outline" size="md" className="rounded-full px-4 py-2">Import Contacts</ButtonLink>
+          <ButtonLink href="/workspace?pane=cadences" variant="outline" size="md" className="rounded-full px-4 py-2">Start Cadence</ButtonLink>
+          <ButtonLink href="/workspace?pane=messages" variant="outline" size="md" className="rounded-full px-4 py-2">Simulate Message</ButtonLink>
+          <ButtonLink href="/workspace?pane=integrations" size="md" className="rounded-full px-4 py-2">Connect Tools</ButtonLink>
           <ButtonLink href="/billing" variant="outline" size="md" className="rounded-full px-4 py-2">Billing</ButtonLink>
-          <Button variant="outline" size="md" onClick={startTour} className="ml-auto rounded-full px-4 py-2" aria-label="Open dashboard guide">Guide me</Button>
+          <Button variant="outline" size="md" onClick={handleCreateShare} className="rounded-full px-4 py-2">Share results</Button>
+          <div className="ml-auto flex items-center gap-1.5">
+            <Button variant="outline" size="md" onClick={startTour} className="rounded-full px-4 py-2" aria-label="Open dashboard guide">Guide me</Button>
+            <Button variant="ghost" size="sm" onClick={startFullDemoTour} className="rounded-full px-3 py-2">Run full demo tour</Button>
+          </div>
         </div>
+        {shareUrl && (
+          <div className="mt-3 text-sm flex items-center gap-2">
+            <span className="text-slate-700">Share link:</span>
+            <input readOnly value={shareUrl} className="flex-1 border rounded-lg px-2 py-1 bg-white text-slate-800" onFocus={(e)=>e.currentTarget.select()} />
+            <span className="text-emerald-700">{shareCopied ? 'Copied' : ''}</span>
+          </div>
+        )}
       </section>
       {showBillingNudge && (
         <section className="rounded-2xl p-4 backdrop-blur bg-amber-50/70 border border-amber-200 shadow-sm">
@@ -184,6 +285,26 @@ export default function Dashboard(){
         <Kpi title="Revenue Uplift" value={metrics?.revenue_uplift||0} />
         <Kpi title="Referrals 30d" value={metrics?.referrals_30d||0} />
       </div>
+      {/* First 5 workflows tracker */}
+      <section className="rounded-2xl p-4 backdrop-blur bg-white/60 border border-white/70 shadow-sm">
+        <div className="flex items-center gap-2">
+          <h4 className="text-sm font-semibold text-slate-900">Quick Start · 5 workflows</h4>
+        </div>
+        <div className="mt-2 grid grid-cols-1 sm:grid-cols-5 gap-2 text-xs">
+          {[
+            { k:'crm_organization', label:'CRM' },
+            { k:'book_filling', label:'Book‑Filling' },
+            { k:'inventory_tracking', label:'Inventory' },
+            { k:'social_automation', label:'Social 14‑day' },
+            { k:'client_communication', label:'Comms' },
+          ].map(({k,label})=> (
+            <button key={k} className={`px-2 py-2 rounded-md border ${wfProgress?.[k] ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-white'}`} onClick={()=>{ window.location.href = '/workflows'; }}>
+              <span className="block font-medium">{label}</span>
+              <span className="text-[11px]">{wfProgress?.[k] ? 'Completed' : 'Not started'}</span>
+            </button>
+          ))}
+        </div>
+      </section>
       <div ref={chartRef as any} data-guide="chart" onMouseEnter={prefetchChart}>
         <Card>
           <CardBody className="h-64 p-2">
@@ -229,7 +350,7 @@ export default function Dashboard(){
 function Kpi({title,value}:{title:string;value:number}){
   return (
     <motion.div
-      className="relative overflow-hidden rounded-2xl p-4 bg-white/70 backdrop-blur border border-white/70 shadow-sm"
+      className="relative overflow-hidden rounded-2xl p-4 bg:white/70 backdrop-blur border border-white/70 shadow-sm"
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
@@ -244,4 +365,3 @@ function Kpi({title,value}:{title:string;value:number}){
     </motion.div>
   );
 }
-// unified table components imported

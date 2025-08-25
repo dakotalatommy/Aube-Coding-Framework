@@ -29,9 +29,17 @@ class Base(DeclarativeBase):
     pass
 
 
+pool_size = int(os.getenv("SQL_POOL_SIZE", "5"))
+max_overflow = int(os.getenv("SQL_MAX_OVERFLOW", "5"))
+pool_timeout = int(os.getenv("SQL_POOL_TIMEOUT", "10"))
+pool_recycle = int(os.getenv("SQL_POOL_RECYCLE", "900"))
 engine = create_engine(
     DATABASE_URL,
     connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
+    pool_size=pool_size if not DATABASE_URL.startswith("sqlite") else None,
+    max_overflow=max_overflow if not DATABASE_URL.startswith("sqlite") else None,
+    pool_timeout=pool_timeout if not DATABASE_URL.startswith("sqlite") else None,
+    pool_recycle=pool_recycle if not DATABASE_URL.startswith("sqlite") else None,
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

@@ -230,19 +230,19 @@ export default function Inbox(){
             {channel === 'sms' && (
               <div className="flex items-center gap-2">
                 <span>Connect SMS provider (Twilio) in Integrations to receive texts.</span>
-                <a href="/integrations" className="px-2 py-1 rounded-md border bg-white hover:shadow-sm text-xs">Open Integrations</a>
+                <a href="/workspace?pane=integrations" className="px-2 py-1 rounded-md border bg-white hover:shadow-sm text-xs">Open Integrations</a>
               </div>
             )}
             {channel === 'email' && (
               <div className="flex items-center gap-2">
                 <span>Connect Email provider (SendGrid) in Integrations to receive emails.</span>
-                <a href="/integrations" className="px-2 py-1 rounded-md border bg-white hover:shadow-sm text-xs">Open Integrations</a>
+                <a href="/workspace?pane=integrations" className="px-2 py-1 rounded-md border bg-white hover:shadow-sm text-xs">Open Integrations</a>
               </div>
             )}
             {channel === 'all' && (
               <div className="flex items-center gap-2">
                 <span>Once providers are connected, new DMs, comments, texts, and emails will appear here.</span>
-                <a href="/integrations" className="px-2 py-1 rounded-md border bg-white hover:shadow-sm text-xs">Connect providers</a>
+                <a href="/workspace?pane=integrations" className="px-2 py-1 rounded-md border bg-white hover:shadow-sm text-xs">Connect providers</a>
               </div>
             )}
           </div>

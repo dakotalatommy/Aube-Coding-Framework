@@ -80,6 +80,7 @@ export function getGuideSteps(page: string): GuideStep[] {
 export function startGuide(page: string) {
   const steps = getGuideSteps(page);
   if (!steps || steps.length === 0) return;
+  try { localStorage.setItem(`bvx_tour_seen_${page}`, '1'); } catch {}
   try { track('tour_start', { page }); } catch {}
   const d = driver({
     showProgress: true,
@@ -95,6 +96,7 @@ export function startGuide(page: string) {
 // Cross-panel workflow guide orchestrator
 export async function startWorkflowGuide(name: string) {
   try {
+    try { localStorage.setItem(`bvx_wf_tour_seen_${name}`, '1'); } catch {}
     try { track('workflow_tour_start', { name }); } catch {}
     const res = await fetch('/guide/manifest');
     const manifest = await res.json();
@@ -104,7 +106,7 @@ export async function startWorkflowGuide(name: string) {
     // Navigate to first panel, then run a minimal step-highlighting driver
     const first = steps[0];
     if (first?.panel) {
-      window.location.href = `/${first.panel}`;
+      window.location.href = `/workspace?pane=${first.panel}`;
       // Allow route transition
       setTimeout(() => {
         const d = driver({
@@ -115,5 +117,41 @@ export async function startWorkflowGuide(name: string) {
       }, 400);
     }
   } catch {}
+}
+
+// Demo-wide mega tour across key panels
+export function startDemoMegaTour() {
+  try { localStorage.setItem('bvx_demo_mega_seen', '1'); } catch {}
+  try { track('demo_mega_tour_start', {}); } catch {}
+  const seq: Array<{ path: string; page: string }> = [
+    { path: '/workspace?pane=dashboard&demo=1', page: 'dashboard' },
+    { path: '/workspace?pane=integrations&demo=1', page: 'integrations' },
+    { path: '/workspace?pane=messages&demo=1', page: 'messages' },
+    { path: '/workspace?pane=contacts&demo=1', page: 'contacts' },
+    { path: '/workspace?pane=calendar&demo=1', page: 'calendar' },
+    { path: '/workspace?pane=inventory&demo=1', page: 'inventory' },
+    { path: '/workspace?pane=approvals&demo=1', page: 'approvals' },
+    // Workflows remains a standalone route
+    { path: '/workflows?demo=1', page: 'workflows' },
+  ];
+  const driveAt = (idx: number) => {
+    if (idx >= seq.length) {
+      try { track('demo_mega_tour_done', {}); } catch {}
+      // Return to dashboard at end
+      setTimeout(()=>{ window.location.href = '/workspace?pane=dashboard&demo=1'; }, 300);
+      return;
+    }
+    const { path, page } = seq[idx];
+    // Navigate and then start that page's guide
+    if (window.location.pathname + window.location.search !== path) {
+      window.location.href = path;
+    }
+    setTimeout(() => {
+      startGuide(page);
+      // Heuristic duration per page before moving on
+      setTimeout(() => driveAt(idx + 1), 2600);
+    }, 500);
+  };
+  driveAt(0);
 }
 

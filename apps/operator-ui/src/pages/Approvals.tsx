@@ -107,9 +107,9 @@ export default function Approvals(){
   };
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center">
         <h3 className="text-lg font-semibold">Approvals</h3>
-        <Button variant="outline" size="sm" onClick={()=> startGuide('approvals')}>Guide me</Button>
+        <Button variant="outline" size="sm" className="ml-auto" onClick={()=> startGuide('approvals')}>Guide me</Button>
       </div>
       <div className="text-xs text-slate-600">When BrandVX needs your OK for an action, it shows up here. Review the details and Approve or Reject.</div>
       <div className="flex flex-wrap items-center gap-2 text-sm" data-guide="filters">

@@ -9,10 +9,19 @@ export default function Inventory(){
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('');
   const [items, setItems] = useState<any[]>([]);
+  const [lowThreshold, setLowThreshold] = useState<number>(()=>{
+    try { return parseInt(localStorage.getItem('bvx_low_threshold')||'5')||5; } catch { return 5; }
+  });
   useEffect(()=>{
     (async()=>{
       try{ const r = await api.get(`/inventory/metrics?tenant_id=${encodeURIComponent(await getTenant())}`); setSummary(r?.summary||{}); setLastSync(r?.last_sync||{}); setItems(r?.items||[]); } finally{ setLoading(false); }
     })();
+  },[]);
+  useEffect(()=>{
+    try{
+      const sp = new URLSearchParams(window.location.search);
+      if (sp.get('tour') === '1') startGuide('inventory');
+    } catch {}
   },[]);
   const syncNow = async (provider?: string) => {
     const r = await api.post('/inventory/sync', { tenant_id: await getTenant(), provider });
@@ -27,6 +36,16 @@ export default function Inventory(){
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">Inventory</h3>
         <button className="text-sm text-slate-600 hover:underline" aria-label="Open inventory guide" onClick={()=> startGuide('inventory')}>Guide me</button>
+      </div>
+      <div className="flex items-center gap-3 text-sm">
+        <label className="flex items-center gap-2">Low‑stock threshold
+          <input type="number" min={0} className="border rounded-md px-2 py-1 bg-white w-20" value={lowThreshold} onChange={(e)=>{
+            const v = Math.max(0, parseInt(e.target.value||'0')||0);
+            setLowThreshold(v);
+            try { localStorage.setItem('bvx_low_threshold', String(v)); } catch {}
+          }} />
+        </label>
+        <span className="text-xs text-slate-500">Used by low‑stock checks</span>
       </div>
       <div className="rounded-xl border bg-white p-3 shadow-sm grid sm:grid-cols-2 lg:grid-cols-4 gap-3" data-guide="kpis">
         <Stat label="Products" value={summary.products ?? 0} />
@@ -70,6 +89,7 @@ export default function Inventory(){
               ))}
             </tbody>
           </table>
+          <div className="p-3 text-[11px] text-slate-600">Low‑stock threshold is 5 by default.</div>
         </div>
       )}
       {status && <pre className="text-xs text-slate-700 whitespace-pre-wrap">{status}</pre>}

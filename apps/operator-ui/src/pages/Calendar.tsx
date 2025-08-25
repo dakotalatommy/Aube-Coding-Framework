@@ -10,9 +10,18 @@ export default function Calendar(){
   const [status, setStatus] = useState('');
   const [provider, setProvider] = useState<string>('all');
   const [merged, setMerged] = useState<number>(0);
+  const [showApple, setShowApple] = useState<boolean>(true);
   useEffect(()=>{
     (async()=>{ try{ const r = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`); setEvents(r?.events||[]); setLastSync(r?.last_sync||{}); } finally{ setLoading(false); } })();
   },[]);
+  useEffect(()=>{ try{ const sp = new URLSearchParams(window.location.search); if (sp.get('tour')==='1') startGuide('calendar'); } catch {} },[]);
+  // Hide Apple option when not configured
+  useEffect(()=>{
+    try {
+      const appleConfigured = Boolean((lastSync as any)?.apple || (events||[]).some(e=> (e as any)?.provider==='apple'));
+      setShowApple(appleConfigured);
+    } catch {}
+  }, [lastSync, JSON.stringify(events)]);
   const syncNow = async (prov?: string) => {
     const r = await api.post('/calendar/sync', { tenant_id: await getTenant(), provider: prov });
     setStatus(JSON.stringify(r));
@@ -38,16 +47,17 @@ export default function Calendar(){
   );
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center">
         <h3 className="text-lg font-semibold">Calendar</h3>
-        <button className="text-sm text-slate-600 hover:underline" aria-label="Open calendar guide" onClick={()=> startGuide('calendar')}>Guide me</button>
+        <button className="ml-auto text-sm text-slate-600 hover:underline" aria-label="Open calendar guide" onClick={()=> startGuide('calendar')}>Guide me</button>
       </div>
+      <div className="text-[11px] text-slate-600">Note: Scheduling from BrandVX is disabled. Calendar merges are read‑only.</div>
       <div className="flex items-center gap-2 text-sm" data-guide="filters">
         <span className="text-slate-600">Filter:</span>
         <select className="border rounded-md px-2 py-1 bg-white" value={provider} onChange={e=>setProvider(e.target.value)}>
           <option value="all">All</option>
           <option value="google">Google</option>
-          <option value="apple">Apple</option>
+          {showApple && <option value="apple">Apple</option>}
           <option value="square">Square</option>
           <option value="acuity">Acuity</option>
         </select>

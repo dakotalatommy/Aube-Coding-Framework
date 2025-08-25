@@ -11,7 +11,10 @@ except Exception:
     _redis = None
 
 
-def check_and_increment(tenant_id: str, key: str, max_per_minute: int = 60) -> Tuple[bool, int]:
+def check_and_increment(tenant_id: str, key: str, max_per_minute: int = 60, burst: int = 30) -> Tuple[bool, int]:
+    """Sliding-window-ish limiter with a small burst allowance.
+    Uses current minute bucket + allows an extra burst count.
+    """
     now = int(time.time() // 60)
     bucket = f"rl:{tenant_id}:{key}:{now}"
     if _redis is not None:
@@ -19,14 +22,14 @@ def check_and_increment(tenant_id: str, key: str, max_per_minute: int = 60) -> T
             val = _redis.incr(bucket)
             if val == 1:
                 _redis.expire(bucket, 65)
-            if val > max_per_minute:
+            if val > max_per_minute + burst:
                 return False, val
             return True, val
         except Exception:
             pass
     # Fallback in-memory
     count = _rl_cache.get(bucket, 0)
-    if count >= max_per_minute:
+    if count >= max_per_minute + burst:
         return False, count
     _rl_cache[bucket] = count + 1
     return True, count + 1

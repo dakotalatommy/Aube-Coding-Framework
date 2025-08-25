@@ -1,5 +1,12 @@
 import { test, expect } from '@playwright/test';
 
+test('Onboarding loads and shows 5 steps with Guide me', async ({ page }) => {
+  await page.goto('/onboarding');
+  await page.waitForLoadState('domcontentloaded');
+  await expect(page.getByText('Onboarding — 5 quick steps')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open onboarding guide' })).toBeVisible();
+});
+
 test.skip('Onboarding to Dashboard smoke (backend)', async ({ page }) => {
   await page.goto('/onboarding');
   await page.waitForLoadState('domcontentloaded');

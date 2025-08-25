@@ -13,7 +13,7 @@ type W = { title: string; description: string; to: string; cta?: string };
 const workflows: W[] = [
   { title: 'Finish onboarding', description: 'Connect accounts, set brand profile, and preview consent timings (7d/3d/1d/2h).', to: '/onboarding', cta: 'Go to Onboarding' },
   { title: 'Start a cadence', description: 'Send kind, consent-first messages with quiet-hours and approvals.', to: '/cadences', cta: 'Open Cadences' },
-  { title: 'Unified calendar', description: 'Sync Google/Apple and merge Square/Acuity bookings.', to: '/calendar', cta: 'Open Calendar' },
+  { title: 'Unified calendar', description: 'Sync Google/Apple and merge Square/Acuity bookings (scheduling from BrandVX disabled).', to: '/calendar', cta: 'Open Calendar' },
   { title: 'Manage inventory', description: 'Sync Shopify/Square, review items and stock levels.', to: '/inventory', cta: 'Open Inventory' },
   { title: 'Master inbox', description: 'Connect Facebook/Instagram and see all messages in one place.', to: '/inbox', cta: 'Open Inbox' },
   { title: 'Client curation', description: 'Hire/Fire with swipe/drag and quick stats.', to: '/curation', cta: 'Open Curation' },
@@ -22,6 +22,7 @@ const workflows: W[] = [
 
 export default function Workflows(){
   const { showToast } = useToast();
+  const isDemo = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('demo') === '1';
   const [busy, setBusy] = useState(false);
   const [lowItems, setLowItems] = useState<Array<{name:string; stock?: number}>>([]);
   const [socialPreview, setSocialPreview] = useState<any>(null);
@@ -32,6 +33,9 @@ export default function Workflows(){
   const [shareUrl, setShareUrl] = useState('');
   const loc = useLocation(); void loc; // avoid TS6133 when not used
   const [connected, setConnected] = useState<Record<string,string>>({});
+  const [playbooks, setPlaybooks] = useState<Record<string, boolean>>({});
+  const [wfProgress, setWfProgress] = useState<Record<string, boolean>>({});
+  const [activeWf, setActiveWf] = useState<'crm_organization'|'book_filling'|'inventory_tracking'|'social_automation'|'client_communication'>('crm_organization');
   const [packState, setPackState] = useState<Record<string, 'pending'|'skipped'|'done'>>({
     warm5: 'pending',
     reminders: 'pending',
@@ -57,6 +61,13 @@ export default function Workflows(){
         const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() });
         if (a?.summary?.connected) setConnected(a.summary.connected);
       } catch {}
+      try {
+        const s = await api.get(`/settings?tenant_id=${encodeURIComponent(await getTenant())}`);
+        const pb = s?.data?.preferences?.playbooks || {};
+        setPlaybooks(pb);
+        const wp = s?.data?.wf_progress || {};
+        setWfProgress(wp);
+      } catch {}
     })();
   }, []);
 
@@ -66,6 +77,8 @@ export default function Workflows(){
   const markSkip = (k: string) => setPackState(s=> ({ ...s, [k]: 'skipped' }));
 
   const runWarmFive = async () => {
+    if (isDemo) { showToast({ title:'Demo mode', description:'Create an account to run this.
+    ' }); return; }
     if (!twilioReady) { showToast({ title:'Connect Twilio', description:'Please connect Twilio to send SMS.' }); return; }
     setBusy(true);
     try {
@@ -83,6 +96,7 @@ export default function Workflows(){
   };
 
   const runReminders = async () => {
+    if (isDemo) { showToast({ title:'Demo mode', description:'Create an account to run this.' }); return; }
     setBusy(true);
     try {
       const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'appointments.schedule_reminders', params:{ tenant_id: await getTenant() }, require_approval: false });
@@ -93,6 +107,7 @@ export default function Workflows(){
   };
 
   const runDormantPreview = async () => {
+    if (isDemo) { showToast({ title:'Demo mode', description:'Create an account to run this.' }); return; }
     setBusy(true);
     try {
       const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'campaigns.dormant.preview', params:{ tenant_id: await getTenant(), threshold_days: 60 }, require_approval: false });
@@ -102,7 +117,28 @@ export default function Workflows(){
     finally { setBusy(false); }
   };
 
+  // Playbooks installer
+  const installPlaybook = async (id: 'warm_leads'|'no_show_reminders'|'dormant_reengage') => {
+    if (isDemo) { showToast({ title:'Demo mode', description:'Create an account to install playbooks.' }); return; }
+    setBusy(true);
+    try {
+      const tid = await getTenant();
+      const s = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+      const prefs = { ...(s?.data?.preferences||{}) };
+      const current = { ...(prefs.playbooks||{}) } as Record<string, boolean>;
+      current[id] = true;
+      prefs.playbooks = current;
+      await api.post('/settings', { tenant_id: tid, preferences: prefs });
+      setPlaybooks(current);
+    } catch(e:any){
+      console.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const runDedupe = async () => {
+    if (isDemo) { showToast({ title:'Demo mode', description:'Create an account to run this.' }); return; }
     setBusy(true);
     try {
       const r = await api.post('/ai/tools/execute', {
@@ -122,12 +158,13 @@ export default function Workflows(){
   };
 
   const checkLow = async () => {
+    if (isDemo) { showToast({ title:'Demo mode', description:'Create an account to run this.' }); return; }
     setBusy(true);
     try {
       const r = await api.post('/ai/tools/execute', {
         tenant_id: await getTenant(),
         name: 'inventory.alerts.get',
-        params: { tenant_id: await getTenant(), low_stock_threshold: 5 },
+        params: { tenant_id: await getTenant(), low_stock_threshold: Number(localStorage.getItem('bvx_low_threshold')||'5') },
         require_approval: false,
       });
       setLowItems(r?.items || []);
@@ -142,6 +179,7 @@ export default function Workflows(){
   };
 
   const draftSocial = async () => {
+    if (isDemo) { showToast({ title:'Demo mode', description:'Create an account to run this.' }); return; }
     setBusy(true);
     try {
       const r = await api.post('/ai/tools/execute', {
@@ -165,6 +203,36 @@ export default function Workflows(){
     }
   };
 
+  const wfList: Array<{k:'crm_organization'|'book_filling'|'inventory_tracking'|'social_automation'|'client_communication'; title:string; desc:string}> = [
+    { k:'crm_organization', title:'CRM Organization', desc:'Import, dedupe, consent setup.' },
+    { k:'book_filling', title:'Book‑Filling', desc:'Reminders (7d/3d/1d/2h) with quiet hours.' },
+    { k:'inventory_tracking', title:'Inventory Tracking', desc:'Sync Square/Shopify; low‑stock alerts.' },
+    { k:'social_automation', title:'Social (14‑day)', desc:'Draft 14 days of posts in your voice.' },
+    { k:'client_communication', title:'Client Communication', desc:'Unified inbox + approvals.' },
+  ];
+
+  const persistProgress = async (k: string) => {
+    try{
+      const tid = await getTenant();
+      const s = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+      const next = { ...(s?.data?.wf_progress||{}), [k]: true };
+      await api.post('/settings', { tenant_id: tid, wf_progress: next });
+      setWfProgress(next);
+      showToast({ title:'Step completed', description:'Progress saved.' });
+    }catch(e:any){ showToast({ title:'Error', description:String(e?.message||e) }); }
+  };
+
+  // --- Workflow progress panel (bottom half reflects active step) ---
+  const wfList: Array<{k:'crm_organization'|'book_filling'|'inventory_tracking'|'social_automation'|'client_communication'; title:string; desc:string}> = [
+    { k:'crm_organization', title:'CRM Organization', desc:'Import, dedupe, consent setup.' },
+    { k:'book_filling', title:'Book‑Filling', desc:'Reminders (7d/3d/1d/2h) with quiet hours.' },
+    { k:'inventory_tracking', title:'Inventory Tracking', desc:'Sync Square/Shopify; low‑stock alerts.' },
+    { k:'social_automation', title:'Social (14‑day)', desc:'Draft 14 days of posts in your voice.' },
+    { k:'client_communication', title:'Client Communication', desc:'Unified inbox + approvals.' },
+  ];
+  const active = wfList.find(x=> x.k===activeWf) || wfList[0];
+  const markActiveComplete = async()=>{ await persistProgress(active.k); };
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -183,6 +251,57 @@ export default function Workflows(){
           </section>
         ))}
       </div>
+      <section className="rounded-2xl p-4 bg-white/70 backdrop-blur border border-white/70 shadow-sm">
+        <div className="flex items-center justify-between">
+          <h4 className="text-md font-semibold">Playbooks</h4>
+        </div>
+        <p className="text-sm text-slate-600 mt-1">Install starter cadences you can customize later.</p>
+        <div className="mt-3 grid sm:grid-cols-3 gap-3 text-sm">
+          <div className="rounded-xl border bg-white p-3">
+            <div className="font-medium text-slate-900">Warm leads (gentle nudge)</div>
+            <div className="text-slate-600 mt-1">Quick SMS/email sequence for engaged prospects.</div>
+            <div className="mt-2 flex gap-2">
+              <Button size="sm" disabled={busy || !!playbooks['warm_leads']} onClick={()=> installPlaybook('warm_leads')}>{playbooks['warm_leads']? 'Installed' : 'Install'}</Button>
+            </div>
+          </div>
+          <div className="rounded-xl border bg-white p-3">
+            <div className="font-medium text-slate-900">No‑show reminders</div>
+            <div className="text-slate-600 mt-1">Reminder cadence (7d/3d/1d/2h) respecting quiet hours.</div>
+            <div className="mt-2 flex gap-2">
+              <Button size="sm" disabled={busy || !!playbooks['no_show_reminders']} onClick={()=> installPlaybook('no_show_reminders')}>{playbooks['no_show_reminders']? 'Installed' : 'Install'}</Button>
+            </div>
+          </div>
+          <div className="rounded-xl border bg-white p-3">
+            <div className="font-medium text-slate-900">Dormant re‑engage</div>
+            <div className="text-slate-600 mt-1">60‑day retargeter with friendly follow‑ups.</div>
+            <div className="mt-2 flex gap-2">
+              <Button size="sm" disabled={busy || !!playbooks['dormant_reengage']} onClick={()=> installPlaybook('dormant_reengage')}>{playbooks['dormant_reengage']? 'Installed' : 'Install'}</Button>
+            </div>
+          </div>
+        </div>
+      </section>
+      {/* Workflow tracker: select a workflow and complete current step */}
+      <section className="rounded-2xl p-4 bg-white/70 backdrop-blur border border-white/70 shadow-sm">
+        <div className="flex items-center justify-between">
+          <h4 className="text-md font-semibold">Your 5 workflows</h4>
+        </div>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {wfList.map(w=> (
+            <button key={w.k} onClick={()=> setActiveWf(w.k)}
+              className={`px-3 py-2 rounded-full border text-sm ${activeWf===w.k? 'bg-sky-50 border-sky-200 text-sky-800' : 'bg-white'}`}>
+              {w.title} {wfProgress?.[w.k] && <span className="ml-1 text-[11px] text-emerald-700">• done</span>}
+            </button>
+          ))}
+        </div>
+        <div className="mt-3 rounded-xl border bg-white p-3">
+          <div className="font-medium text-slate-900">{active.title}</div>
+          <div className="text-sm text-slate-600 mt-1">{active.desc}</div>
+          <div className="mt-3 flex gap-2">
+            <Button size="sm" onClick={markActiveComplete} disabled={!!wfProgress?.[active.k]}> {wfProgress?.[active.k] ? 'Completed' : 'Complete step'} </Button>
+            <Button variant="outline" size="sm" onClick={()=> window.scrollTo({ top: 0, behavior:'smooth' })}>Open actions above</Button>
+          </div>
+        </div>
+      </section>
       <section className="rounded-2xl p-4 bg-white/70 backdrop-blur border border-white/70 shadow-sm">
         <div className="flex items-center justify-between">
           <h4 className="text-md font-semibold">48‑hour impact pack</h4>

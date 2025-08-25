@@ -1,6 +1,8 @@
 from typing import Dict, Any
 import os
 import httpx
+from ..cache import breaker_allow, breaker_on_result
+import re
 
 # Optional dependency: PyNaCl for webhook verification. Guard import so the API can run without it in dev.
 try:  # pragma: no cover - import guard
@@ -19,17 +21,31 @@ def sendgrid_send_email(to_email: str, subject: str, body_html: str) -> Dict[str
         raise RuntimeError("sendgrid not configured")
     url = "https://api.sendgrid.com/v3/mail/send"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    # Plain-text fallback by stripping HTML tags
+    text_fallback = re.sub(r"<[^>]+>", " ", body_html)
+    text_fallback = re.sub(r"\s+", " ", text_fallback).strip()
     payload = {
         "personalizations": [{"to": [{"email": to_email}]}],
         "from": {"email": from_email},
         "subject": subject,
-        "content": [{"type": "text/html", "value": body_html}],
+        "content": [
+            {"type": "text/plain", "value": text_fallback or "Hello from BrandVX"},
+            {"type": "text/html", "value": body_html},
+        ],
     }
-    with httpx.Client(timeout=20) as client:
-        r = client.post(url, headers=headers, json=payload)
-        if r.status_code not in (200, 202):
-            r.raise_for_status()
-        return {"status": "queued", "provider_id": r.headers.get("X-Message-Id", "")}
+    name = "sendgrid_send"
+    if not breaker_allow(name):
+        raise RuntimeError("sendgrid circuit open")
+    ok = False
+    try:
+        with httpx.Client(timeout=20) as client:
+            r = client.post(url, headers=headers, json=payload)
+            if r.status_code not in (200, 202):
+                r.raise_for_status()
+            ok = True
+            return {"status": "queued", "provider_id": r.headers.get("X-Message-Id", "")}
+    finally:
+        breaker_on_result(name, ok)
 
 
 def sendgrid_verify_signature(headers: Dict[str, str], payload: bytes) -> bool:

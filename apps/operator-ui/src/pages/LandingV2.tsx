@@ -134,8 +134,12 @@ export default function LandingV2(){
   const nav = useNavigate();
 
   const goDemo = () => {
-    try { track('cta_click',{area:'hero',href:'/demo-intake'}); } catch {}
-    nav('/demo-intake');
+    try { track('cta_click',{area:'hero',href:'/demo'}); } catch {}
+    nav('/demo');
+  };
+  const goSignup = () => {
+    try { track('cta_click',{area:'hero',href:'/signup'}); } catch {}
+    nav('/signup');
   };
 
   // Capture referral code and persist for attribution
@@ -191,14 +195,23 @@ export default function LandingV2(){
 
           {/* Thin CTA section between hero and squares */}
           <section className="py-2 md:py-3 flex justify-center">
-            <div className="relative mt-[50px] group">
-              <div aria-hidden className="absolute -inset-2 rounded-full bg-sky-300/30 blur-md opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100" />
+            <div className="flex gap-3 items-center mt-[50px]">
+              <div className="relative group">
+                <div aria-hidden className="absolute -inset-2 rounded-full bg-sky-300/30 blur-md opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100" />
+                <button
+                  onClick={goDemo}
+                  className="text-black text-lg md:text-xl px-7 md:px-8 py-3.5 md:py-4 rounded-full shadow-md bg-gradient-to-b from-sky-100 to-sky-200 hover:from-sky-200 hover:to-sky-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px"
+                  style={{fontFamily:'\"Fraunces\", ui-serif, Georgia, serif'}}
+                >
+                  Try the demo today →
+                </button>
+              </div>
               <button
-                onClick={goDemo}
-                className="text-black text-lg md:text-xl px-7 md:px-8 py-3.5 md:py-4 rounded-full shadow-md bg-gradient-to-b from-sky-100 to-sky-200 hover:from-sky-200 hover:to-sky-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px"
+                onClick={goSignup}
+                className="text-white text-lg md:text-xl px-7 md:px-8 py-3.5 md:py-4 rounded-full shadow-md bg-gradient-to-b from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px"
                 style={{fontFamily:'\"Fraunces\", ui-serif, Georgia, serif'}}
               >
-                Try the demo today →
+                Start free trial
               </button>
             </div>
           </section>

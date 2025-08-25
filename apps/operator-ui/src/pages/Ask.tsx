@@ -1,12 +1,35 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api, getTenant } from '../lib/api';
 import { useToast } from '../components/ui/Toast';
 import { startGuide, startWorkflowGuide } from '../lib/guide';
 import { track } from '../lib/analytics';
+import { motion } from 'framer-motion';
 
 type Msg = { role: 'user' | 'assistant'; content: string };
+type Action =
+  | 'open_integrations'
+  | 'connect_twilio'
+  | 'tour_all'
+  | 'open_inventory'
+  | 'check_lowstock'
+  | 'open_messages'
+  | 'open_contacts'
+  | 'import_contacts'
+  | 'open_calendar'
+  | 'open_approvals'
+  | 'open_workflows'
+  | 'open_cadences'
+  | 'open_inbox'
+  | 'open_onboarding'
+  | 'guide_dashboard'
+  | 'guide_integrations'
+  | 'guide_onboarding'
+  | 'guide_workflows'
+  | 'admin_clear_cache';
 
 export default function Ask(){
+  const navigate = useNavigate();
   const { showToast } = useToast();
   const [input, setInput] = useState('What KPIs should I look at today?');
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -25,10 +48,21 @@ export default function Ask(){
     localStorage.setItem(key, sid);
     return sid;
   });
+  // Restore cached messages for continuity across pane navigation
+  useEffect(()=>{
+    try{
+      const cache = localStorage.getItem(`bvx_chat_cache_${sessionId}`);
+      if (cache) {
+        const arr = JSON.parse(cache);
+        if (Array.isArray(arr)) setMessages(arr);
+      }
+    } catch {}
+  }, [sessionId]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const [sessions, setSessions] = useState<Array<{session_id:string; last_message_at:number}>>([]);
   const [shareUrl, setShareUrl] = useState<string>("");
+  const [contextActions, setContextActions] = useState<Action[]>([]);
   // Plan builder state: fetch plan, show steps as radio, execute selected or all
   const [planName, setPlanName] = useState<''|'crm_organization'|'book_filling'|'inventory_tracking'|'social_automation'>('');
   const [planSteps, setPlanSteps] = useState<any[]>([]);
@@ -56,6 +90,55 @@ export default function Ask(){
     } catch{}
   };
 
+  const computeContext = (promptText: string, assistText?: string): Action[] => {
+    try {
+      const p = (promptText||'').toLowerCase();
+      const t = (assistText||'').toLowerCase();
+      const matches = (re: RegExp) => re.test(p) || (!!t && re.test(t));
+      const acts: Action[] = [];
+      if (matches(/integrations?|connect\s+tools?|connect\s+(square|acuity|hubspot|google|facebook|instagram|shopify|sms|twilio)/)) {
+        acts.push('open_integrations');
+        if (/twilio|sms/.test(p)) acts.push('connect_twilio');
+        acts.push('guide_integrations');
+      }
+      if (matches(/inventory|stock|low\s*stock|out\s*of\s*stock|shopify\s*inventory|square\s*inventory/)) {
+        acts.push('open_inventory', 'check_lowstock');
+        acts.push('guide_workflows');
+      }
+      if (matches(/messages?|sms|email|send|inbox/)) {
+        acts.push('open_messages');
+        if (matches(/inbox/)) acts.push('open_inbox');
+      }
+      if (matches(/contacts?|clients?|import|dedupe|export/)) {
+        acts.push('open_contacts');
+        if (matches(/import|upload/)) acts.push('import_contacts');
+        acts.push('guide_workflows');
+      }
+      if (matches(/calendar|booking|schedule|appointments?/)) {
+        acts.push('open_calendar');
+      }
+      if (matches(/approvals?|review|pending/)) {
+        acts.push('open_approvals');
+      }
+      if (matches(/cadences?|automation|follow[- ]?ups?/)) {
+        acts.push('open_cadences');
+      }
+      if (matches(/workflows?|plan|automation/)) {
+        acts.push('open_workflows', 'guide_workflows');
+      }
+      if (matches(/onboarding|setup|get\s+started/)) {
+        acts.push('open_onboarding', 'guide_onboarding');
+      }
+      if (matches(/clear\s+cache|flush\s+cache|stale\s+data|refresh\s+(data|cache)/)) {
+        acts.push('admin_clear_cache');
+      }
+      if (matches(/tour|walkthrough|guide\s+me/)) {
+        acts.push('tour_all');
+      }
+      return acts;
+    } catch { return []; }
+  };
+
   const send = async () => {
     const prompt = input.trim();
     if (!prompt || loading) return;
@@ -63,6 +146,8 @@ export default function Ask(){
     setMessages(next);
     setInput('');
     setLoading(true);
+    // Prompt-first suggestions
+    setContextActions(computeContext(prompt));
     try{
       const r = await api.post('/ai/chat', {
         tenant_id: await getTenant(),
@@ -71,6 +156,8 @@ export default function Ask(){
         session_id: sessionId,
       });
       const text = String(r?.text || '');
+      // Refine contextual actions with assistant text
+      setContextActions(computeContext(prompt, text));
       if (!firstNoteShown) {
         setFirstNoteShown(true);
         localStorage.setItem('bvx_first_prompt_note', '1');
@@ -104,6 +191,12 @@ export default function Ask(){
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    // Send on Enter; allow newline with Shift+Enter; keep Cmd/Ctrl+Enter support
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      void send();
+      return;
+    }
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       void send();
@@ -112,15 +205,33 @@ export default function Ask(){
 
   const reset = () => { setMessages([]); setInput(''); };
   const setShortcut = (text: string) => { setInput(text); };
-  const guideTo = (page: 'dashboard'|'integrations'|'onboarding') => {
-    const map = { dashboard: '/dashboard?tour=1', integrations: '/integrations', onboarding: '/onboarding?tour=1' } as const;
-    const href = map[page];
-    if (page === 'integrations') {
-      window.location.href = '/integrations';
-      setTimeout(()=>{ try{ new URLSearchParams(window.location.search).set('tour','1'); } catch{} }, 10);
-    } else {
-      window.location.href = href;
+  const clearTenantCache = async () => {
+    try{
+      const tid = await getTenant();
+      const r = await api.post('/admin/cache/clear', { tenant_id: tid, scope: 'all' });
+      showToast({ title: 'Cache cleared', description: `Cleared ${Number(r?.cleared||0)} keys.` });
+    } catch(e:any) {
+      showToast({ title: 'Cache error', description: String(e?.message||e) });
     }
+  };
+  const goto = (path: string) => {
+    try {
+      // Cache messages before navigating parent
+      try { localStorage.setItem(`bvx_chat_cache_${sessionId}`, JSON.stringify(messages)); } catch {}
+      // If Ask is embedded in the docked iframe, navigate the parent window
+      const isEmbedded = (typeof window !== 'undefined') && (window.self !== window.top);
+      if (isEmbedded && (window.parent && 'location' in window.parent)) {
+        (window.parent as any).location.href = path;
+        return;
+      }
+      navigate(path);
+    } catch {
+      window.location.href = path;
+    }
+  };
+  const guideTo = (page: 'dashboard'|'integrations'|'onboarding') => {
+    const map = { dashboard: '/workspace?pane=dashboard&tour=1', integrations: '/workspace?pane=integrations&tour=1', onboarding: '/onboarding?tour=1' } as const;
+    goto(map[page]);
   };
 
   useEffect(() => {
@@ -218,7 +329,7 @@ export default function Ask(){
           // Save remaining steps (including current) to resume later
           saveQueue(name, steps.slice(i));
           // Stop execution and guide the user to Approvals
-          window.open('/approvals', '_self');
+          goto('/workspace?pane=approvals');
           return;
         }
         if (res?.status === 'error') {
@@ -230,6 +341,8 @@ export default function Ask(){
         showToast({ title: 'Step complete', description: `${getToolLabel(tool)} → ${res?.status||'ok'}` });
       }
       try { track('ask_plan_done', { name }); } catch {}
+      // Mark workflow as completed in settings progress map
+      try { await api.post('/settings', { tenant_id: TENANT_ID, wf_progress: { [name]: true } }); } catch {}
       showToast({ title: 'Plan finished', description: 'All steps completed.' });
       clearQueue();
     } catch(e:any){
@@ -308,7 +421,7 @@ export default function Ask(){
       if (res?.status === 'pending') {
         showToast({ title: 'Approval required', description: `"${getToolLabel(tool)}" is pending. Review in Approvals.` });
         saveQueue(name, single ? [step] : planSteps.slice(index));
-        window.open('/approvals', '_self');
+        goto('/workspace?pane=approvals');
         return false;
       }
       if (res?.status === 'error') {
@@ -353,7 +466,7 @@ export default function Ask(){
         if (res?.status === 'pending') {
           saveQueue(name, saved.stepsLeft.slice(i));
           showToast({ title: 'Still pending', description: `"${getToolLabel(tool)}" requires approval. Review in Approvals.` });
-          window.open('/approvals', '_self');
+          goto('/workspace?pane=approvals');
           return;
         }
         if (res?.status === 'error') {
@@ -370,8 +483,18 @@ export default function Ask(){
       setRunning('');
     }
   };
+  const isDemo = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('demo') === '1';
   return (
     <div className={`space-y-3 ${embedded ? '' : ''}`}>
+      {isDemo && (
+        <div className="rounded-2xl p-3 border bg-amber-50/80 border-amber-200 text-amber-900">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm">Demo mode — chat replies are simulated.</span>
+            <a href="/signup" className="px-3 py-1.5 rounded-full bg-slate-900 text-white text-sm">Create account</a>
+            <a href="/billing" className="px-3 py-1.5 rounded-full border bg-white text-sm">Add payment</a>
+          </div>
+        </div>
+      )}
       {!embedded && (
         <div className="flex items-center justify-between">
           <h3 className="text-xl font-semibold" style={{fontFamily:'var(--font-display)'}}>Brand&nbsp;VX</h3>
@@ -413,7 +536,7 @@ export default function Ask(){
           </ul>
         </div>
       )}
-      {friendlyError && (
+      {!embedded && friendlyError && (
         <div className="rounded-xl bg-amber-50 border border-amber-200 text-amber-900 p-3 text-sm">
           <div className="font-medium">Let’s try a preset</div>
           <div className="mt-1">{friendlyError}</div>
@@ -436,7 +559,7 @@ export default function Ask(){
           )}
         </div>
       )}
-      <div className={`rounded-xl bg-white shadow-sm p-3 border ${embedded ? 'h-auto overflow-hidden' : 'h-72 overflow-auto'}`}>
+      <div className={`rounded-xl bg-white shadow-sm p-3 border ${embedded ? 'h-[calc(100%-72px)]' : 'h-64'} overflow-auto`}>
         {messages.length === 0 && (
           <div className="text-sm text-slate-500">Start a conversation below.</div>
         )}
@@ -455,22 +578,94 @@ export default function Ask(){
             <div className="text-left">
               <span className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-slate-100 text-slate-900">
                 <span>BrandVX is typing</span>
-                <span className="inline-flex">
-                  <span className="w-1 h-1 bg-slate-600 rounded-full animate-bounce" style={{animationDelay:'0ms'}}></span>
-                  <span className="w-1 h-1 bg-slate-600 rounded-full animate-bounce ml-1" style={{animationDelay:'120ms'}}></span>
-                  <span className="w-1 h-1 bg-slate-600 rounded-full animate-bounce ml-1" style={{animationDelay:'240ms'}}></span>
+                <span className="inline-flex ml-1 items-end">
+                  <motion.span className="w-1.5 h-1.5 bg-slate-600 rounded-full"
+                    animate={{ y: [0, -3, 0], opacity: [0.5, 1, 0.6] }}
+                    transition={{ duration: 0.9, repeat: Infinity, ease: 'easeInOut', delay: 0 }} />
+                  <motion.span className="w-1.5 h-1.5 bg-slate-600 rounded-full ml-1"
+                    animate={{ y: [0, -3, 0], opacity: [0.5, 1, 0.6] }}
+                    transition={{ duration: 0.9, repeat: Infinity, ease: 'easeInOut', delay: 0.15 }} />
+                  <motion.span className="w-1.5 h-1.5 bg-slate-600 rounded-full ml-1"
+                    animate={{ y: [0, -3, 0], opacity: [0.5, 1, 0.6] }}
+                    transition={{ duration: 0.9, repeat: Infinity, ease: 'easeInOut', delay: 0.3 }} />
                 </span>
               </span>
             </div>
           )}
+          {/* Contextual actions directly under the assistant reply */}
+          {contextActions.length > 0 && (
+            <div className="pt-2 mt-1 border-t border-slate-100">
+              <div className="flex flex-wrap gap-2 text-xs">
+                {contextActions.includes('open_integrations') && (
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=integrations') }>Open Integrations</button>
+                )}
+                {contextActions.includes('connect_twilio') && (
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=integrations&tour=twilio') }>Connect SMS (Twilio)</button>
+                )}
+                {contextActions.includes('open_messages') && (
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=messages') }>Open Messages</button>
+                )}
+                {contextActions.includes('open_inbox') && (
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=messages') }>Open Inbox</button>
+                )}
+                {contextActions.includes('open_contacts') && (
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=contacts') }>Open Contacts</button>
+                )}
+                {contextActions.includes('import_contacts') && (
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=contacts&tour=1') }>Import contacts</button>
+                )}
+                {contextActions.includes('open_inventory') && (
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=inventory') }>Open Inventory</button>
+                )}
+                {contextActions.includes('check_lowstock') && (
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=inventory&tour=1') }>Check low stock</button>
+                )}
+                {contextActions.includes('open_calendar') && (
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=calendar') }>Open Calendar</button>
+                )}
+                {contextActions.includes('open_approvals') && (
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=approvals') }>Open Approvals</button>
+                )}
+                {contextActions.includes('open_cadences') && (
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=cadences') }>Open Cadences</button>
+                )}
+                {contextActions.includes('open_workflows') && (
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=workflows') }>Open Workflows</button>
+                )}
+                {contextActions.includes('open_onboarding') && (
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/onboarding?tour=1') }>Open Onboarding</button>
+                )}
+                {contextActions.includes('guide_dashboard') && (
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=dashboard&tour=1') }>Guide: Dashboard</button>
+                )}
+                {contextActions.includes('guide_integrations') && (
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=integrations&tour=1') }>Guide: Integrations</button>
+                )}
+                {contextActions.includes('guide_onboarding') && (
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/onboarding?tour=1') }>Guide: Onboarding</button>
+                )}
+                {contextActions.includes('guide_workflows') && (
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workflows?tour=1') }>Guide: Workflows</button>
+                )}
+                {contextActions.includes('admin_clear_cache') && (
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={clearTenantCache}>Clear tenant cache</button>
+                )}
+                {contextActions.includes('tour_all') && (
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=dashboard&demo=1&tour=all') }>Run full demo tour</button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
+      {!embedded && (
       <div className="flex flex-wrap gap-2 text-xs">
         <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Create a 30‑day content plan for a balayage specialist posting 3x/week.')}>Content Plan</button>
         <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Draft a price‑increase announcement and client FAQ for a luxury but friendly tone.')}>Price Increase</button>
         <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Make a pre‑appointment text and aftercare card for brow lamination with placeholders.')}>Pre/Post Visit</button>
         <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Compute effective hourly given price $225, product cost $28, service time 210 minutes.')}>Pricing Model</button>
       </div>
+      )}
       <div className="flex gap-2 items-start">
         <textarea
           className="flex-1 border rounded-md px-3 py-2"
@@ -490,16 +685,16 @@ export default function Ask(){
       {!firstNoteShown && (
         <div className="text-xs text-slate-500 mt-1">(Responses may take a moment to ensure quality!)</div>
       )}
-      {messages.length > 0 && messages[messages.length - 1]?.role === 'assistant' && (
+      {(!embedded && (messages.length > 0 && messages[messages.length - 1]?.role === 'assistant')) && (
         <div className="mt-2">
-          <a href="/onboarding?tour=1" className="inline-flex items-center gap-2">
+          <button onClick={()=> guideTo('onboarding')} className="inline-flex items-center gap-2">
             <span className="px-3 py-2 border rounded-full bg-white hover:shadow-sm text-sm text-slate-800">Get Started!</span>
-          </a>
+          </button>
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
             <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('dashboard')}>Guide me: Dashboard</button>
             <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('integrations')}>Guide me: Integrations</button>
             <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('onboarding')}>Guide me: Onboarding</button>
-            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>{ window.location.href = '/integrations?tour=twilio'; }}>Connect SMS (Twilio)</button>
+            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=integrations&tour=twilio') }>Connect SMS (Twilio)</button>
           </div>
           <div className="mt-3 flex flex-wrap gap-2 text-xs">
             <button disabled={!!running} className="px-2 py-1 border rounded-md bg-white hover:shadow-sm disabled:opacity-50" onClick={()=>runPlan('crm_organization')}>{running==='crm_organization' ? 'Running…' : 'Run plan: CRM Organization'}</button>

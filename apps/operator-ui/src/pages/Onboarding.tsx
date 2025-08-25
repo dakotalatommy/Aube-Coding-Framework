@@ -3,6 +3,7 @@ import { getPersisted, setPersisted } from '../lib/state';
 import { useNavigate } from 'react-router-dom';
 import Button, { ButtonLink } from '../components/ui/Button';
 import { api, getTenant } from '../lib/api';
+import { track } from '../lib/analytics';
 import { motion, AnimatePresence } from 'framer-motion';
 //
 import { useToast } from '../components/ui/Toast';
@@ -130,6 +131,7 @@ export default function Onboarding(){
   const [oauthError, setOauthError] = useState<string>('');
   const [invItems, setInvItems] = useState<Array<any>>([]);
   const [toolBusy, setToolBusy] = useState<boolean>(false);
+  const [redirects, setRedirects] = useState<any>(null);
 
   useEffect(() => {
     setPersisted('ob_tools', tools);
@@ -148,16 +150,23 @@ export default function Onboarding(){
   }, [consentSteps]);
 
   useEffect(() => { (async()=>{ try{ const j = await api.get('/integrations/booking/square/link'); setBookingUrl(j?.url || ''); } catch{} })(); }, []);
+  useEffect(() => { (async()=>{ try{ const r = await api.get('/integrations/redirects'); setRedirects(r||{}); } catch{} })(); }, []);
 
   useEffect(() => {
     // Auto-start tour if ?tour=1
     try{
       const sp = new URLSearchParams(window.location.search);
+      // Post-signup payment offer modal trigger
+      if (sp.get('offer') === '1' || localStorage.getItem('bvx_offer_pending') === '1') {
+        setTimeout(()=> setShowOffer(true), 400); // gently after load
+        try { localStorage.removeItem('bvx_offer_pending'); } catch {}
+      }
       if (sp.get('skip_onboarding') === '1') {
         navigate('/workspace?pane=dashboard&tour=1');
         return;
       }
-      if (sp.get('tour') === '1') {
+      const seen = localStorage.getItem('bvx_tour_seen_onboarding') === '1';
+      if (sp.get('tour') === '1' && !seen) {
         startTour();
       }
       // If returned from OAuth (?connected=provider), auto-run analyze and toast
@@ -254,7 +263,7 @@ export default function Onboarding(){
       const r = await api.post('/ai/tools/execute', {
         tenant_id: await getTenant(),
         name: 'inventory.alerts.get',
-        params: { tenant_id: await getTenant(), low_stock_threshold: 5 },
+        params: { tenant_id: await getTenant(), low_stock_threshold: Number(localStorage.getItem('bvx_low_threshold')||'5') },
         require_approval: false,
       });
       const items = Array.isArray(r?.items) ? r.items : [];
@@ -297,6 +306,9 @@ export default function Onboarding(){
   }, [tools, busy, whiteGlove]);
 
   const toneLabel = ['Super chill', 'Warm', 'Balanced', 'Polished', 'Very professional'][tone - 1];
+
+  // Payment offer modal state
+  const [showOffer, setShowOffer] = useState(false);
 
   const onBook = () => {
     if (bookingUrl) window.open(bookingUrl, '_blank');
@@ -369,6 +381,21 @@ export default function Onboarding(){
                         </div>
                       ))}
                     </div>
+                    {redirects?.oauth && (
+                      <div className="mt-3">
+                        <div className="font-medium">Redirect URIs</div>
+                        <div className="grid sm:grid-cols-2 gap-2 mt-1">
+                          {Object.entries(redirects.oauth).slice(0,6).map(([k,v]: any)=> (
+                            <div key={String(k)} className="flex items-center gap-2">
+                              <span className="w-24 capitalize text-slate-600">{String(k)}</span>
+                              <input readOnly className="flex-1 border rounded-md px-2 py-1 bg-white" value={String(v)} onFocus={(e)=> e.currentTarget.select()} />
+                              <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm text-xs" onClick={async()=>{ try{ await navigator.clipboard.writeText(String(v)); track('redirect_uri_copy',{provider:k}); }catch{} }}>Copy</button>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="mt-1 text-[11px] text-slate-500">Full list available on Integrations → Redirect URIs.</div>
+                      </div>
+                    )}
                   </PrettyCard>
                 </motion.section>
               )}
@@ -479,7 +506,7 @@ export default function Onboarding(){
                                     <li>Connect CRM to sync contact properties</li>
                                   </ul>
                                   <div className="mt-2 flex flex-wrap gap-2">
-                                    <Button variant="outline" size="sm" onClick={()=> window.open('/contacts','_self')}>Open Contacts</Button>
+                                    <Button variant="outline" size="sm" onClick={()=> window.open('/workspace?pane=contacts','_self')}>Open Contacts</Button>
                                     <Button variant="outline" size="sm" onClick={()=> setStep(2)}>Connect tools</Button>
                                     <Button variant="outline" size="sm" onClick={async()=>{
                                       await api.post('/reconciliation/import_missing_contacts', { tenant_id: await getTenant() });
@@ -642,6 +669,7 @@ export default function Onboarding(){
                       <Button variant="primary" size="sm" onClick={()=> navigate('/workflows')}>Open Workflows</Button>
                       <Button variant="outline" size="sm" onClick={()=> navigate('/workspace?pane=dashboard&tour=1')}>View Dashboard</Button>
                       <Button variant="outline" size="sm" onClick={()=> navigate('/ask')}>Ask VX</Button>
+                      <Button variant="outline" size="sm" onClick={()=> navigate('/billing?offer=trial')}>Add payment</Button>
                     </div>
                   </PrettyCard>
                 </motion.section>
@@ -692,6 +720,20 @@ export default function Onboarding(){
         </div>
       </main>
       <AnimatePresence>
+        {showOffer && (
+          <motion.div className="fixed inset-0 z-30 grid place-items-center" initial={{opacity:0}} animate={{opacity:1}} exit={{opacity:0}}>
+            <div className="absolute inset-0 bg-black/20" onClick={()=> setShowOffer(false)} />
+            <div className="relative z-10 max-w-md w-[92vw] rounded-2xl border bg-white shadow-2xl p-4">
+              <div className="text-lg font-semibold text-slate-900">Choose your plan</div>
+              <div className="text-sm text-slate-600 mt-1">Start now with a lifetime license or try free for 7 days.</div>
+              <div className="mt-3 grid gap-2">
+                <Button onClick={()=> navigate('/billing?offer=lifetime')} className="rounded-full">Lifetime — $97 (one‑time)</Button>
+                <Button variant="outline" onClick={()=> navigate('/billing?offer=trial')} className="rounded-full">7‑day free trial → $147/mo</Button>
+                <Button variant="ghost" onClick={()=> setShowOffer(false)} className="rounded-full">Not now</Button>
+              </div>
+            </div>
+          </motion.div>
+        )}
         {showNudge && (
           <motion.div initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 20, opacity: 0 }}
             className="fixed bottom-6 left-1/2 -translate-x-1/2 z-20">
@@ -699,6 +741,7 @@ export default function Onboarding(){
               <span className="text-sm text-slate-800">You’re set — want a quick guided start?</span>
               <Button size="sm" variant="primary" onClick={()=> navigate('/workflows')}>Get Started</Button>
               <Button size="sm" variant="outline" onClick={()=> startGuide('workflows')}>Guide me</Button>
+              <Button size="sm" variant="ghost" onClick={()=> navigate('/workspace?pane=dashboard&tour=all')}>Run full tour</Button>
               <Button variant="ghost" size="sm" onClick={()=> setShowNudge(false)}>Dismiss</Button>
             </div>
           </motion.div>

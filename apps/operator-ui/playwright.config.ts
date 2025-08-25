@@ -5,10 +5,10 @@ export default defineConfig({
   timeout: 60_000,
   workers: 1,
   use: {
-    baseURL: 'http://127.0.0.1:5177',
+    baseURL: 'https://app.brandvx.io',
     headless: true,
   },
-  // Use the already running Vite dev server on 5177 during local runs
+  // Use production domain for smoke
 });
 
 

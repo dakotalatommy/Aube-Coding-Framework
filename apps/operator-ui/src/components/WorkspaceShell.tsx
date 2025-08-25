@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Home, MessageSquare, Users, Calendar, Layers, Package2, Plug, CheckCircle2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
-type PaneKey = 'dashboard' | 'messages' | 'contacts' | 'calendar' | 'cadences' | 'inventory' | 'integrations' | 'approvals';
+type PaneKey = 'dashboard' | 'messages' | 'contacts' | 'calendar' | 'cadences' | 'inventory' | 'integrations' | 'approvals' | 'workflows';
 
 const PANES: { key: PaneKey; label: string; icon: React.ReactNode }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: <Home size={18} /> },
@@ -13,6 +13,7 @@ const PANES: { key: PaneKey; label: string; icon: React.ReactNode }[] = [
   { key: 'cadences', label: 'Cadences', icon: <Layers size={18} /> },
   { key: 'inventory', label: 'Inventory', icon: <Package2 size={18} /> },
   { key: 'integrations', label: 'Integrations', icon: <Plug size={18} /> },
+  { key: 'workflows', label: 'Workflows', icon: <Layers size={18} /> },
   { key: 'approvals', label: 'Approvals', icon: <CheckCircle2 size={18} /> },
 ];
 
@@ -21,6 +22,7 @@ export default function WorkspaceShell(){
   const nav = useNavigate();
   const params = new URLSearchParams(loc.search);
   const pane = (params.get('pane') as PaneKey) || 'dashboard';
+  const demo = params.get('demo') === '1';
 
   const setPane = (key: PaneKey) => {
     const next = new URLSearchParams(loc.search);
@@ -38,6 +40,7 @@ export default function WorkspaceShell(){
       case 'inventory': return <LazyInventory/>;
       case 'integrations': return <LazyIntegrations/>;
       case 'approvals': return <LazyApprovals/>;
+      case 'workflows': return <LazyWorkflows/>;
       default: return <div/>;
     }
   })();
@@ -78,7 +81,7 @@ export default function WorkspaceShell(){
                   aria-selected={active}
                   aria-current={active ? 'page' : undefined}
                   title={`${p.label}  •  ${i+1}`}
-                  className={`relative w-full flex items-center gap-3 px-3 py-2 rounded-xl border text-slate-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white hover:bg-white hover:ring-1 hover:ring-pink-100 ${active?'bg-gradient-to-r from-pink-50 to-white shadow ring-1 ring-pink-100 text-slate-900 pl-2 border-l-4 border-pink-400':''}`}
+                  className={`relative w-full flex items-center gap-3 pl-4 pr-3 py-2 rounded-xl border text-slate-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white hover:bg-white hover:ring-1 hover:ring-pink-100 ${active?'bg-gradient-to-r from-pink-50 to-white shadow ring-1 ring-pink-100 text-slate-900':''}`}
                 >
                   {active && <span aria-hidden className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-pink-400 to-violet-400 rounded-l-xl" />}
                   <span className="shrink-0">{p.icon}</span>
@@ -92,6 +95,7 @@ export default function WorkspaceShell(){
             <button
               className="w-full px-3 py-2 rounded-xl border text-slate-700 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60"
               onClick={async()=>{
+                try { localStorage.setItem('bvx_signed_out','1'); } catch {}
                 try { await supabase.auth.signOut(); } catch {}
                 try { localStorage.removeItem('bvx_tenant'); localStorage.removeItem('bvx_demo_profile'); localStorage.removeItem('bvx_demo_preferences'); } catch {}
                 window.location.href = '/brandvx';
@@ -100,7 +104,7 @@ export default function WorkspaceShell(){
           </div>
         </aside>
         {/* Canvas */}
-        <main className="h-full rounded-2xl border bg-white/90 backdrop-blur p-4 md:p-5 shadow-sm overflow-hidden">
+        <main className={`h-full rounded-2xl border ${demo? 'bg-amber-50/60' : 'bg-white/90'} backdrop-blur p-4 md:p-5 shadow-sm overflow-hidden pb-[var(--ask-float-height)]`}>
           <div className="h-full rounded-xl bg-white/70 backdrop-blur border overflow-auto">
             <Suspense fallback={<div className="p-4 text-slate-600 text-sm">Loading {PANES.find(p=>p.key===pane)?.label}…</div>}>
               {PaneView}
@@ -108,6 +112,15 @@ export default function WorkspaceShell(){
           </div>
         </main>
       </div>
+      {demo && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
+          <div className="flex gap-2 items-center rounded-full border bg-white/90 backdrop-blur px-3 py-2 shadow">
+            <span className="text-xs text-amber-800 bg-amber-100 rounded-full px-2 py-0.5 border border-amber-200">Demo</span>
+            <a href="/signup" className="text-sm px-3 py-1.5 rounded-full bg-slate-900 text-white">Create account</a>
+            <a href="/billing" className="text-sm px-3 py-1.5 rounded-full border bg-white">Add payment</a>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -121,5 +134,6 @@ const LazyCadences = lazy(()=> import('../pages/Cadences'));
 const LazyInventory = lazy(()=> import('../pages/Inventory'));
 const LazyIntegrations = lazy(()=> import('../pages/Integrations'));
 const LazyApprovals = lazy(()=> import('../pages/Approvals'));
+const LazyWorkflows = lazy(()=> import('../pages/Workflows'));
 
 

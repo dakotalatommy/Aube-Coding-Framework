@@ -271,3 +271,29 @@ class ShareLink(Base):
     kind: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     created_at: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()))
 
+
+# --------------------------- Plans & Usage Limits ---------------------------
+class Plan(Base):
+    __tablename__ = "plans"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    plan_code: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(128))
+    price_cents: Mapped[int] = mapped_column(Integer, default=0)
+    ai_daily_cents_cap: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    ai_monthly_cents_cap: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    messages_daily_cap: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()))
+
+
+class UsageLimit(Base):
+    __tablename__ = "usage_limits"
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    tenant_id: Mapped[str] = mapped_column(String(64), index=True, unique=True)
+    plan_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    ai_daily_cents_cap: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    ai_monthly_cents_cap: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    messages_daily_cap: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    grace_until: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()))
+

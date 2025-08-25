@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, getTenant } from '../lib/api';
+import { api, getTenant, API_BASE } from '../lib/api';
 import { track } from '../lib/analytics';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
@@ -7,6 +7,7 @@ import { driver } from 'driver.js';
 import 'driver.js/dist/driver.css';
 
 export default function Integrations(){
+  const SOCIAL_ON = (import.meta as any).env?.VITE_FEATURE_SOCIAL === '1';
   const [settings, setSettings] = useState<any>({ tone:'helpful', services:['sms','email'], auto_approve_all:false, quiet_hours:{ start:'21:00', end:'08:00' }, preferences:{} });
   const [status, setStatus] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -14,6 +15,7 @@ export default function Integrations(){
   const [busy, setBusy] = useState(false);
   const [onboarding, setOnboarding] = useState<any>({ connected:false, first_sync_done:false, counts:{}, connectedMap:{}, providers:{} });
   const [squareLink, setSquareLink] = useState<string>('');
+  const [redirects, setRedirects] = useState<any>(null);
   const reanalyze = async () => {
     try{
       const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() });
@@ -36,6 +38,41 @@ export default function Integrations(){
         const l = await api.get(`/integrations/booking/square/link?tenant_id=${encodeURIComponent(await getTenant())}`);
         setSquareLink(l?.url||'');
       }catch{}
+      // Best-effort retry for Square link if empty
+      try{
+        setTimeout(async()=>{
+          if (!squareLink) {
+            try{
+              const l2 = await api.get(`/integrations/booking/square/link?tenant_id=${encodeURIComponent(await getTenant())}`);
+              if (l2?.url) setSquareLink(l2.url);
+            }catch{}
+          }
+        }, 1500);
+      } catch {}
+      try{
+        const rj = await api.get('/integrations/redirects');
+        setRedirects(rj);
+      }catch{
+        // Client-side fallback when backend endpoint isn't reachable in test/demo
+        try{
+          const baseApi = API_BASE;
+          const baseApp = (typeof window !== 'undefined') ? window.location.origin : '';
+          setRedirects({
+            oauth: {
+              google: `${baseApi}/oauth/google/callback`,
+              apple: `${baseApi}/oauth/apple/callback`,
+              square: `${baseApi}/oauth/square/callback`,
+              acuity: `${baseApi}/oauth/acuity/callback`,
+              hubspot: `${baseApi}/oauth/hubspot/callback`,
+              facebook: `${baseApi}/oauth/facebook/callback`,
+              instagram: `${baseApi}/oauth/instagram/callback`,
+              shopify: `${baseApi}/oauth/shopify/callback`,
+            },
+            webhooks: { stripe: `${baseApi}/billing/webhook` },
+            post_auth_redirect: { supabase_email: `${baseApp}/onboarding?offer=1` },
+          });
+        } catch {}
+      }
     })();
   },[]);
 
@@ -49,6 +86,23 @@ export default function Integrations(){
           steps: [
             { popover: { title: 'SMS via Twilio', description: 'Use a dedicated business number. Personal numbers are not supported yet.' } },
             { element: '[data-guide="twilio"]', popover: { title: 'Twilio SMS', description: 'Connect a Twilio number for outbound/inbound SMS. Porting personal numbers will come later.' } },
+          ]
+        } as any);
+        d.drive();
+      }
+    } catch {}
+  },[]);
+
+  useEffect(()=>{
+    try{
+      const sp = new URLSearchParams(window.location.search);
+      if (sp.get('tour') === '1') {
+        const d = driver({
+          showProgress: true,
+          steps: [
+            { popover: { title: 'Integrations', description: 'Connect booking, CRM, messaging, and inventory.' } },
+            { element: '[data-guide="providers"]', popover: { title: 'Providers', description: 'Each card shows connection status and actions.' } },
+            { element: '[data-guide="twilio"]', popover: { title: 'SMS via Twilio', description: 'Use a dedicated business number. Personal numbers are not supported yet.' } },
           ]
         } as any);
         d.drive();
@@ -121,10 +175,51 @@ export default function Integrations(){
     try{
       setConnecting((m)=> ({ ...m, [provider]: true }));
       setErrorMsg('');
-      const r = await api.get(`/oauth/${provider}/login?tenant_id=${encodeURIComponent(await getTenant())}`);
-      if (r?.url) window.open(r.url, '_blank');
+      try { track('oauth_login_click', { provider }); } catch {}
+      // Feature flag and config guards for social providers
+      if ((provider === 'facebook' || provider === 'instagram')) {
+        if (!SOCIAL_ON) {
+          setErrorMsg('Social inbox is disabled for this environment. Set VITE_FEATURE_SOCIAL=1 to enable.');
+          return;
+        }
+        if (onboarding?.providers?.[provider] === false) {
+          setErrorMsg('Pending app credentials — configure Facebook/Instagram OAuth to enable.');
+          return;
+        }
+      }
+      const ctrl = new AbortController();
+      const to = window.setTimeout(()=>{ try{ ctrl.abort(); }catch{} }, 6000);
+      const r = await api.get(`/oauth/${provider}/login?tenant_id=${encodeURIComponent(await getTenant())}`, { signal: ctrl.signal, timeoutMs: 6000 });
+      window.clearTimeout(to);
+      if (r?.url) {
+        // Prefer same-tab navigation to avoid popup blockers; fallback if blocked
+        try {
+          const w = window.open(r.url, '_self');
+          if (!w) window.location.href = r.url;
+        } catch {
+          window.location.href = r.url;
+        }
+      } else {
+        // Retry once after a short delay
+        setTimeout(async()=>{
+          try{
+            try { track('oauth_login_retry', { provider }); } catch {}
+            const r2 = await api.get(`/oauth/${provider}/login?tenant_id=${encodeURIComponent(await getTenant())}`, { timeoutMs: 8000 });
+            if (r2?.url) {
+              try {
+                const w2 = window.open(r2.url, '_self');
+                if (!w2) window.location.href = r2.url;
+              } catch { window.location.href = r2.url; }
+            } else {
+              setErrorMsg('Connect link unavailable. Verify provider credentials and try again.');
+            }
+          }catch{}
+        }, 800);
+      }
     }catch(e:any){
-      setErrorMsg(String(e?.message||e));
+      const msg = String(e?.message||e||'');
+      if (/abort/i.test(msg) || /timeout/i.test(msg)) setErrorMsg('Connect timed out. Please try again.');
+      else setErrorMsg(msg);
     } finally {
       setConnecting((m)=> ({ ...m, [provider]: false }));
     }
@@ -147,13 +242,13 @@ export default function Integrations(){
   };
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center">
         <h3 className="text-lg font-semibold">Integrations & Settings</h3>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 ml-auto">
           <span className="text-xs text-slate-600 px-2 py-1 rounded-md border bg-white/70">
             TZ: {Intl.DateTimeFormat().resolvedOptions().timeZone} (UTC{computeOffsetHours()>=0?'+':''}{computeOffsetHours()})
           </span>
-          <Button variant="outline" size="sm" onClick={reanalyze}>Re‑analyze</Button>
+          <Button variant="outline" size="sm" onClick={reanalyze} aria-label="Re-analyze connections">Re‑analyze</Button>
           <Button variant="outline" size="sm" aria-label="Open integrations guide" onClick={()=>{
             try { track('guide_open', { area: 'integrations' }); } catch {}
             const d = driver({ showProgress: true, steps: [
@@ -222,7 +317,7 @@ export default function Integrations(){
         <label className="flex items-center gap-2 text-sm"> Auto-approve risky tools
           <input type="checkbox" checked={!!settings.auto_approve_all} onChange={e=>setSettings({...settings, auto_approve_all: e.target.checked})} />
         </label>
-        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Some actions may require approval when auto-approve is off. Review in Approvals.</div>
+        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Some actions may require approval when auto-approve is off. Review in <a className="underline" href="/workspace?pane=approvals">Approvals</a>.</div>
         <div className="flex gap-2">
           <Button variant="outline" disabled={busy} onClick={save}>Save</Button>
           <Button variant="outline" disabled={busy} onClick={sendTestSms}>Send Test SMS</Button>
@@ -231,6 +326,36 @@ export default function Integrations(){
       </div>
 
       <div className="grid md:grid-cols-3 gap-4 mt-4" data-guide="providers">
+        {redirects && (
+          <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm md:col-span-3">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="font-semibold text-slate-900">Redirect URIs</div>
+              <Button variant="outline" size="sm" onClick={async()=>{
+                try{
+                  const lines: string[] = [];
+                  Object.entries(redirects.oauth||{}).forEach(([k,v])=> lines.push(`${k}: ${v}`));
+                  Object.entries(redirects.webhooks||{}).forEach(([k,v])=> lines.push(`${k} webhook: ${v}`));
+                  await navigator.clipboard.writeText(lines.join('\n'));
+                  setStatus('Copied all redirect URIs');
+                } catch(e:any) { setStatus('Copy failed'); }
+              }}>Copy all</Button>
+            </div>
+            <div className="grid md:grid-cols-2 gap-2 text-xs">
+              {Object.entries(redirects.oauth||{}).map(([k,v])=> (
+                <div key={k} className="flex items-center gap-2">
+                  <span className="w-28 capitalize text-slate-600">{k}</span>
+                  <input readOnly className="flex-1 border rounded-md px-2 py-1 bg-white" value={String(v)} onFocus={(e)=> e.currentTarget.select()} />
+                </div>
+              ))}
+              {Object.entries(redirects.webhooks||{}).map(([k,v])=> (
+                <div key={k} className="flex items-center gap-2">
+                  <span className="w-28 capitalize text-slate-600">{k} webhook</span>
+                  <input readOnly className="flex-1 border rounded-md px-2 py-1 bg-white" value={String(v)} onFocus={(e)=> e.currentTarget.select()} />
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
@@ -252,7 +377,7 @@ export default function Integrations(){
           <div className="flex items-center justify-between">
             <div>
               <div className="font-semibold text-slate-900">Twilio SMS</div>
-              <div className="text-sm text-slate-600">Business SMS only — personal numbers not supported (yet)</div>
+              <div className="text-sm text-slate-600">Business SMS only — personal numbers not supported (yet). Each tenant uses their own number.</div>
             </div>
             <span className="px-2 py-1 rounded-full text-xs bg-slate-100 text-slate-700">Requires Twilio</span>
           </div>
@@ -271,7 +396,7 @@ export default function Integrations(){
           <div className="flex items-center justify-between">
             <div>
               <div className="font-semibold text-slate-900">Square / Acuity</div>
-              <div className="text-sm text-slate-600">Booking & appointments</div>
+              <div className="text-sm text-slate-600">Booking & appointments (we currently ingest bookings & inventory only)</div>
             </div>
             <span className={`px-2 py-1 rounded-full text-xs ${onboarding?.connectedMap?.square==='connected' || onboarding?.connectedMap?.acuity==='connected' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{(onboarding?.connectedMap?.square==='connected' || onboarding?.connectedMap?.acuity==='connected') ? 'Connected' : 'Not linked'}</span>
           </div>
@@ -310,28 +435,36 @@ export default function Integrations(){
           </div>
           <div className="mt-3 flex gap-2">
             <Button variant="outline" disabled={busy || connecting.google || onboarding?.providers?.google===false} onClick={()=> connect('google')}>{connecting.google ? 'Connecting…' : 'Connect Google'}</Button>
-            <Button variant="outline" disabled={busy} onClick={()=> window.open('/calendar','_self')}>Open Calendar</Button>
+            <Button variant="outline" disabled={busy} onClick={()=> window.open('/workspace?pane=calendar','_self')}>Open Calendar</Button>
             <Button variant="outline" disabled={busy} onClick={()=> refresh('google')}>Refresh</Button>
           </div>
           {onboarding?.providers?.google===false && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Google OAuth to enable.</div>}
         </section>
 
-        <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-semibold text-slate-900">Facebook / Instagram</div>
-              <div className="text-sm text-slate-600">DMs & comments in Master Inbox</div>
+        {SOCIAL_ON ? (
+          <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-slate-900">Facebook / Instagram</div>
+                <div className="text-sm text-slate-600">DMs & comments in Master Inbox</div>
+              </div>
+              <span className={`px-2 py-1 rounded-full text-xs ${onboarding?.inbox_ready ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{onboarding?.inbox_ready? 'Ready' : 'Not linked'}</span>
             </div>
-            <span className={`px-2 py-1 rounded-full text-xs ${onboarding?.inbox_ready ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{onboarding?.inbox_ready? 'Ready' : 'Not linked'}</span>
-          </div>
-          <div className="mt-3 flex gap-2">
-            <Button variant="outline" disabled={busy || connecting.facebook || onboarding?.providers?.facebook===false} onClick={()=> connect('facebook')}>{connecting.facebook ? 'Connecting…' : 'Connect Facebook'}</Button>
-            <Button variant="outline" disabled={busy || connecting.instagram || onboarding?.providers?.instagram===false} onClick={()=> connect('instagram')}>{connecting.instagram ? 'Connecting…' : 'Connect Instagram'}</Button>
-            <Button variant="outline" disabled={busy} onClick={()=> window.open('/inbox','_self')}>Open Inbox</Button>
-            <Button variant="outline" disabled={busy} onClick={()=> refresh('facebook')}>Refresh</Button>
-          </div>
-          {(onboarding?.providers?.facebook===false || onboarding?.providers?.instagram===false) && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Facebook/Instagram OAuth to enable.</div>}
-        </section>
+            <div className="mt-3 flex gap-2">
+              <Button variant="outline" disabled={busy || connecting.facebook || onboarding?.providers?.facebook===false} onClick={()=> connect('facebook')}>{connecting.facebook ? 'Connecting…' : 'Connect Facebook'}</Button>
+              <Button variant="outline" disabled={busy || connecting.instagram || onboarding?.providers?.instagram===false} onClick={()=> connect('instagram')}>{connecting.instagram ? 'Connecting…' : 'Connect Instagram'}</Button>
+              <Button variant="outline" disabled={busy} onClick={()=> window.open('/workspace?pane=messages','_self')}>Open Inbox</Button>
+              <Button variant="outline" disabled={busy} onClick={()=> refresh('facebook')}>Refresh</Button>
+            </div>
+            {(onboarding?.providers?.facebook===false || onboarding?.providers?.instagram===false) && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Facebook/Instagram OAuth to enable.</div>}
+          </section>
+        ) : (
+          <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
+            <div className="font-semibold text-slate-900">Facebook / Instagram</div>
+            <div className="text-sm text-slate-600">Social inbox is not enabled for this environment.</div>
+            <div className="mt-2 text-xs text-slate-600">Set <code>VITE_FEATURE_SOCIAL=1</code> to enable.</div>
+          </section>
+        )}
       </div>
 
       <div className="grid md:grid-cols-3 gap-4 mt-4">
@@ -345,7 +478,7 @@ export default function Integrations(){
           </div>
           <div className="mt-3 flex gap-2">
             <Button variant="outline" disabled={busy || connecting.shopify || onboarding?.providers?.shopify===false} onClick={()=> connect('shopify')}>{connecting.shopify ? 'Connecting…' : 'Connect Shopify'}</Button>
-            <Button variant="outline" disabled={busy} onClick={()=> window.open('/inventory','_self')}>Open Inventory</Button>
+            <Button variant="outline" disabled={busy} onClick={()=> window.open('/workspace?pane=inventory','_self')}>Open Inventory</Button>
             <Button variant="outline" disabled={busy} onClick={()=> refresh('shopify')}>Refresh</Button>
           </div>
           {onboarding?.providers?.shopify===false && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Shopify OAuth to enable.</div>}

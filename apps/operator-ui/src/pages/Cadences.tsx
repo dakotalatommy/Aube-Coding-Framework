@@ -35,10 +35,17 @@ export default function Cadences(){
     return () => clearTimeout(t);
   }, [contactId]);
 
+  // Auto-run guide on deep-link (?tour=1)
+  React.useEffect(()=>{
+    try{ const sp = new URLSearchParams(window.location.search); if (sp.get('tour')==='1') startGuide('cadences'); } catch {}
+  },[]);
+
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold">Cadences</h3>
-      <div><Button variant="outline" onClick={()=> startGuide('cadences')}>Guide me</Button></div>
+      <div className="flex items-center">
+        <h3 className="text-lg font-semibold">Cadences</h3>
+        <Button variant="outline" className="ml-auto" onClick={()=> startGuide('cadences')}>Guide me</Button>
+      </div>
       <div className="grid gap-4">
         <section className="border rounded-xl p-3 bg-white shadow-sm" aria-labelledby="start-cadence">
           <div id="start-cadence" className="font-semibold mb-2">Start Cadence</div>

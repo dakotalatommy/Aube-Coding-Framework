@@ -10,18 +10,20 @@ export default function Signup() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const appleEnabled = String(import.meta.env.VITE_OAUTH_APPLE || '0') === '1';
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try{
-      const redirectTo = `${window.location.origin}/onboarding`;
+      const redirectTo = `${window.location.origin}/onboarding?offer=1`;
       const { error } = await supabase.auth.signUp({
         email,
         password,
         options: { data: { name, business }, emailRedirectTo: redirectTo }
       });
       if (error) throw error;
+      try { localStorage.setItem('bvx_offer_pending','1'); } catch {}
       // Referral attribution
       try {
         const ref = localStorage.getItem('bvx_ref');
@@ -34,7 +36,7 @@ export default function Signup() {
           }
         }
       } catch {}
-      navigate('/onboarding');
+      navigate('/onboarding?offer=1');
     }catch(err){
       alert(String((err as Error).message || err));
     }finally{
@@ -94,6 +96,28 @@ export default function Signup() {
             {loading ? 'Creating…' : 'Create account'}
           </button>
         </form>
+        <div className="my-4 grid grid-cols-1 gap-2">
+          <button
+            disabled={loading}
+            className="w-full px-4 py-2 rounded-xl border bg-white hover:shadow-sm"
+            onClick={async()=>{
+              try{ track('signup_oauth_click',{provider:'google'}); }catch{}
+              try{ localStorage.setItem('bvx_offer_pending','1'); }catch{}
+              await supabase.auth.signInWithOAuth({ provider:'google', options:{ redirectTo: `${window.location.origin}/onboarding?offer=1` } });
+            }}
+          >Continue with Google</button>
+          {appleEnabled && (
+            <button
+              disabled={loading}
+              className="w-full px-4 py-2 rounded-xl border bg-white hover:shadow-sm"
+              onClick={async()=>{
+                try{ track('signup_oauth_click',{provider:'apple'}); }catch{}
+                try{ localStorage.setItem('bvx_offer_pending','1'); }catch{}
+                await supabase.auth.signInWithOAuth({ provider:'apple', options:{ redirectTo: `${window.location.origin}/onboarding?offer=1` } });
+              }}
+            >Continue with Apple</button>
+          )}
+        </div>
         <p className="text-sm text-slate-600 mt-4">
           Already have an account? <Link to="/login" className="text-pink-600 hover:underline">Sign in</Link>
         </p>

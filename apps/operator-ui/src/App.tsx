@@ -1,6 +1,7 @@
 //
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
 import { Suspense, lazy, useEffect } from 'react';
+import ErrorBoundary from './components/ErrorBoundary';
 import Breadcrumbs from './components/Breadcrumbs';
 import { ToastProvider } from './components/ui/Toast';
 import { useLenis } from './hooks/useLenis';
@@ -22,7 +23,6 @@ const Calendar = lazy(() => import('./pages/Calendar'));
 const Inventory = lazy(() => import('./pages/Inventory'));
 const Curation = lazy(() => import('./pages/Curation'));
 const Inbox = lazy(() => import('./pages/Inbox'));
-const Workflows = lazy(() => import('./pages/Workflows'));
 const Login = lazy(() => import('./pages/Login'));
 const Signup = lazy(() => import('./pages/Signup'));
 const Tutorial = lazy(() => import('./pages/Tutorial'));
@@ -33,6 +33,7 @@ const LandingV2 = lazy(() => import('./pages/LandingV2'));
 const DemoFlow = lazy(() => import('./pages/DemoFlow'));
 const DemoIntake = lazy(() => import('./pages/DemoIntake'));
 const Workspace = lazy(() => import('./pages/Workspace'));
+const Share = lazy(() => import('./pages/Share'));
 
 function RouteContent() {
   const loc = useLocation();
@@ -65,7 +66,7 @@ function RouteContent() {
         <Route path="/curation" element={<Curation />} />
         <Route path="/inbox" element={<Inbox />} />
         <Route path="/ask" element={<Ask />} />
-        <Route path="/workflows" element={<Workflows />} />
+        <Route path="/workflows" element={<Navigate to="/workspace?pane=workflows" replace />} />
         <Route path="/vision" element={<Vision />} />
         <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/admin" element={<Admin />} />
@@ -77,8 +78,10 @@ function RouteContent() {
         <Route path="/landing-v2" element={<LandingV2 />} />
         <Route path="/brandvx" element={<LandingV2 />} />
         <Route path="/workspace" element={<Workspace />} />
-        <Route path="/demo-intake" element={<DemoIntake />} />
+        <Route path="/demo" element={<DemoIntake />} />
+        <Route path="/demo-intake" element={<Navigate to="/demo" replace />} />
         <Route path="/ask-vx-demo" element={<DemoFlow />} />
+        <Route path="/s/:token" element={<Share />} />
       </Routes>
     </>
   );
@@ -90,7 +93,9 @@ export default function App() {
     <ToastProvider>
       <TooltipProvider delayDuration={200}>
         <BrowserRouter>
-          <Shell />
+          <ErrorBoundary>
+            <Shell />
+          </ErrorBoundary>
         </BrowserRouter>
       </TooltipProvider>
     </ToastProvider>
@@ -103,7 +108,8 @@ function Shell() {
   const qs = new URLSearchParams(loc.search);
   const onLanding = loc.pathname === '/brandvx';
   const onAskPage = loc.pathname === '/ask';
-  const showAsk = !embed && !onAskPage && (!onLanding || qs.get('demo') === '1');
+  const onDemo = loc.pathname === '/demo';
+  const showAsk = !embed && !onAskPage && !onDemo && (!onLanding || qs.get('demo') === '1');
 
   // Clear Ask VX persisted state on pure landing to avoid stray artifacts
   useEffect(()=>{

@@ -35,6 +35,9 @@ export default function Messages(){
   };
   useEffect(()=>{ (async()=>{ try { setLoading(true); await load(); } finally { setLoading(false); } })(); },[]);
   useEffect(()=>{ (async()=>{ try { const r = await api.get(`/settings?tenant_id=${encodeURIComponent(await getTenant())}`); setQuiet(r?.data?.quiet_hours||{}); } catch{} })(); },[]);
+  useEffect(()=>{
+    try{ const sp = new URLSearchParams(window.location.search); if (sp.get('tour')==='1') startGuide('messages'); } catch {}
+  },[]);
 
   const simulate = async (channel:'sms'|'email') => {
     try {
@@ -80,7 +83,7 @@ export default function Messages(){
             <Button variant="outline" onClick={load}>Refresh</Button>
             <Button variant="outline" onClick={()=>simulate('sms')}>Simulate SMS</Button>
             <Button variant="outline" onClick={()=>simulate('email')}>Simulate Email</Button>
-            <Button variant="outline" onClick={()=> startGuide('messages')} aria-label="Open messages guide">Guide me</Button>
+            <Button variant="outline" className="ml-auto" onClick={()=> startGuide('messages')} aria-label="Open messages guide">Guide me</Button>
           </div>
 
           <div className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm" data-guide="compose">

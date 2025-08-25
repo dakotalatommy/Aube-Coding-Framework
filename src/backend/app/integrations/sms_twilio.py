@@ -4,6 +4,7 @@ import hashlib
 import base64
 from typing import Dict, Any, Optional
 import httpx
+from ..cache import breaker_allow, breaker_on_result
 
 
 def twilio_send_sms(
@@ -20,11 +21,19 @@ def twilio_send_sms(
         raise RuntimeError("twilio not configured")
     url = f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}/Messages.json"
     data = {"To": to_e164, "From": from_number, "Body": body}
-    with httpx.Client(timeout=20) as client:
-        r = client.post(url, data=data, auth=(account_sid, auth_token))
-        r.raise_for_status()
-        j = r.json()
-        return {"status": j.get("status", "queued"), "provider_id": j.get("sid", "")}
+    name = "twilio_send"
+    if not breaker_allow(name):
+        raise RuntimeError("twilio circuit open")
+    ok = False
+    try:
+        with httpx.Client(timeout=20) as client:
+            r = client.post(url, data=data, auth=(account_sid, auth_token))
+            r.raise_for_status()
+            j = r.json()
+            ok = True
+            return {"status": j.get("status", "queued"), "provider_id": j.get("sid", "")}
+    finally:
+        breaker_on_result(name, ok)
 
 
 def twilio_verify_signature(url: str, payload: Dict[str, Any], signature: str) -> bool:

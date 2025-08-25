@@ -76,7 +76,7 @@ export default function Billing(){
             </Elements>
           )}
         </div>
-        <div className="mt-4 flex items-center gap-2">
+        <div className="mt-4 flex items-center gap-2 flex-wrap">
           <Button variant="outline" onClick={async()=>{
             try { track('billing_portal_click'); } catch {}
             try {
@@ -95,7 +95,16 @@ export default function Billing(){
               setError('Failed to start subscription.');
             }
           }}>Start subscription — $147/mo</Button>
-          <Button variant="ghost" onClick={()=> navigate('/workspace?pane=dashboard')}>Back to dashboard</Button>
+          <Button variant="outline" onClick={async()=>{
+            try { track('billing_start_lifetime', { plan: 'lifetime_97' }); } catch {}
+            try {
+              const r = await api.post('/billing/create-checkout-session', { price_cents: 9700, currency: 'usd', product_name: 'BrandVX Lifetime', mode: 'payment' });
+              if (r?.url) window.location.href = r.url;
+            } catch (e) {
+              setError('Failed to start lifetime checkout.');
+            }
+          }}>Lifetime — $97 (one‑time)</Button>
+          <Button variant="ghost" onClick={()=>{ try { track('billing_skip'); } catch {}; navigate('/workspace?pane=dashboard'); }}>Skip for now</Button>
         </div>
         <div className="mt-3 text-xs text-slate-500">We charge nothing today. You’ll be notified before any charges after your trial.</div>
       </div>

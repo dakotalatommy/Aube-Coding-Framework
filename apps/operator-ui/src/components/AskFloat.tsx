@@ -1,8 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 
 type Position = { x: number; y: number; w: number; h: number };
 
 export default function AskFloat(){
+  const loc = useLocation();
+  const sp = new URLSearchParams(loc.search);
+  const onDashboard = loc.pathname === '/dashboard';
+  const onWorkspace = loc.pathname === '/workspace';
+  const inDemo = sp.get('demo') === '1';
+  const dockHeight = 'clamp(280px, 32vh, 360px)';
   const [open, setOpen] = useState<boolean>(()=> localStorage.getItem('bvx-ask-open') === '1');
   const [pos, setPos] = useState<Position>(()=>{
     try{ const j = JSON.parse(localStorage.getItem('bvx-ask-pos')||''); if (j && typeof j==='object') return j; }catch{}
@@ -14,6 +21,31 @@ export default function AskFloat(){
   useEffect(()=>{ localStorage.setItem('bvx-ask-open', open ? '1':'0'); },[open]);
   useEffect(()=>{ localStorage.setItem('bvx-ask-pos', JSON.stringify(pos)); },[pos]);
   useEffect(()=>{ localStorage.setItem('bvx-ask-docked', docked ? '1':'0'); },[docked]);
+
+  // Force docked, full-width, and open on dashboard/workspace/demo for a stable footer panel
+  useEffect(()=>{
+    if (onDashboard || onWorkspace || inDemo) {
+      try {
+        const vw = Math.max(document.documentElement.clientWidth || 0, window.innerWidth || 0);
+        setOpen(true);
+        setDocked(true);
+        setPos({ x: 0, y: 0, w: vw, h: 320 });
+        try { document.documentElement.style.setProperty('--ask-float-height', dockHeight); } catch {}
+      } catch {
+        setOpen(true); setDocked(true);
+      }
+    }
+  }, [onDashboard, onWorkspace, inDemo]);
+
+  // Reserve space so content doesn't hide behind the docked footer
+  useEffect(()=>{
+    if (onDashboard || onWorkspace || inDemo) {
+      const prev = document.body.style.paddingBottom;
+      document.body.style.paddingBottom = dockHeight;
+      try { document.documentElement.style.setProperty('--ask-float-height', dockHeight); } catch {}
+      return () => { document.body.style.paddingBottom = prev; };
+    }
+  }, [onDashboard, onWorkspace, inDemo]);
 
   // Listen for global open events so header button can summon the floater
   useEffect(()=>{
@@ -62,7 +94,7 @@ export default function AskFloat(){
 
   return (
     <>
-      {!open && (
+      {!open && !(onDashboard || onWorkspace || inDemo) && (
         <button
           onClick={()=> setOpen(true)}
           title="Ask VX"
@@ -71,22 +103,22 @@ export default function AskFloat(){
       )}
       {open && (
         <div
-          className={`fixed z-40 rounded-2xl border border-white/70 bg-white/90 backdrop-blur shadow-[0_10px_40px_rgba(0,0,0,.08)] ${docked? 'left-8 right-8' : ''}`}
-          style={docked ? { bottom: 12, height: pos.h } : { left: pos.x, bottom: pos.y, width: pos.w, height: pos.h }}
+          className={`fixed z-[100] ${(docked || onDashboard || onWorkspace || inDemo) ? 'left-0 right-0' : ''} ${(onDashboard || onWorkspace || inDemo) ? 'rounded-none' : 'rounded-2xl'} ${(onDashboard || onWorkspace || inDemo) ? 'border-t border-slate-200' : 'border'} bg-white shadow-[0_-8px_24px_rgba(0,0,0,0.06)]`}
+          style={(docked || onDashboard || onWorkspace || inDemo) ? { left: 0, right: 0, bottom: 'env(safe-area-inset-bottom, 0px)', height: dockHeight } : { left: pos.x, bottom: pos.y, width: pos.w, height: pos.h }}
         >
           <div
-            className="select-none flex items-center justify-between px-3 py-2 text-sm text-slate-800 bg-white/70 backdrop-blur border-b border-white/70"
+            className={`select-none flex items-center justify-between px-3 py-2 text-sm text-slate-800 ${(onDashboard || onWorkspace || inDemo) ? 'bg-white' : 'bg-white'} border-b ${(onDashboard || onWorkspace || inDemo) ? 'border-slate-200' : 'border-white/70'}`}
             onMouseDown={onMouseDown}
           >
             <div className="font-medium">Ask VX</div>
             <div className="flex items-center gap-2">
-              {!docked && <button className="px-2 py-1 rounded-md border text-xs bg-white hover:shadow-sm" onClick={dockWide}>Dock bottom</button>}
-              {docked && <button className="px-2 py-1 rounded-md border text-xs bg-white hover:shadow-sm" onClick={undock}>Undock</button>}
-              <button className="px-2 py-1 rounded-md border text-xs bg-white hover:shadow-sm" onClick={()=> setOpen(false)}>Close</button>
+              {!(onDashboard || onWorkspace || inDemo) && !docked && <button className="px-2 py-1 rounded-md border text-xs bg-white hover:shadow-sm" onClick={dockWide}>Dock bottom</button>}
+              {!(onDashboard || onWorkspace || inDemo) && docked && <button className="px-2 py-1 rounded-md border text-xs bg-white hover:shadow-sm" onClick={undock}>Undock</button>}
+              {!(onDashboard || onWorkspace || inDemo) && <button className="px-2 py-1 rounded-md border text-xs bg-white hover:shadow-sm" onClick={()=> setOpen(false)}>Close</button>}
             </div>
           </div>
-          <div className="w-full h-full overflow-hidden">
-            <iframe title="AskVX" src="/ask?embed=1" className="w-full h-full" sandbox="allow-scripts allow-same-origin" />
+          <div className="w-full h-[calc(100%-44px)] overflow-hidden">
+            <iframe title="AskVX" src="/ask?embed=1" className="w-full h-full" sandbox="allow-scripts allow-same-origin allow-top-navigation-by-user-activation" />
           </div>
         </div>
       )}

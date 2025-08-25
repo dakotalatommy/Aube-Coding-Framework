@@ -17,12 +17,12 @@ export default function CommandPalette(){
   const [open, setOpen] = React.useState(false);
   const [q, setQ] = React.useState('');
   const cmds = React.useMemo(() => ([
-    { label: 'Go to Dashboard', action: () => nav('/dashboard'), keywords: ['home','metrics'] },
-    { label: 'Go to Messages', action: () => nav('/messages'), keywords: ['sms','dm','inbox'] },
-    { label: 'Go to Contacts', action: () => nav('/contacts'), keywords: ['csv','import'] },
-    { label: 'Go to Cadences', action: () => nav('/cadences'), keywords: ['automation','flows'] },
-    { label: 'Go to Approvals', action: () => nav('/approvals'), keywords: ['human','review'] },
-    { label: 'Connect Tools', action: () => nav('/onboarding'), keywords: ['oauth','integrations'] },
+    { label: 'Go to Dashboard', action: () => nav('/workspace?pane=dashboard'), keywords: ['home','metrics'] },
+    { label: 'Go to Messages', action: () => nav('/workspace?pane=messages'), keywords: ['sms','dm','inbox'] },
+    { label: 'Go to Contacts', action: () => nav('/workspace?pane=contacts'), keywords: ['csv','import'] },
+    { label: 'Go to Cadences', action: () => nav('/workspace?pane=cadences'), keywords: ['automation','flows'] },
+    { label: 'Go to Approvals', action: () => nav('/workspace?pane=approvals'), keywords: ['human','review'] },
+    { label: 'Connect Tools', action: () => nav('/workspace?pane=integrations'), keywords: ['oauth','integrations'] },
     { label: 'Ask VX', action: () => nav('/ask'), keywords: ['agent','help'] },
     { label: 'Vision (design-time)', action: () => nav('/vision'), keywords: ['image','analysis'] },
   ]), [nav]);
