@@ -218,10 +218,10 @@ export default function Dashboard(){
     <div className="space-y-4">
       {(isDemo || recommendOnly) && (
         <section className="rounded-2xl p-3 border bg-amber-50/80 border-amber-200 text-amber-900">
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3">
             <span className="text-sm">{isDemo ? 'Demo mode — data is simulated.' : 'Beta: Sending via BrandVX is coming soon. Preview & copy now; sending will be enabled automatically later.'}</span>
-            <ButtonLink href="/signup" size="sm" className="rounded-full px-3 py-1.5">Create account</ButtonLink>
-            <ButtonLink href="/billing" size="sm" variant="outline" className="rounded-full px-3 py-1.5">Add payment</ButtonLink>
+            <a href="/signup" className="text-sm text-slate-900 hover:underline">Create account</a>
+            <a href="/billing" className="text-sm text-slate-900 hover:underline">Add payment</a>
           </div>
         </section>
       )}
@@ -250,16 +250,16 @@ export default function Dashboard(){
         </section>
       )}
       <section className="rounded-2xl p-4 backdrop-blur bg-white/60 border border-white/70 shadow-sm" data-guide="quick-actions">
-        <div className="flex flex-wrap items-center gap-2">
-          <ButtonLink href="/workspace?pane=contacts" variant="outline" size="md" className="px-4 py-2">Import Contacts</ButtonLink>
-          <ButtonLink href="/workspace?pane=cadences" variant="outline" size="md" className="px-4 py-2">Start Cadence</ButtonLink>
-          <ButtonLink href="/workspace?pane=messages" variant="outline" size="md" className="px-4 py-2">Simulate Message</ButtonLink>
-          <ButtonLink href="/workspace?pane=integrations" size="md" className="px-4 py-2">Connect Tools</ButtonLink>
-          <ButtonLink href="/billing" variant="outline" size="md" className="px-4 py-2">Billing</ButtonLink>
-          <Button variant="outline" size="md" onClick={handleCreateShare} className="px-4 py-2">Share results</Button>
-          <div className="ml-auto flex items-center gap-2">
-            <Button variant="outline" size="md" onClick={startTour} className="px-4 py-2" aria-label="Open dashboard guide">Guide me</Button>
-            <Button variant="ghost" size="sm" onClick={startFullDemoTour} className="px-3 py-2">Run full demo tour</Button>
+        <div className="flex flex-wrap items-center gap-4">
+          <a href="/workspace?pane=contacts" className="text-slate-900 hover:underline">Import Contacts</a>
+          <a href="/workspace?pane=cadences" className="text-slate-900 hover:underline">Start Cadence</a>
+          <a href="/workspace?pane=messages" className="text-slate-900 hover:underline">Simulate Message</a>
+          <a href="/workspace?pane=integrations" className="text-slate-900 hover:underline">Connect Tools</a>
+          <a href="/billing" className="text-slate-900 hover:underline">Billing</a>
+          <button onClick={handleCreateShare} className="bg-transparent border-0 p-0 text-slate-900 hover:underline">Share results</button>
+          <div className="ml-auto flex items-center gap-4">
+            <button onClick={startTour} className="bg-transparent border-0 p-0 text-slate-900 hover:underline" aria-label="Open dashboard guide">Guide me</button>
+            <button onClick={startFullDemoTour} className="bg-transparent border-0 p-0 text-slate-900 hover:underline">Run full demo tour</button>
           </div>
         </div>
         {shareUrl && (
