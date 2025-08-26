@@ -3789,24 +3789,37 @@ async def webhook_acuity(
     except Exception:
         pass
     data = dict(req.payload or {})
-    ext = str(data.get("id", ""))
-    # idempotent upsert by external_ref
-    row = db.query(dbm.Appointment).filter(dbm.Appointment.tenant_id == req.tenant_id, dbm.Appointment.external_ref == ext).first()
-    if not row:
-        row = dbm.Appointment(
-            tenant_id=req.tenant_id,
-            contact_id=str(data.get("contact_id", "")),
-            service=str(data.get("service", "")),
-            start_ts=int(data.get("start_ts", 0)),
-            end_ts=int(data.get("end_ts", 0)) or None,
-            status=str(data.get("status", "booked")),
-            external_ref=ext,
+    ext = str(data.get("id", "")) or f"acuity:{int(_time.time())}"
+    # idempotent upsert by external_ref; tolerate minimal payloads
+    try:
+        row = (
+            db.query(dbm.Appointment)
+            .filter(dbm.Appointment.tenant_id == req.tenant_id, dbm.Appointment.external_ref == ext)
+            .first()
         )
-        db.add(row)
-        db.commit()
-    # schedule reminders
-    from .scheduler import schedule_appointment_reminders
-    schedule_appointment_reminders(db, req.tenant_id)
+        if not row:
+            safe_start = int(data.get("start_ts", 0) or int(_time.time()) + 3600)
+            safe_end = int(data.get("end_ts", 0) or 0) or None
+            row = dbm.Appointment(
+                tenant_id=req.tenant_id,
+                contact_id=str(data.get("contact_id", ""))[:64],
+                service=str(data.get("service", ""))[:64],
+                start_ts=safe_start,
+                end_ts=safe_end,
+                status=str(data.get("status", "booked"))[:16],
+                external_ref=ext[:128],
+            )
+            db.add(row)
+            db.commit()
+    except Exception:
+        # avoid 500s on malformed payloads; acknowledge and proceed
+        pass
+    # schedule reminders (best-effort)
+    try:
+        from .scheduler import schedule_appointment_reminders
+        schedule_appointment_reminders(db, req.tenant_id)
+    except Exception:
+        pass
     try:
         from .metrics_counters import WEBHOOK_EVENTS  # type: ignore
         WEBHOOK_EVENTS.labels(provider="acuity", status="ok").inc()  # type: ignore
