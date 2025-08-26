@@ -262,7 +262,14 @@ class AIClient:
                         if flat:
                             return flat[:4000]
                     return None
-            except httpx.HTTPError:
+            except httpx.HTTPError as e:
+                # If debug flag is on, surface upstream error immediately for diagnosis
+                if os.getenv("AI_DEBUG_ERRORS", "").strip() == "1":
+                    try:
+                        body = e.response.text if hasattr(e, "response") and e.response is not None else ""
+                    except Exception:
+                        body = ""
+                    return f"DEBUG_HTTP_ERROR: {str(e)} {body}".strip()
                 if attempt < 2:
                     await asyncio.sleep(backoff_seconds + random.uniform(0, 0.5))
                     backoff_seconds *= 2
