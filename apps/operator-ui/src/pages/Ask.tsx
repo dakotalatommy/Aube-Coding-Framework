@@ -31,7 +31,7 @@ type Action =
 export default function Ask(){
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const [input, setInput] = useState('How can I save you time today?');
+  const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
@@ -675,8 +675,9 @@ export default function Ask(){
         <textarea
           className="flex-1 border rounded-md px-3 py-2"
           rows={3}
-          placeholder="Type your message (Cmd/Ctrl+Enter to send)"
+          placeholder="How can I save you time today?"
           value={input}
+          onFocus={()=>{ if (!input) setInput(''); }}
           onChange={e=>setInput(e.target.value)}
           onKeyDown={onKeyDown}
         />

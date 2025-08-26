@@ -132,13 +132,13 @@ export default function DemoIntake(){
   const tz = useMemo(()=> Intl.DateTimeFormat().resolvedOptions().timeZone, []);
 
   return (
-    <div className="min-h-screen relative overflow-hidden">
+    <div className="h-screen relative overflow-hidden">
       <style>{`#bvx-ask-float{display:none!important}`}</style>
       {/* Removed duplicate full-screen overlay to avoid double Ask UI; using inline panel below */}
       <div aria-hidden className="absolute inset-0 -z-10" style={{
         background: 'radial-gradient(900px 400px at 10% -10%, rgba(236,72,153,0.10), transparent), radial-gradient(800px 300px at 90% -20%, rgba(99,102,241,0.12), transparent)'
       }} />
-      <div className="max-w-6xl mx-auto px-4 py-6">
+      <div className="max-w-6xl mx-auto px-4 py-6 h-full overflow-hidden">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-semibold leading-tight" style={{fontFamily:'var(--font-display)'}}>Quick intro for your demo</h1>
@@ -149,16 +149,16 @@ export default function DemoIntake(){
           </div>
         </div>
 
-        <div className="mt-5 grid grid-cols-12 gap-4 items-start">
-          <div className="col-span-12 md:col-span-5 lg:col-span-4">
-            <div className="rounded-2xl border bg-white/80 backdrop-blur p-3 shadow-sm" style={{minHeight: '28rem'}}>
+        <div className="mt-5 grid grid-cols-12 gap-4 items-start h-[calc(100%-60px)]">
+          <div className="col-span-12 md:col-span-5 lg:col-span-4 h-full">
+            <div className="h-full rounded-2xl border bg-white/80 backdrop-blur p-3 shadow-sm flex flex-col">
               <div className="flex items-center justify-between mb-2">
                 <div className="font-medium text-slate-800">Ask VX</div>
                 {idx < intakeQuestions.length && (
                   <button className="text-xs text-slate-600 hover:underline" onClick={skip}>Skip</button>
                 )}
               </div>
-              <div className="h-80 overflow-auto rounded-md border bg-white p-3 text-sm">
+              <div className="flex-1 min-h-0 overflow-auto rounded-md border bg-white p-3 text-sm">
                 {messages.length === 0 && (
                   <div className="text-slate-500">I’ll ask a few questions to tailor your demo. You can skip anytime.</div>
                 )}
@@ -179,8 +179,8 @@ export default function DemoIntake(){
               )}
             </div>
           </div>
-          <div className="col-span-12 md:col-span-7 lg:col-span-8">
-            <div className="rounded-2xl border bg-white/70 backdrop-blur p-4 shadow-sm min-h-[28rem]">
+          <div className="col-span-12 md:col-span-7 lg:col-span-8 h-full">
+            <div className="h-full rounded-2xl border bg-white/70 backdrop-blur p-4 shadow-sm flex flex-col">
               <div className="text-slate-700 text-sm">We’ll tailor the demo using your answers. You can change these later.</div>
               <div className="mt-4 flex flex-wrap gap-2">
                 <button onClick={()=>{ try { track('tour_start_click',{source:'intake_panel'}); } catch{}; window.location.href='/workspace?pane=dashboard&demo=1&tour=1'; }} className="inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold text-slate-900 shadow bg-gradient-to-r from-blue-100 to-blue-300 hover:from-blue-200 hover:to-blue-400">Start guided walkthrough</button>
