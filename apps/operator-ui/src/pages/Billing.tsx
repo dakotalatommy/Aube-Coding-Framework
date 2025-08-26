@@ -13,7 +13,7 @@ export default function Billing(){
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
 
-  const publishableKey = (import.meta as any).env?.VITE_STRIPE_PUBLISHABLE_KEY || '';
+  const publishableKey = (import.meta as any).env?.VITE_STRIPE_PUBLISHABLE_KEY || (import.meta as any).env?.VITE_STRIPE_PK || '';
   const stripePromise = useMemo(() => publishableKey ? loadStripe(publishableKey) : null, [publishableKey]);
 
   useEffect(()=>{ try { track('billing_view'); } catch{} }, []);
@@ -53,6 +53,7 @@ export default function Billing(){
       <div className="rounded-2xl border bg-white/80 backdrop-blur p-5 shadow-sm">
         <h1 className="text-2xl font-semibold text-slate-900">Add payment method</h1>
         <p className="text-slate-600 mt-1">Free trial starts now. Add a card to avoid interruptions later — optional today.</p>
+        <div className="mt-2 text-xs text-slate-700">Choosing <span className="font-medium">$97 today</span> locks your <span className="font-medium">Founding Member</span> price at $97/month (recurring), not a one‑time payment.</div>
         {success && (
           <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/60 text-emerald-800 px-3 py-2 text-sm">Payment method saved.</div>
         )}
@@ -89,7 +90,7 @@ export default function Billing(){
           <Button onClick={async()=>{
             try { track('billing_start_subscription', { plan: '147_monthly' }); } catch {}
             try {
-              const r = await api.post('/billing/create-checkout-session', { price_cents: 14700, currency: 'usd', product_name: 'BrandVX Membership' });
+              const r = await api.post('/billing/create-checkout-session', { price_id: (import.meta as any).env?.VITE_STRIPE_PRICE_147 || '', mode: 'subscription', trial_days: Number((import.meta as any).env?.VITE_STRIPE_TRIAL_DAYS || '7') });
               if (r?.url) window.location.href = r.url;
             } catch (e) {
               setError('Failed to start subscription.');
@@ -98,12 +99,12 @@ export default function Billing(){
           <Button variant="outline" onClick={async()=>{
             try { track('billing_start_lifetime', { plan: 'lifetime_97' }); } catch {}
             try {
-              const r = await api.post('/billing/create-checkout-session', { price_cents: 9700, currency: 'usd', product_name: 'BrandVX Lifetime', mode: 'payment' });
+              const r = await api.post('/billing/create-checkout-session', { price_id: (import.meta as any).env?.VITE_STRIPE_PRICE_97 || '', mode: 'subscription' });
               if (r?.url) window.location.href = r.url;
             } catch (e) {
               setError('Failed to start lifetime checkout.');
             }
-          }}>Lifetime — $97 (one‑time)</Button>
+          }}>Lock $97/mo (Founding Member)</Button>
           <Button variant="ghost" onClick={()=>{ try { track('billing_skip'); } catch {}; navigate('/workspace?pane=dashboard'); }}>Skip for now</Button>
         </div>
         <div className="mt-3 text-xs text-slate-500">We charge nothing today. You’ll be notified before any charges after your trial.</div>

@@ -8,6 +8,7 @@ import 'driver.js/dist/driver.css';
 
 export default function Integrations(){
   const SOCIAL_ON = (import.meta as any).env?.VITE_FEATURE_SOCIAL === '1';
+  const SHOW_REDIRECT_URIS = ((import.meta as any).env?.VITE_SHOW_REDIRECT_URIS === '1') || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('dev'));
   const [settings, setSettings] = useState<any>({ tone:'helpful', services:['sms','email'], auto_approve_all:false, quiet_hours:{ start:'21:00', end:'08:00' }, preferences:{} });
   const [status, setStatus] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -16,6 +17,8 @@ export default function Integrations(){
   const [onboarding, setOnboarding] = useState<any>({ connected:false, first_sync_done:false, counts:{}, connectedMap:{}, providers:{} });
   const [squareLink, setSquareLink] = useState<string>('');
   const [redirects, setRedirects] = useState<any>(null);
+  const [twilioArea, setTwilioArea] = useState<string>('');
+  const [twilioFrom, setTwilioFrom] = useState<string>('');
   const reanalyze = async () => {
     try{
       const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() });
@@ -289,7 +292,7 @@ export default function Integrations(){
         </label>
         <div className="text-sm text-slate-700">Provider mode</div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-          {['google','square','acuity','hubspot','facebook','instagram','shopify'].map(p=> (
+          {['google','square','acuity','hubspot','instagram','shopify'].map(p=> (
             <label key={p} className="flex items-center justify-between rounded-md border bg-white p-2">
               <span className="capitalize text-slate-700">{p}</span>
               <span className="flex items-center gap-2">
@@ -326,7 +329,7 @@ export default function Integrations(){
       </div>
 
       <div className="grid md:grid-cols-3 gap-4 mt-4" data-guide="providers">
-        {redirects && (
+        {SHOW_REDIRECT_URIS && redirects && (
           <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm md:col-span-3">
             <div className="flex items-center gap-2 mb-2">
               <div className="font-semibold text-slate-900">Redirect URIs</div>
@@ -383,6 +386,16 @@ export default function Integrations(){
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button variant="outline" disabled={busy} onClick={enableSms}>Enable SMS</Button>
+            <input className="border rounded-md px-2 py-1 bg-white text-sm" placeholder="Area code (optional)" value={twilioArea} onChange={e=> setTwilioArea(e.target.value)} style={{width:140}} />
+            <Button variant="outline" disabled={busy} onClick={async()=>{
+              try{
+                setStatus('Provisioning…');
+                const r = await api.post('/integrations/twilio/provision', { area_code: twilioArea });
+                if (r?.from) { setTwilioFrom(r.from); setStatus('Provisioned'); }
+                else if (r?.detail) setStatus(String(r.detail));
+              } catch(e:any){ setStatus(String(e?.message||e)); }
+            }}>Provision number</Button>
+            {twilioFrom && <span className="text-xs text-slate-600">From: {twilioFrom}</span>}
             <Button variant="outline" disabled={busy} onClick={()=>{ try{ track('twilio_test_sms'); }catch{}; sendTestSms(); }}>Send test SMS</Button>
             <Button variant="outline" disabled={busy} onClick={()=>{ try{ track('twilio_console_open'); }catch{}; window.open('https://www.twilio.com/console', '_blank', 'noreferrer'); }}>Open Twilio Console</Button>
             <Button variant="outline" disabled={busy} onClick={()=>{ try{ track('twilio_docs_open'); }catch{}; window.open('https://www.twilio.com/en-us/messaging/channels/sms', '_blank', 'noreferrer'); }}>Twilio SMS Guide</Button>
@@ -445,22 +458,21 @@ export default function Integrations(){
           <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
-                <div className="font-semibold text-slate-900">Facebook / Instagram</div>
+                <div className="font-semibold text-slate-900">Instagram</div>
                 <div className="text-sm text-slate-600">DMs & comments in Master Inbox</div>
               </div>
               <span className={`px-2 py-1 rounded-full text-xs ${onboarding?.inbox_ready ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{onboarding?.inbox_ready? 'Ready' : 'Not linked'}</span>
             </div>
             <div className="mt-3 flex gap-2">
-              <Button variant="outline" disabled={busy || connecting.facebook || onboarding?.providers?.facebook===false} onClick={()=> connect('facebook')}>{connecting.facebook ? 'Connecting…' : 'Connect Facebook'}</Button>
               <Button variant="outline" disabled={busy || connecting.instagram || onboarding?.providers?.instagram===false} onClick={()=> connect('instagram')}>{connecting.instagram ? 'Connecting…' : 'Connect Instagram'}</Button>
               <Button variant="outline" disabled={busy} onClick={()=> window.open('/workspace?pane=messages','_self')}>Open Inbox</Button>
-              <Button variant="outline" disabled={busy} onClick={()=> refresh('facebook')}>Refresh</Button>
+              <Button variant="outline" disabled={busy} onClick={()=> refresh('instagram')}>Refresh</Button>
             </div>
-            {(onboarding?.providers?.facebook===false || onboarding?.providers?.instagram===false) && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Facebook/Instagram OAuth to enable.</div>}
+            {(onboarding?.providers?.instagram===false) && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Instagram OAuth to enable.</div>}
           </section>
         ) : (
           <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
-            <div className="font-semibold text-slate-900">Facebook / Instagram</div>
+            <div className="font-semibold text-slate-900">Instagram</div>
             <div className="text-sm text-slate-600">Social inbox is not enabled for this environment.</div>
             <div className="mt-2 text-xs text-slate-600">Set <code>VITE_FEATURE_SOCIAL=1</code> to enable.</div>
           </section>

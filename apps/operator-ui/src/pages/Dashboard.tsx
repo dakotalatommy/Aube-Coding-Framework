@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import Button, { ButtonLink } from '../components/ui/Button';
 import { api, getTenant } from '../lib/api';
+import { track } from '../lib/analytics';
 import { motion } from 'framer-motion';
 import { lazy, Suspense, useRef } from 'react';
 import * as Tooltip from '@radix-ui/react-tooltip';
@@ -134,6 +135,7 @@ export default function Dashboard(){
   const [showBillingNudge, setShowBillingNudge] = useState(false);
   const [billingAdded, setBillingAdded] = useState(false);
   const [wfProgress, setWfProgress] = useState<Record<string, boolean>>({});
+  const [foundingMember, setFoundingMember] = useState<boolean>(false);
   const [shareUrl, setShareUrl] = useState<string>('');
   const [shareCopied, setShareCopied] = useState<boolean>(false);
 
@@ -162,6 +164,10 @@ export default function Dashboard(){
         const r = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
         const wp = r?.data?.wf_progress || {};
         setWfProgress(wp);
+        try {
+          const fm = Boolean(r?.data?.founding_member) || localStorage.getItem('bvx_founding_member') === '1';
+          setFoundingMember(fm);
+        } catch {}
       } catch {}
     })();
   },[]);
@@ -228,7 +234,9 @@ export default function Dashboard(){
       )}
       {billingAdded && (
         <section className="rounded-2xl p-3 border bg-emerald-50 border-emerald-200 text-emerald-900">
-          <div className="flex items-center gap-2 text-sm"><span className="inline-flex items-center justify-center w-2 h-2 rounded-full bg-emerald-500" /> You’re covered — billing active.</div>
+          <div className="flex items-center gap-2 text-sm"><span className="inline-flex items-center justify-center w-2 h-2 rounded-full bg-emerald-500" /> You’re covered — billing active.
+            {foundingMember && <span className="ml-2 px-2 py-0.5 text-[11px] rounded-full border bg-white text-emerald-800 border-emerald-300">Founding Member</span>}
+          </div>
         </section>
       )}
       {showSignupModal && (
@@ -275,7 +283,7 @@ export default function Dashboard(){
           <div className="flex items-center gap-2 text-sm">
             <div className="text-slate-700">Your referral link:</div>
             <input readOnly value={refLink} className="flex-1 border rounded-lg px-2 py-1 bg-white text-slate-800" onFocus={(e)=>e.currentTarget.select()} />
-            <button className="px-3 py-2 rounded-full text-sm bg-slate-900 text-white" onClick={async()=>{ try{ await navigator.clipboard.writeText(refLink); }catch{} }}>Copy</button>
+            <button className="px-3 py-2 rounded-full text-sm bg-slate-900 text-white" onClick={async()=>{ try{ await navigator.clipboard.writeText(refLink); track('referral_copy'); }catch{} }}>Copy</button>
           </div>
         </section>
       )}

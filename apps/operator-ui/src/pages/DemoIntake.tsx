@@ -112,42 +112,7 @@ export default function DemoIntake(){
 
   return (
     <div className="min-h-screen relative overflow-hidden">
-      {/* Full-screen centered AskVX window as demo gate */}
-      <div className="fixed inset-0 z-10 flex items-center justify-center p-4">
-        <div className="w-full max-w-lg rounded-2xl border bg-white/90 backdrop-blur shadow-md">
-          <div className="px-4 pt-3 pb-2 flex items-center justify-between border-b">
-            <div className="font-medium text-slate-800">Ask VX</div>
-            {idx < intakeQuestions.length && (
-              <button className="text-xs text-slate-600 hover:underline" onClick={skip}>Skip</button>
-            )}
-          </div>
-          <div className="p-3">
-            <div className="h-64 overflow-auto rounded-md border bg-white p-3 text-sm">
-              {messages.length === 0 && (
-                <div className="text-slate-500">I’ll ask a few questions to tailor your demo. You can skip anytime.</div>
-              )}
-              <div className="space-y-2">
-                {messages.map((m,i)=> (
-                  <div key={i} className={m.role==='user'?'text-right':'text-left'}>
-                    <span className={'inline-block px-3 py-2 rounded-lg '+(m.role==='user'?'bg-sky-100 text-slate-900':'bg-slate-100 text-slate-900')}>{m.content}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="mt-2 flex gap-2 items-start shrink-0">
-              <textarea className="flex-1 border rounded-md px-3 py-2 max-h-24 overflow-auto" rows={2} placeholder="Type here" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={(e)=>{ if (e.key==='Enter' && (e.metaKey||e.ctrlKey)) { e.preventDefault(); handleSend(); } }} />
-              <button className="rounded-full px-4 py-2 bg-gradient-to-r from-blue-100 to-blue-300 hover:from-blue-200 hover:to-blue-400 shadow text-slate-900" onClick={handleSend} disabled={busy}>{busy?'…':'Send'}</button>
-            </div>
-            {idx >= intakeQuestions.length && (
-              <div className="text-[11px] text-slate-500 mt-1">You have {freePromptsLeft} quick questions before we start the full tour.</div>
-            )}
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button onClick={()=>{ try { track('tour_start_click',{source:'intake_gate'}); } catch{}; window.location.href='/workspace?pane=dashboard&demo=1&tour=1'; }} className="inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold text-slate-900 shadow bg-gradient-to-r from-blue-100 to-blue-300 hover:from-blue-200 hover:to-blue-400">Start guided walkthrough</button>
-              <button onClick={()=>{ try { track('signup_click',{source:'intake_gate'}); } catch{}; window.location.href='/signup?from=intake'; }} className="inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold text-white shadow bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600">Create your BrandVX</button>
-            </div>
-          </div>
-        </div>
-      </div>
+      {/* Removed duplicate full-screen overlay to avoid double Ask UI; using inline panel below */}
       <div className="absolute inset-0 -z-10" style={{
         background: 'radial-gradient(900px 400px at 10% -10%, rgba(236,72,153,0.10), transparent), radial-gradient(800px 300px at 90% -20%, rgba(99,102,241,0.12), transparent)'
       }} />

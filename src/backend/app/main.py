@@ -69,6 +69,7 @@ tags_metadata = [
     {"name": "Approvals", "description": "Human-in-the-loop approvals."},
     {"name": "Plans", "description": "Plans and usage limits admin."},
     {"name": "Sharing", "description": "Public share links."},
+    {"name": "Billing", "description": "Stripe billing and referrals."},
 ]
 
 app = FastAPI(title="BrandVX Backend", version="0.2.0", openapi_tags=tags_metadata)
@@ -492,6 +493,7 @@ def create_checkout_session(req: dict, ctx: UserContext = Depends(get_user_conte
     currency = str(req.get("currency", "usd")).strip() or "usd"
     product_name = str(req.get("product_name", "BrandVX Membership")).strip() or "BrandVX Membership"
     mode = str(req.get("mode", "subscription")).strip() or "subscription"  # "subscription" | "payment"
+    trial_days = int(req.get("trial_days", 0) or 0)
     if not price_id and price_cents <= 0:
         raise HTTPException(status_code=400, detail="missing price_id_or_amount")
     cust = create_customer(ctx)
@@ -518,6 +520,8 @@ def create_checkout_session(req: dict, ctx: UserContext = Depends(get_user_conte
     }
     if mode == "subscription":
         kwargs["allow_promotion_codes"] = True
+        if trial_days > 0:
+            kwargs["subscription_data"] = {"trial_period_days": trial_days}
     session = s.checkout.Session.create(**kwargs)  # type: ignore
     return {"url": session["url"]}
 
@@ -530,6 +534,18 @@ def billing_portal(ctx: UserContext = Depends(get_user_context)):
     portal = s.billing_portal.Session.create(customer=cust["customer_id"], return_url=f"{origin}/billing")  # type: ignore
     return {"url": portal["url"]}
 
+
+@app.get("/billing/config", tags=["Billing"])
+def billing_config() -> Dict[str, object]:
+    """Expose non-secret billing configuration for UI sanity checks.
+    Returns Stripe publishable artifacts only (no secrets).
+    """
+    return {
+        "price_147": _env("STRIPE_PRICE_147", ""),
+        "price_127": _env("STRIPE_PRICE_127", ""),
+        "price_97": _env("STRIPE_PRICE_97", ""),
+        "trial_days": int(_env("STRIPE_TRIAL_DAYS", "7") or 7),
+    }
 
 @app.post("/billing/webhook", tags=["Integrations"])
 async def stripe_webhook(request: Request):
@@ -547,12 +563,28 @@ async def stripe_webhook(request: Request):
     if typ == "payment_method.attached":
         cust_id = data.get("customer")
         t_update = {"has_payment_method": True}
+    elif typ == "checkout.session.completed":
+        cust_id = data.get("customer")
+        t_update = {"has_payment_method": True, "last_checkout_completed": int(_time.time())}
+        try:
+            emit_event("CheckoutSessionCompleted", {"customer": str(cust_id or "")})
+        except Exception:
+            pass
     elif typ == "customer.subscription.updated" or typ == "customer.subscription.created":
         cust_id = data.get("customer")
         t_update = {
             "subscription_status": data.get("status"),
             "current_period_end": int(data.get("current_period_end", 0)),
         }
+    elif typ == "customer.subscription.deleted":
+        cust_id = data.get("customer")
+        t_update = {
+            "subscription_status": "canceled",
+            "current_period_end": int(_time.time()),
+        }
+    elif typ == "invoice.paid":
+        cust_id = data.get("customer")
+        t_update = {"last_invoice_paid": int(_time.time())}
     else:
         return JSONResponse({"status": "ignored"})
     # Persist to settings for the tenant owning this customer (lookup by metadata if available)
@@ -569,11 +601,24 @@ async def stripe_webhook(request: Request):
                     d.update(t_update)
                     db.execute(_sql_text("UPDATE settings SET data_json = :dj WHERE id = :sid"), {"dj": _json.dumps(d), "sid": sid})
                     db.commit()
+                    try:
+                        emit_event("BillingUpdated", {"tenant_id": tenant_id, "status": d.get("subscription_status", "unknown")})
+                    except Exception:
+                        pass
                     break
     except Exception:
         pass
     return JSONResponse({"status": "ok"})
 
+
+@app.get("/ai/config", tags=["AI"])
+def ai_config() -> Dict[str, object]:
+    return {
+        "model": _env("OPENAI_MODEL", ""),
+        "fallback_models": _env("OPENAI_FALLBACK_MODELS", ""),
+        "use_responses": _env("OPENAI_USE_RESPONSES", ""),
+        "agentic_preference": _env("OPENAI_AGENTIC_PREFERENCE", ""),
+    }
 
 @app.get("/integrations/redirects", tags=["Integrations"])
 def list_redirects():
@@ -586,12 +631,13 @@ def list_redirects():
             "square": f"{base_api}/oauth/square/callback",
             "acuity": f"{base_api}/oauth/acuity/callback",
             "hubspot": f"{base_api}/oauth/hubspot/callback",
-            "facebook": f"{base_api}/oauth/facebook/callback",
             "instagram": f"{base_api}/oauth/instagram/callback",
             "shopify": f"{base_api}/oauth/shopify/callback",
         },
         "webhooks": {
             "stripe": f"{base_api}/billing/webhook",
+            "square": f"{base_api}/webhooks/square",
+            "acuity": f"{base_api}/webhooks/acuity",
         },
         "post_auth_redirect": {
             "supabase_email": f"{base_app}/onboarding?offer=1",
@@ -666,13 +712,30 @@ def _oauth_authorize_url(provider: str, tenant_id: Optional[str] = None) -> str:
         _state = _b64.urlsafe_b64encode(json.dumps(_state_obj).encode()).decode().rstrip("=")
     except Exception:
         _state = os.urandom(16).hex()
+    # Cache state marker for CSRF protection (all providers)
+    try:
+        cache_set(f"oauth_state:{_state}", "1", ttl=600)
+    except Exception:
+        pass
     if provider == "google":
         auth = _env("GOOGLE_AUTH_URL", "https://accounts.google.com/o/oauth2/v2/auth")
         client_id = _env("GOOGLE_CLIENT_ID", "")
         scope = _env("GOOGLE_SCOPES", "openid email profile")
+        # PKCE code verifier/challenge
+        try:
+            import secrets as _secrets
+            import hashlib as _hashlib
+            import base64 as _b64
+            code_verifier = _b64.urlsafe_b64encode(_secrets.token_bytes(32)).decode().rstrip("=")
+            challenge = _hashlib.sha256(code_verifier.encode()).digest()
+            code_challenge = _b64.urlsafe_b64encode(challenge).decode().rstrip("=")
+            cache_set(f"pkce:{_state}", code_verifier, ttl=600)
+            extra = f"&code_challenge={code_challenge}&code_challenge_method=S256"
+        except Exception:
+            extra = ""
         return (
             f"{auth}?response_type=code&client_id={client_id}&redirect_uri={_url.quote(_redirect_uri('google'))}"
-            f"&scope={_url.quote(scope)}&access_type=offline&prompt=consent&state={_state}"
+            f"&scope={_url.quote(scope)}&access_type=offline&prompt=consent&state={_state}{extra}"
         )
     if provider == "square":
         auth = _env("SQUARE_AUTH_URL", "https://connect.squareupsandbox.com/oauth2/authorize")
@@ -730,7 +793,7 @@ def _oauth_authorize_url(provider: str, tenant_id: Optional[str] = None) -> str:
     return ""
 
 
-def _oauth_exchange_token(provider: str, code: str, redirect_uri: str) -> Dict[str, object]:
+def _oauth_exchange_token(provider: str, code: str, redirect_uri: str, code_verifier: Optional[str] = None) -> Dict[str, object]:
     """Exchange authorization code for tokens. Returns a dict possibly containing
     access_token, refresh_token, expires_in, scope, token_type. On failure, returns {}.
     """
@@ -744,6 +807,8 @@ def _oauth_exchange_token(provider: str, code: str, redirect_uri: str) -> Dict[s
                 "client_secret": _env("GOOGLE_CLIENT_SECRET", ""),
                 "redirect_uri": redirect_uri,
             }
+            if code_verifier:
+                data["code_verifier"] = code_verifier
             r = httpx.post(url, data=data, timeout=20)
             return r.json() if r.status_code < 400 else {}
         if provider == "square":
@@ -1446,17 +1511,38 @@ async def ai_chat(
     except Exception:
         brand_profile_text = ""
     system_prompt = chat_system_prompt(capabilities_text + (f"\nBrand profile: {brand_profile_text}" if brand_profile_text else ""))
-    client = AIClient()
+    # Adaptive model selection: prefer Mini; use Nano for short replies or when caps are tight
+    user_text = (req.messages[-1].content if req.messages else "")
+    short = len(user_text.split()) < 24
+    model_pref = os.getenv("OPENAI_MODEL", "gpt-5-mini")
+    fallback_models = (os.getenv("OPENAI_FALLBACK_MODELS", "gpt-5-nano").split(",") if os.getenv("OPENAI_FALLBACK_MODELS") else ["gpt-5-nano"])  # type: ignore
+    chosen_model = ("gpt-5-nano" if short else model_pref)
+    client = AIClient(model=chosen_model)  # type: ignore
     # Allow configuring response length via env
     _max_tokens = int(os.getenv("AI_CHAT_MAX_TOKENS", "1200"))
-    content = await client.generate(
-        system_prompt,
-        [
-            {"role": m.role, "content": m.content}
-            for m in req.messages
-        ],
-        max_tokens=_max_tokens,
-    )
+    try:
+        content = await client.generate(
+            system_prompt,
+            [
+                {"role": m.role, "content": m.content}
+                for m in req.messages
+            ],
+            max_tokens=_max_tokens if not short else min(400, _max_tokens),
+        )
+    except Exception:
+        # Fallback to the first configured fallback model
+        try:
+            client_fallback = AIClient(model=fallback_models[0])  # type: ignore
+            content = await client_fallback.generate(
+                system_prompt,
+                [
+                    {"role": m.role, "content": m.content}
+                    for m in req.messages
+                ],
+                max_tokens=min(400, _max_tokens),
+            )
+        except Exception:
+            return {"text": "Sorry — I'm having trouble right now."}
     # Persist chat logs (last user msg + assistant reply) and record usage
     try:
         with next(get_db()) as db:  # type: ignore
@@ -3197,6 +3283,12 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 t_id = str(data.get("t") or t_id)
         except Exception:
             t_id = "t1"
+        # Verify state marker to mitigate CSRF
+        try:
+            if state and not cache_get(f"oauth_state:{state}"):
+                return RedirectResponse(url=f"{_frontend_base_url()}/integrations?error=oauth_state_mismatch")
+        except Exception:
+            pass
         status = "pending_config" if not any([
             _env("HUBSPOT_CLIENT_ID"), _env("SQUARE_CLIENT_ID"), _env("ACUITY_CLIENT_ID"),
             _env("FACEBOOK_CLIENT_ID"), _env("INSTAGRAM_CLIENT_ID"), _env("GOOGLE_CLIENT_ID"), _env("SHOPIFY_CLIENT_ID")
@@ -3205,20 +3297,29 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
         access_token_enc = encrypt_text(code or "")
         refresh_token_enc = None
         expires_at = None
+        exchange_ok = False
         if code:
             try:
-                token = _oauth_exchange_token(provider, code, _redirect_uri(provider)) or {}
+                # For Google, try PKCE code_verifier lookup by state
+                code_verifier = None
+                try:
+                    if provider == "google" and state:
+                        code_verifier = cache_get(f"pkce:{state}") or None
+                except Exception:
+                    code_verifier = None
+                token = _oauth_exchange_token(provider, code, _redirect_uri(provider), code_verifier=code_verifier) or {}
                 at = str(token.get("access_token") or "")
                 rt = token.get("refresh_token")
                 exp = token.get("expires_in")
                 if at:
                     access_token_enc = encrypt_text(at)
+                    exchange_ok = True
                 if rt:
                     refresh_token_enc = encrypt_text(str(rt))
                 if isinstance(exp, (int, float)):
                     expires_at = int(_time.time()) + int(exp)
             except Exception:
-                pass
+                exchange_ok = False
         try:
             db.add(dbm.ConnectedAccount(
                 tenant_id=t_id, user_id="dev", provider=provider, scopes=None,
@@ -3234,18 +3335,13 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
         except Exception:
             try: db.rollback()
             except Exception: pass
-        try:
-            if provider in {"shopify", "square"}:
-                # Fire an initial inventory sync so onboarding analysis shows results fast
-                _ = inventory_sync(SyncRequest(tenant_id=t_id, provider=provider), db=db, ctx=UserContext(tenant_id=t_id, role="owner_admin", user_id="system"))
-        except Exception:
-            pass
+        # Redirect UX: success or error with reason
+        if error or not exchange_ok:
+            reason = error or ("token_exchange_failed" if code else "missing_code")
+            return RedirectResponse(url=f"{_frontend_base_url()}/integrations?error={reason}&provider={provider}")
+        return RedirectResponse(url=f"{_frontend_base_url()}/integrations?connected=1&provider={provider}")
     except Exception:
-        pass
-    dest = f"{_frontend_base_url()}/onboarding?connected={provider}"
-    if error:
-        dest += f"&error={_url.quote(error)}"
-    return RedirectResponse(dest)
+        return RedirectResponse(url=f"{_frontend_base_url()}/integrations?error=oauth_unexpected&provider={provider}")
 
 
 class AnalyzeRequest(BaseModel):
@@ -3405,6 +3501,115 @@ def whoami(ctx: UserContext = Depends(get_user_context)) -> Dict[str, str]:
     return {"tenant_id": ctx.tenant_id or "", "role": ctx.role or ""}
 
 
+class OnboardingVerifyRequest(BaseModel):
+    token: str
+
+
+@app.post("/auth/onboarding/verify", tags=["Auth"])
+def onboarding_verify(
+    req: OnboardingVerifyRequest,
+    ctx: UserContext = Depends(get_user_context),
+) -> Dict[str, str]:
+    """Verify a short-lived onboarding token and grant temporary access to onboarding.
+    The grant is cached for 30 minutes and scoped to the current tenant and user.
+    """
+    try:
+        import jwt as _jwt
+        payload = _jwt.decode(
+            req.token,
+            _env("JWT_SECRET", "dev_secret"),
+            algorithms=["HS256"],
+            audience=_env("JWT_AUDIENCE", "brandvx-users"),
+            issuer=_env("JWT_ISSUER", "brandvx"),
+        )
+        # Ensure token subject matches current user
+        if str(payload.get("sub", "")) not in {ctx.user_id, "dev-user"}:
+            return {"status": "forbidden"}
+    except Exception:
+        return {"status": "invalid"}
+    gkey = f"onb_grant:{ctx.tenant_id}:{ctx.user_id}"
+    cache_set(gkey, "1", ttl=1800)  # 30 minutes
+    return {"status": "ok"}
+
+
+class ReferralUpdateRequest(BaseModel):
+    tenant_id: str
+    delta: int = 1
+
+
+@app.post("/billing/referral", tags=["Billing"])
+def billing_apply_referral(
+    req: ReferralUpdateRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+) -> Dict[str, object]:
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    # Load settings
+    row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == req.tenant_id).first()
+    data = {}
+    if row:
+        try:
+            data = json.loads(row.data_json or "{}")
+        except Exception:
+            data = {}
+    count = int(data.get("referral_count", 0)) + int(req.delta or 0)
+    if count < 0:
+        count = 0
+    data["referral_count"] = count
+    # Persist now; we will attempt price adjustments best-effort below
+    if not row:
+        row = dbm.Settings(tenant_id=req.tenant_id, data_json=json.dumps(data))
+        db.add(row)
+    else:
+        row.data_json = json.dumps(data)
+    db.commit()
+    # Attempt subscription price adjustment based on thresholds
+    try:
+        cust_id = (data.get("stripe_customer_id") or "").strip()
+        if not cust_id:
+            return {"status": "ok", "referral_count": count}
+        s = _stripe_client()
+        subs = s.Subscription.list(customer=cust_id, limit=1)  # type: ignore
+        sub = (subs.get("data") or [None])[0]
+        if not sub:
+            return {"status": "ok", "referral_count": count}
+        item = (sub.get("items", {}).get("data") or [None])[0]
+        item_id = item.get("id") if item else None
+        current_price = (item.get("price") or {}).get("id") if item else None
+        target = None
+        price_127 = _env("STRIPE_PRICE_127", "").strip()
+        price_97 = _env("STRIPE_PRICE_97", "").strip()
+        if count >= 2 and price_97 and current_price != price_97:
+            target = price_97
+        elif count >= 1 and price_127 and current_price != price_127:
+            target = price_127
+        if target and item_id:
+            s.Subscription.modify(  # type: ignore
+                sub.get("id"),
+                cancel_at_period_end=False,
+                proration_behavior="none",
+                items=[{"id": item_id, "price": target}],
+            )
+            # Update cached settings hint
+            try:
+                row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == req.tenant_id).first()
+                if row:
+                    d = json.loads(row.data_json or "{}")
+                    d["subscription_price_id"] = target
+                    row.data_json = json.dumps(d)
+                    db.commit()
+            except Exception:
+                pass
+        return {"status": "ok", "referral_count": count, "target_price": target or current_price}
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return {"status": "error", "detail": str(e), "referral_count": count}
+
+
 @app.post("/onboarding/analyze", tags=["Integrations"])  # scaffold
 def onboarding_analyze(req: AnalyzeRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
@@ -3500,6 +3705,26 @@ async def webhook_sendgrid(
     return {"status": "ok"}
 
 
+@app.get("/admin/rls/audit", tags=["Admin"])
+def rls_audit(ctx: UserContext = Depends(require_role("owner_admin"))):
+    """Report RLS enabled status for public tables (Supabase). Non-invasive check.
+    """
+    try:
+        with next(get_db()) as db:  # type: ignore
+            rows = db.execute(_sql_text("""
+                select c.relname as table, pol.polname is not null as has_policy
+                from pg_class c
+                join pg_namespace n on n.oid=c.relnamespace
+                left join pg_policies pol on pol.schemaname=n.nspname and pol.tablename=c.relname
+                where n.nspname='public' and c.relkind='r'
+                group by c.relname, has_policy
+                order by c.relname
+            """)).fetchall()
+            out = [{"table": r[0], "has_policy": bool(r[1])} for r in rows]
+            return {"tables": out}
+    except Exception:
+        return {"tables": []}
+
 @app.post("/webhooks/acuity", tags=["Integrations"])
 async def webhook_acuity(
     req: ProviderWebhook,
@@ -3543,6 +3768,16 @@ async def webhook_acuity(
     except Exception:
         pass
     emit_event("AppointmentIngested", {"tenant_id": req.tenant_id, "external_ref": f"acuity:{ext}"})
+    try:
+        # Minimal mapping: use contact_id as email if it looks like an email, else skip
+        contact_hint = str(data.get("contact_id", ""))
+        if "@" in contact_hint:
+            try:
+                crm_hubspot.upsert(req.tenant_id, "contact", {"email": contact_hint}, None)
+            except Exception:
+                pass
+    except Exception:
+        pass
     return {"status": "ok"}
 
 
@@ -3586,7 +3821,21 @@ async def webhook_square(
         WEBHOOK_EVENTS.labels(provider="square", status="ok").inc()  # type: ignore
     except Exception:
         pass
+    try:
+        # Emit PostHog-style analytics through internal bus (if configured)
+        emit_event("WebhookReceived", {"tenant_id": req.tenant_id, "provider": "square"})
+    except Exception:
+        pass
     emit_event("AppointmentIngested", {"tenant_id": req.tenant_id, "external_ref": f"square:{ext}"})
+    try:
+        appt_email = str(row.get("customer_email") or "") if isinstance(row, dict) else ""
+        if appt_email and "@" in appt_email:
+            try:
+                crm_hubspot.upsert(req.tenant_id, "contact", {"email": appt_email}, None)
+            except Exception:
+                pass
+    except Exception:
+        pass
     return {"status": "ok"}
 
 
@@ -4461,5 +4710,21 @@ def square_booking_link(
     except Exception:
         pass
     return {"url": url}
+
+@app.get("/oauth/instagram/status", tags=["Integrations"])
+def instagram_status(ctx: UserContext = Depends(get_user_context)):
+    try:
+        with next(get_db()) as db:  # type: ignore
+            row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == ctx.tenant_id).first()
+            providers = {}
+            if row and row.data_json:
+                try:
+                    providers = json.loads(row.data_json or '{}').get('providers_live') or {}
+                except Exception:
+                    providers = {}
+            ok = providers.get('instagram') is True
+            return {"status": "connected" if ok else "not_connected"}
+    except Exception:
+        return {"status": "unknown"}
 
 

@@ -14,6 +14,8 @@ export default defineConfig({
             if (id.includes('framer-motion')) return 'motion';
             if (id.includes('driver.js')) return 'driver';
             if (id.includes('echarts')) return 'echarts';
+            if (id.includes('@stripe')) return 'stripe';
+            if (id.includes('posthog-js')) return 'analytics';
           }
         },
       },

@@ -1,9 +1,11 @@
-import React, { Suspense, lazy, useMemo, useRef, useEffect } from 'react';
+import React, { Suspense, lazy, useMemo, useRef, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Home, MessageSquare, Users, Calendar, Layers, Package2, Plug, CheckCircle2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
+import { track } from '../lib/analytics';
 
-type PaneKey = 'dashboard' | 'messages' | 'contacts' | 'calendar' | 'cadences' | 'inventory' | 'integrations' | 'approvals' | 'workflows';
+type PaneKey = 'dashboard' | 'messages' | 'contacts' | 'calendar' | 'cadences' | 'inventory' | 'integrations' | 'approvals' | 'workflows' | 'onboarding';
 
 const PANES: { key: PaneKey; label: string; icon: React.ReactNode }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: <Home size={18} /> },
@@ -14,6 +16,7 @@ const PANES: { key: PaneKey; label: string; icon: React.ReactNode }[] = [
   { key: 'inventory', label: 'Inventory', icon: <Package2 size={18} /> },
   { key: 'integrations', label: 'Integrations', icon: <Plug size={18} /> },
   { key: 'workflows', label: 'Workflows', icon: <Layers size={18} /> },
+  { key: 'onboarding', label: 'Onboarding', icon: <CheckCircle2 size={18} /> },
   { key: 'approvals', label: 'Approvals', icon: <CheckCircle2 size={18} /> },
 ];
 
@@ -23,6 +26,36 @@ export default function WorkspaceShell(){
   const params = new URLSearchParams(loc.search);
   const pane = (params.get('pane') as PaneKey) || 'dashboard';
   const demo = params.get('demo') === '1';
+  const BOOKING_URL = (import.meta as any).env?.VITE_BOOKING_URL || '';
+  const PRICE_147 = (import.meta as any).env?.VITE_STRIPE_PRICE_147 || '';
+  const PRICE_97 = (import.meta as any).env?.VITE_STRIPE_PRICE_97 || '';
+  const TRIAL_DAYS = Number((import.meta as any).env?.VITE_STRIPE_TRIAL_DAYS || '7');
+
+  const [billingOpen, setBillingOpen] = useState(false);
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingStatus, setBillingStatus] = useState<string>('');
+
+  // Workspace billing gate: open modal if not trialing/active
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const sp = new URLSearchParams(loc.search);
+        if (sp.get('billing') === 'success') {
+          try { track('billing_success'); } catch {}
+          try { localStorage.setItem('bvx_billing_dismissed','1'); } catch {}
+          setBillingOpen(false);
+          return;
+        }
+        const dismissed = localStorage.getItem('bvx_billing_dismissed') === '1';
+        const r = await api.get('/settings');
+        const status = String(r?.data?.subscription_status || '');
+        setBillingStatus(status);
+        const covered = status === 'active' || status === 'trialing';
+        if (!covered && !dismissed) { setBillingOpen(true); try { track('billing_modal_open'); } catch {} }
+      } catch {}
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loc.search]);
 
   const setPane = (key: PaneKey) => {
     const next = new URLSearchParams(loc.search);
@@ -41,6 +74,7 @@ export default function WorkspaceShell(){
       case 'integrations': return <LazyIntegrations/>;
       case 'approvals': return <LazyApprovals/>;
       case 'workflows': return <LazyWorkflows/>;
+      case 'onboarding': return <LazyOnboardingStepper/>;
       default: return <div/>;
     }
   })();
@@ -92,6 +126,14 @@ export default function WorkspaceShell(){
             })}
           </nav>
           <div className="mt-auto pt-3">
+            {BOOKING_URL && (
+              <a
+                href={BOOKING_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="mb-2 inline-flex w-full items-center justify-center px-3 py-2 rounded-xl border bg-white text-slate-700 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60"
+              >Book onboarding</a>
+            )}
             <button
               className="w-full px-3 py-2 rounded-xl border text-slate-700 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60"
               onClick={async()=>{
@@ -121,6 +163,45 @@ export default function WorkspaceShell(){
           </div>
         </div>
       )}
+      {/* Billing modal */}
+      {billingOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center p-4">
+          <div aria-hidden className="absolute inset-0 bg-black/20" onClick={()=>{ setBillingOpen(false); try{ localStorage.setItem('bvx_billing_dismissed','1'); }catch{} }} />
+          <div className="relative w-full max-w-md rounded-2xl border bg-white/95 backdrop-blur p-5 shadow-xl">
+            <div className="text-slate-900 text-lg font-semibold">Start your BrandVX</div>
+            <div className="text-slate-600 text-sm mt-1">Choose a plan to unlock your workspace. You can change anytime.</div>
+            <div className="mt-4 grid gap-2">
+              <button disabled={billingLoading} onClick={async()=>{
+                try { track('billing_trial_click'); } catch {}
+                if (!PRICE_147) { setBillingOpen(false); window.location.href='/billing'; return; }
+                setBillingLoading(true);
+                try{
+                  const r = await api.post('/billing/create-checkout-session', { price_id: PRICE_147, mode: 'subscription', trial_days: TRIAL_DAYS });
+                  if (r?.url) window.location.href = r.url;
+                } finally { setBillingLoading(false); }
+              }} className="w-full rounded-xl border bg-gradient-to-b from-sky-50 to-sky-100 hover:from-sky-100 hover:to-sky-200 text-slate-900 px-4 py-3 text-sm text-left">
+                <div className="font-medium">7‑day free trial → $147/mo</div>
+                <div className="text-slate-600 text-xs">You’ll be reminded before any charge.</div>
+              </button>
+              <button disabled={billingLoading} onClick={async()=>{
+                try { track('billing_97_click'); } catch {}
+                if (!PRICE_97) { setBillingOpen(false); window.location.href='/billing'; return; }
+                setBillingLoading(true);
+                try{
+                  try { localStorage.setItem('bvx_founding_member', '1'); } catch {}
+                  const r = await api.post('/billing/create-checkout-session', { price_id: PRICE_97, mode: 'subscription' });
+                  if (r?.url) window.location.href = r.url;
+                } finally { setBillingLoading(false); }
+              }} className="w-full rounded-xl border bg-white hover:shadow-sm text-slate-900 px-4 py-3 text-sm text-left">
+                <div className="font-medium">$97 today → $97/mo (Founding price)</div>
+                <div className="text-slate-600 text-xs">Lock in $97/mo now; recurring thereafter.</div>
+              </button>
+              <button className="w-full rounded-xl border bg-white px-4 py-2 text-sm" onClick={()=>{ setBillingOpen(false); try{ localStorage.setItem('bvx_billing_dismissed','1'); }catch{} }}>Skip for now</button>
+            </div>
+            <div className="text-[11px] text-slate-500 mt-2">Status: {billingStatus||'unavailable'}</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -135,5 +216,6 @@ const LazyInventory = lazy(()=> import('../pages/Inventory'));
 const LazyIntegrations = lazy(()=> import('../pages/Integrations'));
 const LazyApprovals = lazy(()=> import('../pages/Approvals'));
 const LazyWorkflows = lazy(()=> import('../pages/Workflows'));
+const LazyOnboardingStepper = lazy(()=> import('./OnboardingStepper'));
 
 

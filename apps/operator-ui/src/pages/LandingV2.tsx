@@ -17,7 +17,7 @@ function MetricsInline() {
 
 function GlossyCard({ title, sub, icon }:{ title:string; sub:string; icon?: any }){
   return (
-    <div role="button" tabIndex={0} aria-label={`${title}: ${sub}`} className="relative h-full w-full rounded-3xl p-5 bg-white/70 backdrop-blur border border-white/70 shadow-[0_20px_40px_-20px_rgba(0,0,0,0.25)] overflow-hidden transition will-change-transform hover:-translate-y-0.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300 flex flex-col items-center justify-center text-center"
+    <div role="button" tabIndex={0} aria-label={`${title}: ${sub}`} className="relative h-full w-full rounded-3xl p-5 bg-white/70 backdrop-blur border border-white/70 shadow-[0_20px_40px_-20px_rgba(0,0,0,0.25)] overflow-hidden transition will-change-transform hover:-translate-y-1 hover:shadow-[0_28px_60px_-28px_rgba(0,0,0,0.35)] focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300 flex flex-col items-center justify-center text-center"
       onClick={()=>{ try { track('tile_click', { tile: title }); } catch {} }}
       onKeyDown={(e)=>{ if (e.key === 'Enter' || e.key === ' ') { (e.target as HTMLElement).click(); e.preventDefault(); } }}>
       <div aria-hidden className="absolute inset-0 -z-10" style={{
@@ -25,14 +25,15 @@ function GlossyCard({ title, sub, icon }:{ title:string; sub:string; icon?: any 
           'radial-gradient(380px 150px at 15% -20%, rgba(236,72,153,0.10), transparent 60%), radial-gradient(420px 160px at 85% -20%, rgba(99,102,241,0.10), transparent 65%)'
       }} />
       <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/40 to-white/0" />
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 -top-10 h-10 bg-white/40 blur-md opacity-0 transition-opacity duration-200 hover:opacity-70" />
       <div aria-hidden className="pointer-events-none absolute -top-8 left-0 right-0 h-16 bg-gradient-to-b from-white/60 to-transparent" />
       {icon && (
         <div className="text-slate-700 mb-2" aria-hidden>
           {icon}
         </div>
       )}
-      <div className="font-semibold text-slate-900 text-[17px] md:text-[20px]">{title}</div>
-      <div className="text-slate-600 text-sm md:text-base mt-1">{sub}</div>
+      <div className="font-semibold text-slate-900 text-[18px] md:text-[20px]">{title}</div>
+      <div className="text-slate-600 text-[13px] md:text-[15px] mt-1">{sub}</div>
     </div>
   );
 }

@@ -25,6 +25,18 @@ export function track(event: string, props?: Record<string, any>) {
   } catch {}
 }
 
+export function identify(userId?: string, props?: Record<string, any>) {
+  if (!initialized) initAnalytics();
+  try {
+    if (userId) posthog.identify(userId, props || {});
+  } catch {}
+}
+
+export function setFeatureFlag(key: string, value: boolean) {
+  if (!initialized) initAnalytics();
+  try { posthog.group('tenant', 'global'); posthog.featureFlags.set(key, value ? 'on' : 'off'); } catch {}
+}
+
 
 
 

@@ -12,6 +12,7 @@ from .integrations.sms_twilio import twilio_send_sms
 from .integrations.email_sendgrid import sendgrid_send_email
 from .ai import AIClient
 from .db import get_db
+from .metrics_counters import WEBHOOK_EVENTS  # reuse counter infra for jobs
 
 
 QUEUE_SMS = "q:sms"
@@ -30,6 +31,10 @@ def _enqueue(queue: str, payload: Dict[str, Any]) -> bool:
     body = json.dumps(payload)
     try:
         c.rpush(queue, body)
+        try:
+            WEBHOOK_EVENTS.labels(provider=queue, status="enqueued").inc()  # type: ignore
+        except Exception:
+            pass
         return True
     except Exception:
         return False
@@ -141,6 +146,10 @@ def _worker_loop() -> None:
             with next(get_db()) as db:  # type: ignore
                 ok, err = _process_job(db, item)
                 if ok:
+                    try:
+                        WEBHOOK_EVENTS.labels(provider=str(item.get("type") or "unknown"), status="done").inc()  # type: ignore
+                    except Exception:
+                        pass
                     continue
                 # Retry or dead-letter
                 attempts = int(item.get("attempts", 0)) + 1
@@ -148,6 +157,10 @@ def _worker_loop() -> None:
                 max_attempts = int(item.get("max_attempts", 3))
                 if attempts >= max_attempts:
                     _record_dead_letter(db, str(item.get("tenant_id") or ""), str(item.get("type") or "unknown"), err or "failed", item, attempts)
+                    try:
+                        WEBHOOK_EVENTS.labels(provider=str(item.get("type") or "unknown"), status="dead_letter").inc()  # type: ignore
+                    except Exception:
+                        pass
                     continue
                 backoff = min(60, 2 ** attempts)  # seconds
                 time.sleep(backoff)

@@ -93,11 +93,10 @@ export default function Inbox(){
   const channelLabel = channel === 'all' ? 'inbox' : channel;
   const counts = {
     all: items.length,
-    facebook: items.filter(i => (i.channel||'').toLowerCase()==='facebook').length,
     instagram: items.filter(i => (i.channel||'').toLowerCase()==='instagram').length,
     sms: items.filter(i => (i.channel||'').toLowerCase()==='sms').length,
     email: items.filter(i => (i.channel||'').toLowerCase()==='email').length,
-  };
+  } as const;
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -115,7 +114,7 @@ export default function Inbox(){
         <div className="text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-md px-2 py-1 inline-block">OAuth error: {oauthError}</div>
       )}
       <div className="flex flex-wrap items-center gap-2 text-xs" data-guide="channels">
-        {(['all','facebook','instagram','sms','email'] as const).map(key=> (
+        {(['all','instagram','sms','email'] as const).map(key=> (
           <button key={key} className={`px-2 py-1 rounded-full border ${channel===key? 'bg-slate-900 text-white border-slate-900':'bg-white text-slate-700 hover:shadow-sm'}`} onClick={()=> setChannel(key)}>
             {key} · {counts[key] as number}
           </button>
@@ -130,7 +129,6 @@ export default function Inbox(){
         <span className="text-slate-600">Filter:</span>
         <select className="border rounded-md px-2 py-1 bg-white" value={channel} onChange={e=>setChannel(e.target.value)}>
           <option value="all">All</option>
-          <option value="facebook">Facebook</option>
           <option value="instagram">Instagram</option>
           <option value="sms">SMS</option>
           <option value="email">Email</option>
@@ -142,10 +140,9 @@ export default function Inbox(){
         <button className="ml-auto px-2 py-1 rounded-md border bg-white hover:shadow-sm" onClick={refreshStatus}>Refresh status</button>
       </div>
       <div className="rounded-xl border bg-white p-3 shadow-sm flex items-center justify-between">
-        <div className={`text-sm ${ready ? 'text-emerald-700' : 'text-slate-700'}`}>{ready ? 'Ready: Facebook/Instagram connected' : 'Connect Facebook/Instagram to enable unified inbox.'}</div>
+        <div className={`text-sm ${ready ? 'text-emerald-700' : 'text-slate-700'}`}>{ready ? 'Ready: Instagram connected' : 'Connect Instagram to enable unified inbox.'}</div>
         {!ready && (
           <div className="flex gap-2">
-            <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm text-sm disabled:opacity-50" disabled={!!connecting.facebook} onClick={()=>connect('facebook')}>{connecting.facebook ? 'Connecting…' : 'Connect Facebook'}</button>
             <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm text-sm disabled:opacity-50" disabled={!!connecting.instagram} onClick={()=>connect('instagram')}>{connecting.instagram ? 'Connecting…' : 'Connect Instagram'}</button>
           </div>
         )}
@@ -207,16 +204,7 @@ export default function Inbox(){
         <div className="rounded-xl border bg-white p-3 shadow-sm text-sm text-slate-600">
           No {channelLabel} messages yet.
           <div className="block text-xs text-slate-500 mt-1 space-y-2">
-            {channel === 'facebook' && (
-              connected.facebook !== 'connected' ? (
-                <div className="flex items-center gap-2">
-                  <span>Connect Facebook to receive messages here.</span>
-                  <button className="px-2 py-1 rounded-md border bg-white hover:shadow-sm text-xs disabled:opacity-50" disabled={!!connecting.facebook} onClick={()=>connect('facebook')}>
-                    {connecting.facebook ? 'Connecting…' : 'Connect Facebook'}
-                  </button>
-                </div>
-              ) : <span>Connected. New DMs and comments will appear.</span>
-            )}
+            {/* Facebook option removed */}
             {channel === 'instagram' && (
               connected.instagram !== 'connected' ? (
                 <div className="flex items-center gap-2">

@@ -15,6 +15,7 @@ const PINK = '#FDE2F3';
 const BLUE = '#E0F2FE';
 const AZURE = '#7DD3FC';
 const VIOLET = '#C4B5FD';
+const SHOW_REDIRECT_URIS = ((import.meta as any).env?.VITE_SHOW_REDIRECT_URIS === '1') || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('dev'));
 
 const steps = [
   { id: 1, title: 'Welcome', blurb: 'A quick, friendly tour of what onboarding looks like and how little time it takes.' },
@@ -88,7 +89,7 @@ function TimeSavedGauge({ minutes }: { minutes: number }){
       <div>
         <div className="text-slate-600 text-sm">Estimated time saved / week</div>
         <div className="text-slate-900 font-semibold text-lg">{hrs} hours</div>
-        <div className="text-slate-500 text-xs">(Based on your selections)</div>
+        <div className="text-slate-500 text-[11px]"><span aria-hidden>•</span> Based on your selections</div>
       </div>
     </div>
   );
@@ -151,6 +152,37 @@ export default function Onboarding(){
 
   useEffect(() => { (async()=>{ try{ const j = await api.get('/integrations/booking/square/link'); setBookingUrl(j?.url || ''); } catch{} })(); }, []);
   useEffect(() => { (async()=>{ try{ const r = await api.get('/integrations/redirects'); setRedirects(r||{}); } catch{} })(); }, []);
+  // Require an onboarding grant unless dev flag present
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const sp = new URLSearchParams(window.location.search);
+        const dev = sp.get('dev') === '1';
+        if (dev) return;
+        const grantKey = 'bvx_onb_grant';
+        const token = sp.get('onb') || '';
+        if (token) {
+          const r = await api.post('/auth/onboarding/verify', { token });
+          if (r?.status === 'ok') {
+            try { localStorage.setItem(grantKey, '1'); } catch {}
+            try { track('onboarding_verify_ok'); } catch {}
+            try {
+              const bc = new (window as any).BroadcastChannel?.('bvx_onboarding');
+              if (bc) { bc.postMessage({ type:'onb_granted' }); setTimeout(()=> bc.close?.(), 500); }
+            } catch {}
+            try { if (window.opener || (window as any).parent !== window) { setTimeout(()=> window.close(), 300); } } catch {}
+          } else {
+            try { track('onboarding_verify_fail'); } catch {}
+          }
+        }
+        const hasGrant = localStorage.getItem(grantKey) === '1';
+        if (!hasGrant) {
+          showToast({ title: 'Verify your email', description: 'Please verify your email to continue onboarding.' });
+          navigate('/signup', { replace: true });
+        }
+      } catch {}
+    })();
+  }, [navigate, showToast]);
 
   useEffect(() => {
     // Auto-start tour if ?tour=1
@@ -371,17 +403,17 @@ export default function Onboarding(){
               {step === 1 && (
                 <motion.section key="s1" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.25 }}>
                   <PrettyCard>
-                    <h2 className="text-lg font-semibold text-slate-900">Welcome 👋</h2>
-                    <p className="mt-2 text-slate-600">We’ll connect a couple tools, set your tone, and preview messages — then you’re live. Most pros finish in <strong>under 15 minutes</strong>.</p>
+                    <h2 className="text-xl md:text-2xl font-semibold text-slate-900">Welcome 👋</h2>
+                    <p className="mt-2 text-slate-700 text-sm md:text-base">We’ll connect a couple tools, set your tone, and preview messages — then you’re live. Most pros finish in <strong>under 15 minutes</strong>.</p>
                     <div className="mt-4 grid sm:grid-cols-3 gap-3">
                       {[{title:'Connect', text:'Calendar/booking + messages'}, {title:'Personalize', text:'Your vibe + services'}, {title:'Preview', text:'Approve messages → go live'}].map((b,i)=> (
                         <div key={i} className="rounded-xl bg-gradient-to-b from-white/80 to-white/60 p-4 border border-white/60">
-                          <div className="text-slate-900 font-medium">{b.title}</div>
-                          <div className="text-slate-600 text-sm">{b.text}</div>
+                          <div className="text-slate-900 font-medium text-base md:text-lg">{b.title}</div>
+                          <div className="text-slate-600 text-xs md:text-sm">{b.text}</div>
                         </div>
                       ))}
                     </div>
-                    {redirects?.oauth && (
+                    {SHOW_REDIRECT_URIS && redirects?.oauth && (
                       <div className="mt-3">
                         <div className="font-medium">Redirect URIs</div>
                         <div className="grid sm:grid-cols-2 gap-2 mt-1">
@@ -481,7 +513,7 @@ export default function Onboarding(){
                         <div className="mt-2 text-xs text-slate-700">
                           <div className="font-medium mb-1">Status</div>
                           <div className="grid sm:grid-cols-2 gap-2">
-                            {['google','square','acuity','hubspot','facebook','instagram','shopify'].map((p)=>{
+                            {['google','square','acuity','hubspot','instagram','shopify'].map((p)=>{
                               const configured = !!analyzeSummary.providers?.[p];
                               const connected = analyzeSummary.connected?.[p];
                               const label = configured ? (connected ? 'Connected' : 'Awaiting connect') : 'Pending app credentials';

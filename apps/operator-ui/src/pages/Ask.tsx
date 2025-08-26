@@ -265,6 +265,7 @@ export default function Ask(){
 
   const sp = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
   const embedded = sp.get('embed') === '1';
+  const BOOKING_URL = (import.meta as any).env?.VITE_BOOKING_URL || '';
 
   const [running, setRunning] = useState<string>('');
   const [TENANT_ID, setTenantId] = useState<string>(localStorage.getItem('bvx_tenant') || 't1');
@@ -498,7 +499,10 @@ export default function Ask(){
       {!embedded && (
         <div className="flex items-center justify-between">
           <h3 className="text-xl font-semibold" style={{fontFamily:'var(--font-display)'}}>Brand&nbsp;VX</h3>
-          <a href="/onboarding" className="inline-flex items-center px-3 py-2 rounded-full text-sm text-white shadow bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600">Get started</a>
+          <div className="flex items-center gap-2">
+            {BOOKING_URL && <a href={BOOKING_URL} target="_blank" rel="noreferrer" className="inline-flex items-center px-3 py-2 rounded-full text-sm border bg-white">Book onboarding</a>}
+            <a href="/onboarding" className="inline-flex items-center px-3 py-2 rounded-full text-sm text-white shadow bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600">Get started</a>
+          </div>
         </div>
       )}
       <div className="flex items-center gap-2 text-sm">
@@ -559,7 +563,7 @@ export default function Ask(){
           )}
         </div>
       )}
-      <div className={`rounded-xl bg-white shadow-sm p-3 border ${embedded ? 'h-[calc(100%-72px)]' : 'h-64'} overflow-auto`}>
+      <div className={`rounded-xl bg-white shadow-sm p-3 border ${embedded ? 'h-[calc(100%-72px)]' : 'h-64'} overflow-auto`} aria-live="polite" aria-atomic="false" role="log">
         {messages.length === 0 && (
           <div className="text-sm text-slate-500">Start a conversation below.</div>
         )}
@@ -575,7 +579,7 @@ export default function Ask(){
             </div>
           ))}
           {(loading || streaming) && (
-            <div className="text-left">
+            <div className="text-left" aria-live="assertive" aria-atomic="true">
               <span className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-slate-100 text-slate-900">
                 <span>BrandVX is typing</span>
                 <span className="inline-flex ml-1 items-end">

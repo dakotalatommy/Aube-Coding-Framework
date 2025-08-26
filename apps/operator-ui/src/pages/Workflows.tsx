@@ -15,7 +15,7 @@ const workflows: W[] = [
   { title: 'Start a cadence', description: 'Send kind, consent-first messages with quiet-hours and approvals.', to: '/cadences', cta: 'Open Cadences' },
   { title: 'Unified calendar', description: 'Sync Google/Apple and merge Square/Acuity bookings (scheduling from BrandVX disabled).', to: '/calendar', cta: 'Open Calendar' },
   { title: 'Manage inventory', description: 'Sync Shopify/Square, review items and stock levels.', to: '/inventory', cta: 'Open Inventory' },
-  { title: 'Master inbox', description: 'Connect Facebook/Instagram and see all messages in one place.', to: '/inbox', cta: 'Open Inbox' },
+  { title: 'Master inbox', description: 'Connect Instagram and see all messages in one place.', to: '/inbox', cta: 'Open Inbox' },
   { title: 'Client curation', description: 'Hire/Fire with swipe/drag and quick stats.', to: '/curation', cta: 'Open Curation' },
   { title: 'Approvals', description: 'Review pending approvals and confirm risky actions.', to: '/approvals', cta: 'Open Approvals' },
 ];
@@ -77,8 +77,7 @@ export default function Workflows(){
   const markSkip = (k: string) => setPackState(s=> ({ ...s, [k]: 'skipped' }));
 
   const runWarmFive = async () => {
-    if (isDemo) { showToast({ title:'Demo mode', description:'Create an account to run this.
-    ' }); return; }
+    if (isDemo) { showToast({ title:'Demo mode', description:'Create an account to run this.' }); return; }
     if (!twilioReady) { showToast({ title:'Connect Twilio', description:'Please connect Twilio to send SMS.' }); return; }
     setBusy(true);
     try {
@@ -223,13 +222,6 @@ export default function Workflows(){
   };
 
   // --- Workflow progress panel (bottom half reflects active step) ---
-  const wfList: Array<{k:'crm_organization'|'book_filling'|'inventory_tracking'|'social_automation'|'client_communication'; title:string; desc:string}> = [
-    { k:'crm_organization', title:'CRM Organization', desc:'Import, dedupe, consent setup.' },
-    { k:'book_filling', title:'Book‑Filling', desc:'Reminders (7d/3d/1d/2h) with quiet hours.' },
-    { k:'inventory_tracking', title:'Inventory Tracking', desc:'Sync Square/Shopify; low‑stock alerts.' },
-    { k:'social_automation', title:'Social (14‑day)', desc:'Draft 14 days of posts in your voice.' },
-    { k:'client_communication', title:'Client Communication', desc:'Unified inbox + approvals.' },
-  ];
   const active = wfList.find(x=> x.k===activeWf) || wfList[0];
   const markActiveComplete = async()=>{ await persistProgress(active.k); };
 
