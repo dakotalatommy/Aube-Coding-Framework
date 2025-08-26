@@ -1,6 +1,7 @@
 import hashlib
 import time
 from typing import Dict, Any, Optional, List
+import base64
 from ..events import emit_event
 import hmac
 import hashlib
@@ -20,11 +21,23 @@ def import_appointments(tenant_id: str, since: Optional[str] = None, until: Opti
 
 
 def acuity_verify_signature(secret: str, payload: bytes, signature: str) -> bool:
+    """
+    Acuity signs webhooks with HMAC-SHA256 over the raw request body using the account API key.
+    Many setups send the signature as base64, but some integrations use hex. Accept both.
+    """
     if not (secret and signature):
         return False
-    mac = hmac.new(secret.encode(), payload, hashlib.sha256).hexdigest()
     try:
-        return hmac.compare_digest(mac, signature)
+        mac_raw = hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).digest()
+        sig_b64 = base64.b64encode(mac_raw).decode("utf-8")
+        sig_hex = mac_raw.hex()
+        given = signature.strip()
+        # Compare against base64 first, then hex (case-insensitive for hex)
+        if hmac.compare_digest(sig_b64, given):
+            return True
+        if hmac.compare_digest(sig_hex, given.lower()) or hmac.compare_digest(sig_hex.upper(), given.upper()):
+            return True
+        return False
     except Exception:
         return False
 

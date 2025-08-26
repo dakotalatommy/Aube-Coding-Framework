@@ -287,8 +287,7 @@ class AIClient:
                         try:
                             used = int(((data.get("usage") or {}).get("output_tokens") or 0) or 0)
                         except Exception:
-                            used = 0
-                        # Detect reasoning-only completions (no assistant text) even if status says completed
+                            used = 0                        # Detect reasoning-only completions (no assistant text) even if status says completed
                         details = (data.get("usage") or {}).get("output_tokens_details") or {}
                         try:
                             reasoning_only = bool(details.get("reasoning_tokens", 0)) and (used > 0)

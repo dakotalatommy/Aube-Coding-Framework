@@ -3775,10 +3775,12 @@ async def webhook_acuity(
     db: Session = Depends(get_db),
     ctx: UserContext = Depends(get_user_context),
 ):
-    secret = os.getenv("ACUITY_WEBHOOK_SECRET", "")
+    # Allow either a dedicated secret or the account API key; verification can be toggled via env
+    secret = os.getenv("ACUITY_WEBHOOK_SECRET", "") or os.getenv("ACUITY_API_KEY", "")
+    verify_on = (os.getenv("ACUITY_WEBHOOK_VERIFY", "1").strip() != "0")
     raw = await request.body()
     sig = request.headers.get("X-Acuity-Signature", "")
-    if not booking_acuity.acuity_verify_signature(secret, raw, sig):
+    if verify_on and not booking_acuity.acuity_verify_signature(secret, raw, sig):
         raise HTTPException(status_code=403, detail="invalid signature")
     try:
         ok_rl, _ = check_and_increment(req.tenant_id, "webhook:acuity", max_per_minute=120)
