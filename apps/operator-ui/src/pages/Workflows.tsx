@@ -21,6 +21,7 @@ const workflows: W[] = [
 ];
 
 export default function Workflows(){
+  const recommendOnly = String((import.meta as any).env?.VITE_BETA_RECOMMEND_ONLY || localStorage.getItem('bvx_recommend_only') || '0') === '1';
   const { showToast } = useToast();
   const isDemo = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('demo') === '1';
   const [busy, setBusy] = useState(false);
@@ -78,6 +79,7 @@ export default function Workflows(){
 
   const runWarmFive = async () => {
     if (isDemo) { showToast({ title:'Demo mode', description:'Create an account to run this.' }); return; }
+    if (recommendOnly) { showToast({ title:'Beta', description:'Recommend-only mode — preview recipients & draft instead of sending.' }); return; }
     if (!twilioReady) { showToast({ title:'Connect Twilio', description:'Please connect Twilio to send SMS.' }); return; }
     setBusy(true);
     try {
@@ -96,6 +98,7 @@ export default function Workflows(){
 
   const runReminders = async () => {
     if (isDemo) { showToast({ title:'Demo mode', description:'Create an account to run this.' }); return; }
+    if (recommendOnly) { showToast({ title:'Beta', description:'Recommend-only mode — preview reminders in Dashboard today’s outreach.' }); return; }
     setBusy(true);
     try {
       const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'appointments.schedule_reminders', params:{ tenant_id: await getTenant() }, require_approval: false });

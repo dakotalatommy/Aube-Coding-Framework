@@ -63,6 +63,7 @@ export default function Ask(){
   const [sessions, setSessions] = useState<Array<{session_id:string; last_message_at:number}>>([]);
   const [shareUrl, setShareUrl] = useState<string>("");
   const [contextActions, setContextActions] = useState<Action[]>([]);
+  const lastAssistantText = String(messages.filter(m=>m.role==='assistant').slice(-1)[0]?.content||'');
   // Plan builder state: fetch plan, show steps as radio, execute selected or all
   const [planName, setPlanName] = useState<''|'crm_organization'|'book_filling'|'inventory_tracking'|'social_automation'>('');
   const [planSteps, setPlanSteps] = useState<any[]>([]);
@@ -695,6 +696,9 @@ export default function Ask(){
             <span className="px-3 py-2 border rounded-full bg-white hover:shadow-sm text-sm text-slate-800">Get Started!</span>
           </button>
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
+            {!!lastAssistantText && (
+              <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto(`/workspace?pane=messages&body=${encodeURIComponent(lastAssistantText)}`)}>Use this text in Messages</button>
+            )}
             <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('dashboard')}>Guide me: Dashboard</button>
             <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('integrations')}>Guide me: Integrations</button>
             <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('onboarding')}>Guide me: Onboarding</button>

@@ -6,8 +6,9 @@ type Position = { x: number; y: number; w: number; h: number };
 export default function AskFloat(){
   const loc = useLocation();
   const sp = new URLSearchParams(loc.search);
-  const onDashboard = loc.pathname === '/dashboard';
-  const onWorkspace = loc.pathname === '/workspace';
+  const onDashboard = loc.pathname === '/dashboard' || loc.pathname.startsWith('/dashboard/');
+  const onWorkspace = loc.pathname === '/workspace' || loc.pathname.startsWith('/workspace/');
+  const onDemoRoute = loc.pathname.startsWith('/demo') || loc.pathname.startsWith('/ask-vx-demo');
   const inDemo = sp.get('demo') === '1';
   const dockHeight = 'clamp(280px, 32vh, 360px)';
   const [open, setOpen] = useState<boolean>(()=> localStorage.getItem('bvx-ask-open') === '1');
@@ -92,6 +93,9 @@ export default function AskFloat(){
 
   const undock = () => setDocked(false);
 
+  // Hard guard: never render on demo routes
+  if (onDemoRoute) return null;
+
   return (
     <>
       {!open && !(onDashboard || onWorkspace || inDemo) && (
@@ -102,7 +106,7 @@ export default function AskFloat(){
         >Ask VX</button>
       )}
       {open && (
-        <div
+        <div id="bvx-ask-float"
           className={`fixed z-[100] ${(docked || onDashboard || onWorkspace || inDemo) ? 'left-0 right-0' : ''} ${(onDashboard || onWorkspace || inDemo) ? 'rounded-none' : 'rounded-2xl'} ${(onDashboard || onWorkspace || inDemo) ? 'border-t border-slate-200' : 'border'} bg-white shadow-[0_-8px_24px_rgba(0,0,0,0.06)]`}
           style={(docked || onDashboard || onWorkspace || inDemo) ? { left: 0, right: 0, bottom: 'env(safe-area-inset-bottom, 0px)', height: dockHeight } : { left: pos.x, bottom: pos.y, width: pos.w, height: pos.h }}
         >

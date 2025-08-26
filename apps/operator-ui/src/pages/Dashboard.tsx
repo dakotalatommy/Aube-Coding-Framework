@@ -14,6 +14,7 @@ import Skeleton from '../components/ui/Skeleton';
 import { Table, THead, TR, TH, TD } from '../components/ui/Table';
 
 export default function Dashboard(){
+  const recommendOnly = String((import.meta as any).env?.VITE_BETA_RECOMMEND_ONLY || localStorage.getItem('bvx_recommend_only') || '0') === '1';
   const loc = useLocation();
   const nav = useNavigate();
   const isDemo = new URLSearchParams(loc.search).get('demo') === '1';
@@ -215,10 +216,10 @@ export default function Dashboard(){
   if (!isDemo && error) return <div style={{color:'#b91c1c'}}>Error: {error}</div>;
   return (
     <div className="space-y-4">
-      {isDemo && (
+      {(isDemo || recommendOnly) && (
         <section className="rounded-2xl p-3 border bg-amber-50/80 border-amber-200 text-amber-900">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-sm">Demo mode — data is simulated. Create your account to keep progress.</span>
+            <span className="text-sm">{isDemo ? 'Demo mode — data is simulated.' : 'Beta: Sending via BrandVX is coming soon. Preview & copy now; sending will be enabled automatically later.'}</span>
             <ButtonLink href="/signup" size="sm" className="rounded-full px-3 py-1.5">Create account</ButtonLink>
             <ButtonLink href="/billing" size="sm" variant="outline" className="rounded-full px-3 py-1.5">Add payment</ButtonLink>
           </div>
@@ -249,16 +250,16 @@ export default function Dashboard(){
         </section>
       )}
       <section className="rounded-2xl p-4 backdrop-blur bg-white/60 border border-white/70 shadow-sm" data-guide="quick-actions">
-        <div className="flex flex-wrap items-center gap-3">
-          <ButtonLink href="/workspace?pane=contacts" variant="outline" size="md" className="rounded-full px-4 py-2">Import Contacts</ButtonLink>
-          <ButtonLink href="/workspace?pane=cadences" variant="outline" size="md" className="rounded-full px-4 py-2">Start Cadence</ButtonLink>
-          <ButtonLink href="/workspace?pane=messages" variant="outline" size="md" className="rounded-full px-4 py-2">Simulate Message</ButtonLink>
-          <ButtonLink href="/workspace?pane=integrations" size="md" className="rounded-full px-4 py-2">Connect Tools</ButtonLink>
-          <ButtonLink href="/billing" variant="outline" size="md" className="rounded-full px-4 py-2">Billing</ButtonLink>
-          <Button variant="outline" size="md" onClick={handleCreateShare} className="rounded-full px-4 py-2">Share results</Button>
-          <div className="ml-auto flex items-center gap-1.5">
-            <Button variant="outline" size="md" onClick={startTour} className="rounded-full px-4 py-2" aria-label="Open dashboard guide">Guide me</Button>
-            <Button variant="ghost" size="sm" onClick={startFullDemoTour} className="rounded-full px-3 py-2">Run full demo tour</Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <ButtonLink href="/workspace?pane=contacts" variant="outline" size="md" className="px-4 py-2">Import Contacts</ButtonLink>
+          <ButtonLink href="/workspace?pane=cadences" variant="outline" size="md" className="px-4 py-2">Start Cadence</ButtonLink>
+          <ButtonLink href="/workspace?pane=messages" variant="outline" size="md" className="px-4 py-2">Simulate Message</ButtonLink>
+          <ButtonLink href="/workspace?pane=integrations" size="md" className="px-4 py-2">Connect Tools</ButtonLink>
+          <ButtonLink href="/billing" variant="outline" size="md" className="px-4 py-2">Billing</ButtonLink>
+          <Button variant="outline" size="md" onClick={handleCreateShare} className="px-4 py-2">Share results</Button>
+          <div className="ml-auto flex items-center gap-2">
+            <Button variant="outline" size="md" onClick={startTour} className="px-4 py-2" aria-label="Open dashboard guide">Guide me</Button>
+            <Button variant="ghost" size="sm" onClick={startFullDemoTour} className="px-3 py-2">Run full demo tour</Button>
           </div>
         </div>
         {shareUrl && (

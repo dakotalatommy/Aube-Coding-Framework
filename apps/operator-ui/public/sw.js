@@ -1,4 +1,4 @@
-const VERSION = 'v3-2025-08-26-1';
+const VERSION = 'v3-2025-08-26-3';
 const CACHE_NAME = `bvx-cache-${VERSION}`;
 const CORE_ASSETS = [
   '/',

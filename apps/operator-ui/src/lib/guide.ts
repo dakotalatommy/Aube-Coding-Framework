@@ -12,7 +12,7 @@ const registry: Record<string, GuideStep[]> = {
   ],
   dashboard: [
     { popover: { title: 'Welcome to your dashboard', description: 'Time saved, funnel, and quick actions live here.' } },
-    { element: '[data-guide="quick-actions"]', popover: { title: 'Quick actions', description: 'Import contacts, start a cadence, simulate a message, or connect tools.' } },
+    { element: '[data-guide="quick-actions"]', popover: { title: 'Quick actions', description: 'Import contacts, preview outreach (beta), simulate a message, or connect tools.' } },
     { element: '[data-guide="kpis"]', popover: { title: 'KPIs', description: 'Track time saved, messages, revenue uplift, and referrals.' } },
     { element: '[data-guide="chart"]', popover: { title: 'Trend', description: 'Daily progress over the last 30 days.' } },
     { element: '[data-guide="queue"]', popover: { title: 'Cadence queue', description: 'What’s coming next, by contact and flow step.' } },
@@ -23,11 +23,11 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-guide="twilio"]', popover: { title: 'SMS via Twilio', description: 'Use a dedicated business number. Personal numbers are not supported yet.' } },
   ],
   messages: [
-    { popover: { title: 'Messages', description: 'Simulate or send, consent-first. STOP/HELP honored automatically.' } },
+    { popover: { title: 'Messages', description: 'Simulate or preview & copy (beta). STOP/HELP honored automatically when sending is enabled.' } },
     { element: '[data-guide="filter"]', popover: { title: 'Filter & refresh', description: 'Search by contact_id and refresh the list.' } },
-    { element: '[data-guide="simulate"]', popover: { title: 'Simulate', description: 'Generate SMS/Email examples without sending.' } },
+    { element: '[data-guide="simulate"]', popover: { title: 'Simulate', description: 'Generate SMS/Email examples without sending (beta).' } },
     { element: '[data-guide="quiet"]', popover: { title: 'Quiet hours', description: 'Sends are blocked during your quiet window.' } },
-    { element: '[data-guide="send-form"]', popover: { title: 'Send form', description: 'Choose channel, subject (email), and body.' } },
+    { element: '[data-guide="send-form"]', popover: { title: 'Compose', description: 'Choose channel, subject (email), and body. In beta, use Copy & Mark as sent.' } },
     { element: '[data-guide="presets"]', popover: { title: 'Presets', description: 'Draft quickly; you can edit before sending.' } },
     { element: '[data-guide="table"]', popover: { title: 'History', description: 'Recent messages with status and timestamps.' } },
   ],

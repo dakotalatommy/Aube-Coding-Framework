@@ -10,6 +10,7 @@ import { useToast } from '../components/ui/Toast';
 import { driver } from 'driver.js';
 import 'driver.js/dist/driver.css';
 import { startGuide } from '../lib/guide';
+// Removed AskMini per request to avoid duplicating Ask VX in onboarding
 
 const PINK = '#FDE2F3';
 const BLUE = '#E0F2FE';
@@ -95,24 +96,7 @@ function TimeSavedGauge({ minutes }: { minutes: number }){
   );
 }
 
-function FriendlyFAQ(){
-  const items = [
-    { q: 'Do you message my clients without asking?', a: 'Nope. You approve tone and timing. Clients can reply STOP/HELP any time, and we honor consent.' },
-    { q: 'How long does setup take?', a: 'Most pros are done in under 15 minutes. White‑glove is available if you’d like us to do it for you.' },
-    { q: 'What if I don’t use a CRM?', a: 'Totally fine. Calendar/booking and messages are enough to start. You can add CRM later.' },
-    { q: 'Will this feel like me?', a: 'Yes. You choose the vibe. We keep it human, short, and in your voice.' },
-  ];
-  return (
-    <div className="grid gap-3">
-      {items.map((f, i) => (
-        <details key={i} className="bg-white/70 backdrop-blur rounded-xl p-4">
-          <summary className="cursor-pointer font-medium text-slate-800">{f.q}</summary>
-          <p className="mt-2 text-slate-600 text-sm">{f.a}</p>
-        </details>
-      ))}
-    </div>
-  );
-}
+// FAQ removed in favor of embedded AskMini chat during onboarding
 
 export default function Onboarding(){
   const navigate = useNavigate();
@@ -167,8 +151,9 @@ export default function Onboarding(){
             try { localStorage.setItem(grantKey, '1'); } catch {}
             try { track('onboarding_verify_ok'); } catch {}
             try {
-              const bc = new (window as any).BroadcastChannel?.('bvx_onboarding');
-              if (bc) { bc.postMessage({ type:'onb_granted' }); setTimeout(()=> bc.close?.(), 500); }
+              const BC:any = (window as any).BroadcastChannel;
+              const bc = BC ? new BC('bvx_onboarding') : null;
+              if (bc) { bc.postMessage({ type:'onb_granted' }); setTimeout(()=> { try { bc.close && bc.close(); } catch {} }, 500); }
             } catch {}
             try { if (window.opener || (window as any).parent !== window) { setTimeout(()=> window.close(), 300); } } catch {}
           } else {
@@ -710,7 +695,14 @@ export default function Onboarding(){
 
             <PrettyCard>
               <h3 className="text-slate-900 font-semibold">FAQ</h3>
-              <FriendlyFAQ />
+              <div className="grid gap-3">
+                {[{q:'Do you message my clients without asking?',a:'Nope. You approve tone and timing. Clients can reply STOP/HELP any time, and we honor consent.'},{q:'How long does setup take?',a:'Most pros are done in under 15 minutes. White‑glove is available if you’d like us to do it for you.'},{q:'What if I don’t use a CRM?',a:'Totally fine. Calendar/booking and messages are enough to start. You can add CRM later.'},{q:'Will this feel like me?',a:'Yes. You choose the vibe. We keep it human, short, and in your voice.'}].map((f,i)=> (
+                  <details key={i} className="bg-white/70 backdrop-blur rounded-xl p-4">
+                    <summary className="cursor-pointer font-medium text-slate-800">{f.q}</summary>
+                    <p className="mt-2 text-slate-600 text-sm">{f.a}</p>
+                  </details>
+                ))}
+              </div>
             </PrettyCard>
           </div>
 

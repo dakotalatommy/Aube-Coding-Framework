@@ -13,6 +13,9 @@ class AIClient:
         # Default to GPT-5 Mini; no GPT-4 fallbacks
         self.model = model or os.getenv("OPENAI_MODEL", "gpt-5-mini")
         self.fallback_models = [m.strip() for m in os.getenv("OPENAI_FALLBACK_MODELS", "").split(",") if m.strip()]
+        # Ensure we always have a safe GPT‑5 fallback if primary is GPT‑5
+        if (not self.fallback_models) and (self.model.lower().startswith("gpt-5")):
+            self.fallback_models = ["gpt-5-nano"]
         self.provider = os.getenv("AI_PROVIDER", "chat").lower()  # chat | agents
         self.agent_id = os.getenv("OPENAI_AGENT_ID", "")
         if self.provider == "agents" and not self.agent_id:
@@ -30,22 +33,30 @@ class AIClient:
             text = await self._generate_via_agents(system, messages, max_tokens)
             if text:
                 return text
-        # If model suggests Responses API (e.g., gpt-5) or explicitly requested, try Responses first
+        # Always prefer Responses for GPT‑5 models. If Responses fails, try Responses for fallbacks first.
         try_responses = os.getenv("OPENAI_USE_RESPONSES", "true").lower() == "true" or self.model.lower().startswith("gpt-5")
         if try_responses:
+            # Try primary via Responses
             text = await self._generate_via_responses(system, messages, max_tokens)
             if text:
                 return text
-        # Otherwise use chat completions with model fallbacks
-        # Important: if we already tried Responses with a GPT-5 model, skip attempting
-        # Chat Completions with that same GPT-5 model (it will 400). Prefer safe fallbacks.
-        candidates: List[str]
-        if try_responses and self.model.lower().startswith("gpt-5"):
-            candidates = [self.model] + [m for m in self.fallback_models if m]
-        else:
-            candidates = [self.model] + [m for m in self.fallback_models if m]
+            # Try fallbacks via Responses
+            for fb in self.fallback_models:
+                m_prev = self.model
+                try:
+                    self.model = fb
+                    text_fb = await self._generate_via_responses(system, messages, max_tokens)
+                    if text_fb:
+                        return text_fb
+                finally:
+                    self.model = m_prev
+        # As a last resort, try Chat Completions for non‑GPT‑5 models only
+        candidates: List[str] = [self.model] + [m for m in self.fallback_models if m]
         last_error_message = None
         for model_name in candidates:
+            if model_name.lower().startswith("gpt-5"):
+                # Avoid calling Chat Completions with GPT‑5 models (returns 400)
+                continue
             payload: Dict[str, Any] = {
                 "model": model_name,
                 "messages": ([{"role": "system", "content": system}] + messages),

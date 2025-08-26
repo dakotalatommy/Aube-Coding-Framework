@@ -10,6 +10,7 @@ import EmptyState from '../components/ui/EmptyState';
 // import { Link } from 'react-router-dom';
 
 export default function Messages(){
+  const recommendOnly = String((import.meta as any).env?.VITE_BETA_RECOMMEND_ONLY || localStorage.getItem('bvx_recommend_only') || '0') === '1';
   const [items, setItems] = useState<any[]>([]);
   const [filterContact, setFilterContact] = useState('');
   const [status, setStatus] = useState('');
@@ -21,6 +22,17 @@ export default function Messages(){
   const [connected, setConnected] = useState<Record<string,string>>({});
   useEffect(()=>{ (async()=>{ try{ const r = await api.post('/onboarding/analyze', { tenant_id: await getTenant() }); if (r?.summary?.connected) setConnected(r.summary.connected); } catch{} })(); },[]);
   const twilioConnected = (connected['twilio']||'') === 'connected';
+
+  // Prefill from querystring for Ask→Messages route
+  useEffect(()=>{
+    try{
+      const sp = new URLSearchParams(window.location.search);
+      const body = sp.get('body');
+      const cid = sp.get('cid');
+      if (body) setSend(s=> ({ ...s, body: decodeURIComponent(body) }));
+      if (cid) setSend(s=> ({ ...s, contact_id: decodeURIComponent(cid) }));
+    } catch {}
+  },[]);
 
   const presets = [
     { label:'Reminder 24h', body:'Hey {FirstName} — see you tomorrow at {Time}. Need to change it? Tap here. Reply STOP/HELP to opt out.' },
@@ -44,7 +56,15 @@ export default function Messages(){
       const r = await api.post('/messages/simulate', { tenant_id:'t1', contact_id: filterContact || 'c_demo', channel, generate: false });
       setStatus(JSON.stringify(r));
       await load();
-    } catch(e:any){ setStatus(String(e?.message||e)); }
+    } catch(e:any){
+      // retry once on transient network error
+      try {
+        await new Promise(res=> setTimeout(res, 600));
+        const r2 = await api.post('/messages/simulate', { tenant_id:'t1', contact_id: filterContact || 'c_demo', channel, generate: false });
+        setStatus(JSON.stringify(r2));
+        await load();
+      } catch(e2:any){ setStatus(String(e2?.message||e2)); }
+    }
   };
   useEffect(()=>{ setPersisted('msg_draft', send); }, [send]);
   useEffect(()=>{
@@ -60,11 +80,53 @@ export default function Messages(){
   }, [send.contact_id]);
   const sendMsg = async () => {
     try {
+      if (recommendOnly) { setStatus('Beta: recommend-only mode is enabled. Use Copy to send via your channel.'); return; }
       if (send.channel === 'sms' && !twilioConnected) { setStatus('Connect Twilio to send SMS.'); return; }
       const r = await api.post('/messages/send', { tenant_id:'t1', contact_id: send.contact_id, channel: send.channel, subject: send.subject || undefined, body: send.body || undefined });
       setStatus(JSON.stringify(r));
       await load();
     } catch(e:any){ setStatus(String(e?.message||e)); }
+  };
+
+  const copyRecipients = async () => {
+    try{
+      const txt = (send.contact_id||'').trim();
+      if (!txt) { setStatus('No recipient selected.'); return; }
+      await navigator.clipboard.writeText(txt);
+      setStatus('Recipients copied');
+    } catch(e:any){ setStatus('Copy failed: '+String(e?.message||e)); }
+  };
+
+  const copyMessage = async () => {
+    try{
+      const body = (send.body||'').trim();
+      if (!body) { setStatus('No message body.'); return; }
+      await navigator.clipboard.writeText(body);
+      setStatus('Message copied');
+    } catch(e:any){ setStatus('Copy failed: '+String(e?.message||e)); }
+  };
+
+  const saveSuggestion = async () => {
+    try{
+      const tid = await getTenant();
+      const s = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+      const data = s?.data || {};
+      const list = Array.isArray(data.suggested_campaigns) ? data.suggested_campaigns : [];
+      const item = { id: 'sc_'+Math.random().toString(36).slice(2,10), created_at: Date.now(), contact_id: send.contact_id, channel: send.channel, subject: send.subject||'', body: send.body||'', status: 'pending', title: 'Suggested Campaign' };
+      const next = { ...data, suggested_campaigns: [item, ...list].slice(0, 200) };
+      await api.post('/settings', { tenant_id: tid, ...next });
+      setStatus('Saved to Approvals (pending)');
+    } catch(e:any){ setStatus('Save failed: '+String(e?.message||e)); }
+  };
+
+  const markAsSent = async () => {
+    try{
+      const key = 'bvx_marked_sent';
+      const list = JSON.parse(localStorage.getItem(key)||'[]');
+      list.push({ ts: Date.now(), contact_id: send.contact_id, channel: send.channel });
+      localStorage.setItem(key, JSON.stringify(list));
+      setStatus('Marked as sent (local log)');
+    } catch { setStatus('Marked as sent'); }
   };
 
   return (
@@ -88,7 +150,11 @@ export default function Messages(){
 
           <div className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm" data-guide="compose">
             <div className="font-semibold mb-2">Send Message</div>
-            <div className="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Some actions may require approval when auto-approve is off. Review in Approvals.</div>
+            {recommendOnly ? (
+              <div className="mb-2 text-xs text-sky-800 bg-sky-50 border border-sky-100 rounded-md px-2 py-1 inline-block">Beta: recommend-only mode — preview and copy. BrandVX sending is coming soon.</div>
+            ) : (
+              <div className="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Some actions may require approval when auto-approve is off. Review in Approvals.</div>
+            )}
             {!!quiet?.start && !!quiet?.end && (
               <div className="mb-2 text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-md px-2 py-1 inline-block" data-guide="quiet">Quiet hours: {quiet.start}–{quiet.end}. Sending will be disabled during this window.</div>
             )}
@@ -126,7 +192,16 @@ export default function Messages(){
             {status.includes('rate_limited') && (
               <div className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Rate limited — please try again shortly.</div>
             )}
-            <Button variant="primary" className="mt-2" onClick={sendMsg} disabled={isWithinQuiet(quiet)} data-guide="send">Send</Button>
+            {recommendOnly ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Button variant="outline" onClick={copyRecipients}>Copy recipients</Button>
+                <Button variant="outline" onClick={copyMessage}>Copy message</Button>
+                <Button variant="outline" onClick={saveSuggestion}>Save to Approvals</Button>
+                <Button variant="primary" onClick={markAsSent}>Mark as sent</Button>
+              </div>
+            ) : (
+              <Button variant="primary" className="mt-2" onClick={sendMsg} disabled={isWithinQuiet(quiet)} data-guide="send">Send</Button>
+            )}
           </div>
 
           <pre className="whitespace-pre-wrap text-sm text-slate-700" data-guide="status">{status}</pre>

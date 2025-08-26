@@ -39,6 +39,14 @@ export default function WorkspaceShell(){
   useEffect(()=>{
     (async()=>{
       try{
+        // Auth guard: if not signed in and not explicitly demo, bounce to signup
+        if (!demo) {
+          const session = (await supabase.auth.getSession()).data.session;
+          if (!session) {
+            nav('/signup');
+            return;
+          }
+        }
         const sp = new URLSearchParams(loc.search);
         if (sp.get('billing') === 'success') {
           try { track('billing_success'); } catch {}

@@ -107,9 +107,11 @@ function Shell() {
   const embed = new URLSearchParams(loc.search).get('embed') === '1';
   const qs = new URLSearchParams(loc.search);
   const onLanding = loc.pathname === '/brandvx';
-  const onAskPage = loc.pathname === '/ask';
-  const onDemo = loc.pathname === '/demo';
-  const showAsk = !embed && !onAskPage && !onDemo && (!onLanding || qs.get('demo') === '1');
+  const onAskPage = loc.pathname.startsWith('/ask');
+  const onDemo = loc.pathname.startsWith('/demo') || loc.pathname.startsWith('/ask-vx-demo');
+  // Only show AskFloat in workspace/dashboard to avoid overlays elsewhere
+  const onlyWorkspace = loc.pathname.startsWith('/workspace') || loc.pathname === '/dashboard';
+  const showAsk = !embed && !onAskPage && !onDemo && onlyWorkspace;
 
   // Clear Ask VX persisted state on pure landing to avoid stray artifacts
   useEffect(()=>{

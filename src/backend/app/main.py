@@ -1445,6 +1445,7 @@ class ChatRequest(BaseModel):
     messages: List[ChatMessage]
     allow_tools: bool = False
     session_id: Optional[str] = None
+    mode: Optional[str] = None  # e.g., 'sales_onboarding'
 
 
 @app.post("/ai/chat", tags=["AI"])
@@ -1514,7 +1515,10 @@ async def ai_chat(
                     brand_profile_text = _json.dumps(bp, ensure_ascii=False)
     except Exception:
         brand_profile_text = ""
-    system_prompt = chat_system_prompt(capabilities_text + (f"\nBrand profile: {brand_profile_text}" if brand_profile_text else ""))
+    system_prompt = chat_system_prompt(
+        capabilities_text + (f"\nBrand profile: {brand_profile_text}" if brand_profile_text else ""),
+        mode=(req.mode or "default")
+    )
     # Adaptive model selection: prefer Mini; use Nano for short replies or when caps are tight
     user_text = (req.messages[-1].content if req.messages else "")
     short = len(user_text.split()) < 24

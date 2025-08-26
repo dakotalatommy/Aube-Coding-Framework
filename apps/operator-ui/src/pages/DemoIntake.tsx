@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { track } from '../lib/analytics';
 import { supabase } from '../lib/supabase';
+import { api, getTenant } from '../lib/api';
 
 type Msg = { role: 'user'|'assistant'; content: string };
 
@@ -18,7 +19,7 @@ export default function DemoIntake(){
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [idx, setIdx] = useState(0);
-  const [freePromptsLeft, setFreePromptsLeft] = useState<number>(()=> 2);
+  const [freePromptsLeft, setFreePromptsLeft] = useState<number>(()=> 5);
   const [profile, setProfile] = useState<Record<string,string>>(()=>{
     try { return JSON.parse(localStorage.getItem('bvx_demo_profile')||'{}'); } catch { return {}; }
   });
@@ -31,6 +32,14 @@ export default function DemoIntake(){
     pushAssistant("Quick intro for your demo. I’ll ask a few questions and then you can chat with me. You can skip anytime.");
     setTimeout(()=> pushAssistant(intakeQuestions[0].q), 250);
   }, []);
+
+  // Ensure any persisted floater state is off on demo
+  useEffect(()=>{
+    try {
+      localStorage.setItem('bvx-ask-open','0');
+      localStorage.setItem('bvx-ask-docked','0');
+    } catch {}
+  },[]);
 
   const [intakeId] = useState<string>(() => {
     const k = 'bvx_demo_intake_session';
@@ -57,14 +66,14 @@ export default function DemoIntake(){
   const pushAssistant = (text: string) => setMessages(m=>[...m,{role:'assistant',content:text}]);
   const pushUser = (text: string) => setMessages(m=>[...m,{role:'user',content:text}]);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const text = input.trim();
     if (!text || busy) return;
     setInput('');
     pushUser(text);
     setBusy(true);
-    window.setTimeout(()=>{
-      // If still in intake
+    try{
+      // If still in scripted intake, capture answer and ask next scripted question
       if (idx < intakeQuestions.length){
         const key = intakeQuestions[idx].key;
         const next = { ...profile, [key]: text } as Record<string,string>;
@@ -73,33 +82,48 @@ export default function DemoIntake(){
         const nextIdx = idx + 1;
         setIdx(nextIdx);
         if (nextIdx < intakeQuestions.length) {
-          pushAssistant(intakeQuestions[nextIdx].q);
+          // AskVX follow-up in sales_onboarding mode, using the next scripted question as guidance
+          const r = await api.post('/ai/chat', {
+            tenant_id: await getTenant(),
+            messages: [
+              { role:'assistant', content: 'I\'ll ask a few questions to tailor your demo.' },
+              { role:'user', content: text }
+            ],
+            allow_tools: false,
+            session_id: 'demo_intake',
+            mode: 'sales_onboarding',
+          });
+          const follow = String(r?.text||'').trim();
+          pushAssistant(follow || intakeQuestions[nextIdx].q);
         } else {
-          pushAssistant('Perfect. Thanks! You can ask me two quick questions about BrandVX, then I’ll set you up with a full demo.');
+          pushAssistant('Perfect. Thanks! Ask me a few quick questions about BrandVX — I’ll keep it brief.');
           try { track('intake_complete'); } catch {}
           void saveRemote(next);
         }
         setBusy(false);
         return;
       }
-      // Post‑intake: allow limited follow‑ups
+      // Post‑intake: power replies via AskVX with a 5-turn cap
       if (freePromptsLeft > 0) {
-        const remain = freePromptsLeft - 1;
-        setFreePromptsLeft(remain);
-        pushAssistant(remain>0 ?
-          'Great question. In short: BrandVX automates cadences, reminders, and human‑feeling follow‑ups across SMS/email while you stay in your craft.' :
-          'Love that. I can show you much more with the interactive tour. Use the button below to create your BrandVX and I’ll walk you through.');
-        if (remain === 0) {
-          // Nudge CTA inline
-          setTimeout(()=> pushAssistant('Ready when you are — click “Create your BrandVX” to continue.'), 300);
-        }
+        const r = await api.post('/ai/chat', {
+          tenant_id: await getTenant(),
+          messages: [ { role:'user', content: text } ],
+          allow_tools: false,
+          session_id: 'demo_followup',
+          mode: 'sales_onboarding',
+        });
+        const reply = String(r?.text || '').trim();
+        pushAssistant(reply || 'Thanks!');
+        setFreePromptsLeft(freePromptsLeft-1);
         setBusy(false);
         return;
       }
-      // After limit, keep nudging
       pushAssistant('Tap “Create your BrandVX” to continue the full tour.');
+    } catch(e:any){
+      pushAssistant(String(e?.message||e));
+    } finally {
       setBusy(false);
-    }, 400);
+    }
   };
 
   const skip = () => {
@@ -112,15 +136,16 @@ export default function DemoIntake(){
 
   return (
     <div className="min-h-screen relative overflow-hidden">
+      <style>{`#bvx-ask-float{display:none!important}`}</style>
       {/* Removed duplicate full-screen overlay to avoid double Ask UI; using inline panel below */}
-      <div className="absolute inset-0 -z-10" style={{
+      <div aria-hidden className="absolute inset-0 -z-10" style={{
         background: 'radial-gradient(900px 400px at 10% -10%, rgba(236,72,153,0.10), transparent), radial-gradient(800px 300px at 90% -20%, rgba(99,102,241,0.12), transparent)'
       }} />
       <div className="max-w-6xl mx-auto px-4 py-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-xl font-semibold" style={{fontFamily:'var(--font-display)'}}>Quick intro for your demo</h1>
-            <div className="text-sm text-slate-600">We detected {tz}. You can adjust later.</div>
+            <h1 className="text-3xl font-semibold leading-tight" style={{fontFamily:'var(--font-display)'}}>Quick intro for your demo</h1>
+            <div className="text-sm text-slate-600 mt-0.5">We detected {tz}. You can adjust later.</div>
           </div>
           <div className="text-sm">
             <a href="/login" className="text-slate-700 hover:underline">Already have BrandVX? Sign in</a>
@@ -149,7 +174,7 @@ export default function DemoIntake(){
                 </div>
               </div>
               <div className="mt-2 flex gap-2 items-start shrink-0">
-                <textarea className="flex-1 border rounded-md px-3 py-2 max-h-24 overflow-auto" rows={2} placeholder="Type here" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={(e)=>{ if (e.key==='Enter' && (e.metaKey||e.ctrlKey)) { e.preventDefault(); handleSend(); } }} />
+                <textarea className="flex-1 border rounded-md px-3 py-2 max-h-24 overflow-auto" rows={2} placeholder="Type here" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={(e)=>{ if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } if (e.key==='Enter' && (e.metaKey||e.ctrlKey)) { e.preventDefault(); handleSend(); } }} />
                 <button className="rounded-full px-4 py-2 bg-gradient-to-r from-blue-100 to-blue-300 hover:from-blue-200 hover:to-blue-400 shadow text-slate-900" onClick={handleSend} disabled={busy}>{busy?'…':'Send'}</button>
               </div>
               {idx >= intakeQuestions.length && (
@@ -169,11 +194,7 @@ export default function DemoIntake(){
         </div>
       </div>
 
-      {/* Persistent bottom-right CTA */}
-      <div className="fixed right-4 bottom-4 z-20 flex flex-col gap-2 items-end">
-        <button onClick={()=>{ try { track('tour_start_click',{source:'intake_fab'}); } catch{}; window.location.href='/workspace?pane=dashboard&demo=1&tour=1'; }} className="rounded-full px-5 py-3 text-sm font-semibold text-slate-900 shadow-lg bg-gradient-to-r from-blue-100 to-blue-300 hover:from-blue-200 hover:to-blue-400">Start guided walkthrough</button>
-        <button onClick={()=>{ try { track('signup_click',{source:'floating_cta'}); } catch{}; window.location.href='/signup?from=intake'; }} className="rounded-full px-5 py-3 text-sm font-semibold text-white shadow-lg bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600">Create your BrandVX</button>
-      </div>
+      {/* Remove floating duplicate CTAs to prevent overlay/stacking */}
     </div>
   );
 }

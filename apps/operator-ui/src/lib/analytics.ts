@@ -34,7 +34,14 @@ export function identify(userId?: string, props?: Record<string, any>) {
 
 export function setFeatureFlag(key: string, value: boolean) {
   if (!initialized) initAnalytics();
-  try { posthog.group('tenant', 'global'); posthog.featureFlags.set(key, value ? 'on' : 'off'); } catch {}
+  try {
+    // PostHog JS does not expose a typed setter on featureFlags; use override via persistence
+    const overrides = (posthog as any)?.persistence?.props?.$override_feature_flags || {};
+    overrides[key] = value ? 'on' : 'off';
+    if ((posthog as any)?.persistence?.register) {
+      (posthog as any).persistence.register({ $override_feature_flags: overrides });
+    }
+  } catch {}
 }
 
 

@@ -16,9 +16,12 @@ export default function Approvals(){
   const [onlyPending, setOnlyPending] = useState(true);
   const [selected, setSelected] = useState<any|null>(null);
   const [labels, setLabels] = useState<Record<string,string>>({});
+  const [authHint, setAuthHint] = useState<string>('');
   const load = async () => {
     try{
-      const r = await api.get(`/approvals?tenant_id=${encodeURIComponent(await getTenant())}`);
+      const tid = await getTenant();
+      if (!tid) { setAuthHint('Sign in to view approvals.'); setItems([]); return; }
+      const r = await api.get(`/approvals?tenant_id=${encodeURIComponent(tid)}`);
       // API returns an array; also support {items: []}
       setItems(Array.isArray(r) ? r : (r.items||[]));
     } catch(e:any){ setStatus(String(e?.message||e)); }
@@ -112,6 +115,9 @@ export default function Approvals(){
         <Button variant="outline" size="sm" className="ml-auto" onClick={()=> startGuide('approvals')}>Guide me</Button>
       </div>
       <div className="text-xs text-slate-600">When BrandVX needs your OK for an action, it shows up here. Review the details and Approve or Reject.</div>
+      {authHint && (
+        <div className="rounded-md border bg-amber-50 text-amber-800 px-2 py-1 text-xs inline-block">{authHint}</div>
+      )}
       <div className="flex flex-wrap items-center gap-2 text-sm" data-guide="filters">
         <input className="border rounded-md px-2 py-1 bg-white" placeholder="Search…" value={q} onChange={e=>setQ(e.target.value)} />
         <label className="flex items-center gap-2 text-xs text-slate-700"><input type="checkbox" checked={onlyPending} onChange={e=>setOnlyPending(e.target.checked)} /> Show only pending</label>
