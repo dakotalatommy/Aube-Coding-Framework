@@ -180,12 +180,12 @@ class AIClient:
         }
         # Prefer structured input with role/content blocks for best compatibility
         content_blocks: List[Dict[str, Any]] = [
-            {"role": "system", "content": [{"type": "text", "text": system}]}
+            {"role": "system", "content": [{"type": "input_text", "text": system}]}
         ]
         for m in messages:
             content_blocks.append({
                 "role": m.get("role", "user"),
-                "content": [{"type": "text", "text": str(m.get("content", ""))}]
+                "content": [{"type": "input_text", "text": str(m.get("content", ""))}]
             })
         payload: Dict[str, Any] = {
             "model": self.model,
