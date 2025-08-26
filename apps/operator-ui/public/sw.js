@@ -1,4 +1,5 @@
-const CACHE_NAME = 'bvx-cache-v1';
+const VERSION = 'v3-2025-08-26-1';
+const CACHE_NAME = `bvx-cache-${VERSION}`;
 const CORE_ASSETS = [
   '/',
   '/index.html',
@@ -20,21 +21,28 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = new URL(req.url);
   if (req.method !== 'GET') return;
-  // SPA navigation fallback
-  if (req.mode === 'navigate' && url.origin === location.origin) {
+  // Network-first for app shell (HTML/JS/CSS) to avoid stale UI
+  const isAppShell = req.mode === 'navigate' || url.pathname.endsWith('.js') || url.pathname.endsWith('.css');
+  if (url.origin === location.origin && isAppShell) {
     event.respondWith(
-      fetch(req).catch(() => caches.match('/index.html'))
+      fetch(req)
+        .then((resp) => {
+          const copy = resp.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
+          return resp;
+        })
+        .catch(async () => (await caches.match(req)) || (await caches.match('/index.html')))
     );
     return;
   }
-  // Cache-first for same-origin static assets
+  // Cache-first for static assets (images/fonts)
   if (url.origin === location.origin) {
     event.respondWith(
       caches.match(req).then((hit) => hit || fetch(req).then((resp) => {
         const copy = resp.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(req, copy));
         return resp;
-      }).catch(() => hit))
+      }))
     );
   }
 });
