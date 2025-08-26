@@ -506,11 +506,17 @@ export default function Ask(){
           </div>
         </div>
       )}
-      <div className="flex items-center gap-2 text-sm">
-        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ setHistoryOpen(h=>!h); if (!historyOpen) void loadHistory(); }}>{historyOpen ? 'Hide history' : 'Show history'}</button>
-        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ const sid = 's_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('bvx_chat_session', sid); window.location.reload(); }}>New session</button>
-        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ void loadSessions(); }}>Sessions</button>
-        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{
+      <div className="grid grid-cols-3 items-center gap-2 text-sm">
+        <div className="flex items-center gap-2">
+          <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ setHistoryOpen(h=>!h); if (!historyOpen) void loadHistory(); }}>{historyOpen ? 'Hide history' : 'Show history'}</button>
+          <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ const sid = 's_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('bvx_chat_session', sid); window.location.reload(); }}>New session</button>
+          <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ void loadSessions(); }}>Sessions</button>
+        </div>
+        <div className="flex items-center justify-center">
+          <div className="font-semibold" style={{fontFamily:'var(--font-display)'}}>Ask VX</div>
+        </div>
+        <div className="flex items-center justify-end">
+          <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{
           try{
             const tid = await getTenant();
             const last = messages.filter(m=>m.role==='assistant').slice(-1)[0]?.content || messages.slice(-1)[0]?.content || 'Shared from BrandVX';
@@ -523,6 +529,7 @@ export default function Ask(){
             }
           } catch {}
         }}>Share</button>
+        </div>
       </div>
       {shareUrl && (
         <div className="text-xs text-slate-600 mt-1">Share link copied: <a className="underline" href={shareUrl} target="_blank" rel="noreferrer">{shareUrl}</a></div>

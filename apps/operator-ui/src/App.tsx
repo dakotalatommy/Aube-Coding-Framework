@@ -135,7 +135,7 @@ function Shell() {
             background: 'radial-gradient(1200px 400px at 10% -10%, rgba(236,72,153,0.14), transparent), radial-gradient(900px 300px at 90% -20%, rgba(99,102,241,0.12), transparent)'
           }} />
         )}
-        <div className="px-6 pt-4 md:pt-6 h-full overflow-hidden">
+        <div className="px-6 pt-4 md:pt-6 h-full overflow-hidden box-border">
           {/* Header bar removed per request to keep workspace minimal */}
           <main id="main" className="h-full overflow-hidden">
             <Suspense fallback={<div className="max-w-5xl mx-auto p-4"><div className="h-10 w-40 bg-slate-100 rounded mb-3" /><div className="h-6 w-64 bg-slate-100 rounded mb-2" /><div className="h-24 w-full bg-slate-100 rounded" /></div>}>

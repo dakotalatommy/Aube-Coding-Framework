@@ -4,9 +4,25 @@ import { track } from '../lib/analytics';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import { driver } from 'driver.js';
+import StepPager from '../components/StepPager';
 import 'driver.js/dist/driver.css';
 
 export default function Integrations(){
+  const [step, setStep] = useState<number>(()=>{
+    try{
+      const sp = new URLSearchParams(window.location.search); const s = Number(sp.get('step')||'1'); return Math.max(1, Math.min(8, isFinite(s)? s : 1)) - 1;
+    } catch { return 0; }
+  });
+  const steps = [
+    { key:'overview', label:'Overview' },
+    { key:'twilio', label:'Twilio SMS' },
+    { key:'hubspot', label:'HubSpot' },
+    { key:'calendar', label:'Google/Calendar' },
+    { key:'booking', label:'Square/Acuity' },
+    { key:'shopify', label:'Shopify' },
+    { key:'settings', label:'Settings' },
+    { key:'reanalyze', label:'Re‑analyze' },
+  ];
   const SOCIAL_ON = (import.meta as any).env?.VITE_FEATURE_SOCIAL === '1';
   const SHOW_REDIRECT_URIS = ((import.meta as any).env?.VITE_SHOW_REDIRECT_URIS === '1') || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('dev'));
   const [settings, setSettings] = useState<any>({ tone:'helpful', services:['sms','email'], auto_approve_all:false, quiet_hours:{ start:'21:00', end:'08:00' }, preferences:{} });
@@ -245,7 +261,7 @@ export default function Integrations(){
     }
   };
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 overflow-hidden">
       <div className="flex items-center">
         <h3 className="text-lg font-semibold">Integrations & Settings</h3>
         <div className="flex items-center gap-2 ml-auto">
@@ -334,8 +350,9 @@ export default function Integrations(){
         </div>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-4 mt-4" data-guide="providers">
-        {SHOW_REDIRECT_URIS && redirects && (
+      <StepPager steps={steps} index={step} onChange={setStep} persistKey="bvx_int_step" />
+      <div className="grid md:grid-cols-3 gap-4 mt-1 overflow-hidden" data-guide="providers">
+        {step===0 && SHOW_REDIRECT_URIS && redirects && (
           <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm md:col-span-3">
             <div className="flex items-center gap-2 mb-2">
               <div className="font-semibold text-slate-900">Redirect URIs</div>
@@ -365,6 +382,7 @@ export default function Integrations(){
             </div>
           </section>
         )}
+        {step===1 && (
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
@@ -381,7 +399,9 @@ export default function Integrations(){
           {onboarding?.providers?.hubspot===false && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure HubSpot OAuth to enable.</div>}
           <div className="mt-2 text-xs text-amber-700">Note: Contact syncs may require approval if auto-approve is disabled.</div>
         </section>
+        )}
 
+        {step===1 && (
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm" id="twilio-card" data-guide="twilio">
           <div className="flex items-center justify-between">
             <div>
@@ -410,7 +430,9 @@ export default function Integrations(){
             Use a dedicated Twilio business number for SMS. We’ll add number porting support later. For now, personal mobile numbers are not supported.
           </div>
         </section>
+        )}
 
+        {step===4 && (
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
@@ -429,7 +451,9 @@ export default function Integrations(){
           {(onboarding?.providers?.square===false || onboarding?.providers?.acuity===false) && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Square/Acuity OAuth to enable.</div>}
           <div className="mt-2 text-xs text-amber-700">Note: Imports and booking merges may queue approvals when auto-approve is off.</div>
         </section>
+        )}
 
+        {step===6 && (
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
@@ -443,6 +467,7 @@ export default function Integrations(){
           </div>
           <div className="mt-2 text-xs text-amber-700">Note: Test emails may require approval if auto-approve is disabled.</div>
         </section>
+        )}
 
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
           <div className="flex items-center justify-between">
@@ -460,7 +485,7 @@ export default function Integrations(){
           {onboarding?.providers?.google===false && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Google OAuth to enable.</div>}
         </section>
 
-        {SOCIAL_ON ? (
+        {step===0 && (SOCIAL_ON ? (
           <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
@@ -486,6 +511,7 @@ export default function Integrations(){
       </div>
 
       <div className="grid md:grid-cols-3 gap-4 mt-4">
+        {step===5 && (
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
@@ -501,6 +527,7 @@ export default function Integrations(){
           </div>
           {onboarding?.providers?.shopify===false && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Shopify OAuth to enable.</div>}
         </section>
+        )}
       </div>
 
       {/* Image generation for users is available on the Vision page; intentionally not exposed here to avoid changing app imagery. */}
