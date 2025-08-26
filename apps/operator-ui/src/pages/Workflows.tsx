@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import StepPager from '../components/StepPager';
 import Button, { ButtonLink } from '../components/ui/Button';
 import { startGuide } from '../lib/guide';
 import ShareCard from '../components/ui/ShareCard';
@@ -21,6 +22,13 @@ const workflows: W[] = [
 ];
 
 export default function Workflows(){
+  const [step, setStep] = useState<number>(()=>{
+    try{ const sp = new URLSearchParams(window.location.search); const s = Number(sp.get('step')||'1'); return Math.max(1, Math.min(2, isFinite(s)? s : 1)) - 1; } catch { return 0; }
+  });
+  const steps = [
+    { key:'overview', label:'Overview' },
+    { key:'actions', label:'Actions & Guides' },
+  ];
   const recommendOnly = String((import.meta as any).env?.VITE_BETA_RECOMMEND_ONLY || localStorage.getItem('bvx_recommend_only') || '0') === '1';
   const { showToast } = useToast();
   const isDemo = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('demo') === '1';
@@ -230,22 +238,28 @@ export default function Workflows(){
 
   return (
     <div className="space-y-3">
+      <StepPager steps={steps} index={step} onChange={setStep} persistKey="bvx_wf_step" />
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">Workflows</h3>
         <Button variant="outline" size="sm" aria-label="Open workflows guide" onClick={()=> startGuide('workflows')}>Guide me</Button>
       </div>
-      <p className="text-sm text-slate-600">Everything you can do in BrandVX, in one place. Consent-first, simple language, step-by-step.</p>
-      <div className="grid md:grid-cols-2 gap-4">
-        {workflows.map(w => (
-          <section key={w.to} className="rounded-2xl p-4 bg-white/70 backdrop-blur border border-white/70 shadow-sm">
-            <div className="font-medium text-slate-900">{w.title}</div>
-            <div className="text-sm text-slate-600 mt-1">{w.description}</div>
-            <div className="mt-3">
-              <ButtonLink href={w.to}>{w.cta || 'Open'}</ButtonLink>
-            </div>
-          </section>
-        ))}
-      </div>
+      {step===0 && (
+        <>
+          <p className="text-sm text-slate-600">Everything you can do in BrandVX, in one place. Consent-first, simple language, step-by-step.</p>
+          <div className="grid md:grid-cols-2 gap-4">
+            {workflows.map(w => (
+              <section key={w.to} className="rounded-2xl p-4 bg-white/70 backdrop-blur border border-white/70 shadow-sm">
+                <div className="font-medium text-slate-900">{w.title}</div>
+                <div className="text-sm text-slate-600 mt-1">{w.description}</div>
+                <div className="mt-3">
+                  <ButtonLink href={w.to}>{w.cta || 'Open'}</ButtonLink>
+                </div>
+              </section>
+            ))}
+          </div>
+        </>
+      )}
+      {step===1 && (
       <section className="rounded-2xl p-4 bg-white/70 backdrop-blur border border-white/70 shadow-sm">
         <div className="flex items-center justify-between">
           <h4 className="text-md font-semibold">Playbooks</h4>
@@ -275,7 +289,9 @@ export default function Workflows(){
           </div>
         </div>
       </section>
+      )}
       {/* Workflow tracker: select a workflow and complete current step */}
+      {step===1 && (
       <section className="rounded-2xl p-4 bg-white/70 backdrop-blur border border-white/70 shadow-sm">
         <div className="flex items-center justify-between">
           <h4 className="text-md font-semibold">Your 5 workflows</h4>
@@ -297,6 +313,8 @@ export default function Workflows(){
           </div>
         </div>
       </section>
+      )}
+      {step===1 && (
       <section className="rounded-2xl p-4 bg-white/70 backdrop-blur border border-white/70 shadow-sm">
         <div className="flex items-center justify-between">
           <h4 className="text-md font-semibold">48‑hour impact pack</h4>
@@ -354,8 +372,9 @@ export default function Workflows(){
           <div className="mt-3 text-xs text-slate-600">You skipped some steps. You can run them later from here.</div>
         )}
       </section>
+      )}
       {/* End-of-pack summary */}
-      {(() => {
+      {step===1 && (() => {
         const vals = Object.values(packState);
         const done = vals.filter(v=> v==='done').length;
         const skipped = vals.filter(v=> v==='skipped').length;
@@ -375,6 +394,7 @@ export default function Workflows(){
           </section>
         );
       })()}
+      {step===1 && (
       <section className="rounded-2xl p-4 bg-white/70 backdrop-blur border border-white/70 shadow-sm" data-tour="wf-quick">
         <div className="font-medium text-slate-900">Quick actions</div>
         <div className="text-sm text-slate-600 mt-1 flex flex-wrap gap-2 items-center">
@@ -434,6 +454,7 @@ export default function Workflows(){
           </div>
         )}
       </section>
+      )}
       <ShareCard open={shareOpen} onOpenChange={setShareOpen} url={shareUrl} title="Share your plan" caption="Just planned two weeks of posts with #BrandVX 🚀" />
       <div className="text-xs text-slate-500">Tip: You can also ask “Get Started!” in AskVX to jump straight into these.</div>
     </div>

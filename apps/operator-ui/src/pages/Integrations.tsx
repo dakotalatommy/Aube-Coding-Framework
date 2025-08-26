@@ -304,6 +304,7 @@ export default function Integrations(){
           </div>
         </div>
       )}
+      {step===0 && (
       <div className="grid gap-3 max-w-xl">
         {onboarding?.providers && Object.entries(onboarding.providers).some(([,v])=> (v as boolean)===false) && (
           <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1">Some providers are pending app credentials; connect buttons will be disabled for those until configured.</div>
@@ -349,6 +350,7 @@ export default function Integrations(){
           <Button variant="outline" disabled={busy} onClick={sendTestEmail}>Send Test Email</Button>
         </div>
       </div>
+      )}
 
       <StepPager steps={steps} index={step} onChange={setStep} persistKey="bvx_int_step" />
       <div className="grid md:grid-cols-3 gap-4 mt-1 overflow-hidden" data-guide="providers">
@@ -485,7 +487,7 @@ export default function Integrations(){
           {onboarding?.providers?.google===false && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Google OAuth to enable.</div>}
         </section>
 
-        {step===0 && (SOCIAL_ON ? (
+        {step===0 && SOCIAL_ON && (
           <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
@@ -501,7 +503,8 @@ export default function Integrations(){
             </div>
             {(onboarding?.providers?.instagram===false) && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Instagram OAuth to enable.</div>}
           </section>
-        ) : (
+        )}
+        {step===0 && !SOCIAL_ON && (
           <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
             <div className="font-semibold text-slate-900">Instagram</div>
             <div className="text-sm text-slate-600">Social inbox is not enabled for this environment.</div>

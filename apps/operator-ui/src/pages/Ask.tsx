@@ -487,7 +487,7 @@ export default function Ask(){
   };
   const isDemo = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('demo') === '1';
   return (
-    <div className={`space-y-3 ${embedded ? '' : ''}`}>
+    <div className={`${embedded ? 'h-full min-h-0 flex flex-col min-w-0 overflow-x-hidden' : 'space-y-3'} ${embedded ? '' : ''}`}>
       {isDemo && (
         <div className="rounded-2xl p-3 border bg-amber-50/80 border-amber-200 text-amber-900">
           <div className="flex flex-wrap items-center gap-2">
@@ -512,7 +512,7 @@ export default function Ask(){
           <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ const sid = 's_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('bvx_chat_session', sid); window.location.reload(); }}>New session</button>
           <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ void loadSessions(); }}>Sessions</button>
         </div>
-        <div className="flex items-center justify-center">
+        <div className="flex items-center">
           <div className="font-semibold" style={{fontFamily:'var(--font-display)'}}>Ask VX</div>
         </div>
         <div className="flex items-center justify-end">
@@ -571,7 +571,7 @@ export default function Ask(){
           )}
         </div>
       )}
-      <div className={`rounded-xl bg-white shadow-sm p-3 border ${embedded ? 'h-[calc(100%-72px)]' : 'h-64'} overflow-auto`} aria-live="polite" aria-atomic="false" role="log">
+      <div className={`rounded-xl bg-white shadow-sm p-3 border ${embedded ? 'shrink-0 max-h-24 overflow-y-auto overflow-x-hidden' : 'h-64 overflow-auto'} min-w-0`} aria-live="polite" aria-atomic="false" role="log">
         {messages.length === 0 && (
           <div className="text-sm text-slate-500">Start a conversation below.</div>
         )}
@@ -678,9 +678,9 @@ export default function Ask(){
         <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Compute effective hourly given price $225, product cost $28, service time 210 minutes.')}>Pricing Model</button>
       </div>
       )}
-      <div className="flex gap-2 items-start">
+      <div className={`flex gap-2 items-start ${embedded ? 'flex-1 min-h-0 items-stretch' : 'shrink-0'} pb-[max(env(safe-area-inset-bottom,0px),8px)]`}>
         <textarea
-          className="flex-1 border rounded-md px-3 py-2"
+          className={`flex-1 border rounded-md px-3 py-2 ${embedded ? 'h-full min-h-[180px]' : ''}`}
           rows={3}
           placeholder="How can I save you time today?"
           value={input}
@@ -696,7 +696,7 @@ export default function Ask(){
         </div>
       </div>
       {!firstNoteShown && (
-        <div className="text-xs text-slate-500 mt-1">(Responses may take a moment to ensure quality!)</div>
+        <div className="text-xs text-slate-500 mt-1 shrink-0">(Responses may take a moment to ensure quality!)</div>
       )}
       {(!embedded && (messages.length > 0 && messages[messages.length - 1]?.role === 'assistant')) && (
         <div className="mt-2">

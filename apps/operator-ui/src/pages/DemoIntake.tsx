@@ -132,13 +132,19 @@ export default function DemoIntake(){
   const tz = useMemo(()=> Intl.DateTimeFormat().resolvedOptions().timeZone, []);
 
   return (
-    <div className="h-screen relative overflow-hidden">
+    <div className="min-h-[100svh] demo-svh relative overflow-hidden bg-white">
       <style>{`#bvx-ask-float{display:none!important}`}</style>
+      <style>{`
+        @supports (height: 100dvh) {
+          .demo-svh { min-height: 100dvh; }
+        }
+      `}</style>
       {/* Removed duplicate full-screen overlay to avoid double Ask UI; using inline panel below */}
+      <div aria-hidden className="absolute inset-0 -z-10 bg-white" />
       <div aria-hidden className="absolute inset-0 -z-10" style={{
         background: 'radial-gradient(900px 400px at 10% -10%, rgba(236,72,153,0.10), transparent), radial-gradient(800px 300px at 90% -20%, rgba(99,102,241,0.12), transparent)'
       }} />
-      <div className="max-w-6xl mx-auto px-4 py-6 h-full overflow-hidden">
+      <div className="max-w-6xl mx-auto px-4 py-6 h-full overflow-hidden flex flex-col pb-[max(env(safe-area-inset-bottom,0px),12px)]">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-semibold leading-tight" style={{fontFamily:'var(--font-display)'}}>Quick intro for your demo</h1>
@@ -149,7 +155,7 @@ export default function DemoIntake(){
           </div>
         </div>
 
-        <div className="mt-5 grid grid-cols-12 gap-4 items-start h-[calc(100%-60px)]">
+        <div className="mt-5 grid grid-cols-12 gap-4 items-start flex-1 min-h-0">
           <div className="col-span-12 md:col-span-5 lg:col-span-4 h-full">
             <div className="h-full rounded-2xl border bg-white/80 backdrop-blur p-3 shadow-sm flex flex-col">
               <div className="flex items-center justify-between mb-2">
