@@ -518,15 +518,20 @@ export default function Ask(){
         <div className="flex items-center justify-end">
           <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{
           try{
+            const sp = new URLSearchParams(window.location.search);
+            const isDemo = sp.get('demo')==='1';
+            if (isDemo) {
+              const url = `${window.location.origin}/brandvx`;
+              setShareUrl(url);
+              try { await navigator.clipboard.writeText(url); } catch {}
+              return;
+            }
             const tid = await getTenant();
             const last = messages.filter(m=>m.role==='assistant').slice(-1)[0]?.content || messages.slice(-1)[0]?.content || 'Shared from BrandVX';
             const title = (last || 'BrandVX').slice(0, 80);
             const r = await api.post('/share/create', { tenant_id: tid, title, description: last, image_url: '', caption: '', kind: 'ask_share' });
             const url = String(r?.url || '');
-            if (url) {
-              setShareUrl(url);
-              try { await navigator.clipboard.writeText(url); } catch {}
-            }
+            if (url) { setShareUrl(url); try { await navigator.clipboard.writeText(url); } catch {} }
           } catch {}
         }}>Share</button>
         </div>

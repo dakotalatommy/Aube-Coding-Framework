@@ -26,6 +26,7 @@ export default function Integrations(){
   const SOCIAL_ON = (import.meta as any).env?.VITE_FEATURE_SOCIAL === '1';
   const SHOW_REDIRECT_URIS = ((import.meta as any).env?.VITE_SHOW_REDIRECT_URIS === '1') || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('dev'));
   const [settings, setSettings] = useState<any>({ tone:'helpful', services:['sms','email'], auto_approve_all:false, quiet_hours:{ start:'21:00', end:'08:00' }, preferences:{} });
+  const isDemo = (()=>{ try{ return new URLSearchParams(window.location.search).get('demo')==='1'; } catch { return false; } })();
   const [status, setStatus] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [connecting, setConnecting] = useState<Record<string, boolean>>({});
@@ -262,19 +263,19 @@ export default function Integrations(){
   };
   return (
     <div className="space-y-3 overflow-hidden">
-      <div className="flex items-center">
+      <div className="flex items-center sticky top-0 z-10 bg-[var(--sticky-bg,white)]/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 rounded-md px-1 py-1">
         <h3 className="text-lg font-semibold">Integrations & Settings</h3>
         <div className="flex items-center gap-2 ml-auto">
           <span className="text-xs text-slate-600 px-2 py-1 rounded-md border bg-white/70">
             TZ: {Intl.DateTimeFormat().resolvedOptions().timeZone} (UTC{computeOffsetHours()>=0?'+':''}{computeOffsetHours()})
           </span>
-          <Button variant="outline" size="sm" onClick={reanalyze} aria-label="Re-analyze connections">Re‑analyze</Button>
+          <Button variant="outline" size="sm" onClick={reanalyze} aria-label="Re-analyze connections" data-guide="reanalyze">Re‑analyze</Button>
           <Button variant="outline" size="sm" aria-label="Open integrations guide" onClick={()=>{
             try { track('guide_open', { area: 'integrations' }); } catch {}
             const d = driver({ showProgress: true, steps: [
               { popover: { title: 'Integrations', description: 'Connect booking, CRM, messaging, and inventory.' } },
-              { element: '[data-guide="providers"]', popover: { title: 'Providers', description: 'Each card shows connection status and actions.' } },
-              { element: '[data-guide="twilio"]', popover: { title: 'SMS via Twilio', description: 'Use a dedicated business number. Personal numbers are not supported yet.' } },
+              { element: '[data-guide="providers"]', popover: { title: 'What each does', description: 'Booking (Square/Acuity), Calendar (Google/Apple), CRM (HubSpot), Messaging (Twilio/SendGrid), Commerce (Shopify).' } },
+              { element: '[data-guide="reanalyze"]', popover: { title: 'Re‑analyze', description: 'Re‑pull provider deltas and refresh KPIs after connecting or changing settings.' } },
             ] } as any);
             d.drive();
           }}>Guide me</Button>
@@ -413,9 +414,9 @@ export default function Integrations(){
             <span className="px-2 py-1 rounded-full text-xs bg-slate-100 text-slate-700">Requires Twilio</span>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button variant="outline" disabled={busy} onClick={enableSms}>Enable SMS</Button>
+            <Button variant="outline" disabled={busy || isDemo} onClick={enableSms}>{isDemo ? 'Enable (live only)' : 'Enable SMS'}</Button>
             <input className="border rounded-md px-2 py-1 bg-white text-sm" placeholder="Area code (optional)" value={twilioArea} onChange={e=> setTwilioArea(e.target.value)} style={{width:140}} />
-            <Button variant="outline" disabled={busy} onClick={async()=>{
+            <Button variant="outline" disabled={busy || isDemo} onClick={async()=>{
               try{
                 setStatus('Provisioning…');
                 const r = await api.post('/integrations/twilio/provision', { area_code: twilioArea });
@@ -424,12 +425,12 @@ export default function Integrations(){
               } catch(e:any){ setStatus(String(e?.message||e)); }
             }}>Provision number</Button>
             {twilioFrom && <span className="text-xs text-slate-600">From: {twilioFrom}</span>}
-            <Button variant="outline" disabled={busy} onClick={()=>{ try{ track('twilio_test_sms'); }catch{}; sendTestSms(); }}>Send test SMS</Button>
-            <Button variant="outline" disabled={busy} onClick={()=>{ try{ track('twilio_console_open'); }catch{}; window.open('https://www.twilio.com/console', '_blank', 'noreferrer'); }}>Open Twilio Console</Button>
-            <Button variant="outline" disabled={busy} onClick={()=>{ try{ track('twilio_docs_open'); }catch{}; window.open('https://www.twilio.com/en-us/messaging/channels/sms', '_blank', 'noreferrer'); }}>Twilio SMS Guide</Button>
+            <Button variant="outline" disabled={busy || isDemo} onClick={()=>{ try{ track('twilio_test_sms'); }catch{}; if (isDemo) { setStatus('Demo: sending disabled'); return; } sendTestSms(); }}>{isDemo? 'Send test (disabled)' : 'Send test SMS'}</Button>
+            <Button variant="outline" disabled={busy || isDemo} onClick={()=>{ if (isDemo) { setStatus('Demo: console unavailable'); return; } try{ track('twilio_console_open'); }catch{}; window.open('https://www.twilio.com/console', '_blank', 'noreferrer'); }}>{isDemo? 'Twilio Console (demo off)' : 'Open Twilio Console'}</Button>
+            <Button variant="outline" disabled={busy || isDemo} onClick={()=>{ if (isDemo) { setStatus('Demo: guide external link unavailable'); return; } try{ track('twilio_docs_open'); }catch{}; window.open('https://www.twilio.com/en-us/messaging/channels/sms', '_blank', 'noreferrer'); }}>{isDemo? 'Twilio Guide (demo off)' : 'Twilio SMS Guide'}</Button>
           </div>
           <div className="mt-2 text-xs text-amber-700">
-            Use a dedicated Twilio business number for SMS. We’ll add number porting support later. For now, personal mobile numbers are not supported.
+            {isDemo ? 'Coming soon in demo. In live workspaces, you can provision a dedicated Twilio business number (no personal numbers).' : 'Use a dedicated Twilio business number for SMS. We’ll add number porting support later. For now, personal mobile numbers are not supported.'}
           </div>
         </section>
         )}

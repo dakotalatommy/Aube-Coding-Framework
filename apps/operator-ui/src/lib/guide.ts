@@ -11,7 +11,6 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-tour="cta"]', popover: { title: 'Ready when you are', description: 'White‑glove or self-serve — you approve everything.' } },
   ],
   dashboard: [
-    { popover: { title: 'Welcome to the BrandVX demo', description: 'Tap through to see Dashboard, Contacts, Calendar, Cadences, Inventory, Integrations, Workflows, Approvals, and Onboarding. In your live workspace you’ll start in Onboarding.' } },
     { popover: { title: 'Welcome to your dashboard', description: 'Time saved, funnel, and quick actions live here.' } },
     { element: '[data-guide="quick-actions"]', popover: { title: 'Quick actions', description: 'Import contacts, preview outreach (beta), simulate a message, or connect tools.' } },
     { element: '[data-guide="kpis"]', popover: { title: 'KPIs', description: 'Track time saved, messages, revenue uplift, and referrals.' } },
@@ -20,8 +19,8 @@ const registry: Record<string, GuideStep[]> = {
   ],
   integrations: [
     { popover: { title: 'Integrations', description: 'Connect booking, CRM, messaging, and inventory.' } },
-    { element: '[data-guide="providers"]', popover: { title: 'Providers', description: 'Each card shows connection status and actions.' } },
-    { element: '[data-guide="twilio"]', popover: { title: 'SMS via Twilio', description: 'Use a dedicated business number. Personal numbers are not supported yet.' } },
+    { element: '[data-guide="providers"]', popover: { title: 'What each does', description: 'Booking (Square/Acuity), Calendar (Google/Apple), CRM (HubSpot), Messaging (Twilio/SendGrid), Commerce (Shopify).' } },
+    { element: '[data-guide="reanalyze"]', popover: { title: 'Re‑analyze', description: 'Re‑pull provider deltas and refresh KPIs after connecting or changing settings.' } },
   ],
   messages: [
     { popover: { title: 'Messages', description: 'Preview & copy in beta. STOP/HELP honored automatically when sending is enabled.' } },
@@ -90,11 +89,19 @@ export function startGuide(page: string) {
   try {
     const sp = new URLSearchParams(window.location.search);
     const isDemo = sp.get('demo') === '1';
+    // Gate per page once per session
+    if (isDemo) {
+      const key = `bvx_tour_seen_${page}_session`;
+      if (sessionStorage.getItem(key) === '1') {
+        return;
+      }
+      try { sessionStorage.setItem(key, '1'); } catch {}
+    }
     if (isDemo && page === 'dashboard') {
       // Welcome only on dashboard, then single-step per pane sequence
       const demoStepsMap: Record<string, GuideStep[]> = {
         dashboard: [
-          { popover: { title: 'Welcome to the BrandVX demo', description: 'We’ll show each area briefly, then you can explore. In your live workspace, you’ll start in Onboarding.' } },
+          { element: '[data-guide="quick-actions"]', popover: { title: 'Dashboard', description: 'Quick actions and KPIs — then we’ll show each area briefly.' } },
         ],
         messages: [
           { element: '[data-guide="table"]', popover: { title: 'Messages', description: 'Preview and copy examples (beta). Sending will enable automatically later.' } },
@@ -144,7 +151,7 @@ export function startGuide(page: string) {
         }
         setTimeout(() => {
           const steps = demoStepsMap[key] || [];
-          try { localStorage.setItem(`bvx_tour_seen_${key}`, '1'); } catch {}
+          try { sessionStorage.setItem(`bvx_tour_seen_${key}_session`, '1'); } catch {}
           try { track('tour_start', { page: key }); } catch {}
           const d = driver({ showProgress: true, steps } as any);
           d.drive();

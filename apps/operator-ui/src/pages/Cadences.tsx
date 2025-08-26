@@ -49,7 +49,7 @@ export default function Cadences(){
       <div className="grid gap-4">
         <section className="border rounded-xl p-3 bg-white shadow-sm" aria-labelledby="start-cadence">
           <div id="start-cadence" className="font-semibold mb-2">Start Cadence</div>
-          <div className="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Some actions may require approval when auto-approve is off. Review in Approvals.</div>
+          <div className="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Beta: reminders only — SMS/Email sending is disabled. Actions generate recommendations in Approvals.</div>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
             <div className="relative">
               <Input placeholder="contact_id" value={contactId} onFocus={()=>setShowSug(true)} onBlur={()=> setTimeout(()=>setShowSug(false), 120)} onChange={e=>setContactId(e.target.value)} />
@@ -64,7 +64,7 @@ export default function Cadences(){
               )}
             </div>
             <Input placeholder="cadence_id" value={cadenceId} onChange={e=>setCadenceId(e.target.value)} />
-            <Button variant="outline" disabled={busy} onClick={()=> isDemo ? setStatus('Demo: started cadence for '+contactId) : run(async()=>api.post('/cadences/start',{ tenant_id: await getTenant(), contact_id: contactId, cadence_id: cadenceId }))}>Start</Button>
+            <Button variant="outline" disabled={busy} onClick={()=> isDemo ? setStatus('Demo: created recommendations for '+contactId+' in Approvals') : run(async()=>api.post('/cadences/start',{ tenant_id: await getTenant(), contact_id: contactId, cadence_id: cadenceId }))}>Start</Button>
             <Button variant="outline" disabled={busy} onClick={()=> isDemo ? setStatus('Demo: stopped cadence for '+contactId) : run(async()=>api.post(`/cadences/stop?tenant_id=${encodeURIComponent(await getTenant())}&contact_id=${encodeURIComponent(contactId)}&cadence_id=${encodeURIComponent(cadenceId)}`, {} as any))}>Stop</Button>
           </div>
         </section>

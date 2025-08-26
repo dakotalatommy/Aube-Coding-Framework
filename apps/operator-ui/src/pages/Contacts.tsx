@@ -6,6 +6,7 @@ import Skeleton from '../components/ui/Skeleton';
 import { startGuide } from '../lib/guide';
 
 export default function Contacts(){
+  const isDemo = (()=>{ try{ return new URLSearchParams(window.location.search).get('demo')==='1'; } catch { return false; } })();
   const [status, setStatus] = useState('');
   const [importJson, setImportJson] = useState('[{"contact_id":"c_demo","phone":"+15551234567","email":"demo@example.com","name":"Demo"}]');
   const [contactId, setContactId] = useState('c_demo');
@@ -22,11 +23,12 @@ export default function Contacts(){
   };
 
   useEffect(() => {
+    if (isDemo) return; // skip policy/faq in demo
     (async () => {
       try { const p = await api.get('/consent/policy'); setPolicyHtml(String(p?.html || '')); } catch {}
       try { const f = await api.get('/consent/faq'); setFaqItems(Array.isArray(f?.items) ? f.items : []); } catch {}
     })();
-  }, []);
+  }, [isDemo]);
   useEffect(()=>{ try{ const sp = new URLSearchParams(window.location.search); if (sp.get('tour')==='1') startGuide('contacts'); } catch {} },[]);
 
   useEffect(()=>{
@@ -34,12 +36,16 @@ export default function Contacts(){
       try{
         const q = (contactId||'').trim();
         if (!q) { setSug([]); return; }
+        if (isDemo) {
+          setSug([{ id:'c_demo1', name:'Demo A' }, { id:'c_demo2', name:'Demo B' }]);
+          return;
+        }
         const r = await api.get(`/contacts/search?tenant_id=${encodeURIComponent(await getTenant())}&q=${encodeURIComponent(q)}&limit=8`);
         setSug(Array.isArray(r?.items)? r.items : []);
       } catch { setSug([]); }
     }, 180);
     return ()=> clearTimeout(t);
-  }, [contactId]);
+  }, [contactId, isDemo]);
 
   return (
     <div className="space-y-4">
@@ -50,10 +56,14 @@ export default function Contacts(){
       <div className="grid gap-4">
         <section className="border rounded-xl p-3 bg-white shadow-sm" data-guide="import">
           <div className="font-semibold mb-2">Import Contacts (JSON array)</div>
+          {isDemo && (
+            <div className="text-xs text-slate-600 mb-2">Demo: importing/exporting is disabled. Use the guide to see how it works in live workspaces.</div>
+          )}
           <textarea className="w-full font-mono border rounded-xl p-2 shadow-sm" value={importJson} onChange={e=>setImportJson(e.target.value)} rows={6} />
           <div className="flex gap-2 mt-2">
-            <Button variant="outline" disabled={busy} onClick={()=>run(async()=>api.post('/import/contacts',{ tenant_id: await getTenant(), contacts: JSON.parse(importJson) }))}>Import</Button>
-            <Button variant="outline" disabled={busy} data-guide="export" onClick={()=>run(async()=>api.get(`/exports/contacts?tenant_id=${encodeURIComponent(await getTenant())}`))}>Export</Button>
+            <Button variant="outline" disabled={busy} onClick={()=> isDemo ? setStatus('Demo: import disabled. Use Guide me for steps.') : run(async()=>api.post('/import/contacts',{ tenant_id: await getTenant(), contacts: JSON.parse(importJson) }))}>Import</Button>
+            <Button variant="outline" disabled={busy} data-guide="export" onClick={()=> isDemo ? setStatus('Demo: export disabled. Use Guide me for steps.') : run(async()=>api.get(`/exports/contacts?tenant_id=${encodeURIComponent(await getTenant())}`))}>Export</Button>
+            <Button variant="outline" size="sm" onClick={()=> startGuide('contacts')}>How to import</Button>
           </div>
         </section>
 

@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { Home, MessageSquare, Users, Calendar, Layers, Package2, Plug, CheckCircle2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { api } from '../lib/api';
+import { startGuide } from '../lib/guide';
 import { track } from '../lib/analytics';
 
 type PaneKey = 'dashboard' | 'messages' | 'contacts' | 'calendar' | 'cadences' | 'inventory' | 'integrations' | 'approvals' | 'workflows' | 'onboarding';
@@ -34,6 +35,7 @@ export default function WorkspaceShell(){
   const [billingOpen, setBillingOpen] = useState(false);
   const [billingLoading, setBillingLoading] = useState(false);
   const [billingStatus, setBillingStatus] = useState<string>('');
+  const [showDemoWelcome, setShowDemoWelcome] = useState(false);
 
   // Workspace billing gate: open modal if not trialing/active
   useEffect(()=>{
@@ -64,6 +66,15 @@ export default function WorkspaceShell(){
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loc.search]);
+
+  // Demo-only welcome shown once per session (per load into demo)
+  useEffect(()=>{
+    try{
+      if (demo && !sessionStorage.getItem('bvx_demo_welcome_seen')) {
+        setShowDemoWelcome(true);
+      }
+    } catch {}
+  }, [demo]);
 
   const setPane = (key: PaneKey) => {
     const next = new URLSearchParams(loc.search);
@@ -162,13 +173,26 @@ export default function WorkspaceShell(){
         </aside>
         {/* Canvas */}
         <main className={`h-full rounded-2xl border ${demo? 'bg-amber-50/60' : 'bg-white/90'} backdrop-blur p-4 md:p-5 shadow-sm overflow-hidden`}>
-          <div className="h-full rounded-xl bg-white/70 backdrop-blur border overflow-y-auto overflow-x-hidden pb-[var(--ask-float-height)]">
+          <div className="rounded-xl bg-white/70 backdrop-blur border overflow-y-auto overflow-x-hidden" style={{ height: 'calc(100% - var(--ask-float-height, 0px))' }}>
             <Suspense fallback={<div className="p-4 text-slate-600 text-sm">Loading {PANES.find(p=>p.key===pane)?.label}…</div>}>
               {PaneView}
             </Suspense>
           </div>
         </main>
       </div>
+      {showDemoWelcome && (
+        <div className="fixed inset-0 z-50 grid place-items-center p-4">
+          <div aria-hidden className="absolute inset-0 bg-black/30" onClick={()=>{ setShowDemoWelcome(false); try{ sessionStorage.setItem('bvx_demo_welcome_seen','1'); }catch{} }} />
+          <div className="relative w-full max-w-md rounded-2xl border bg-white/95 backdrop-blur p-5 shadow-xl">
+            <div className="text-slate-900 text-lg font-semibold">Welcome to the BrandVX demo</div>
+            <div className="text-slate-600 text-sm mt-1">We’ll show each panel briefly. Use “Guide me” on any page for a quick walkthrough.</div>
+            <div className="mt-4 flex gap-2 justify-end">
+              <button className="rounded-full px-3 py-2 border" onClick={()=>{ setShowDemoWelcome(false); try{ sessionStorage.setItem('bvx_demo_welcome_seen','1'); }catch{} }}>Got it</button>
+              <button className="rounded-full px-3 py-2 bg-slate-900 text-white" onClick={()=>{ try{ sessionStorage.setItem('bvx_demo_welcome_seen','1'); }catch{}; setShowDemoWelcome(false); try{ startGuide('dashboard'); } catch {} }}>Start guide</button>
+            </div>
+          </div>
+        </div>
+      )}
       {demo && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
           <div className="flex gap-2 items-center rounded-full border bg-white/90 backdrop-blur px-3 py-2 shadow">

@@ -10,7 +10,7 @@ export default function AskFloat(){
   const onWorkspace = loc.pathname === '/workspace' || loc.pathname.startsWith('/workspace/');
   const onDemoRoute = loc.pathname.startsWith('/demo') || loc.pathname.startsWith('/ask-vx-demo');
   const inDemo = sp.get('demo') === '1';
-  const dockHeight = 'calc(clamp(280px, 32vh, 360px) + max(env(safe-area-inset-bottom, 0px), 12px))';
+  const dockHeight = 'clamp(280px, 32vh, 360px)';
   const [open, setOpen] = useState<boolean>(()=> localStorage.getItem('bvx-ask-open') === '1');
   const [pos, setPos] = useState<Position>(()=>{
     try{ const j = JSON.parse(localStorage.getItem('bvx-ask-pos')||''); if (j && typeof j==='object') return j; }catch{}
@@ -103,7 +103,7 @@ export default function AskFloat(){
       {open && (
         <div id="bvx-ask-float"
           className={`fixed z-[100] ${(docked || onDashboard || onWorkspace || inDemo) ? 'left-0 right-0' : ''} ${(onDashboard || onWorkspace || inDemo) ? 'rounded-none' : 'rounded-2xl'} ${(onDashboard || onWorkspace || inDemo) ? 'border-t border-slate-200' : 'border'} bg-white shadow-[0_-8px_24px_rgba(0,0,0,0.06)]`}
-          style={(docked || onDashboard || onWorkspace || inDemo) ? { left: 0, right: 0, bottom: 0, height: dockHeight } : { left: pos.x, bottom: pos.y, width: pos.w, height: pos.h }}
+          style={(docked || onDashboard || onWorkspace || inDemo) ? { left: 0, right: 0, bottom: 0, height: 'var(--ask-float-height)' } : { left: pos.x, bottom: pos.y, width: pos.w, height: pos.h }}
         >
           <div
             className={`select-none flex items-center justify-between px-3 py-2 text-sm text-slate-800 bg-white border-b border-slate-200`}

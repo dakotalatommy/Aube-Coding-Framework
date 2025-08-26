@@ -112,18 +112,24 @@ def _sum_counter(counter) -> int:
         return 0
 
 # Restrictive CORS (configurable)
-cors_origins = [
-    o.strip()
-    for o in os.getenv(
-        "CORS_ORIGINS",
-        "http://localhost:8000,http://localhost:5173,http://localhost:5174,"
-        "http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175",
-    ).split(",")
-    if o.strip()
-]
+# Include production app origins by default to avoid CORS failures after first deploy
+cors_default = (
+    "http://localhost:8000,http://localhost:5173,http://localhost:5174,"
+    "http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175,"
+    "https://app.brandvx.io,https://api.brandvx.io,https://brandvx-operator-ui.pages.dev"
+)
+cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", cors_default).split(",") if o.strip()]
+
+# Optional regex to allow ephemeral Cloudflare Pages preview URLs like https://<hash>.brandvx-operator-ui.pages.dev
+cors_regex = os.getenv(
+    "CORS_ORIGIN_REGEX",
+    r"^https://[a-z0-9\-]+\.brandvx-operator-ui\.pages\.dev$",
+).strip() or None
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
+    allow_origin_regex=cors_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -1631,7 +1637,17 @@ async def ai_chat(
     return {"text": content}
 
 
- 
+@app.get("/ai/diag", tags=["AI"])
+def ai_diag():
+    try:
+        return {
+            "OPENAI_MODEL": os.getenv("OPENAI_MODEL", ""),
+            "OPENAI_USE_RESPONSES": os.getenv("OPENAI_USE_RESPONSES", ""),
+            "PROJECT_SET": bool(os.getenv("OPENAI_PROJECT", "").strip()),
+            "HAS_API_KEY": bool(os.getenv("OPENAI_API_KEY", "").strip()),
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 
 # --- Edge Function Proxies (Gateway model) ---
