@@ -677,10 +677,11 @@ export default function Ask(){
       </div>
       {!embedded && (
       <div className="flex flex-wrap gap-2 text-xs">
-        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Create a 30‑day content plan for a balayage specialist posting 3x/week.')}>Content Plan</button>
-        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Draft a price‑increase announcement and client FAQ for a luxury but friendly tone.')}>Price Increase</button>
-        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Make a pre‑appointment text and aftercare card for brow lamination with placeholders.')}>Pre/Post Visit</button>
-        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Compute effective hourly given price $225, product cost $28, service time 210 minutes.')}>Pricing Model</button>
+        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('What can BrandVX do for me? Give me three wins I can see in 48 hours, then tell me exactly what to click next.')}>What can you do?</button>
+        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Explain pricing clearly: trial length, standard monthly, referral discounts (1 and 2 referrals), and the $97 Founding Member option. Then give me one clear way to start.')}>Pricing</button>
+        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('How do I start in 10 minutes? Outline: connect calendar, re‑analyze, send 15 confirmations, 10 dormant, 5 warm. Include the short scripts and one CTA.')}>How do I start?</button>
+        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('List supported integrations and which are required to begin. If something needs configuration, say so and give me the next action.')}>Integrations</button>
+        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Give me the 48‑hour plan with exact messages for confirmations, dormant, and warm leads. Keep it short and add one CTA.')}>48‑hour plan</button>
       </div>
       )}
       <div className={`flex gap-2 items-start ${embedded ? 'flex-1 min-h-0 items-stretch' : 'shrink-0'} pb-[max(env(safe-area-inset-bottom,0px),8px)]`}>

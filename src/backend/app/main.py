@@ -1521,9 +1521,47 @@ async def ai_chat(
                     brand_profile_text = _json.dumps(bp, ensure_ascii=False)
     except Exception:
         brand_profile_text = ""
+    # Pricing/offer (env-driven, avoid hardcoding)
+    def _envf(k: str, default: str = "") -> str:
+        return os.getenv(k, default)
+    pricing = []
+    if _envf("PRICING_STANDARD"):
+        pricing.append(f"Standard: ${_envf('PRICING_STANDARD')}/mo with {_envf('PRICING_TRIAL_DAYS','7')}-day free trial.")
+    if _envf("PRICING_REF_1"):
+        pricing.append(f"Referral: 1 referral → ${_envf('PRICING_REF_1')}/mo.")
+    if _envf("PRICING_REF_2"):
+        pricing.append(f"Referral: 2 referrals → ${_envf('PRICING_REF_2')}/mo.")
+    if _envf("PRICING_FOUNDING_UPFRONT"):
+        nm = _envf("PRICING_PLAN_NAME","Founding Member")
+        pricing.append(f"Founding option: ${_envf('PRICING_FOUNDING_UPFRONT')} today locks {nm} — full feature access for the lifetime of an active account.")
+    policy_text = "\n".join(pricing) if pricing else "Founding and trial options available; avoid quoting amounts when unknown."
+
+    benefits_text = (
+        "- Fewer no‑shows via quick confirmations (quiet hours).\n"
+        "- Revive dormant and warm leads with short, human nudges.\n"
+        "- 7‑day reach‑out plan eliminates guesswork; do the next five now."
+    )
+    integrations_text = (
+        "Calendar (Google/Apple), Booking (Square/Acuity), CRM (HubSpot), Inventory (Shopify), Email (SendGrid), SMS (Twilio), Social Inbox (Instagram)."
+    )
+    rules_text = (
+        "Recommend‑only: produce drafts; user copies/sends; use Mark as sent; Approvals stores recommendations.\n"
+        "Never promise automated sending if not enabled. Respect quiet hours; STOP/HELP when live."
+    )
+    scaffolds_text = (
+        "Cost → state options (trial or founding) → single CTA.\n"
+        "Features → 3 bullets → exact next step → CTA.\n"
+        "Getting started → connect calendar, Re‑analyze, send 15/10/5 with scripts → CTA."
+    )
     system_prompt = chat_system_prompt(
-        capabilities_text + (f"\nBrand profile: {brand_profile_text}" if brand_profile_text else ""),
-        mode=(req.mode or "default")
+        capabilities_text,
+        mode=(req.mode or "sales_onboarding"),
+        policy_text=policy_text,
+        benefits_text=benefits_text,
+        integrations_text=integrations_text,
+        rules_text=rules_text,
+        scaffolds_text=scaffolds_text,
+        brand_profile_text=brand_profile_text,
     )
     # Model selection: always use GPT‑5 Mini by default; Nano only as fallback
     user_text = (req.messages[-1].content if req.messages else "")

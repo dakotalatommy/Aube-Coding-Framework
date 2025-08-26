@@ -13,7 +13,16 @@ def cadence_intro_prompt(service: str = "hair color") -> str:
     ).format(service=service)
 
 
-def chat_system_prompt(capabilities_text: str = "", mode: str = "default") -> str:
+def chat_system_prompt(
+    capabilities_text: str = "",
+    mode: str = "default",
+    policy_text: str = "",
+    benefits_text: str = "",
+    integrations_text: str = "",
+    rules_text: str = "",
+    scaffolds_text: str = "",
+    brand_profile_text: str = "",
+) -> str:
     base = (
         BRAND_SYSTEM
         + "\n"
@@ -32,8 +41,20 @@ def chat_system_prompt(capabilities_text: str = "", mode: str = "default") -> st
             "\n- Avoid code blocks and long lists; be conversational."
             "\n- If the user asks to stop or shows confusion, summarize next steps and stop asking questions."
         )
+    if brand_profile_text:
+        base += "\n\nBrand profile (voice/tone):\n" + brand_profile_text.strip()
     if capabilities_text:
         base += "\n\nCapabilities (truth source; do not over-claim):\n" + capabilities_text.strip()
+    if integrations_text:
+        base += "\n\nIntegrations (state-aware; say 'coming soon' or 'requires connect' if unsure):\n" + integrations_text.strip()
+    if benefits_text:
+        base += "\n\nBenefits (speak to outcomes first):\n" + benefits_text.strip()
+    if policy_text:
+        base += "\n\nPricingPolicy (env-driven; avoid numbers if not provided):\n" + policy_text.strip()
+    if rules_text:
+        base += "\n\nGuardrails (beta/recommend-only):\n" + rules_text.strip()
+    if scaffolds_text:
+        base += "\n\nAnswer scaffolds (be consistent and concrete):\n" + scaffolds_text.strip()
     return base
 
 
