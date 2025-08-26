@@ -152,6 +152,19 @@ export default function LandingV2(){
     } catch {}
   }, []);
 
+  // Optional KickoffLabs beacon for referral analytics
+  useEffect(()=>{
+    try{
+      const KO_ID = (import.meta as any).env?.VITE_KICKOFFLABS_ID;
+      if (!KO_ID) return;
+      const s = document.createElement('script');
+      s.async = true;
+      s.src = `https://scripts.kickoffpages.com/kl.js?${KO_ID}`;
+      document.head.appendChild(s);
+      return () => { try { document.head.removeChild(s); } catch {} };
+    } catch {}
+  }, []);
+
   return (
     <div className="mx-auto max-w-6xl relative z-10">
       {/* Use GLB copied to /public/spline */}

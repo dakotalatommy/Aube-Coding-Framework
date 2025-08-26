@@ -27,6 +27,7 @@ export default function Dashboard(){
   const [chartVisible, setChartVisible] = useState(false);
   const prefetchChart = () => { try { import('../components/charts/FunnelChart'); } catch {} };
   const [planNotice, setPlanNotice] = useState('');
+  const [lastAnalyzed, setLastAnalyzed] = useState<number|undefined>(undefined);
 
   useEffect(()=>{
     let mounted = true;
@@ -51,13 +52,15 @@ export default function Dashboard(){
           api.get(`/cadences/queue?tenant_id=${encodeURIComponent(tid)}`, { signal: abort.signal, timeoutMs }),
           api.get(`/funnel/daily?tenant_id=${encodeURIComponent(tid)}&days=30`, { signal: abort.signal, timeoutMs }),
           api.post('/messages/simulate', { tenant_id: tid, contact_id: 'demo', channel: 'email' }, { signal: abort.signal, timeoutMs }),
+          api.post('/onboarding/analyze', { tenant_id: tid }, { signal: abort.signal, timeoutMs })
         ];
-        const [mRes,qRes,fRes,simRes] = await Promise.allSettled(tasks);
+        const [mRes,qRes,fRes,simRes,anRes] = await Promise.allSettled(tasks);
         if (!mounted) return;
         const m = mRes.status==='fulfilled'? mRes.value : {};
         const q = qRes.status==='fulfilled'? qRes.value : { items: [] };
         const f = fRes.status==='fulfilled'? fRes.value : { series: [] };
         setMetrics(m||{}); setQueue(q||{items:[]}); setFunnel(f||{series:[]});
+        try { if (anRes.status==='fulfilled' && anRes.value?.summary?.ts) setLastAnalyzed(Number(anRes.value.summary.ts)); } catch {}
         const failed = [mRes,qRes,fRes].some(r=>r.status==='rejected');
         if (failed && !isDemo) setError('Some widgets failed to load. Retrying soon…');
         try { if (simRes.status==='fulfilled' && simRes.value?.plan_notice) setPlanNotice(String(simRes.value.plan_notice)); } catch {}
@@ -70,11 +73,14 @@ export default function Dashboard(){
                 mRes.status==='rejected'? api.get(`/metrics?tenant_id=${encodeURIComponent(tid)}`, { timeoutMs: 8000 }): Promise.resolve(null as any),
                 qRes.status==='rejected'? api.get(`/cadences/queue?tenant_id=${encodeURIComponent(tid)}`, { timeoutMs: 8000 }): Promise.resolve(null as any),
                 fRes.status==='rejected'? api.get(`/funnel/daily?tenant_id=${encodeURIComponent(tid)}&days=30`, { timeoutMs: 8000 }): Promise.resolve(null as any),
+                ,
+                anRes.status==='rejected'? api.post('/onboarding/analyze', { tenant_id: tid }, { timeoutMs: 8000 }) : Promise.resolve(null as any)
               ]);
               if (!mounted) return;
               if (mRes.status==='rejected' && retry[0].status==='fulfilled') setMetrics(retry[0].value||{});
               if (qRes.status==='rejected' && retry[1].status==='fulfilled') setQueue(retry[1].value||{items:[]});
               if (fRes.status==='rejected' && retry[2].status==='fulfilled') setFunnel(retry[2].value||{series:[]});
+              try { if (anRes.status==='rejected' && retry[3].status==='fulfilled' && (retry[3] as any)?.summary?.ts) setLastAnalyzed(Number((retry[3] as any).summary.ts)); } catch {}
               setError('');
             } catch {}
           }, 2000);
@@ -331,6 +337,9 @@ export default function Dashboard(){
             </button>
           ))}
         </div>
+        {lastAnalyzed && (
+          <div className="mt-2 text-[11px] text-slate-500">Last analyzed: {new Date(lastAnalyzed*1000).toLocaleString()}</div>
+        )}
       </section>
       <div ref={chartRef as any} data-guide="chart" onMouseEnter={prefetchChart}>
         <Card>

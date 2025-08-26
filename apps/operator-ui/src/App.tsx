@@ -129,15 +129,15 @@ function Shell() {
       {!embed && (
         <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:bg-white focus:text-slate-900 focus:px-3 focus:py-2 focus:rounded-md focus:shadow">Skip to content</a>
       )}
-      <div className="relative min-h-screen">
+      <div className="relative min-h-screen overflow-hidden">
         {!embed && (
           <div aria-hidden className="absolute inset-0 -z-10" style={{
             background: 'radial-gradient(1200px 400px at 10% -10%, rgba(236,72,153,0.14), transparent), radial-gradient(900px 300px at 90% -20%, rgba(99,102,241,0.12), transparent)'
           }} />
         )}
-        <div className="px-6 pt-4 md:pt-6">
+        <div className="px-6 pt-4 md:pt-6 h-screen overflow-hidden">
           {/* Header bar removed per request to keep workspace minimal */}
-          <main id="main">
+          <main id="main" className="h-full overflow-auto">
             <Suspense fallback={<div className="max-w-5xl mx-auto p-4"><div className="h-10 w-40 bg-slate-100 rounded mb-3" /><div className="h-6 w-64 bg-slate-100 rounded mb-2" /><div className="h-24 w-full bg-slate-100 rounded" /></div>}>
               <RouteContent />
             </Suspense>

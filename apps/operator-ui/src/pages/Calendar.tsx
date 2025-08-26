@@ -10,11 +10,13 @@ export default function Calendar(){
   const [status, setStatus] = useState('');
   const [provider, setProvider] = useState<string>('all');
   const [merged, setMerged] = useState<number>(0);
+  const [lastAnalyzed, setLastAnalyzed] = useState<number|undefined>(undefined);
   const [showApple, setShowApple] = useState<boolean>(true);
   useEffect(()=>{
     (async()=>{ try{ const r = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`); setEvents(r?.events||[]); setLastSync(r?.last_sync||{}); } finally{ setLoading(false); } })();
   },[]);
   useEffect(()=>{ try{ const sp = new URLSearchParams(window.location.search); if (sp.get('tour')==='1') startGuide('calendar'); } catch {} },[]);
+  useEffect(()=>{ (async()=>{ try{ const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() }); if (a?.summary?.ts) setLastAnalyzed(Number(a.summary.ts)); } catch{} })(); },[]);
   // Hide Apple option when not configured
   useEffect(()=>{
     try {
@@ -52,6 +54,9 @@ export default function Calendar(){
         <button className="ml-auto text-sm text-slate-600 hover:underline" aria-label="Open calendar guide" onClick={()=> startGuide('calendar')}>Guide me</button>
       </div>
       <div className="text-[11px] text-slate-600">Note: Scheduling from BrandVX is disabled. Calendar merges are read‑only.</div>
+      {lastAnalyzed && (
+        <div className="text-[11px] text-slate-500">Last analyzed: {new Date(lastAnalyzed*1000).toLocaleString()}</div>
+      )}
       {/* Simple weekly grid (visual aid) */}
       <div className="rounded-xl border bg-white p-3" role="table" aria-label="Weekly calendar">
         <div className="grid grid-cols-7 gap-2 text-xs text-slate-600">

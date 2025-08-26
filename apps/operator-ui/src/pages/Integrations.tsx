@@ -23,7 +23,8 @@ export default function Integrations(){
     try{
       const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() });
       setOnboarding({ ...a?.summary, connectedMap: a?.summary?.connected || {}, providers: a?.summary?.providers || {} });
-      setStatus('Re‑analyzed.');
+      const ts = new Date();
+      setStatus(`Re‑analyzed at ${ts.toLocaleTimeString()}`);
     } catch(e:any){ setStatus(String(e?.message||e)); }
   };
 
@@ -264,14 +265,19 @@ export default function Integrations(){
         </div>
       </div>
       {onboarding?.providers && (
-        <div className="text-xs text-slate-700 bg-white/70 border border-white/70 rounded-md px-2 py-1 inline-block">
-          {(() => {
-            const entries = Object.entries(onboarding.providers as Record<string, boolean>);
-            const total = entries.length;
-            const configured = entries.filter(([,v]) => !!v).length;
-            const pending = total - configured;
-            return `Configured: ${configured}/${total} · Pending config: ${pending}`;
-          })()}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-700 bg-white/70 border border-white/70 rounded-md px-2 py-1 inline-block">
+            {(() => {
+              const entries = Object.entries(onboarding.providers as Record<string, boolean>);
+              const total = entries.length;
+              const configured = entries.filter(([,v]) => !!v).length;
+              const pending = total - configured;
+              return `Configured: ${configured}/${total} · Pending config: ${pending}`;
+            })()}
+          </span>
+          {onboarding?.last_analyzed && (
+            <span className="text-[11px] text-slate-500">Last analyzed: {new Date((onboarding as any).last_analyzed*1000).toLocaleString()}</span>
+          )}
         </div>
       )}
       {errorMsg && (

@@ -9,6 +9,7 @@ export default function Inventory(){
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('');
   const [items, setItems] = useState<any[]>([]);
+  const [lastAnalyzed, setLastAnalyzed] = useState<number|undefined>(undefined);
   const [lowThreshold, setLowThreshold] = useState<number>(()=>{
     try { return parseInt(localStorage.getItem('bvx_low_threshold')||'5')||5; } catch { return 5; }
   });
@@ -23,6 +24,7 @@ export default function Inventory(){
       if (sp.get('tour') === '1') startGuide('inventory');
     } catch {}
   },[]);
+  useEffect(()=>{ (async()=>{ try{ const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() }); if (a?.summary?.ts) setLastAnalyzed(Number(a.summary.ts)); } catch{} })(); },[]);
   const syncNow = async (provider?: string) => {
     const r = await api.post('/inventory/sync', { tenant_id: await getTenant(), provider });
     setStatus(JSON.stringify(r));
@@ -54,6 +56,9 @@ export default function Inventory(){
         <Stat label="Top SKU" value={summary.top_sku ?? '—'} />
       </div>
       <div className="text-sm text-slate-600">Connect Shopify/Square or add products manually to see inventory here.</div>
+      {lastAnalyzed && (
+        <div className="text-[11px] text-slate-500">Last analyzed: {new Date(lastAnalyzed*1000).toLocaleString()}</div>
+      )}
       <div className="flex flex-wrap gap-2 text-xs text-slate-700">
         {Object.entries(lastSync).map(([prov, info])=> {
           const ts = (info as any)?.ts ? new Date(((info as any)?.ts||0)*1000).toLocaleTimeString() : '';

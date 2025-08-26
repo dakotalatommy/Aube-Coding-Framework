@@ -21,6 +21,7 @@ export default function Messages(){
   const [suggestions, setSuggestions] = useState<Array<{id:string;name:string}>>([]);
   const [showSug, setShowSug] = useState(false);
   const [connected, setConnected] = useState<Record<string,string>>({});
+  const [lastAnalyzed, setLastAnalyzed] = useState<number|undefined>(undefined);
   useEffect(()=>{ (async()=>{ try{ const r = await api.post('/onboarding/analyze', { tenant_id: await getTenant() }); if (r?.summary?.connected) setConnected(r.summary.connected); } catch{} })(); },[]);
   const twilioConnected = (connected['twilio']||'') === 'connected';
 
@@ -51,6 +52,7 @@ export default function Messages(){
   useEffect(()=>{
     try{ const sp = new URLSearchParams(window.location.search); if (sp.get('tour')==='1') startGuide('messages'); } catch {}
   },[]);
+  useEffect(()=>{ (async()=>{ try{ const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() }); if (a?.summary?.ts) setLastAnalyzed(Number(a.summary.ts)); } catch{} })(); },[]);
 
   const simulate = async (channel:'sms'|'email') => {
     try {
@@ -148,6 +150,9 @@ export default function Messages(){
             <Button variant="outline" onClick={()=>simulate('email')}>Simulate Email</Button>
             <Button variant="outline" className="ml-auto" onClick={()=> startGuide('messages')} aria-label="Open messages guide">Guide me</Button>
           </div>
+          {lastAnalyzed && (
+            <div className="text-[11px] text-slate-500">Last analyzed: {new Date(lastAnalyzed*1000).toLocaleString()}</div>
+          )}
 
           <div className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm" data-guide="compose">
             <div className="font-semibold mb-2">Send Message</div>
