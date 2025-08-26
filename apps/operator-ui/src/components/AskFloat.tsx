@@ -106,7 +106,7 @@ export default function AskFloat(){
           style={(docked || onDashboard || onWorkspace || inDemo) ? { left: 0, right: 0, bottom: 'env(safe-area-inset-bottom, 0px)', height: dockHeight } : { left: pos.x, bottom: pos.y, width: pos.w, height: pos.h }}
         >
           <div
-            className={`select-none flex items-center justify-between px-3 py-2 text-sm text-slate-800 ${(onDashboard || onWorkspace || inDemo) ? 'bg-white' : 'bg-white'} border-b ${(onDashboard || onWorkspace || inDemo) ? 'border-slate-200' : 'border-white/70'}`}
+            className={`select-none flex items-center justify-between px-3 py-2 text-sm text-slate-800 bg-white border-b border-slate-200`}
             onMouseDown={onMouseDown}
           >
             <div className="font-medium">Ask VX</div>
