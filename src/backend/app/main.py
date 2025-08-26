@@ -1528,8 +1528,8 @@ async def ai_chat(
     # Model selection: always use GPT‑5 Mini by default; Nano only as fallback
     user_text = (req.messages[-1].content if req.messages else "")
     short = len(user_text.split()) < 24
-    model_pref = os.getenv("OPENAI_MODEL", "gpt-5-mini")
-    fallback_models = (os.getenv("OPENAI_FALLBACK_MODELS", "gpt-5-nano").split(",") if os.getenv("OPENAI_FALLBACK_MODELS") else ["gpt-5-nano"])  # type: ignore
+    model_pref = os.getenv("OPENAI_MODEL", "gpt-5")
+    fallback_models = (os.getenv("OPENAI_FALLBACK_MODELS", "gpt-5-mini").split(",") if os.getenv("OPENAI_FALLBACK_MODELS") else ["gpt-5-mini"])  # type: ignore
     client = AIClient(model=model_pref)  # type: ignore
     # Allow configuring response length via env
     _max_tokens = int(os.getenv("AI_CHAT_MAX_TOKENS", "1200"))

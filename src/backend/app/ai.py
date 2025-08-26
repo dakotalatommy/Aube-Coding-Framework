@@ -10,12 +10,12 @@ class AIClient:
     def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None, model: Optional[str] = None):
         self.api_key = api_key or os.getenv("OPENAI_API_KEY", "")
         self.base_url = base_url or os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-        # Default to GPT-5 Mini; no GPT-4 fallbacks
-        self.model = model or os.getenv("OPENAI_MODEL", "gpt-5-mini")
+        # Default to GPT-5 primary; GPT-5 Mini as fallback
+        self.model = model or os.getenv("OPENAI_MODEL", "gpt-5")
         self.fallback_models = [m.strip() for m in os.getenv("OPENAI_FALLBACK_MODELS", "").split(",") if m.strip()]
         # Ensure we always have a safe GPT‑5 fallback if primary is GPT‑5
         if (not self.fallback_models) and (self.model.lower().startswith("gpt-5")):
-            self.fallback_models = ["gpt-5-nano"]
+            self.fallback_models = ["gpt-5-mini"]
         self.provider = os.getenv("AI_PROVIDER", "chat").lower()  # chat | agents
         self.agent_id = os.getenv("OPENAI_AGENT_ID", "")
         if self.provider == "agents" and not self.agent_id:
