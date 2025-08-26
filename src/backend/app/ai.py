@@ -25,9 +25,15 @@ class AIClient:
         self.agents_url = os.getenv("OPENAI_AGENTS_URL", f"{self.base_url}/responses")
 
     async def generate(self, system: str, messages: List[Dict[str, str]], max_tokens: int = 512) -> str:
-        if not self.api_key:
+        # Resolve API key fresh at request time to avoid stale env reads after redeploys
+        live_key = (os.getenv("OPENAI_API_KEY", "") or self.api_key or "").strip()
+        if not live_key:
             return "AI not configured. Add OPENAI_API_KEY to enable chat and message generation."
-        headers = {"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"}
+        headers = {"Authorization": f"Bearer {live_key}", "Content-Type": "application/json"}
+        # Optional project scoping header for project keys
+        project_id = os.getenv("OPENAI_PROJECT", "").strip()
+        if project_id:
+            headers["OpenAI-Project"] = project_id
         # Prefer agents if explicitly requested and agent_id is present
         if self.provider == "agents" and self.agent_id:
             text = await self._generate_via_agents(system, messages, max_tokens)
@@ -96,10 +102,11 @@ class AIClient:
     async def _generate_via_agents(self, system: str, messages: List[Dict[str, str]], max_tokens: int) -> Optional[str]:
         if not self.api_key or not self.agent_id:
             return None
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
+        live_key = (os.getenv("OPENAI_API_KEY", "") or self.api_key or "").strip()
+        headers = {"Authorization": f"Bearer {live_key}", "Content-Type": "application/json"}
+        project_id = os.getenv("OPENAI_PROJECT", "").strip()
+        if project_id:
+            headers["OpenAI-Project"] = project_id
         # Flatten messages into a single input while preserving roles
         # Many agents endpoints accept a single text input; we include system as a preface
         user_transcript = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
@@ -174,10 +181,11 @@ class AIClient:
         """Call OpenAI Responses API directly (no agent), useful for newer models like gpt-5."""
         if not self.api_key:
             return None
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
+        live_key = (os.getenv("OPENAI_API_KEY", "") or self.api_key or "").strip()
+        headers = {"Authorization": f"Bearer {live_key}", "Content-Type": "application/json"}
+        project_id = os.getenv("OPENAI_PROJECT", "").strip()
+        if project_id:
+            headers["OpenAI-Project"] = project_id
         # Prefer structured input with role/content blocks for best compatibility
         content_blocks: List[Dict[str, Any]] = [
             {"role": "system", "content": [{"type": "input_text", "text": system}]}
@@ -280,10 +288,11 @@ class AIClient:
         if not self.api_key:
             return []
         embed_model = model or os.getenv("OPENAI_EMBED_MODEL", "text-embedding-3-small")
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
+        live_key = (os.getenv("OPENAI_API_KEY", "") or self.api_key or "").strip()
+        headers = {"Authorization": f"Bearer {live_key}", "Content-Type": "application/json"}
+        project_id = os.getenv("OPENAI_PROJECT", "").strip()
+        if project_id:
+            headers["OpenAI-Project"] = project_id
         payload: Dict[str, Any] = {"model": embed_model, "input": texts}
         backoff_seconds = 1.0
         for attempt in range(3):

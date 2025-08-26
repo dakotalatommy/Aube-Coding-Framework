@@ -1603,6 +1603,21 @@ async def ai_chat(
     return {"text": content}
 
 
+# --- Diagnostics (temporary; remove after verification) ---
+@app.get("/ai/diag", tags=["AI"])
+async def ai_diag(ctx: UserContext = Depends(get_user_context)):
+    try:
+        key = os.getenv("OPENAI_API_KEY", "")
+        model = os.getenv("OPENAI_MODEL", "")
+        base = os.getenv("OPENAI_BASE_URL", "")
+        proj = os.getenv("OPENAI_PROJECT", "")
+        # mask key: show prefix and length only
+        shown = f"{key[:7]}…len={len(key)}" if key else ""
+        return {"ok": True, "model": model, "base": base, "project": proj, "key_shape": shown}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 # --- Edge Function Proxies (Gateway model) ---
 class EdgeProxyRequest(BaseModel):
     tenant_id: str
