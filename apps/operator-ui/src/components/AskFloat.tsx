@@ -107,6 +107,7 @@ export default function AskFloat(){
         >
           <div
             className={`select-none flex items-center justify-between px-3 py-2 text-sm text-slate-800 bg-white border-b border-slate-200`}
+            style={{ WebkitBackdropFilter: 'none', backdropFilter: 'none' }}
             onMouseDown={onMouseDown}
           >
             <div className="font-medium">Ask VX</div>
