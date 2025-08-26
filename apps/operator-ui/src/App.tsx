@@ -34,6 +34,7 @@ const DemoFlow = lazy(() => import('./pages/DemoFlow'));
 const DemoIntake = lazy(() => import('./pages/DemoIntake'));
 const Workspace = lazy(() => import('./pages/Workspace'));
 const Share = lazy(() => import('./pages/Share'));
+const AuthCallback = lazy(() => import('./pages/AuthCallback'));
 
 function RouteContent() {
   const loc = useLocation();
@@ -69,6 +70,7 @@ function RouteContent() {
         <Route path="/workflows" element={<Navigate to="/workspace?pane=workflows" replace />} />
         <Route path="/vision" element={<Vision />} />
         <Route path="/onboarding" element={<Onboarding />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/admin" element={<Admin />} />
         <Route path="/agent" element={<Agent />} />
         <Route path="/tutorial" element={<Tutorial />} />

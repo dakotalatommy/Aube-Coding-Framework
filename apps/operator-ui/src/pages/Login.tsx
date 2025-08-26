@@ -64,7 +64,7 @@ export default function Login() {
             onClick={async()=>{
               try{ localStorage.setItem('bvx_offer_pending','1'); }catch{}
               try{
-                const redirectTo = `${window.location.origin}/onboarding?offer=1`;
+                const redirectTo = `${window.location.origin}/auth/callback?next=/workspace?pane=dashboard&tour=all`;
                 const { data, error } = await supabase.auth.signInWithOAuth({ provider:'google', options:{ redirectTo } });
                 if (error) { alert(String(error.message||error)); return; }
                 if (data && (data as any).url) window.location.assign((data as any).url as string);

@@ -110,7 +110,8 @@ export default function Dashboard(){
       if (signedOut) { try{ localStorage.removeItem('bvx_signed_out'); }catch{} }
       const seen = localStorage.getItem('bvx_tour_seen_dashboard') === '1';
       if (sp.get('tour') === 'all' && !signedOut) {
-        startDemoMegaTour();
+        // Use the standard dashboard guide for workspace tour (avoid demo mega tour in real app)
+        startGuide('dashboard');
         return;
       }
       if (sp.get('tour') === '1' && !seen && !signedOut) {

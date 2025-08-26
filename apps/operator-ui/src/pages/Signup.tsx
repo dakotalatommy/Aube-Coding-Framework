@@ -10,19 +10,21 @@ export default function Signup() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [awaitingConfirm, setAwaitingConfirm] = useState(false);
   const appleEnabled = String(import.meta.env.VITE_OAUTH_APPLE || '0') === '1';
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try{
-      const redirectTo = `${window.location.origin}/onboarding?offer=1`;
+      const redirectTo = `${window.location.origin}/auth/callback?next=/workspace?pane=dashboard&tour=all`;
       const { error } = await supabase.auth.signUp({
         email,
         password,
         options: { data: { name, business }, emailRedirectTo: redirectTo }
       });
       if (error) throw error;
+      setAwaitingConfirm(true);
       try { localStorage.setItem('bvx_offer_pending','1'); } catch {}
       // Referral attribution
       try {
@@ -36,7 +38,8 @@ export default function Signup() {
           }
         }
       } catch {}
-      navigate('/onboarding?offer=1');
+      // We’ll move to workspace after confirmation via auth listener; keep user here for clarity
+      // navigate('/workspace?pane=dashboard&tour=all');
     }catch(err){
       alert(String((err as Error).message || err));
     }finally{
@@ -49,6 +52,7 @@ export default function Signup() {
       <div className="border rounded-2xl p-6 shadow-sm" style={{background:'linear-gradient(180deg, #fff, #fff8fb)'}}>
         <h1 className="text-3xl font-semibold text-slate-900">Create your account</h1>
         <p className="text-slate-600 mt-1">Start your onboarding in minutes.</p>
+        {!awaitingConfirm ? (
         <form onSubmit={onSubmit} className="mt-6 space-y-4">
         <div>
           <label className="block text-sm text-slate-700">Your name</label>
@@ -96,6 +100,32 @@ export default function Signup() {
             {loading ? 'Creating…' : 'Create account'}
           </button>
         </form>
+        ) : (
+          <div className="mt-6 space-y-3">
+            <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-sm">
+              We sent a confirmation link to <b>{email || 'your email'}</b>. After you click it, we’ll open your workspace automatically.
+            </div>
+            <div className="flex gap-2">
+              <a className="text-sm text-pink-600 hover:underline" href="https://mail.google.com" target="_blank" rel="noreferrer">Open Gmail</a>
+              <span className="text-slate-300">—</span>
+              <button type="button" className="text-sm text-slate-700 hover:underline" onClick={async()=>{
+                try {
+                  const redirectTo = `${window.location.origin}/auth/callback?next=/workspace?pane=dashboard&tour=all`;
+                  await supabase.auth.resend({ type:'signup', email, options:{ emailRedirectTo: redirectTo } });
+                } catch {}
+              }}>Resend verification</button>
+              <span className="text-slate-300">—</span>
+              <button type="button" className="text-sm text-slate-700 hover:underline" onClick={async()=>{
+                try{
+                  const redirectTo = `${window.location.origin}/auth/callback?next=/workspace?pane=dashboard&tour=all`;
+                  const { data, error } = await supabase.auth.signInWithOAuth({ provider:'google', options:{ redirectTo } });
+                  if (error) { alert(String(error.message||error)); return; }
+                  if (data && (data as any).url) window.location.assign((data as any).url as string);
+                } catch(e:any){ alert(String(e?.message||e)); }
+              }}>Use Google instead</button>
+            </div>
+          </div>
+        )}
         <div className="my-4 grid grid-cols-1 gap-2">
           <button
             disabled={loading}
