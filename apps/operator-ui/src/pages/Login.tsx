@@ -57,6 +57,21 @@ export default function Login() {
         <p className="text-sm text-slate-600 mt-4">
           No account? <Link to="/signup" className="text-pink-600 hover:underline">Create one</Link>
         </p>
+        <div className="my-4">
+          <button
+            disabled={loading}
+            className="w-full px-4 py-2 rounded-xl border bg-white hover:shadow-sm"
+            onClick={async()=>{
+              try{ localStorage.setItem('bvx_offer_pending','1'); }catch{}
+              try{
+                const redirectTo = `${window.location.origin}/onboarding?offer=1`;
+                const { data, error } = await supabase.auth.signInWithOAuth({ provider:'google', options:{ redirectTo } });
+                if (error) { alert(String(error.message||error)); return; }
+                if (data && (data as any).url) window.location.assign((data as any).url as string);
+              } catch(e:any){ alert(String(e?.message||e)); }
+            }}
+          >Continue with Google</button>
+        </div>
       </div>
     </div>
   );

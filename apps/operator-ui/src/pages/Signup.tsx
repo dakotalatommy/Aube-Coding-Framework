@@ -103,7 +103,20 @@ export default function Signup() {
             onClick={async()=>{
               try{ track('signup_oauth_click',{provider:'google'}); }catch{}
               try{ localStorage.setItem('bvx_offer_pending','1'); }catch{}
-              await supabase.auth.signInWithOAuth({ provider:'google', options:{ redirectTo: `${window.location.origin}/onboarding?offer=1` } });
+              try{
+                const redirectTo = `${window.location.origin}/onboarding?offer=1`;
+                const { data, error } = await supabase.auth.signInWithOAuth({ provider:'google', options:{ redirectTo } });
+                if (error) {
+                  alert(String(error.message||error));
+                  return;
+                }
+                // Some environments require explicitly following the returned URL
+                if (data && (data as any).url) {
+                  window.location.assign((data as any).url as string);
+                }
+              } catch(e:any){
+                alert(String(e?.message||e));
+              }
             }}
           >Continue with Google</button>
           {appleEnabled && (
