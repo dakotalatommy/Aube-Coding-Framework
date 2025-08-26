@@ -154,8 +154,8 @@ export default function WorkspaceShell(){
           </div>
         </aside>
         {/* Canvas */}
-        <main className={`h-full rounded-2xl border ${demo? 'bg-amber-50/60' : 'bg-white/90'} backdrop-blur p-4 md:p-5 shadow-sm overflow-hidden pb-[var(--ask-float-height)]`}>
-          <div className="h-full rounded-xl bg-white/70 backdrop-blur border overflow-auto">
+        <main className={`h-full rounded-2xl border ${demo? 'bg-amber-50/60' : 'bg-white/90'} backdrop-blur p-4 md:p-5 shadow-sm overflow-hidden`}>
+          <div className="h-full rounded-xl bg-white/70 backdrop-blur border overflow-hidden">
             <Suspense fallback={<div className="p-4 text-slate-600 text-sm">Loading {PANES.find(p=>p.key===pane)?.label}…</div>}>
               {PaneView}
             </Suspense>

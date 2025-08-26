@@ -9,6 +9,8 @@ import ConfirmDialog from '../components/ui/ConfirmDialog';
 
 export default function Approvals(){
   const [items, setItems] = useState<any[]>([]);
+  const [page, setPage] = useState(0);
+  const pageSize = 6;
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(true);
   const [confirmAll, setConfirmAll] = useState<null | 'approve' | 'reject'>(null);
@@ -200,12 +202,16 @@ export default function Approvals(){
         <EmptyState title="No approvals waiting" description="New actions that affect clients will appear here for your review." />
       ) : (
         <>
+          <div className="flex items-center justify-end gap-2 text-xs mb-2">
+            <button className="px-2 py-1 rounded-md border bg-white disabled:opacity-50" onClick={()=> setPage(p=> Math.max(0, p-1))} disabled={page<=0}>&larr; Prev</button>
+            <button className="px-2 py-1 rounded-md border bg-white disabled:opacity-50" onClick={()=> setPage(p=> p+1)} disabled={(page+1)*pageSize >= items.length}>Next &rarr;</button>
+          </div>
           <Table data-guide="table">
             <THead>
               <TR><TH>ID</TH><TH>Status</TH><TH>Type</TH><TH>Payload</TH><TH>Action</TH></TR>
             </THead>
             <tbody>
-              {items.filter(f=> (onlyPending ? (f.status||'pending')==='pending' : true) && (q? JSON.stringify(f).toLowerCase().includes(q.toLowerCase()): true)).map((r:any)=> (
+              {items.filter(f=> (onlyPending ? (f.status||'pending')==='pending' : true) && (q? JSON.stringify(f).toLowerCase().includes(q.toLowerCase()): true)).slice(page*pageSize, (page+1)*pageSize).map((r:any)=> (
                 <TR key={r.id} onClick={()=> setSelected(r)} className={selected?.id===r.id ? 'bg-pink-50/50' : undefined}>
                   <TD>{r.id}</TD>
                   <TD>{r.status||'pending'}</TD>

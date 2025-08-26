@@ -10,6 +10,8 @@ export default function Inventory(){
   const [status, setStatus] = useState('');
   const [items, setItems] = useState<any[]>([]);
   const [lastAnalyzed, setLastAnalyzed] = useState<number|undefined>(undefined);
+  const [page, setPage] = useState(0);
+  const pageSize = 8;
   const [lowThreshold, setLowThreshold] = useState<number>(()=>{
     try { return parseInt(localStorage.getItem('bvx_low_threshold')||'5')||5; } catch { return 5; }
   });
@@ -78,7 +80,7 @@ export default function Inventory(){
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50"><tr><th className="px-3 py-2 text-left">SKU</th><th className="px-3 py-2 text-left">Name</th><th className="px-3 py-2 text-left">Stock</th><th className="px-3 py-2 text-left">Cost</th><th className="px-3 py-2 text-left">Price</th><th className="px-3 py-2 text-left">Provider</th></tr></thead>
             <tbody className="divide-y">
-              {items.map((it,i)=> (
+              {items.slice(page*pageSize, (page+1)*pageSize).map((it,i)=> (
                 <tr key={i} className={`hover:bg-slate-50 ${Number(it.stock)<=0? 'bg-rose-50': Number(it.stock)<=5? 'bg-amber-50':''}`}>
                   <td className="px-3 py-2">{it.sku}</td>
                   <td className="px-3 py-2">{it.name}</td>
@@ -95,6 +97,12 @@ export default function Inventory(){
             </tbody>
           </table>
           <div className="p-3 text-[11px] text-slate-600">Low‑stock threshold is 5 by default.</div>
+        </div>
+      )}
+      {items.length>0 && (
+        <div className="flex items-center justify-end gap-2 text-xs mt-2">
+          <button className="px-2 py-1 rounded-md border bg-white disabled:opacity-50" onClick={()=> setPage(p=> Math.max(0, p-1))} disabled={page<=0}>&larr; Prev</button>
+          <button className="px-2 py-1 rounded-md border bg-white disabled:opacity-50" onClick={()=> setPage(p=> p+1)} disabled={(page+1)*pageSize >= items.length}>Next &rarr;</button>
         </div>
       )}
       {status && <pre className="text-xs text-slate-700 whitespace-pre-wrap">{status}</pre>}

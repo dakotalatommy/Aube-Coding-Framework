@@ -22,6 +22,8 @@ export default function Messages(){
   const [showSug, setShowSug] = useState(false);
   const [connected, setConnected] = useState<Record<string,string>>({});
   const [lastAnalyzed, setLastAnalyzed] = useState<number|undefined>(undefined);
+  const [page, setPage] = useState(0);
+  const pageSize = 6;
   useEffect(()=>{ (async()=>{ try{ const r = await api.post('/onboarding/analyze', { tenant_id: await getTenant() }); if (r?.summary?.connected) setConnected(r.summary.connected); } catch{} })(); },[]);
   const twilioConnected = (connected['twilio']||'') === 'connected';
 
@@ -219,7 +221,7 @@ export default function Messages(){
                 <TR><TH>ID</TH><TH>Contact</TH><TH>Channel</TH><TH>Status</TH><TH>Template</TH><TH>TS</TH></TR>
               </THead>
               <tbody className="divide-y">
-                {items.map((r:any)=> (
+                {items.slice(page*pageSize, (page+1)*pageSize).map((r:any)=> (
                   <TR key={r.id}>
                     <TD>{r.id}</TD>
                     <TD>{r.contact_id}</TD>
@@ -231,6 +233,12 @@ export default function Messages(){
                 ))}
               </tbody>
             </Table>
+          )}
+          {items.length>0 && (
+            <div className="flex items-center justify-end gap-2 text-xs mt-2">
+              <button className="px-2 py-1 rounded-md border bg-white disabled:opacity-50" onClick={()=> setPage(p=> Math.max(0, p-1))} disabled={page<=0}>&larr; Prev</button>
+              <button className="px-2 py-1 rounded-md border bg-white disabled:opacity-50" onClick={()=> setPage(p=> p+1)} disabled={(page+1)*pageSize >= items.length}>Next &rarr;</button>
+            </div>
           )}
           <div className="flex gap-2 text-xs">
             {isWithinQuiet(quiet) && (
