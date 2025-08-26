@@ -8,7 +8,7 @@ import { motion } from 'framer-motion';
 import { lazy, Suspense, useRef } from 'react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 const FunnelChart = lazy(()=> import('../components/charts/FunnelChart'));
-import { startGuide, startDemoMegaTour } from '../lib/guide';
+import { startGuide } from '../lib/guide';
 import { Card, CardBody } from '../components/ui/Card';
 import Skeleton from '../components/ui/Skeleton';
 import { Table, THead, TR, TH, TD } from '../components/ui/Table';
@@ -111,7 +111,7 @@ export default function Dashboard(){
       const seen = localStorage.getItem('bvx_tour_seen_dashboard') === '1';
       // 7-day snooze for billing reminders
       const snooze = Number(localStorage.getItem('bvx_billing_nudge_snooze')||'0');
-      if (snooze && Date.now() - snooze < 7*24*60*60*1000) {
+      if (snooze && Date.now() - snooze < 2*24*60*60*1000) {
         setShowBillingNudge(false);
       }
       if (sp.get('tour') === 'all' && !signedOut) {
