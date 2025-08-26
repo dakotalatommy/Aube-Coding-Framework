@@ -178,12 +178,18 @@ class AIClient:
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-        # Flatten to a single input text while preserving roles
-        user_transcript = "\n".join([f"{m['role']}: {m['content']}" for m in messages])
-        input_text = f"System: {system}\n{user_transcript}".strip()
+        # Prefer structured input with role/content blocks for best compatibility
+        content_blocks: List[Dict[str, Any]] = [
+            {"role": "system", "content": [{"type": "text", "text": system}]}
+        ]
+        for m in messages:
+            content_blocks.append({
+                "role": m.get("role", "user"),
+                "content": [{"type": "text", "text": str(m.get("content", ""))}]
+            })
         payload: Dict[str, Any] = {
             "model": self.model,
-            "input": input_text,
+            "input": content_blocks,
             "max_output_tokens": max_tokens,
         }
         backoff_seconds = 1.0
