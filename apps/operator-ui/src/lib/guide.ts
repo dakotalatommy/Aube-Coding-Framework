@@ -91,37 +91,72 @@ export function startGuide(page: string) {
     const sp = new URLSearchParams(window.location.search);
     const isDemo = sp.get('demo') === '1';
     if (isDemo && page === 'dashboard') {
-      const seq: Array<{ path: string; page: string }> = [
-        { path: '/workspace?pane=dashboard&demo=1', page: 'dashboard' },
-        { path: '/workspace?pane=contacts&demo=1', page: 'contacts' },
-        { path: '/workspace?pane=calendar&demo=1', page: 'calendar' },
-        { path: '/workspace?pane=cadences&demo=1', page: 'cadences' },
-        { path: '/workspace?pane=inventory&demo=1', page: 'inventory' },
-        { path: '/workspace?pane=integrations&demo=1', page: 'integrations' },
-        { path: '/workspace?pane=workflows&demo=1', page: 'workflows' },
-        { path: '/workspace?pane=approvals&demo=1', page: 'approvals' },
-        { path: '/workspace?pane=onboarding&demo=1', page: 'onboarding' },
+      // Welcome only on dashboard, then single-step per pane sequence
+      const demoStepsMap: Record<string, GuideStep[]> = {
+        dashboard: [
+          { popover: { title: 'Welcome to the BrandVX demo', description: 'We’ll show each area briefly, then you can explore. In your live workspace, you’ll start in Onboarding.' } },
+        ],
+        messages: [
+          { element: '[data-guide="table"]', popover: { title: 'Messages', description: 'Preview and copy examples (beta). Sending will enable automatically later.' } },
+        ],
+        contacts: [
+          { element: '[data-guide="import"]', popover: { title: 'Contacts', description: 'Import/export and manage consent. Simple JSON import to start.' } },
+        ],
+        calendar: [
+          { element: '[data-guide="list"]', popover: { title: 'Calendar', description: 'Unified weekly grid from Google/Apple plus Square/Acuity bookings.' } },
+        ],
+        cadences: [
+          { element: '[data-guide="actions"]', popover: { title: 'Cadences', description: 'Human‑feel follow‑ups; respects quiet hours and approvals.' } },
+        ],
+        inventory: [
+          { element: '[data-guide="table"]', popover: { title: 'Inventory', description: 'Sync Shopify/Square; spot low/out‑of‑stock quickly.' } },
+        ],
+        integrations: [
+          { element: '[data-guide="providers"]', popover: { title: 'Integrations', description: 'Connect booking, CRM, messaging, and more — status at a glance.' } },
+        ],
+        workflows: [
+          { element: '[data-tour="wf-quick"]', popover: { title: 'Workflows', description: 'One place for common actions and impact steps.' } },
+        ],
+        approvals: [
+          { element: '[data-guide="table"]', popover: { title: 'Approvals', description: 'Risky or bulk actions wait here for your OK.' } },
+        ],
+        onboarding: [
+          { popover: { title: 'Onboarding', description: 'In live, you’ll start here — 5 quick steps to get going.' } },
+        ],
+      };
+      const seq: Array<{ path: string; key: string }> = [
+        { path: '/workspace?pane=dashboard&demo=1', key: 'dashboard' },
+        { path: '/workspace?pane=messages&demo=1', key: 'messages' },
+        { path: '/workspace?pane=contacts&demo=1', key: 'contacts' },
+        { path: '/workspace?pane=calendar&demo=1', key: 'calendar' },
+        { path: '/workspace?pane=cadences&demo=1', key: 'cadences' },
+        { path: '/workspace?pane=inventory&demo=1', key: 'inventory' },
+        { path: '/workspace?pane=integrations&demo=1', key: 'integrations' },
+        { path: '/workspace?pane=workflows&demo=1', key: 'workflows' },
+        { path: '/workspace?pane=approvals&demo=1', key: 'approvals' },
+        { path: '/workspace?pane=onboarding&demo=1', key: 'onboarding' },
       ];
       const driveAt = (idx: number) => {
         if (idx >= seq.length) return;
-        const { path, page } = seq[idx];
+        const { path, key } = seq[idx];
         if (window.location.pathname + window.location.search !== path) {
           window.location.href = path;
         }
         setTimeout(() => {
-          try { localStorage.setItem(`bvx_tour_seen_${page}`, '1'); } catch {}
-          try { track('tour_start', { page }); } catch {}
-          const d = driver({ showProgress: true, steps: getGuideSteps(page) } as any);
+          const steps = demoStepsMap[key] || [];
+          try { localStorage.setItem(`bvx_tour_seen_${key}`, '1'); } catch {}
+          try { track('tour_start', { page: key }); } catch {}
+          const d = driver({ showProgress: true, steps } as any);
           d.drive();
-          // After final page (onboarding), highlight demo Sign up
           const next = idx + 1;
           setTimeout(() => {
             if (next >= seq.length) {
+              // Final: highlight demo Sign up button
               try {
                 const d2 = driver({
                   showProgress: true,
                   steps: [
-                    { element: '[data-guide="demo-signup"]', popover: { title: 'Create your BrandVX', description: 'When you’re ready, tap Sign up to start your live workspace.' } }
+                    { element: '[data-guide="demo-signup"]', popover: { title: 'Create your BrandVX', description: 'Ready to continue? Tap Sign up to start your live workspace.' } }
                   ],
                 } as any);
                 d2.drive();
@@ -129,8 +164,8 @@ export function startGuide(page: string) {
               return;
             }
             driveAt(next);
-          }, 2500);
-        }, 500);
+          }, 2300);
+        }, 450);
       };
       driveAt(0);
       return;
