@@ -17,6 +17,15 @@ export default function Approvals(){
   const [selected, setSelected] = useState<any|null>(null);
   const [labels, setLabels] = useState<Record<string,string>>({});
   const [authHint, setAuthHint] = useState<string>('');
+  const [suggested, setSuggested] = useState<any[]>([]);
+  const loadSuggested = async () => {
+    try{
+      const tid = await getTenant();
+      const s = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+      const arr = Array.isArray(s?.data?.suggested_campaigns) ? s.data.suggested_campaigns : [];
+      setSuggested(arr);
+    } catch {}
+  };
   const load = async () => {
     try{
       const tid = await getTenant();
@@ -26,7 +35,7 @@ export default function Approvals(){
       setItems(Array.isArray(r) ? r : (r.items||[]));
     } catch(e:any){ setStatus(String(e?.message||e)); }
   };
-  useEffect(()=>{ (async()=>{ try { setLoading(true); await load(); } finally { setLoading(false); } })(); },[]);
+  useEffect(()=>{ (async()=>{ try { setLoading(true); await Promise.all([load(), loadSuggested()]); } finally { setLoading(false); } })(); },[]);
   useEffect(()=>{ (async()=>{ try { const s = await api.get('/ai/tools/schema_human'); const map:Record<string,string>={}; if (Array.isArray(s?.tools)) { for (const t of s.tools) { map[String(t?.id||t?.name||'')] = String(t?.label||t?.title||''); } } setLabels(map);} catch {} })(); },[]);
   const act = async (id:string, decision:'approve'|'reject') => {
     try{
@@ -34,6 +43,17 @@ export default function Approvals(){
       setStatus(JSON.stringify(r));
       await load();
     } catch(e:any){ setStatus(String(e?.message||e)); }
+  };
+  const removeSuggested = async (sid: string) => {
+    try{
+      const tid = await getTenant();
+      const s = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+      const data = s?.data || {};
+      const list = Array.isArray(data.suggested_campaigns) ? data.suggested_campaigns : [];
+      const next = { ...data, suggested_campaigns: list.filter((x:any)=> x?.id !== sid) };
+      await api.post('/settings', { tenant_id: tid, ...next });
+      await loadSuggested();
+    } catch(e:any){ setStatus('Update failed: '+String(e?.message||e)); }
   };
   const bulk = async (decision:'approve'|'reject') => {
     if (!window.confirm(`Are you sure you want to ${decision} all (${items.length})?`)) return;
@@ -117,6 +137,38 @@ export default function Approvals(){
       <div className="text-xs text-slate-600">When BrandVX needs your OK for an action, it shows up here. Review the details and Approve or Reject.</div>
       {authHint && (
         <div className="rounded-md border bg-amber-50 text-amber-800 px-2 py-1 text-xs inline-block">{authHint}</div>
+      )}
+      {suggested.length > 0 && (
+        <div className="mt-3 rounded-xl border bg-white p-3">
+          <div className="text-sm font-medium text-slate-800">Suggested Campaigns (beta)</div>
+          <div className="text-xs text-slate-600">Saved from Messages in recommend‑only mode — review or remove.</div>
+          <Table>
+            <THead>
+              <TR>
+                <TH>When</TH>
+                <TH>Contact</TH>
+                <TH>Channel</TH>
+                <TH>Subject</TH>
+                <TH>Body</TH>
+                <TH>
+                  <span className="sr-only">Actions</span>
+                </TH>
+              </TR>
+            </THead>
+            <tbody className="divide-y">
+              {suggested.map((r:any)=> (
+                <TR key={r.id}>
+                  <TD>{r.created_at ? new Date(r.created_at).toLocaleString() : ''}</TD>
+                  <TD>{r.contact_id||''}</TD>
+                  <TD>{r.channel||''}</TD>
+                  <TD>{r.subject||''}</TD>
+                  <TD className="max-w-[22rem] truncate">{r.body||''}</TD>
+                  <TD><Button variant="outline" size="sm" onClick={()=> removeSuggested(r.id)}>Remove</Button></TD>
+                </TR>
+              ))}
+            </tbody>
+          </Table>
+        </div>
       )}
       <div className="flex flex-wrap items-center gap-2 text-sm" data-guide="filters">
         <input className="border rounded-md px-2 py-1 bg-white" placeholder="Search…" value={q} onChange={e=>setQ(e.target.value)} />

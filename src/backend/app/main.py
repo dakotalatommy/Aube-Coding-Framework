@@ -1550,7 +1550,11 @@ async def ai_chat(
                 max_tokens=min(400, _max_tokens),
             )
         except Exception:
-            return {"text": "Sorry — I'm having trouble right now."}
+            # Graceful local fallback per-mode to avoid dead-ends in demo/onboarding
+            if (req.mode or "") == "sales_onboarding":
+                last = (req.messages[-1].content if req.messages else "")
+                return {"text": f"Got it — {last.strip()[:80]} … What’s the main goal you want BrandVX to help with this week?"}
+            return {"text": "AI is temporarily busy. Please try again in a moment."}
     # Persist chat logs (last user msg + assistant reply) and record usage
     try:
         with next(get_db()) as db:  # type: ignore
