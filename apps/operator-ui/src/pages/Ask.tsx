@@ -155,7 +155,7 @@ export default function Ask(){
         messages: next,
         allow_tools: false,
         session_id: sessionId,
-      });
+      }, { timeoutMs: 20000 });
       const text = String(r?.text || '');
       // Refine contextual actions with assistant text
       setContextActions(computeContext(prompt, text));

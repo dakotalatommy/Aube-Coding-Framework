@@ -103,7 +103,7 @@ async function request(path: string, options: RequestInit = {}) {
     const ctl = new AbortController();
     const passedSignal = (options as any).signal as AbortSignal | undefined;
     const timeoutMs = (options as any).timeoutMs as number | undefined;
-    const to = window.setTimeout(()=>{ try { ctl.abort('timeout'); } catch {} }, typeof timeoutMs === 'number' ? timeoutMs : 8000);
+    const to = window.setTimeout(()=>{ try { ctl.abort('timeout'); } catch {} }, typeof timeoutMs === 'number' ? timeoutMs : 20000);
     const compositeSignal = passedSignal ? new AbortSignalAny([passedSignal, ctl.signal]) : ctl.signal;
     const res = await fetch(`${base}${path}`, { ...options, headers, signal: compositeSignal });
     if (!res.ok) {

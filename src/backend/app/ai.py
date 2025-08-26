@@ -191,9 +191,16 @@ class AIClient:
             {"role": "system", "content": [{"type": "input_text", "text": system}]}
         ]
         for m in messages:
+            role = m.get("role", "user")
+            text_val = str(m.get("content", ""))
+            # OpenAI Responses expects 'input_text' for user/system and 'output_text' for assistant turns
+            if role == "assistant":
+                content = [{"type": "output_text", "text": text_val}]
+            else:
+                content = [{"type": "input_text", "text": text_val}]
             content_blocks.append({
-                "role": m.get("role", "user"),
-                "content": [{"type": "input_text", "text": str(m.get("content", ""))}]
+                "role": role,
+                "content": content
             })
         payload: Dict[str, Any] = {
             "model": self.model,
@@ -282,6 +289,7 @@ class AIClient:
                     await asyncio.sleep(backoff_seconds + random.uniform(0, 0.5))
                     backoff_seconds *= 2
                     continue
+                return None
         return None
 
     async def embed(self, texts: List[str], model: Optional[str] = None) -> List[List[float]]:

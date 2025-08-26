@@ -1519,35 +1519,50 @@ async def ai_chat(
         capabilities_text + (f"\nBrand profile: {brand_profile_text}" if brand_profile_text else ""),
         mode=(req.mode or "default")
     )
-    # Adaptive model selection: prefer Mini; use Nano for short replies or when caps are tight
+    # Model selection: always use GPT‑5 Mini by default; Nano only as fallback
     user_text = (req.messages[-1].content if req.messages else "")
     short = len(user_text.split()) < 24
     model_pref = os.getenv("OPENAI_MODEL", "gpt-5-mini")
     fallback_models = (os.getenv("OPENAI_FALLBACK_MODELS", "gpt-5-nano").split(",") if os.getenv("OPENAI_FALLBACK_MODELS") else ["gpt-5-nano"])  # type: ignore
-    chosen_model = ("gpt-5-nano" if short else model_pref)
-    client = AIClient(model=chosen_model)  # type: ignore
+    client = AIClient(model=model_pref)  # type: ignore
     # Allow configuring response length via env
     _max_tokens = int(os.getenv("AI_CHAT_MAX_TOKENS", "1200"))
     try:
+        # Enforce a safe output-token floor to avoid incomplete Responses
+        reply_max_tokens = (_max_tokens if not short else min(400, _max_tokens))
+        try:
+            reply_floor = int(os.getenv("AI_MIN_OUTPUT_TOKENS", "256"))
+        except Exception:
+            reply_floor = 256
+        if reply_max_tokens < reply_floor:
+            reply_max_tokens = reply_floor
         content = await client.generate(
             system_prompt,
             [
                 {"role": m.role, "content": m.content}
                 for m in req.messages
             ],
-            max_tokens=_max_tokens if not short else min(400, _max_tokens),
+            max_tokens=reply_max_tokens,
         )
     except Exception:
         # Fallback to the first configured fallback model
         try:
             client_fallback = AIClient(model=fallback_models[0])  # type: ignore
+            # Apply the same token floor on fallback path
+            try:
+                reply_floor_fb = int(os.getenv("AI_MIN_OUTPUT_TOKENS", "256"))
+            except Exception:
+                reply_floor_fb = 256
+            fb_max = min(400, _max_tokens)
+            if fb_max < reply_floor_fb:
+                fb_max = reply_floor_fb
             content = await client_fallback.generate(
                 system_prompt,
                 [
                     {"role": m.role, "content": m.content}
                     for m in req.messages
                 ],
-                max_tokens=min(400, _max_tokens),
+                max_tokens=fb_max,
             )
         except Exception:
             # Graceful local fallback per-mode to avoid dead-ends in demo/onboarding
@@ -1603,19 +1618,7 @@ async def ai_chat(
     return {"text": content}
 
 
-# --- Diagnostics (temporary; remove after verification) ---
-@app.get("/ai/diag", tags=["AI"])
-async def ai_diag(ctx: UserContext = Depends(get_user_context)):
-    try:
-        key = os.getenv("OPENAI_API_KEY", "")
-        model = os.getenv("OPENAI_MODEL", "")
-        base = os.getenv("OPENAI_BASE_URL", "")
-        proj = os.getenv("OPENAI_PROJECT", "")
-        # mask key: show prefix and length only
-        shown = f"{key[:7]}…len={len(key)}" if key else ""
-        return {"ok": True, "model": model, "base": base, "project": proj, "key_shape": shown}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+ 
 
 
 # --- Edge Function Proxies (Gateway model) ---

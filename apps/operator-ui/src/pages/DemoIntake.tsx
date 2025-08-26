@@ -82,19 +82,8 @@ export default function DemoIntake(){
         const nextIdx = idx + 1;
         setIdx(nextIdx);
         if (nextIdx < intakeQuestions.length) {
-          // AskVX follow-up in sales_onboarding mode, using the next scripted question as guidance
-          const r = await api.post('/ai/chat', {
-            tenant_id: await getTenant(),
-            messages: [
-              { role:'assistant', content: 'I\'ll ask a few questions to tailor your demo.' },
-              { role:'user', content: text }
-            ],
-            allow_tools: false,
-            session_id: 'demo_intake',
-            mode: 'sales_onboarding',
-          });
-          const follow = String(r?.text||'').trim();
-          pushAssistant(follow || intakeQuestions[nextIdx].q);
+          // Keep intake snappy: advance to the next scripted question without AI
+          pushAssistant(intakeQuestions[nextIdx].q);
         } else {
           pushAssistant('Perfect. Thanks! Ask me a few quick questions about BrandVX — I’ll keep it brief.');
           try { track('intake_complete'); } catch {}
@@ -111,8 +100,16 @@ export default function DemoIntake(){
           allow_tools: false,
           session_id: 'demo_followup',
           mode: 'sales_onboarding',
+        }, { timeoutMs: 20000 }).catch(async ()=>{
+          return await api.post('/ai/chat', {
+            tenant_id: await getTenant(),
+            messages: [ { role:'user', content: text } ],
+            allow_tools: false,
+            session_id: 'demo_followup_r1',
+            mode: 'sales_onboarding',
+          }, { timeoutMs: 20000 });
         });
-        const reply = String(r?.text || '').trim();
+        const reply = String((r as any)?.text || '').trim();
         pushAssistant(reply || 'Thanks!');
         setFreePromptsLeft(freePromptsLeft-1);
         setBusy(false);
