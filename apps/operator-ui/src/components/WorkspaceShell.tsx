@@ -108,7 +108,7 @@ export default function WorkspaceShell(){
 
   return (
     <div className="max-w-6xl mx-auto supports-[padding:env(safe-area-inset-bottom)]:pb-[env(safe-area-inset-bottom)]">
-      <div className="h-[calc(100vh-140px)] grid grid-cols-[theme(spacing.56)_1fr] gap-4 md:gap-5 overflow-hidden">
+      <div className="h-[calc(100vh-0px)] grid grid-cols-[theme(spacing.56)_1fr] gap-4 md:gap-5 overflow-hidden">
         {/* Left dock */}
         <aside className="h-full bg-white/70 backdrop-blur border rounded-2xl p-3 md:p-4 flex flex-col" aria-label="Primary navigation">
           <nav className="flex flex-col gap-2" role="tablist" aria-orientation="vertical" onKeyDown={onKeyDown}>

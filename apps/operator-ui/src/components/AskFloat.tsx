@@ -38,14 +38,9 @@ export default function AskFloat(){
     }
   }, [onDashboard, onWorkspace, inDemo]);
 
-  // Reserve space so content doesn't hide behind the docked footer
+  // Do not reserve body space. Workspace sizes itself to viewport.
   useEffect(()=>{
-    if (onDashboard || onWorkspace || inDemo) {
-      const prev = document.body.style.paddingBottom;
-      document.body.style.paddingBottom = dockHeight;
-      try { document.documentElement.style.setProperty('--ask-float-height', dockHeight); } catch {}
-      return () => { document.body.style.paddingBottom = prev; };
-    }
+    try { document.documentElement.style.setProperty('--ask-float-height', dockHeight); } catch {}
   }, [onDashboard, onWorkspace, inDemo]);
 
   // Listen for global open events so header button can summon the floater
