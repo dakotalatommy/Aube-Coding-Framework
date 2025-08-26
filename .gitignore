@@ -1,0 +1,40 @@
+# Node/JS
+node_modules/
+dist/
+build/
+.vite/
+*.log
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Env/Secrets (repo-only; does not affect Render env vars)
+.env
+.env.*
+apps/operator-ui/.env
+apps/operator-ui/.env.*
+src/backend/.env
+*.key
+*.pem
+
+# OS
+.DS_Store
+apps/.DS_Store
+docs/.DS_Store
+src/.DS_Store
+
+# Local artifacts
+apps/operator-ui/test-results/
+apps/operator-ui/playwright-report/
+synthesis/
+test_brandvx.db
+
+# Editor
+.vscode/
+.idea/
+
+# Built bundles
+apps/operator-ui/dist/
+
