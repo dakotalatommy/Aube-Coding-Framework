@@ -11,6 +11,7 @@ import EmptyState from '../components/ui/EmptyState';
 
 export default function Messages(){
   const recommendOnly = String((import.meta as any).env?.VITE_BETA_RECOMMEND_ONLY || localStorage.getItem('bvx_recommend_only') || '0') === '1';
+  // Add beta disclosure step to Guide me list
   const [items, setItems] = useState<any[]>([]);
   const [filterContact, setFilterContact] = useState('');
   const [status, setStatus] = useState('');

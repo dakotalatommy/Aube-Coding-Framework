@@ -30,7 +30,7 @@ export default function AuthCallback() {
         return;
       }
       // Otherwise, wait for it
-      unsub = supabase.auth.onAuthStateChange((ev, session) => {
+      unsub = supabase.auth.onAuthStateChange((_, session) => {
         if (session) {
           signalReady();
           nav(next, { replace: true });

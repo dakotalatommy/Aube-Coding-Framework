@@ -31,7 +31,7 @@ type Action =
 export default function Ask(){
   const navigate = useNavigate();
   const { showToast } = useToast();
-  const [input, setInput] = useState('What KPIs should I look at today?');
+  const [input, setInput] = useState('How can I save you time today?');
   const [messages, setMessages] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);

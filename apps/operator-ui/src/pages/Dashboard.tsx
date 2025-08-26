@@ -109,6 +109,11 @@ export default function Dashboard(){
       const signedOut = localStorage.getItem('bvx_signed_out') === '1';
       if (signedOut) { try{ localStorage.removeItem('bvx_signed_out'); }catch{} }
       const seen = localStorage.getItem('bvx_tour_seen_dashboard') === '1';
+      // 7-day snooze for billing reminders
+      const snooze = Number(localStorage.getItem('bvx_billing_nudge_snooze')||'0');
+      if (snooze && Date.now() - snooze < 7*24*60*60*1000) {
+        setShowBillingNudge(false);
+      }
       if (sp.get('tour') === 'all' && !signedOut) {
         // Use the standard dashboard guide for workspace tour (avoid demo mega tour in real app)
         startGuide('dashboard');
@@ -130,7 +135,8 @@ export default function Dashboard(){
   const startFullDemoTour = () => {
     const sp = new URLSearchParams(window.location.search);
     if (sp.get('demo') !== '1') { window.location.href = '/workspace?pane=dashboard&demo=1&tour=all'; return; }
-    startDemoMegaTour();
+    // In demo, instruct user to use Guide me per page instead of auto tour
+    alert('Welcome to the BrandVX demo! Tap "Guide me" on any page for an in-depth walkthrough.');
   };
   const [showSignupModal, setShowSignupModal] = useState(false);
   const [refLink, setRefLink] = useState<string>('');
@@ -221,9 +227,13 @@ export default function Dashboard(){
         <section className="rounded-2xl p-3 border bg-amber-50/80 border-amber-200 text-amber-900">
           <div className="flex flex-wrap items-center gap-3">
             <span className="text-sm">{isDemo ? 'Demo mode — data is simulated.' : 'Beta: Sending via BrandVX is coming soon. Preview & copy now; sending will be enabled automatically later.'}</span>
-            <a href="/signup" className="text-sm font-semibold text-pink-600 hover:text-pink-700 hover:underline">Create account</a>
-            <span className="text-pink-300">—</span>
-            <a href="/billing" className="text-sm font-semibold text-pink-600 hover:text-pink-700 hover:underline">Add payment</a>
+            {!isDemo && (
+              <a href="/signup" className="text-sm font-semibold text-pink-600 hover:text-pink-700 hover:underline">Create account</a>
+            )}
+            {!isDemo && <span className="text-pink-300">—</span>}
+            {!isDemo && (
+              <a href="/billing" className="text-sm font-semibold text-pink-600 hover:text-pink-700 hover:underline">Add payment</a>
+            )}
           </div>
         </section>
       )}
@@ -261,9 +271,9 @@ export default function Dashboard(){
           <span className="px-1 text-pink-300">—</span>
           <a href="/workspace?pane=integrations" className="font-semibold text-pink-600 hover:text-pink-700 hover:underline">Connect Tools</a>
           <span className="px-1 text-pink-300">—</span>
-          <a href="/billing" className="font-semibold text-pink-600 hover:text-pink-700 hover:underline">Billing</a>
-          <span className="px-1 text-pink-300">—</span>
-          <button onClick={handleCreateShare} className="bg-transparent border-0 p-0 font-semibold text-pink-600 hover:text-pink-700 hover:underline">Share results</button>
+          <a href={isDemo ? '/s/demo' : '/billing'} className="font-semibold text-pink-600 hover:text-pink-700 hover:underline">{isDemo ? 'Share results' : 'Billing'}</a>
+          {!isDemo && <span className="px-1 text-pink-300">—</span>}
+          {!isDemo && <button onClick={handleCreateShare} className="bg-transparent border-0 font-semibold text-pink-600 hover:text-pink-700 hover:underline">Share results</button>}
           <div className="ml-auto flex items-center gap-2">
             <button onClick={startTour} className="bg-transparent border-0 p-0 text-slate-900 hover:underline" aria-label="Open dashboard guide">Guide me</button>
             <span className="px-1 text-slate-300">—</span>

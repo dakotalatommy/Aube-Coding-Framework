@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { track } from '../lib/analytics';
 
 export default function Signup() {
-  const navigate = useNavigate();
+  // navigate not needed in the confirmation flow; the callback handles redirect
   const [name, setName] = useState('');
   const [business, setBusiness] = useState('');
   const [email, setEmail] = useState('');
