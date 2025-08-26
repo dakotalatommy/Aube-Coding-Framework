@@ -16,8 +16,8 @@ const PANES: { key: PaneKey; label: string; icon: React.ReactNode }[] = [
   { key: 'inventory', label: 'Inventory', icon: <Package2 size={18} /> },
   { key: 'integrations', label: 'Integrations', icon: <Plug size={18} /> },
   { key: 'workflows', label: 'Workflows', icon: <Layers size={18} /> },
-  { key: 'onboarding', label: 'Onboarding', icon: <CheckCircle2 size={18} /> },
   { key: 'approvals', label: 'Approvals', icon: <CheckCircle2 size={18} /> },
+  { key: 'onboarding', label: 'Onboarding', icon: <CheckCircle2 size={18} /> },
 ];
 
 export default function WorkspaceShell(){
@@ -144,13 +144,20 @@ export default function WorkspaceShell(){
             )}
             <button
               className="w-full px-3 py-2 rounded-xl border text-slate-700 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60"
+              data-guide={new URLSearchParams(loc.search).get('demo')==='1' ? 'demo-signup' : undefined}
               onClick={async()=>{
+                const sp = new URLSearchParams(loc.search);
+                const isDemo = sp.get('demo') === '1';
+                if (isDemo) {
+                  window.location.href = '/signup';
+                  return;
+                }
                 try { localStorage.setItem('bvx_signed_out','1'); } catch {}
                 try { await supabase.auth.signOut(); } catch {}
                 try { localStorage.removeItem('bvx_tenant'); localStorage.removeItem('bvx_demo_profile'); localStorage.removeItem('bvx_demo_preferences'); } catch {}
                 window.location.href = '/brandvx';
               }}
-            >Sign out</button>
+            >{new URLSearchParams(loc.search).get('demo')==='1' ? 'Sign up' : 'Sign out'}</button>
           </div>
         </aside>
         {/* Canvas */}

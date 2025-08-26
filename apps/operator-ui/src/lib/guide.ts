@@ -11,6 +11,7 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-tour="cta"]', popover: { title: 'Ready when you are', description: 'White‑glove or self-serve — you approve everything.' } },
   ],
   dashboard: [
+    { popover: { title: 'Welcome to the BrandVX demo', description: 'Tap through to see Dashboard, Contacts, Calendar, Cadences, Inventory, Integrations, Workflows, Approvals, and Onboarding. In your live workspace you’ll start in Onboarding.' } },
     { popover: { title: 'Welcome to your dashboard', description: 'Time saved, funnel, and quick actions live here.' } },
     { element: '[data-guide="quick-actions"]', popover: { title: 'Quick actions', description: 'Import contacts, preview outreach (beta), simulate a message, or connect tools.' } },
     { element: '[data-guide="kpis"]', popover: { title: 'KPIs', description: 'Track time saved, messages, revenue uplift, and referrals.' } },
@@ -85,6 +86,56 @@ export function getGuideSteps(page: string): GuideStep[] {
 export function startGuide(page: string) {
   const steps = getGuideSteps(page);
   if (!steps || steps.length === 0) return;
+  // Demo-specific orchestration: if on dashboard with demo=1, chain across panels
+  try {
+    const sp = new URLSearchParams(window.location.search);
+    const isDemo = sp.get('demo') === '1';
+    if (isDemo && page === 'dashboard') {
+      const seq: Array<{ path: string; page: string }> = [
+        { path: '/workspace?pane=dashboard&demo=1', page: 'dashboard' },
+        { path: '/workspace?pane=contacts&demo=1', page: 'contacts' },
+        { path: '/workspace?pane=calendar&demo=1', page: 'calendar' },
+        { path: '/workspace?pane=cadences&demo=1', page: 'cadences' },
+        { path: '/workspace?pane=inventory&demo=1', page: 'inventory' },
+        { path: '/workspace?pane=integrations&demo=1', page: 'integrations' },
+        { path: '/workspace?pane=workflows&demo=1', page: 'workflows' },
+        { path: '/workspace?pane=approvals&demo=1', page: 'approvals' },
+        { path: '/workspace?pane=onboarding&demo=1', page: 'onboarding' },
+      ];
+      const driveAt = (idx: number) => {
+        if (idx >= seq.length) return;
+        const { path, page } = seq[idx];
+        if (window.location.pathname + window.location.search !== path) {
+          window.location.href = path;
+        }
+        setTimeout(() => {
+          try { localStorage.setItem(`bvx_tour_seen_${page}`, '1'); } catch {}
+          try { track('tour_start', { page }); } catch {}
+          const d = driver({ showProgress: true, steps: getGuideSteps(page) } as any);
+          d.drive();
+          // After final page (onboarding), highlight demo Sign up
+          const next = idx + 1;
+          setTimeout(() => {
+            if (next >= seq.length) {
+              try {
+                const d2 = driver({
+                  showProgress: true,
+                  steps: [
+                    { element: '[data-guide="demo-signup"]', popover: { title: 'Create your BrandVX', description: 'When you’re ready, tap Sign up to start your live workspace.' } }
+                  ],
+                } as any);
+                d2.drive();
+              } catch {}
+              return;
+            }
+            driveAt(next);
+          }, 2500);
+        }, 500);
+      };
+      driveAt(0);
+      return;
+    }
+  } catch {}
   try { localStorage.setItem(`bvx_tour_seen_${page}`, '1'); } catch {}
   try { track('tour_start', { page }); } catch {}
   const d = driver({

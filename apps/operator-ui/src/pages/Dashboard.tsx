@@ -282,8 +282,12 @@ export default function Dashboard(){
           {!isDemo && <button onClick={handleCreateShare} className="bg-transparent border-0 font-semibold text-pink-600 hover:text-pink-700 hover:underline">Share results</button>}
           <div className="ml-auto flex items-center gap-2">
             <button onClick={startTour} className="bg-transparent border-0 p-0 text-slate-900 hover:underline" aria-label="Open dashboard guide">Guide me</button>
-            <span className="px-1 text-slate-300">—</span>
-            <button onClick={startFullDemoTour} className="bg-transparent border-0 p-0 text-slate-900 hover:underline">Run full demo tour</button>
+            {!isDemo && (
+              <>
+                <span className="px-1 text-slate-300">—</span>
+                <button onClick={startFullDemoTour} className="bg-transparent border-0 p-0 text-slate-900 hover:underline">Run full demo tour</button>
+              </>
+            )}
           </div>
         </div>
         {shareUrl && (
