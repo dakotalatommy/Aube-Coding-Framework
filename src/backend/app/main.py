@@ -1529,11 +1529,12 @@ async def ai_chat(
     _max_tokens = int(os.getenv("AI_CHAT_MAX_TOKENS", "1200"))
     try:
         # Enforce a safe output-token floor to avoid incomplete Responses
-        reply_max_tokens = (_max_tokens if not short else min(400, _max_tokens))
+        # For short prompts, allow a higher cap to avoid reasoning-only completions
+        reply_max_tokens = (_max_tokens if not short else min(800, _max_tokens))
         try:
-            reply_floor = int(os.getenv("AI_MIN_OUTPUT_TOKENS", "256"))
+            reply_floor = int(os.getenv("AI_MIN_OUTPUT_TOKENS", "600" if short else "256"))
         except Exception:
-            reply_floor = 256
+            reply_floor = (600 if short else 256)
         if reply_max_tokens < reply_floor:
             reply_max_tokens = reply_floor
         content = await client.generate(
@@ -1553,7 +1554,7 @@ async def ai_chat(
                 reply_floor_fb = int(os.getenv("AI_MIN_OUTPUT_TOKENS", "256"))
             except Exception:
                 reply_floor_fb = 256
-            fb_max = min(400, _max_tokens)
+            fb_max = min(800, _max_tokens)
             if fb_max < reply_floor_fb:
                 fb_max = reply_floor_fb
             content = await client_fallback.generate(
@@ -1570,6 +1571,18 @@ async def ai_chat(
                 last = (req.messages[-1].content if req.messages else "")
                 return {"text": f"Got it — {last.strip()[:80]} … What’s the main goal you want BrandVX to help with this week?"}
             return {"text": "AI is temporarily busy. Please try again in a moment."}
+    # If generation completed but returned a transient error string, provide a friendly fallback (especially for onboarding)
+    try:
+        _ct = (content or "").strip()
+        _is_transient = (not _ct) or (_ct.lower().startswith("ai is temporarily busy") or _ct.lower().startswith("rate_limited") or _ct.lower().startswith("openai error") or _ct.lower().startswith("openai http") or _ct.lower().startswith("debug_http_error"))
+        if _is_transient:
+            if (req.mode or "") == "sales_onboarding":
+                last = (req.messages[-1].content if req.messages else "")
+                content = f"OK — noted. What’s the main goal you want to hit in your first 30 days (e.g., automate follow‑ups, boost bookings, or clean up contacts)?"
+            else:
+                content = "I can help with setup, messaging, and KPIs. What are you trying to do right now?"
+    except Exception:
+        pass
     # Persist chat logs (last user msg + assistant reply) and record usage
     try:
         with next(get_db()) as db:  # type: ignore

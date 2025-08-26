@@ -206,6 +206,7 @@ class AIClient:
             "model": self.model,
             "input": content_blocks,
             "max_output_tokens": max_tokens,
+            "temperature": 0.4,
         }
         backoff_seconds = 1.0
         for attempt in range(3):
@@ -249,11 +250,12 @@ class AIClient:
                                 uniq.append(t)
                         return " ".join(uniq)
 
-                    if isinstance(data, dict):
-                        if data.get("output_text") and isinstance(data.get("output_text"), str):
-                            return str(data["output_text"]).strip()
-                        # Responses 2025 shape: output array
-                        out = data.get("output")
+                    def _extract_from_data(d: Dict[str, Any]) -> Optional[str]:
+                        if not isinstance(d, dict):
+                            return None
+                        if d.get("output_text") and isinstance(d.get("output_text"), str):
+                            return str(d["output_text"]).strip()
+                        out = d.get("output")
                         if isinstance(out, list):
                             collected: List[str] = []
                             for item in out:
@@ -267,15 +269,49 @@ class AIClient:
                                                     collected.append(t.strip())
                             if collected:
                                 return " ".join(collected)[:4000]
-                        if data.get("choices"):
+                        if d.get("choices"):
                             try:
-                                return data["choices"][0]["message"]["content"].strip()
+                                return d["choices"][0]["message"]["content"].strip()
                             except Exception:
                                 pass
-                        # As a last resort, attempt to flatten any nested text fields and ignore non-text dicts (like {format, verbosity})
-                        flat = _flatten_text(data)
+                        flat = _flatten_text(d)
                         if flat:
                             return flat[:4000]
+                        return None
+
+                    extracted = _extract_from_data(data)
+                    if isinstance(data, dict) and (not extracted):
+                        # If model returned reasoning-only and hit the max_output_tokens limit, retry once with a higher cap
+                        status = str(data.get("status", ""))
+                        incomplete_reason = str((data.get("incomplete_details") or {}).get("reason", ""))
+                        try:
+                            used = int(((data.get("usage") or {}).get("output_tokens") or 0) or 0)
+                        except Exception:
+                            used = 0
+                        # Detect reasoning-only completions (no assistant text) even if status says completed
+                        details = (data.get("usage") or {}).get("output_tokens_details") or {}
+                        try:
+                            reasoning_only = bool(details.get("reasoning_tokens", 0)) and (used > 0)
+                        except Exception:
+                            reasoning_only = False
+                        hit_cap = used >= int(payload.get("max_output_tokens") or max_tokens)
+                        if status == "incomplete" or incomplete_reason == "max_output_tokens" or hit_cap or reasoning_only:
+                            bigger = min(1200, max(int(payload.get("max_output_tokens") or max_tokens) * 2, 800))
+                            if bigger > int(payload.get("max_output_tokens") or 0):
+                                payload_retry = {
+                                    **payload,
+                                    "max_output_tokens": bigger,
+                                    "temperature": 0.3,
+                                }
+                                r2 = await client.post(f"{self.base_url}/responses", headers=headers, json=payload_retry)
+                                r2.raise_for_status()
+                                data2 = r2.json()
+                                extracted2 = _extract_from_data(data2)
+                                if extracted2:
+                                    return extracted2
+
+                    if extracted:
+                        return extracted
                     return None
             except httpx.HTTPError as e:
                 # If debug flag is on, surface upstream error immediately for diagnosis
