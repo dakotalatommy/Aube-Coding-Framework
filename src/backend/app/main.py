@@ -453,27 +453,31 @@ def _stripe_client():
 @app.post("/billing/create-customer", tags=["Integrations"])
 def create_customer(ctx: UserContext = Depends(get_user_context)):
     s = _stripe_client()
-    # Store stripe customer id in settings table per tenant
-    with next(get_db()) as db:  # type: ignore
-        row = db.execute(
-            _sql_text("SELECT data_json FROM settings WHERE tenant_id = :tid ORDER BY id DESC LIMIT 1"),
-            {"tid": ctx.tenant_id},
-        ).fetchone()
-        data = {}
-        if row and row[0]:
-            try:
-                data = _json.loads(row[0])
-            except Exception:
-                data = {}
-        cust_id = data.get("stripe_customer_id")
-        if not cust_id:
-            customer = s.Customer.create(metadata={"tenant_id": ctx.tenant_id})
-            cust_id = customer["id"]
-            data["stripe_customer_id"] = cust_id
-            payload = {"tenant_id": ctx.tenant_id, "data_json": _json.dumps(data)}
-            db.execute(_sql_text("INSERT INTO settings(tenant_id, data_json) VALUES (:tenant_id, :data_json)"), payload)
-            db.commit()
-        return {"customer_id": cust_id}
+    # Store stripe customer id in settings table per tenant; fallback if DB unavailable
+    try:
+        with next(get_db()) as db:  # type: ignore
+            row = db.execute(
+                _sql_text("SELECT data_json FROM settings WHERE tenant_id = :tid ORDER BY id DESC LIMIT 1"),
+                {"tid": ctx.tenant_id},
+            ).fetchone()
+            data = {}
+            if row and row[0]:
+                try:
+                    data = _json.loads(row[0])
+                except Exception:
+                    data = {}
+            cust_id = data.get("stripe_customer_id")
+            if not cust_id:
+                customer = s.Customer.create(metadata={"tenant_id": ctx.tenant_id})
+                cust_id = customer["id"]
+                data["stripe_customer_id"] = cust_id
+                payload = {"tenant_id": ctx.tenant_id, "data_json": _json.dumps(data)}
+                db.execute(_sql_text("INSERT INTO settings(tenant_id, data_json) VALUES (:tenant_id, :data_json)"), payload)
+                db.commit()
+            return {"customer_id": cust_id}
+    except Exception:
+        customer = s.Customer.create(metadata={"tenant_id": ctx.tenant_id})
+        return {"customer_id": customer["id"]}
 
 
 @app.post("/billing/create-setup-intent", tags=["Integrations"])
