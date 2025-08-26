@@ -167,7 +167,6 @@ export default function WorkspaceShell(){
           <div className="flex gap-2 items-center rounded-full border bg-white/90 backdrop-blur px-3 py-2 shadow">
             <span className="text-xs text-amber-800 bg-amber-100 rounded-full px-2 py-0.5 border border-amber-200">Demo</span>
             <a href="/signup" className="text-sm px-3 py-1.5 rounded-full bg-slate-900 text-white">Create account</a>
-            <a href="/billing" className="text-sm px-3 py-1.5 rounded-full border bg-white">Add payment</a>
           </div>
         </div>
       )}

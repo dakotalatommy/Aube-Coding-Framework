@@ -52,6 +52,15 @@ export default function Calendar(){
         <button className="ml-auto text-sm text-slate-600 hover:underline" aria-label="Open calendar guide" onClick={()=> startGuide('calendar')}>Guide me</button>
       </div>
       <div className="text-[11px] text-slate-600">Note: Scheduling from BrandVX is disabled. Calendar merges are read‑only.</div>
+      {/* Simple weekly grid (visual aid) */}
+      <div className="rounded-xl border bg-white p-3" role="table" aria-label="Weekly calendar">
+        <div className="grid grid-cols-7 gap-2 text-xs text-slate-600">
+          {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=> <div key={d} className="text-center font-medium">{d}</div>)}
+          {Array.from({length:7}).map((_,i)=> (
+            <div key={i} className="min-h-[56px] rounded-md border bg-white/70" aria-label={`Day ${i+1}`}></div>
+          ))}
+        </div>
+      </div>
       <div className="flex items-center gap-2 text-sm" data-guide="filters">
         <span className="text-slate-600">Filter:</span>
         <select className="border rounded-md px-2 py-1 bg-white" value={provider} onChange={e=>setProvider(e.target.value)}>

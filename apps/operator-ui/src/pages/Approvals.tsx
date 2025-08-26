@@ -33,7 +33,8 @@ export default function Approvals(){
       const r = await api.get(`/approvals?tenant_id=${encodeURIComponent(tid)}`);
       // API returns an array; also support {items: []}
       setItems(Array.isArray(r) ? r : (r.items||[]));
-    } catch(e:any){ setStatus(String(e?.message||e)); }
+      setStatus('');
+    } catch(e:any){ setStatus('Unable to load approvals right now. Please retry.'); }
   };
   useEffect(()=>{ (async()=>{ try { setLoading(true); await Promise.all([load(), loadSuggested()]); } finally { setLoading(false); } })(); },[]);
   useEffect(()=>{ (async()=>{ try { const s = await api.get('/ai/tools/schema_human'); const map:Record<string,string>={}; if (Array.isArray(s?.tools)) { for (const t of s.tools) { map[String(t?.id||t?.name||'')] = String(t?.label||t?.title||''); } } setLabels(map);} catch {} })(); },[]);
