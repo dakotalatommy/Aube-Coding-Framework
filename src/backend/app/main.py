@@ -2480,10 +2480,19 @@ def get_settings(
     db: Session = Depends(get_db),
     ctx: UserContext = Depends(get_user_context),
 ):
-    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+    try:
+        if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+            return {"data": {}}
+        row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == tenant_id).first()
+        if not row or not (row.data_json or "").strip():
+            return {"data": {}}
+        try:
+            return {"data": json.loads(row.data_json)}
+        except Exception:
+            # Malformed JSON from earlier versions — return empty and avoid 500s
+            return {"data": {}}
+    except Exception:
         return {"data": {}}
-    row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == tenant_id).first()
-    return {"data": json.loads(row.data_json) if row else {}}
 
 
 @app.post("/settings", tags=["Integrations"])
