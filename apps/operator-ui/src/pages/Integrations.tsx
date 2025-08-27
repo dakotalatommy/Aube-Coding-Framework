@@ -209,8 +209,8 @@ export default function Integrations(){
         }
       }
       const ctrl = new AbortController();
-      const to = window.setTimeout(()=>{ try{ ctrl.abort(); }catch{} }, 6000);
-      const r = await api.get(`/oauth/${provider}/login?tenant_id=${encodeURIComponent(await getTenant())}`, { signal: ctrl.signal, timeoutMs: 6000 });
+      const to = window.setTimeout(()=>{ try{ ctrl.abort(); }catch{} }, 15000);
+      const r = await api.get(`/oauth/${provider}/login?tenant_id=${encodeURIComponent(await getTenant())}`, { signal: ctrl.signal, timeoutMs: 15000 });
       window.clearTimeout(to);
       if (r?.url) {
         // Prefer same-tab navigation to avoid popup blockers; fallback if blocked
@@ -221,18 +221,18 @@ export default function Integrations(){
           window.location.href = r.url;
         }
       } else {
-        // Retry once after a short delay
+        // Retry once after a short delay with a longer window
         setTimeout(async()=>{
           try{
             try { track('oauth_login_retry', { provider }); } catch {}
-            const r2 = await api.get(`/oauth/${provider}/login?tenant_id=${encodeURIComponent(await getTenant())}`, { timeoutMs: 8000 });
+            const r2 = await api.get(`/oauth/${provider}/login?tenant_id=${encodeURIComponent(await getTenant())}`, { timeoutMs: 20000 });
             if (r2?.url) {
               try {
                 const w2 = window.open(r2.url, '_self');
                 if (!w2) window.location.href = r2.url;
               } catch { window.location.href = r2.url; }
             } else {
-              setErrorMsg('Connect link unavailable. Verify provider credentials and try again.');
+              setErrorMsg('Connect link unavailable. Verify provider credentials, sandbox vs prod, and callback URLs.');
             }
           }catch{}
         }, 800);

@@ -830,7 +830,7 @@ def _oauth_exchange_token(provider: str, code: str, redirect_uri: str, code_veri
                 "client_secret": _env("SQUARE_CLIENT_SECRET", ""),
                 "redirect_uri": redirect_uri,
             }
-            r = httpx.post(url, json=data, timeout=20)
+            r = httpx.post(url, json=data, timeout=40)
             return r.json() if r.status_code < 400 else {}
         if provider == "acuity":
             url = _env("ACUITY_TOKEN_URL", "https://acuityscheduling.com/oauth2/token")
@@ -886,7 +886,7 @@ def _oauth_exchange_token(provider: str, code: str, redirect_uri: str, code_veri
                 "client_secret": _env("SHOPIFY_CLIENT_SECRET", ""),
                 "code": code,
             }
-            r = httpx.post(url, json=data, timeout=20)
+            r = httpx.post(url, json=data, timeout=40)
             return r.json() if r.status_code < 400 else {}
     except Exception:
         return {}
@@ -3364,6 +3364,13 @@ def oauth_login(provider: str, tenant_id: Optional[str] = None, ctx: UserContext
         return {"url": ""}
     _t = tenant_id or ctx.tenant_id
     url = _oauth_authorize_url(provider, tenant_id=_t)
+    # Cache state marker for CSRF verification in callback
+    try:
+        if url and "state=" in url:
+            _st = url.split("state=",1)[1].split("&",1)[0]
+            cache_set(f"oauth_state:{_st}", "1", ttl=600)
+    except Exception:
+        pass
     return {"url": url}
 
 
