@@ -25,6 +25,15 @@ async def get_user_context(
         token = authorization.split(" ", 1)[1]
         try:
             jwks_url = os.getenv("JWT_JWKS_URL")
+            # If not explicitly set, derive Supabase JWKS/issuer/audience from SUPABASE_URL
+            if not jwks_url:
+                supa_url = os.getenv("SUPABASE_URL", "").strip()
+                if supa_url:
+                    host = supa_url.rstrip("/")
+                    jwks_url = f"{host}/auth/v1/certs"
+                    os.environ.setdefault("JWT_JWKS_URL", jwks_url)
+                    os.environ.setdefault("JWT_ISSUER", f"{host}/auth/v1")
+                    os.environ.setdefault("JWT_AUDIENCE", os.getenv("JWT_AUDIENCE", "authenticated"))
             if jwks_url:
                 jwk_client = PyJWKClient(jwks_url)
                 signing_key = jwk_client.get_signing_key_from_jwt(token)
@@ -32,7 +41,7 @@ async def get_user_context(
                     token,
                     signing_key.key,
                     algorithms=["RS256", "ES256"],
-                    audience=os.getenv("JWT_AUDIENCE", "brandvx-users"),
+                    audience=os.getenv("JWT_AUDIENCE", "authenticated"),
                     issuer=os.getenv("JWT_ISSUER", "brandvx"),
                 )
             else:
@@ -40,7 +49,7 @@ async def get_user_context(
                     token,
                     os.getenv("JWT_SECRET", "dev_secret"),
                     algorithms=["HS256"],
-                    audience=os.getenv("JWT_AUDIENCE", "brandvx-users"),
+                    audience=os.getenv("JWT_AUDIENCE", "authenticated"),
                     issuer=os.getenv("JWT_ISSUER", "brandvx"),
                 )
             return UserContext(

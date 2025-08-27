@@ -9,7 +9,7 @@ const intakeQuestions = [
   { key:'brand',    q:'What’s your brand or studio name?' },
   { key:'services', q:'Which services do you offer? (cuts, color, lashes, nails, brows, other)' },
   { key:'booking',  q:'Do you use Square, Acuity, or something else for booking?' },
-  { key:'sms',      q:'Can you use a dedicated business number for SMS?' },
+  { key:'sms',      q:'Would you like a dedicated business number for text messaging?' },
   { key:'tone',     q:'Which brand tone feels right? Soft‑care, Editorial crisp, or Playful concierge?' },
   { key:'quiet',    q:'What quiet hours should we respect? (e.g., 8pm–8am). Your timezone is auto‑detected.' },
 ];
