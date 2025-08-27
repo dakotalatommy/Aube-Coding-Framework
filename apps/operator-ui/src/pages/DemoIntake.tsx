@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { track } from '../lib/analytics';
 import { supabase } from '../lib/supabase';
 import { api, getTenant } from '../lib/api';
+import { UI_STRINGS } from '../lib/strings';
 
 type Msg = { role: 'user'|'assistant'; content: string };
 
@@ -9,10 +10,18 @@ const intakeQuestions = [
   { key:'brand',    q:'What’s your brand or studio name?' },
   { key:'services', q:'Which services do you offer? (cuts, color, lashes, nails, brows, other)' },
   { key:'booking',  q:'Do you use Square, Acuity, or something else for booking?' },
-  { key:'sms',      q:'Would you like a dedicated business number for text messaging?' },
+  { key:'sms',      q: UI_STRINGS.businessNumber.prompt },
   { key:'tone',     q:'Which brand tone feels right? Soft‑care, Editorial crisp, or Playful concierge?' },
   { key:'quiet',    q:'What quiet hours should we respect? (e.g., 8pm–8am). Your timezone is auto‑detected.' },
 ];
+
+const choiceBank: Record<string, string[]> = {
+  services: ['Cuts','Color','Lashes','Nails','Brows','Skincare','Barbering'],
+  booking: ['Square','Acuity','Other / Not sure'],
+  sms: ['Yes, provide a business number','I already have one','Not right now'],
+  tone: ['Super chill','Warm','Balanced','Polished','Very professional'],
+  quiet: ['8pm–8am','9pm–8am','10pm–8am','Custom…'],
+};
 
 export default function DemoIntake(){
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -174,8 +183,30 @@ export default function DemoIntake(){
                       <span className={'inline-block px-3 py-2 rounded-lg '+(m.role==='user'?'bg-sky-100 text-slate-900':'bg-slate-100 text-slate-900')}>{m.content}</span>
                     </div>
                   ))}
+                  {busy && (
+                    <div className="text-left" aria-live="polite" aria-atomic="true">
+                      <span className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-slate-100 text-slate-900">
+                        <span>BrandVX is typing</span>
+                        <span className="inline-flex ml-1 items-end">
+                          <span className="w-1.5 h-1.5 bg-slate-600 rounded-full animate-bounce [animation-delay:0ms]"></span>
+                          <span className="w-1.5 h-1.5 bg-slate-600 rounded-full ml-1 animate-bounce [animation-delay:150ms]"></span>
+                          <span className="w-1.5 h-1.5 bg-slate-600 rounded-full ml-1 animate-bounce [animation-delay:300ms]"></span>
+                        </span>
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
+              {idx < intakeQuestions.length && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {(choiceBank[intakeQuestions[idx].key]||[]).map((c)=> (
+                    <button key={c} className="px-3 py-1.5 rounded-full border bg-white text-slate-700 text-xs hover:shadow-sm"
+                      onClick={()=>{ setInput(c); setTimeout(()=>{ void handleSend(); }, 10); }}>
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div className="mt-2 flex gap-2 items-start shrink-0">
                 <textarea className="flex-1 border rounded-md px-3 py-2 max-h-24 overflow-auto" rows={2} placeholder="Type here" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={(e)=>{ if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } if (e.key==='Enter' && (e.metaKey||e.ctrlKey)) { e.preventDefault(); handleSend(); } }} />
                 <button className="rounded-full px-4 py-2 bg-gradient-to-r from-blue-100 to-blue-300 hover:from-blue-200 hover:to-blue-400 shadow text-slate-900" onClick={handleSend} disabled={busy}>{busy?'…':'Send'}</button>

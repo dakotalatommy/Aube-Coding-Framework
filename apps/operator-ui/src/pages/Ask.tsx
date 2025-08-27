@@ -5,6 +5,7 @@ import { useToast } from '../components/ui/Toast';
 import { startGuide, startWorkflowGuide } from '../lib/guide';
 import { track } from '../lib/analytics';
 import { motion } from 'framer-motion';
+import { UI_STRINGS } from '../lib/strings';
 
 type Msg = { role: 'user' | 'assistant'; content: string };
 type Action =
@@ -503,7 +504,7 @@ export default function Ask(){
           <h3 className="text-xl font-semibold" style={{fontFamily:'var(--font-display)'}}>Brand&nbsp;VX</h3>
           <div className="flex items-center gap-2">
             {BOOKING_URL && <a href={BOOKING_URL} target="_blank" rel="noreferrer" className="inline-flex items-center px-3 py-2 rounded-full text-sm border bg-white">Book onboarding</a>}
-            <a href="/onboarding" className="inline-flex items-center px-3 py-2 rounded-full text-sm text-white shadow bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600">Get started</a>
+            <a href="/onboarding" className="inline-flex items-center px-3 py-2 rounded-full text-sm text-white shadow bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600">{UI_STRINGS.ctas.primary.getStarted}</a>
           </div>
         </div>
       )}
@@ -534,11 +535,11 @@ export default function Ask(){
             const url = String(r?.url || '');
             if (url) { setShareUrl(url); try { await navigator.clipboard.writeText(url); } catch {} }
           } catch {}
-        }}>Share</button>
+        }}>{UI_STRINGS.ctas.tertiary.shareDemo}</button>
         </div>
       </div>
       {shareUrl && (
-        <div className="text-xs text-slate-600 mt-1">Share link copied: <a className="underline" href={shareUrl} target="_blank" rel="noreferrer">{shareUrl}</a></div>
+        <div className="text-xs text-slate-600 mt-1">{UI_STRINGS.ctas.demoOnly.shareLandingCopied} <a className="underline" href={shareUrl} target="_blank" rel="noreferrer">{shareUrl}</a></div>
       )}
       {sessions.length > 0 && (
         <div className="rounded-xl bg-white shadow-sm p-3 max-h-32 overflow-auto text-xs text-slate-700 mt-2 border">
@@ -708,16 +709,16 @@ export default function Ask(){
       {(!embedded && (messages.length > 0 && messages[messages.length - 1]?.role === 'assistant')) && (
         <div className="mt-2">
           <button onClick={()=> guideTo('onboarding')} className="inline-flex items-center gap-2">
-            <span className="px-3 py-2 border rounded-full bg-white hover:shadow-sm text-sm text-slate-800">Get Started!</span>
+            <span className="px-3 py-2 border rounded-full bg-white hover:shadow-sm text-sm text-slate-800">{UI_STRINGS.ctas.primary.getStarted}</span>
           </button>
           <div className="mt-2 flex flex-wrap gap-2 text-xs">
             {!!lastAssistantText && (
-              <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto(`/workspace?pane=messages&body=${encodeURIComponent(lastAssistantText)}`)}>Use this text in Messages</button>
+              <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto(`/workspace?pane=messages&body=${encodeURIComponent(lastAssistantText)}`)}>{UI_STRINGS.ctas.tertiary.useInMessages}</button>
             )}
-            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('dashboard')}>Guide me: Dashboard</button>
-            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('integrations')}>Guide me: Integrations</button>
-            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('onboarding')}>Guide me: Onboarding</button>
-            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=integrations&tour=twilio') }>Connect SMS (Twilio)</button>
+            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('dashboard')}>{UI_STRINGS.ctas.tertiary.guideMe}: Dashboard</button>
+            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('integrations')}>{UI_STRINGS.ctas.tertiary.guideMe}: Integrations</button>
+            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('onboarding')}>{UI_STRINGS.ctas.tertiary.guideMe}: Onboarding</button>
+            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=integrations&tour=twilio') }>{UI_STRINGS.ctas.tertiary.connectSmsTwilio}</button>
           </div>
           <div className="mt-3 flex flex-wrap gap-2 text-xs">
             <button disabled={!!running} className="px-2 py-1 border rounded-md bg-white hover:shadow-sm disabled:opacity-50" onClick={()=>runPlan('crm_organization')}>{running==='crm_organization' ? 'Running…' : 'Run plan: CRM Organization'}</button>

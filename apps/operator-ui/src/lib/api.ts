@@ -108,6 +108,17 @@ async function request(path: string, options: RequestInit = {}) {
     const res = await fetch(`${base}${path}`, { ...options, headers, signal: compositeSignal });
     if (!res.ok) {
       try { track('api_error', { path, status: res.status, statusText: res.statusText, base }); } catch {}
+      // Handle unauthorized centrally (skip in demo contexts)
+      if (res.status === 401 && typeof window !== 'undefined') {
+        try {
+          const sp = new URLSearchParams(window.location.search);
+          const isDemo = sp.get('demo') === '1';
+          if (!isDemo) {
+            try { localStorage.setItem('bvx_auth_return', window.location.href); } catch {}
+            window.location.assign('/login');
+          }
+        } catch {}
+      }
       throw new Error(`${res.status} ${res.statusText}`);
     }
     window.clearTimeout(to);

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { track } from '../lib/analytics';
-import { supabase } from '../lib/supabase';
 import BackdropFX from '../components/BackdropFX';
 
 function MetricsInline() {
@@ -134,8 +133,6 @@ function SplitText({ text, startDelayMs=0, as:Tag='p', className='' }:{ text:str
 
 export default function LandingV2(){
   const nav = useNavigate();
-  const [isAuthed, setIsAuthed] = useState(false);
-  const [hasAccountHint, setHasAccountHint] = useState(false);
 
   const goDemo = () => {
     try { track('cta_click',{area:'hero',href:'/demo'}); } catch {}
@@ -143,17 +140,7 @@ export default function LandingV2(){
   };
   const goSignup = () => {
     try { track('cta_click',{area:'hero',href:'/signup'}); } catch {}
-    try { localStorage.setItem('bvx_has_account', '1'); } catch {}
     nav('/signup');
-  };
-  const goLogin = () => {
-    try { track('cta_click',{area:'header',href:'/login'}); } catch {}
-    try { localStorage.setItem('bvx_has_account', '1'); } catch {}
-    nav('/login');
-  };
-  const goWorkspace = () => {
-    try { track('cta_click',{area:'header',href:'/workspace'}); } catch {}
-    nav('/workspace');
   };
 
   // Capture referral code and persist for attribution
@@ -178,23 +165,6 @@ export default function LandingV2(){
     } catch {}
   }, []);
 
-  // Session-aware header/CTAs
-  useEffect(()=>{
-    let unsub: any = null;
-    (async()=>{
-      try{
-        const { data } = await supabase.auth.getSession();
-        setIsAuthed(!!data?.session);
-      } catch { setIsAuthed(false); }
-      try{ setHasAccountHint(!!localStorage.getItem('bvx_has_account')); } catch {}
-      try{
-        unsub = supabase.auth.onAuthStateChange((_e, sess)=>{
-          setIsAuthed(!!sess);
-        });
-      } catch {}
-    })();
-    return ()=>{ try{ if (typeof unsub?.subscription?.unsubscribe === 'function') unsub.subscription.unsubscribe(); } catch {} };
-  }, []);
 
   return (
     <div className="mx-auto max-w-6xl relative z-10">
@@ -205,24 +175,7 @@ export default function LandingV2(){
       <div aria-hidden className="absolute bottom-0 left-0 right-0 h-px bg-black/10" />
 
       <div className="h-[calc(100vh-140px)] grid grid-cols-1 gap-4 overflow-hidden">
-        {/* Header: session-aware action */}
-        <header className="flex justify-end items-center pt-3 px-2 md:px-3">
-          {isAuthed ? (
-            <button
-              onClick={goWorkspace}
-              className="text-white text-sm md:text-base px-5 md:px-6 py-2.5 md:py-3 rounded-full shadow-md bg-gradient-to-b from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px"
-            >
-              Open workspace
-            </button>
-          ) : (
-            <button
-              onClick={goLogin}
-              className="text-white text-sm md:text-base px-5 md:px-6 py-2.5 md:py-3 rounded-full shadow-md bg-gradient-to-b from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px"
-            >
-              Sign in
-            </button>
-          )}
-        </header>
+        {/* Header removed for now per design — hero remains primary */}
         <main className="h-full grid grid-rows-[auto_auto_1fr] overflow-hidden">
           {/* Hero (words-only + single CTA) */}
           <section className="relative pt-4 md:pt-6 pb-10 md:pb-12">
@@ -269,23 +222,13 @@ export default function LandingV2(){
                   Try the demo today →
                 </button>
               </div>
-              {isAuthed ? (
-                <button
-                  onClick={goWorkspace}
-                  className="text-white text-lg md:text-xl px-7 md:px-8 py-3.5 md:py-4 rounded-full shadow-md bg-gradient-to-b from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px"
-                  style={{fontFamily:'\"Fraunces\", ui-serif, Georgia, serif'}}
-                >
-                  Open workspace
-                </button>
-              ) : (
-                <button
-                  onClick={hasAccountHint ? goLogin : goSignup}
-                  className="text-white text-lg md:text-xl px-7 md:px-8 py-3.5 md:py-4 rounded-full shadow-md bg-gradient-to-b from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px"
-                  style={{fontFamily:'\"Fraunces\", ui-serif, Georgia, serif'}}
-                >
-                  {hasAccountHint ? 'Sign in' : 'Start free trial'}
-                </button>
-              )}
+              <button
+                onClick={goSignup}
+                className="text-white text-lg md:text-xl px-7 md:px-8 py-3.5 md:py-4 rounded-full shadow-md bg-gradient-to-b from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px"
+                style={{fontFamily:'\"Fraunces\", ui-serif, Georgia, serif'}}
+              >
+                Start free trial
+              </button>
             </div>
           </section>
 

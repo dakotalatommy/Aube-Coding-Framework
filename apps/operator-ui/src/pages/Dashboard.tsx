@@ -12,6 +12,7 @@ import { startGuide } from '../lib/guide';
 import { Card, CardBody } from '../components/ui/Card';
 import Skeleton from '../components/ui/Skeleton';
 import { Table, THead, TR, TH, TD } from '../components/ui/Table';
+import { UI_STRINGS } from '../lib/strings';
 
 export default function Dashboard(){
   const recommendOnly = String((import.meta as any).env?.VITE_BETA_RECOMMEND_ONLY || localStorage.getItem('bvx_recommend_only') || '0') === '1';
@@ -247,7 +248,7 @@ export default function Dashboard(){
         <section className="rounded-2xl p-3 border bg-amber-50 border-amber-200 text-amber-900">
           <div className="text-sm">Trial nearing limit — add a payment method to continue without interruptions.</div>
           <div className="mt-1">
-            <ButtonLink href="/billing" size="sm" className="rounded-full px-3 py-1.5">Add payment</ButtonLink>
+            <ButtonLink href="/billing" size="sm" className="rounded-full px-3 py-1.5">{UI_STRINGS.ctas.secondary.addPayment}</ButtonLink>
           </div>
         </section>
       )}
@@ -269,19 +270,19 @@ export default function Dashboard(){
       )}
       <section className="rounded-2xl p-4 backdrop-blur bg-white/60 border border-white/70 shadow-sm" data-guide="quick-actions">
         <div className="flex flex-wrap items-center gap-2">
-          <a href="/workspace?pane=contacts" className="font-semibold text-pink-600 hover:text-pink-700 hover:underline">Import Contacts</a>
+          <a href="/workspace?pane=contacts" className="font-semibold text-pink-600 hover:text-pink-700 hover:underline">{UI_STRINGS.ctas.dashboard.importContacts}</a>
           <span className="px-1 text-pink-300">—</span>
-          <a href="/workspace?pane=cadences" className="font-semibold text-pink-600 hover:text-pink-700 hover:underline">Start Cadence</a>
+          <a href="/workspace?pane=cadences" className="font-semibold text-pink-600 hover:text-pink-700 hover:underline">{UI_STRINGS.ctas.dashboard.startCadence}</a>
           <span className="px-1 text-pink-300">—</span>
-          <a href="/workspace?pane=messages" className="font-semibold text-pink-600 hover:text-pink-700 hover:underline">Simulate Message</a>
+          <a href="/workspace?pane=messages" className="font-semibold text-pink-600 hover:text-pink-700 hover:underline">{UI_STRINGS.ctas.dashboard.simulateMessage}</a>
           <span className="px-1 text-pink-300">—</span>
-          <a href="/workspace?pane=integrations" className="font-semibold text-pink-600 hover:text-pink-700 hover:underline">Connect Tools</a>
+          <a href="/workspace?pane=integrations" className="font-semibold text-pink-600 hover:text-pink-700 hover:underline">{UI_STRINGS.ctas.dashboard.connectTools}</a>
           <span className="px-1 text-pink-300">—</span>
-          <a href={isDemo ? '/s/demo' : '/billing'} className="font-semibold text-pink-600 hover:text-pink-700 hover:underline">{isDemo ? 'Share results' : 'Billing'}</a>
+          <a href={isDemo ? '/s/demo' : '/billing'} className="font-semibold text-pink-600 hover:text-pink-700 hover:underline">{isDemo ? UI_STRINGS.ctas.dashboard.shareResults : UI_STRINGS.ctas.dashboard.billing}</a>
           {!isDemo && <span className="px-1 text-pink-300">—</span>}
-          {!isDemo && <button onClick={handleCreateShare} className="bg-transparent border-0 font-semibold text-pink-600 hover:text-pink-700 hover:underline">Share results</button>}
+          {!isDemo && <button onClick={handleCreateShare} className="bg-transparent border-0 font-semibold text-pink-600 hover:text-pink-700 hover:underline">{UI_STRINGS.ctas.dashboard.shareResults}</button>}
           <div className="ml-auto flex items-center gap-2">
-            <button onClick={startTour} className="bg-transparent border-0 p-0 text-slate-900 hover:underline" aria-label="Open dashboard guide">Guide me</button>
+            <button onClick={startTour} className="bg-transparent border-0 p-0 text-slate-900 hover:underline" aria-label="Open dashboard guide">{UI_STRINGS.ctas.tertiary.guideMe}</button>
             {!isDemo && (
               <>
                 <span className="px-1 text-slate-300">—</span>
@@ -294,7 +295,7 @@ export default function Dashboard(){
           <div className="mt-3 text-sm flex items-center gap-2">
             <span className="text-slate-700">Share link:</span>
             <input readOnly value={shareUrl} className="flex-1 border rounded-lg px-2 py-1 bg-white text-slate-800" onFocus={(e)=>e.currentTarget.select()} />
-            <span className="text-emerald-700">{shareCopied ? 'Copied' : ''}</span>
+            <span className="text-emerald-700">{shareCopied ? UI_STRINGS.ctas.toasts.copied : ''}</span>
           </div>
         )}
       </section>
@@ -302,7 +303,7 @@ export default function Dashboard(){
         <section className="rounded-2xl p-4 backdrop-blur bg-amber-50/70 border border-amber-200 shadow-sm">
           <div className="flex flex-wrap items-center gap-3 text-amber-900">
             <div className="text-sm">Free trial running — add a payment method anytime to avoid interruptions later.</div>
-            <ButtonLink href="/billing" size="sm" className="rounded-full px-3 py-1.5">Add payment</ButtonLink>
+            <ButtonLink href="/billing" size="sm" className="rounded-full px-3 py-1.5">{UI_STRINGS.ctas.secondary.addPayment}</ButtonLink>
             <Button variant="ghost" size="sm" onClick={()=>{ setShowBillingNudge(false); try{ localStorage.setItem('bvx_billing_nudge_snooze', String(Date.now())); }catch{} }}>Remind me later</Button>
           </div>
         </section>
@@ -317,10 +318,10 @@ export default function Dashboard(){
         </section>
       )}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" data-guide="kpis">
-        <Kpi title="Messages Sent" value={metrics?.messages_sent||0} />
-        <Kpi title="Time Saved (min)" value={metrics?.time_saved_minutes||0} />
-        <Kpi title="Revenue Uplift" value={metrics?.revenue_uplift||0} />
-        <Kpi title="Referrals 30d" value={metrics?.referrals_30d||0} />
+        <Kpi title="Messages sent" value={metrics?.messages_sent||0} />
+        <Kpi title="Time saved (min)" value={metrics?.time_saved_minutes||0} />
+        <Kpi title="Revenue uplift" value={metrics?.revenue_uplift||0} />
+        <Kpi title="Referrals (30d)" value={metrics?.referrals_30d||0} />
       </div>
       {/* First 5 workflows tracker */}
       <section className="rounded-2xl p-4 backdrop-blur bg-white/60 border border-white/70 shadow-sm">

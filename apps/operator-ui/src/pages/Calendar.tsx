@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import { api, getTenant } from '../lib/api';
 import { startGuide } from '../lib/guide';
+import { UI_STRINGS } from '../lib/strings';
 import Skeleton from '../components/ui/Skeleton';
+import { useToast } from '../components/ui/Toast';
 
 export default function Calendar(){
+  const { showToast } = useToast();
   const [events, setEvents] = useState<any[]>([]);
   const [lastSync, setLastSync] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
@@ -29,12 +32,14 @@ export default function Calendar(){
     setStatus(JSON.stringify(r));
     const l = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`);
     setEvents(l?.events||[]); setLastSync(l?.last_sync||{});
+    try { showToast({ title:'Sync started', description: prov || 'all' }); } catch {}
   };
   const mergeDupes = async () => {
     const r = await api.post('/calendar/merge', { tenant_id: await getTenant() });
     setMerged((r as any)?.merged ?? 0);
     const l = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`);
     setEvents(l?.events||[]);
+    try { showToast({ title:'Merged bookings' }); } catch {}
   };
   if (loading) return (
     <div className="space-y-3">
@@ -51,7 +56,7 @@ export default function Calendar(){
     <div className="space-y-3">
       <div className="flex items-center">
         <h3 className="text-lg font-semibold">Calendar</h3>
-        <button className="ml-auto text-sm text-slate-600 hover:underline" aria-label="Open calendar guide" onClick={()=> startGuide('calendar')}>Guide me</button>
+        <button className="ml-auto text-sm text-slate-600 hover:underline" aria-label={UI_STRINGS.a11y.buttons.guideCalendar} onClick={()=> startGuide('calendar')}>{UI_STRINGS.ctas.tertiary.guideMe}</button>
       </div>
       <div className="text-[11px] text-slate-600">Note: Scheduling from BrandVX is disabled. Calendar merges are read‑only.</div>
       {lastAnalyzed && (
@@ -88,7 +93,7 @@ export default function Calendar(){
       </div>
       <div className="rounded-xl border bg-white p-3 shadow-sm" data-guide="list">
         {events.length === 0 ? (
-          <div className="text-sm text-slate-600">No events yet. Connect Google/Apple and Booking to see your unified calendar.</div>
+          <div className="text-sm text-slate-600">{UI_STRINGS.emptyStates.calendar.title}. {UI_STRINGS.emptyStates.calendar.body}</div>
         ) : (
           <ul className="list-disc ml-5 text-sm text-slate-700">
             {events.filter(e=> provider==='all' ? true : (e.provider||'')===provider).map((e,i)=> {
@@ -107,10 +112,10 @@ export default function Calendar(){
         })}
       </div>
       <div className="flex gap-2">
-        <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>syncNow('google')}>Sync now (Google)</button>
-        <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>syncNow('apple')}>Sync now (Apple)</button>
-        <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>syncNow()}>Merge bookings</button>
-        <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={mergeDupes}>Deduplicate</button>
+        <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>syncNow('google')}>{UI_STRINGS.ctas.secondary.syncNowGoogle}</button>
+        <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>syncNow('apple')}>{UI_STRINGS.ctas.secondary.syncNowApple}</button>
+        <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>syncNow()}>{UI_STRINGS.ctas.secondary.mergeBookings}</button>
+        <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={mergeDupes}>{UI_STRINGS.ctas.secondary.deduplicate}</button>
       </div>
       {merged>0 && <div className="text-xs text-emerald-700">Removed {merged} duplicates.</div>}
       <div className="text-[11px] text-amber-700">Some actions may require approval when auto-approve is off. Review in Approvals.</div>

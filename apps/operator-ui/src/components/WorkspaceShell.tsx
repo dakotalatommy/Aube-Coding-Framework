@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { api } from '../lib/api';
 import { startGuide } from '../lib/guide';
 import { track } from '../lib/analytics';
+import { UI_STRINGS } from '../lib/strings';
 
 type PaneKey = 'dashboard' | 'messages' | 'contacts' | 'calendar' | 'cadences' | 'inventory' | 'integrations' | 'approvals' | 'workflows' | 'onboarding';
 
@@ -15,7 +16,7 @@ const PANES: { key: PaneKey; label: string; icon: React.ReactNode }[] = [
   { key: 'calendar', label: 'Calendar', icon: <Calendar size={18} /> },
   { key: 'cadences', label: 'Cadences', icon: <Layers size={18} /> },
   { key: 'inventory', label: 'Inventory', icon: <Package2 size={18} /> },
-  { key: 'integrations', label: 'Integrations', icon: <Plug size={18} /> },
+  { key: 'integrations', label: 'Settings/Connections', icon: <Plug size={18} /> },
   { key: 'workflows', label: 'Workflows', icon: <Layers size={18} /> },
   { key: 'approvals', label: 'Approvals', icon: <CheckCircle2 size={18} /> },
   { key: 'onboarding', label: 'Onboarding', icon: <CheckCircle2 size={18} /> },
@@ -83,6 +84,13 @@ export default function WorkspaceShell(){
     nav(`/workspace?${next.toString()}`);
   };
 
+  const toggleDemo = () => {
+    const next = new URLSearchParams(loc.search);
+    if (demo) next.delete('demo'); else next.set('demo','1');
+    if (!next.get('pane')) next.set('pane','dashboard');
+    nav(`/workspace?${next.toString()}`);
+  };
+
   const PaneView = (() => {
     switch (pane) {
       case 'dashboard': return <LazyDashboard/>;
@@ -146,6 +154,10 @@ export default function WorkspaceShell(){
             })}
           </nav>
           <div className="mt-auto pt-3">
+            <button
+              className={`mb-2 inline-flex w-full items-center justify-center px-3 py-2 rounded-xl border ${demo? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-white text-slate-700'}`}
+              onClick={toggleDemo}
+            >{demo? 'Demo mode: on' : 'Demo mode: off'}</button>
             {BOOKING_URL && (
               <a
                 href={BOOKING_URL}
@@ -169,7 +181,7 @@ export default function WorkspaceShell(){
                 try { localStorage.removeItem('bvx_tenant'); localStorage.removeItem('bvx_demo_profile'); localStorage.removeItem('bvx_demo_preferences'); } catch {}
                 window.location.href = '/brandvx';
               }}
-            >{new URLSearchParams(loc.search).get('demo')==='1' ? 'Sign up' : 'Sign out'}</button>
+            >{new URLSearchParams(loc.search).get('demo')==='1' ? UI_STRINGS.ctas.demoOnly.signUp : UI_STRINGS.ctas.liveOnly.signOut}</button>
           </div>
         </aside>
         {/* Canvas */}

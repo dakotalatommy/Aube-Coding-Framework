@@ -214,11 +214,11 @@ export default function Workflows(){
   };
 
   const wfList: Array<{k:'crm_organization'|'book_filling'|'inventory_tracking'|'social_automation'|'client_communication'; title:string; desc:string}> = [
-    { k:'crm_organization', title:'CRM Organization', desc:'Import, dedupe, consent setup.' },
-    { k:'book_filling', title:'Book‑Filling', desc:'Reminders (7d/3d/1d/2h) with quiet hours.' },
-    { k:'inventory_tracking', title:'Inventory Tracking', desc:'Sync Square/Shopify; low‑stock alerts.' },
+    { k:'crm_organization', title:'CRM organization', desc:'Import, dedupe, consent setup.' },
+    { k:'book_filling', title:'Book‑filling', desc:'Reminders (7d/3d/1d/2h) with quiet hours.' },
+    { k:'inventory_tracking', title:'Inventory tracking', desc:'Sync Square/Shopify; low‑stock alerts.' },
     { k:'social_automation', title:'Social (14‑day)', desc:'Draft 14 days of posts in your voice.' },
-    { k:'client_communication', title:'Client Communication', desc:'Unified inbox + approvals.' },
+    { k:'client_communication', title:'Client communication', desc:'Unified inbox + approvals.' },
   ];
 
   const persistProgress = async (k: string) => {

@@ -70,9 +70,8 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-guide="actions"]', popover: { title: 'Actions', description: 'Approve or Reject. Some bulk actions are available.' } },
   ],
   contacts: [
-    { popover: { title: 'Contacts', description: 'Import/export and manage consent/data requests.' } },
-    { element: '[data-guide="import"]', popover: { title: 'Import JSON', description: 'Paste a simple list and import.' } },
-    { element: '[data-guide="export"]', popover: { title: 'Export', description: 'Download your contacts.' } },
+    { popover: { title: 'Contacts', description: 'Bring your clients from booking or CRM; manage consent and data.' } },
+    { element: '[data-guide="import"]', popover: { title: 'Import', description: 'Import from booking (Square/Acuity) or sync from CRM (HubSpot).' } },
     { element: '[data-guide="consent"]', popover: { title: 'Consent & data', description: 'Send STOP or erase personal data.' } },
     { element: '[data-guide="status"]', popover: { title: 'Status', description: 'See the result of recent actions.' } },
   ],

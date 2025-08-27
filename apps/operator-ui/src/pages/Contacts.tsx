@@ -4,12 +4,14 @@ import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import Skeleton from '../components/ui/Skeleton';
 import { startGuide } from '../lib/guide';
+import { useToast } from '../components/ui/Toast';
+import { UI_STRINGS } from '../lib/strings';
 
 export default function Contacts(){
+  const { showToast } = useToast();
   const isDemo = (()=>{ try{ return new URLSearchParams(window.location.search).get('demo')==='1'; } catch { return false; } })();
   const [status, setStatus] = useState('');
-  const [importJson, setImportJson] = useState('[{"contact_id":"c_demo","phone":"+15551234567","email":"demo@example.com","name":"Demo"}]');
-  const [contactId, setContactId] = useState('c_demo');
+  const [contactId, setContactId] = useState('');
   const [busy, setBusy] = useState(false);
   const [policyHtml, setPolicyHtml] = useState<string>('');
   const [faqItems, setFaqItems] = useState<Array<{q:string;a:string}>>([]);
@@ -51,19 +53,16 @@ export default function Contacts(){
     <div className="space-y-4">
       <div className="flex items-center">
         <h3 className="text-lg font-semibold">Contacts</h3>
-        <Button variant="outline" size="sm" className="ml-auto" onClick={()=> startGuide('contacts')}>Guide me</Button>
+        <Button variant="outline" size="sm" className="ml-auto" onClick={()=> startGuide('contacts')} aria-label={UI_STRINGS.a11y.buttons.guideContacts}>{UI_STRINGS.ctas.tertiary.guideMe}</Button>
       </div>
       <div className="grid gap-4">
         <section className="border rounded-xl p-3 bg-white shadow-sm" data-guide="import">
-          <div className="font-semibold mb-2">Import Contacts (JSON array)</div>
-          {isDemo && (
-            <div className="text-xs text-slate-600 mb-2">Demo: importing/exporting is disabled. Use the guide to see how it works in live workspaces.</div>
-          )}
-          <textarea className="w-full font-mono border rounded-xl p-2 shadow-sm" value={importJson} onChange={e=>setImportJson(e.target.value)} rows={6} />
-          <div className="flex gap-2 mt-2">
-            <Button variant="outline" disabled={busy} onClick={()=> isDemo ? setStatus('Demo: import disabled. Use Guide me for steps.') : run(async()=>api.post('/import/contacts',{ tenant_id: await getTenant(), contacts: JSON.parse(importJson) }))}>Import</Button>
-            <Button variant="outline" disabled={busy} data-guide="export" onClick={()=> isDemo ? setStatus('Demo: export disabled. Use Guide me for steps.') : run(async()=>api.get(`/exports/contacts?tenant_id=${encodeURIComponent(await getTenant())}`))}>Export</Button>
-            <Button variant="outline" size="sm" onClick={()=> startGuide('contacts')}>How to import</Button>
+          <div className="font-semibold mb-1">Import contacts</div>
+          <div className="text-xs text-slate-600">Bring your clients from booking or CRM — no CSV needed.</div>
+          <div className="flex flex-wrap gap-2 mt-2">
+            <Button variant="outline" disabled={busy} onClick={async()=>{ if (isDemo) { setStatus('Demo: import disabled. Use Guide me for steps.'); return; } await run(async()=>api.post('/calendar/sync',{ tenant_id: await getTenant(), provider: 'auto' })); try{ showToast({ title:'Import queued', description:'Booking' }); }catch{} }}>{UI_STRINGS.ctas.secondary.importFromBooking}</Button>
+            <Button variant="outline" disabled={busy} onClick={async()=>{ if (isDemo) { setStatus('Demo: CRM sync disabled.'); return; } await run(async()=>api.post('/crm/hubspot/import',{ tenant_id: await getTenant() })); try{ showToast({ title:'Import queued', description:'HubSpot' }); }catch{} }}>{UI_STRINGS.ctas.secondary.syncFromHubSpot}</Button>
+            <Button variant="outline" size="sm" onClick={()=> startGuide('contacts')}>{UI_STRINGS.ctas.secondary.howToImport}</Button>
           </div>
         </section>
 
@@ -83,8 +82,8 @@ export default function Contacts(){
               )}
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" disabled={busy} onClick={()=>run(async()=>api.post('/consent/stop',{ tenant_id: await getTenant(), contact_id: contactId }))}>STOP</Button>
-              <Button variant="outline" disabled={busy} onClick={()=>run(async()=>api.post('/data/erase',{ tenant_id: await getTenant(), contact_id: contactId }))}>Erase</Button>
+              <Button variant="outline" disabled={busy} onClick={async()=>{ await run(async()=>api.post('/consent/stop',{ tenant_id: await getTenant(), contact_id: contactId })); try { showToast({ title:'STOP sent' }); } catch {} }}>{UI_STRINGS.ctas.secondary.stop}</Button>
+              <Button variant="outline" disabled={busy} onClick={async()=>{ await run(async()=>api.post('/data/erase',{ tenant_id: await getTenant(), contact_id: contactId })); try { showToast({ title:'Erasure requested' }); } catch {} }}>{UI_STRINGS.ctas.secondary.erase}</Button>
             </div>
           </div>
           {(policyHtml || (faqItems && faqItems.length > 0)) && (

@@ -14,7 +14,11 @@ export default function Login() {
     try{
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) throw error;
-      navigate('/dashboard');
+      try{
+        const ret = localStorage.getItem('bvx_auth_return');
+        if (ret) { localStorage.removeItem('bvx_auth_return'); window.location.assign(ret); return; }
+      }catch{}
+      navigate('/workspace?pane=dashboard');
     }catch(err){
       alert(String((err as Error).message || err));
     }finally{

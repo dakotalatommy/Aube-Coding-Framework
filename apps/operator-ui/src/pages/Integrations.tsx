@@ -6,8 +6,11 @@ import Input from '../components/ui/Input';
 import { driver } from 'driver.js';
 import StepPager from '../components/StepPager';
 import 'driver.js/dist/driver.css';
+import { UI_STRINGS } from '../lib/strings';
+import { useToast } from '../components/ui/Toast';
 
 export default function Integrations(){
+  const { showToast } = useToast();
   const [step, setStep] = useState<number>(()=>{
     try{
       const sp = new URLSearchParams(window.location.search);
@@ -31,7 +34,7 @@ export default function Integrations(){
   ];
   const SOCIAL_ON = (import.meta as any).env?.VITE_FEATURE_SOCIAL === '1';
   const SHOW_REDIRECT_URIS = ((import.meta as any).env?.VITE_SHOW_REDIRECT_URIS === '1') || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('dev'));
-  const [settings, setSettings] = useState<any>({ tone:'helpful', services:['sms','email'], auto_approve_all:false, quiet_hours:{ start:'21:00', end:'08:00' }, preferences:{} });
+  const [settings, setSettings] = useState<any>({ tone:'helpful', services:['sms','email'], auto_approve_all:false, quiet_hours:{ start:'21:00', end:'08:00' }, brand_profile:{ name:'', voice:'', about:'' }, metrics:{ monthly_revenue:'', avg_service_price:'', avg_service_time:'', rent:'' }, goals:{ primary_goal:'' }, preferences:{} });
   const isDemo = (()=>{ try{ return new URLSearchParams(window.location.search).get('demo')==='1'; } catch { return false; } })();
   const [status, setStatus] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -48,6 +51,7 @@ export default function Integrations(){
       setOnboarding({ ...a?.summary, connectedMap: a?.summary?.connected || {}, providers: a?.summary?.providers || {} });
       const ts = new Date();
       setStatus(`Re‑analyzed at ${ts.toLocaleTimeString()}`);
+      try { showToast({ title:'Re‑analyzed', description: ts.toLocaleTimeString() }); } catch {}
     } catch(e:any){ setStatus(String(e?.message||e)); }
   };
 
@@ -158,6 +162,7 @@ export default function Integrations(){
       const prefs = { ...(settings.preferences||{}), user_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, user_timezone_offset: computeOffsetHours() };
       const r = await api.post('/settings',{ tenant_id: await getTenant(), ...settings, preferences: prefs });
       setStatus(JSON.stringify(r));
+      try { showToast({ title:'Settings saved', description:'Settings saved successfully' }); } catch {}
     }
     catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
@@ -170,12 +175,12 @@ export default function Integrations(){
     } catch { return 0; }
   };
   const sendTestSms = async () => {
-    try{ setBusy(true); const r = await api.post('/messages/send',{ tenant_id: await getTenant(), contact_id:'c_demo', channel:'sms', body:'Test SMS from BrandVX (reply STOP/HELP to opt out)' }); setStatus(JSON.stringify(r)); }
+    try{ setBusy(true); const r = await api.post('/messages/send',{ tenant_id: await getTenant(), contact_id:'c_demo', channel:'sms', body:'Test SMS from BrandVX (reply STOP/HELP to opt out)' }); setStatus(JSON.stringify(r)); try { showToast({ title:'Test SMS sent', description:'Test SMS sent successfully' }); } catch {} }
     catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
   };
   const sendTestEmail = async () => {
-    try{ setBusy(true); const r = await api.post('/messages/send',{ tenant_id: await getTenant(), contact_id:'c_demo', channel:'email', subject:'BrandVX Test', body:'<p>Hello from BrandVX</p>' }); setStatus(JSON.stringify(r)); }
+    try{ setBusy(true); const r = await api.post('/messages/send',{ tenant_id: await getTenant(), contact_id:'c_demo', channel:'email', subject:'BrandVX Test', body:'<p>Hello from BrandVX</p>' }); setStatus(JSON.stringify(r)); try { showToast({ title:'Test email sent', description:'Test email sent successfully' }); } catch {} }
     catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
   };
@@ -184,7 +189,8 @@ export default function Integrations(){
       setBusy(true);
       const r = await api.post('/integrations/twilio/provision', { tenant_id: await getTenant(), area_code: '' });
       setStatus(JSON.stringify(r));
-      if (r?.status === 'ok') setStatus('SMS enabled: ' + (r?.from || '')); else setErrorMsg(r?.detail||r?.status||'Enable failed');
+      if (r?.status === 'ok') { setStatus('SMS enabled: ' + (r?.from || '')); try { showToast({ title:'SMS enabled', description: r?.from||'' }); } catch {} }
+      else setErrorMsg(r?.detail||r?.status||'Enable failed');
     } catch(e:any){ setErrorMsg(String(e?.message||e)); }
     finally{ setBusy(false); }
   };
@@ -199,6 +205,7 @@ export default function Integrations(){
         idempotency_key:'demo_contact_1'
       });
       setStatus(JSON.stringify(r));
+      try { showToast({ title:'HubSpot sample synced', description:'HubSpot sample contact synced' }); } catch {}
     } catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
   };
@@ -208,6 +215,7 @@ export default function Integrations(){
       setBusy(true);
       const r = await api.post('/integrations/booking/acuity/import', { tenant_id: await getTenant(), since:'0', until:'', cursor:'' });
       setStatus(JSON.stringify(r));
+      try { showToast({ title:'Acuity sample imported', description:'Acuity sample appointments imported' }); } catch {}
     } catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
   };
@@ -278,12 +286,12 @@ export default function Integrations(){
   return (
     <div className="space-y-3 overflow-hidden">
       <div className="flex items-center sticky top-0 z-10 bg-[var(--sticky-bg,white)]/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 rounded-md px-1 py-1">
-        <h3 className="text-lg font-semibold">Integrations & Settings</h3>
+        <h3 className="text-lg font-semibold">Settings & Connections</h3>
         <div className="flex items-center gap-2 ml-auto">
           <span className="text-xs text-slate-600 px-2 py-1 rounded-md border bg-white/70">
             TZ: {Intl.DateTimeFormat().resolvedOptions().timeZone} (UTC{computeOffsetHours()>=0?'+':''}{computeOffsetHours()})
           </span>
-          <Button variant="outline" size="sm" onClick={reanalyze} aria-label="Re-analyze connections" data-guide="reanalyze">Re‑analyze</Button>
+          <Button variant="outline" size="sm" onClick={reanalyze} aria-label="Re-analyze connections" data-guide="reanalyze">{UI_STRINGS.ctas.secondary.reanalyze}</Button>
           <Button variant="outline" size="sm" aria-label="Open integrations guide" onClick={()=>{
             try { track('guide_open', { area: 'integrations' }); } catch {}
             const d = driver({ showProgress: true, steps: [
@@ -292,7 +300,7 @@ export default function Integrations(){
               { element: '[data-guide="reanalyze"]', popover: { title: 'Re‑analyze', description: 'Re‑pull provider deltas and refresh KPIs after connecting or changing settings.' } },
             ] } as any);
             d.drive();
-          }}>Guide me</Button>
+          }}>{UI_STRINGS.ctas.tertiary.guideMe}</Button>
         </div>
       </div>
       {onboarding?.providers && (
@@ -324,10 +332,38 @@ export default function Integrations(){
         {onboarding?.providers && Object.entries(onboarding.providers).some(([,v])=> (v as boolean)===false) && (
           <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1">Some providers are pending app credentials; connect buttons will be disabled for those until configured.</div>
         )}
-        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Note: Some integration actions may be gated by approvals. You can review and approve in the Approvals page.</div>
+        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Some actions may require approval when auto-approve is off. Review in <a className="underline" href="/workspace?pane=approvals">Approvals</a>.</div>
         <label className="flex items-center gap-2 text-sm"> Tone
           <Input value={settings.tone||''} onChange={e=>setSettings({...settings,tone:e.target.value})} />
         </label>
+        <div className="grid gap-2 text-sm">
+          <div className="text-slate-700">Brand profile</div>
+          <Input placeholder="Business name" value={settings.brand_profile?.name||''} onChange={e=> setSettings({...settings, brand_profile:{ ...(settings.brand_profile||{}), name:e.target.value }})} />
+          <Input placeholder="Brand voice (e.g., Warm, Editorial crisp)" value={settings.brand_profile?.voice||''} onChange={e=> setSettings({...settings, brand_profile:{ ...(settings.brand_profile||{}), voice:e.target.value }})} />
+          <Input placeholder="About (one line)" value={settings.brand_profile?.about||''} onChange={e=> setSettings({...settings, brand_profile:{ ...(settings.brand_profile||{}), about:e.target.value }})} />
+        </div>
+        <div className="grid sm:grid-cols-2 gap-2 text-sm">
+          <div>
+            <div className="text-slate-700">Monthly revenue</div>
+            <Input placeholder="$" value={settings.metrics?.monthly_revenue||''} onChange={e=> setSettings({...settings, metrics:{ ...(settings.metrics||{}), monthly_revenue:e.target.value }})} />
+          </div>
+          <div>
+            <div className="text-slate-700">Avg service price</div>
+            <Input placeholder="$" value={settings.metrics?.avg_service_price||''} onChange={e=> setSettings({...settings, metrics:{ ...(settings.metrics||{}), avg_service_price:e.target.value }})} />
+          </div>
+          <div>
+            <div className="text-slate-700">Avg service time (mins)</div>
+            <Input placeholder="minutes" value={settings.metrics?.avg_service_time||''} onChange={e=> setSettings({...settings, metrics:{ ...(settings.metrics||{}), avg_service_time:e.target.value }})} />
+          </div>
+          <div>
+            <div className="text-slate-700">Monthly rent</div>
+            <Input placeholder="$" value={settings.metrics?.rent||''} onChange={e=> setSettings({...settings, metrics:{ ...(settings.metrics||{}), rent:e.target.value }})} />
+          </div>
+        </div>
+        <div className="grid gap-2 text-sm">
+          <div className="text-slate-700">Primary goal</div>
+          <Input placeholder="What do you want BrandVX to do first?" value={settings.goals?.primary_goal||''} onChange={e=> setSettings({...settings, goals:{ ...(settings.goals||{}), primary_goal:e.target.value }})} />
+        </div>
         <div className="text-sm text-slate-700">Provider mode</div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
           {['google','square','acuity','hubspot','instagram','shopify'].map(p=> (
@@ -351,16 +387,17 @@ export default function Integrations(){
           }} />
         </label>
         <div className="grid grid-cols-1 sm:grid-cols-3 items-center gap-2 text-sm">
-          <div className="text-slate-700">Quiet hours</div>
+          <div className="text-slate-700">{UI_STRINGS.quietHours.sectionTitle}</div>
           <input className="border rounded-md px-2 py-1 bg-white" type="time" value={settings.quiet_hours?.start||'21:00'} onChange={e=> setSettings({...settings, quiet_hours:{ ...(settings.quiet_hours||{}), start:e.target.value }})} aria-label="Quiet hours start" />
           <input className="border rounded-md px-2 py-1 bg-white" type="time" value={settings.quiet_hours?.end||'08:00'} onChange={e=> setSettings({...settings, quiet_hours:{ ...(settings.quiet_hours||{}), end:e.target.value }})} aria-label="Quiet hours end" />
         </div>
+        <div className="text-xs text-slate-600">{UI_STRINGS.quietHours.helper}</div>
         <label className="flex items-center gap-2 text-sm"> Auto-approve risky tools
           <input type="checkbox" checked={!!settings.auto_approve_all} onChange={e=>setSettings({...settings, auto_approve_all: e.target.checked})} />
         </label>
         <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Some actions may require approval when auto-approve is off. Review in <a className="underline" href="/workspace?pane=approvals">Approvals</a>.</div>
         <div className="flex gap-2">
-          <Button variant="outline" disabled={busy} onClick={save}>Save</Button>
+          <Button variant="outline" disabled={busy} onClick={save}>{UI_STRINGS.ctas.primary.saveChanges}</Button>
           <Button variant="outline" disabled={busy} onClick={sendTestSms}>Send Test SMS</Button>
           <Button variant="outline" disabled={busy} onClick={sendTestEmail}>Send Test Email</Button>
         </div>
@@ -380,6 +417,7 @@ export default function Integrations(){
                   Object.entries(redirects.webhooks||{}).forEach(([k,v])=> lines.push(`${k} webhook: ${v}`));
                   await navigator.clipboard.writeText(lines.join('\n'));
                   setStatus('Copied all redirect URIs');
+                  try { showToast({ title:'Copied', description:'Redirect URIs copied' }); } catch {}
                 } catch(e:any) { setStatus('Copy failed'); }
               }}>Copy all</Button>
             </div>
@@ -434,13 +472,13 @@ export default function Integrations(){
               try{
                 setStatus('Provisioning…');
                 const r = await api.post('/integrations/twilio/provision', { area_code: twilioArea });
-                if (r?.from) { setTwilioFrom(r.from); setStatus('Provisioned'); }
+                if (r?.from) { setTwilioFrom(r.from); setStatus('Provisioned'); try { showToast({ title:'Provisioned', description: r.from }); } catch {} }
                 else if (r?.detail) setStatus(String(r.detail));
               } catch(e:any){ setStatus(String(e?.message||e)); }
             }}>Provision number</Button>
             {twilioFrom && <span className="text-xs text-slate-600">From: {twilioFrom}</span>}
-            <Button variant="outline" disabled={busy || isDemo} onClick={()=>{ try{ track('twilio_test_sms'); }catch{}; if (isDemo) { setStatus('Demo: sending disabled'); return; } sendTestSms(); }}>{isDemo? 'Send test (disabled)' : 'Send test SMS'}</Button>
-            <Button variant="outline" disabled={busy || isDemo} onClick={()=>{ if (isDemo) { setStatus('Demo: console unavailable'); return; } try{ track('twilio_console_open'); }catch{}; window.open('https://www.twilio.com/console', '_blank', 'noreferrer'); }}>{isDemo? 'Twilio Console (demo off)' : 'Open Twilio Console'}</Button>
+            <Button variant="outline" disabled={busy || isDemo} onClick={()=>{ try{ track('twilio_test_sms'); }catch{}; if (isDemo) { setStatus('Demo: sending disabled'); return; } sendTestSms(); try { showToast({ title:'Test SMS sent', description:'Test SMS sent successfully' }); } catch {} }}>{isDemo? 'Send test (disabled)' : 'Send test SMS'}</Button>
+            <Button variant="outline" disabled={busy || isDemo} onClick={()=>{ if (isDemo) { setStatus('Demo: console unavailable'); return; } try{ track('twilio_console_open'); }catch{}; window.open('https://www.twilio.com/console', '_blank', 'noreferrer'); try { showToast({ title:'Opening Twilio Console' }); } catch {} }}>{isDemo? 'Twilio Console (demo off)' : 'Open Twilio Console'}</Button>
             <Button variant="outline" disabled={busy || isDemo} onClick={()=>{ if (isDemo) { setStatus('Demo: guide external link unavailable'); return; } try{ track('twilio_docs_open'); }catch{}; window.open('https://www.twilio.com/en-us/messaging/channels/sms', '_blank', 'noreferrer'); }}>{isDemo? 'Twilio Guide (demo off)' : 'Twilio SMS Guide'}</Button>
           </div>
           <div className="mt-2 text-xs text-amber-700">
@@ -465,13 +503,14 @@ export default function Integrations(){
             <Button variant="outline" disabled={busy || !squareLink || onboarding?.providers?.square===false} onClick={openSquare}>{squareLink ? 'Open Square booking' : 'No link set'}</Button>
             <Button variant="outline" disabled={busy || connecting.square || onboarding?.providers?.square===false} onClick={()=> connect('square')}>{connecting.square ? 'Connecting…' : 'Connect Square'}</Button>
             <Button variant="outline" disabled={busy || connecting.acuity || onboarding?.providers?.acuity===false} onClick={()=> connect('acuity')}>{connecting.acuity ? 'Connecting…' : 'Connect Acuity'}</Button>
-            <Button variant="outline" disabled={busy || onboarding?.providers?.acuity===false} onClick={acuityImportSample}>Import sample appointments</Button>
-            <Button variant="outline" disabled={busy} onClick={()=> refresh('square')}>Refresh</Button>
+            <Button variant="outline" disabled={busy || onboarding?.providers?.acuity===false} onClick={async()=>{ await acuityImportSample(); try{ showToast({ title:'Imported sample appointments', description:'Acuity sample appointments imported' }); }catch{} }}>Import sample appointments</Button>
+            <Button variant="outline" disabled={busy} onClick={()=> { refresh('square'); try { showToast({ title:UI_STRINGS.ctas.secondary.refresh }); } catch {} }}>Refresh</Button>
             <Button variant="outline" disabled={busy} onClick={async()=>{
               try{
                 setBusy(true);
                 const r = await api.post('/integrations/booking/square/sync-contacts', { tenant_id: await getTenant() });
                 setStatus(`Imported ${r?.imported||0} contacts from Square`);
+                try { showToast({ title:'Imported', description: `${Number(r?.imported||0)} contacts` }); } catch {}
               }catch(e:any){ setStatus(String(e?.message||e)); }
               finally{ setBusy(false); }
             }}>Import contacts from Square</Button>
@@ -491,7 +530,7 @@ export default function Integrations(){
             <span className="px-2 py-1 rounded-full text-xs bg-slate-100 text-slate-700">Webhook ready</span>
           </div>
           <div className="mt-3 flex gap-2">
-            <Button variant="outline" disabled={busy} onClick={sendTestEmail}>Send test email</Button>
+            <Button variant="outline" disabled={busy} onClick={sendTestEmail}>{UI_STRINGS.ctas.secondary.sendTestEmail}</Button>
           </div>
           <div className="mt-2 text-xs text-amber-700">Note: Test emails may require approval if auto-approve is disabled.</div>
         </section>
@@ -506,9 +545,9 @@ export default function Integrations(){
             <span className={`px-2 py-1 rounded-full text-xs ${onboarding?.calendar_ready ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{onboarding?.calendar_ready? 'Ready' : 'Not linked'}</span>
           </div>
           <div className="mt-3 flex gap-2">
-            <Button variant="outline" disabled={busy || connecting.google || onboarding?.providers?.google===false} onClick={()=> connect('google')}>{connecting.google ? 'Connecting…' : 'Connect Google'}</Button>
-            <Button variant="outline" disabled={busy} onClick={()=> window.open('/workspace?pane=calendar','_self')}>Open Calendar</Button>
-            <Button variant="outline" disabled={busy} onClick={()=> refresh('google')}>Refresh</Button>
+            <Button variant="outline" disabled={busy || connecting.google || onboarding?.providers?.google===false} onClick={()=> connect('google')}>{connecting.google ? 'Connecting…' : UI_STRINGS.ctas.secondary.connectGoogle}</Button>
+            <Button variant="outline" disabled={busy} onClick={()=> window.open('/workspace?pane=calendar','_self')}>{UI_STRINGS.ctas.secondary.openCalendar}</Button>
+            <Button variant="outline" disabled={busy} onClick={()=> refresh('google')}>{UI_STRINGS.ctas.secondary.refresh}</Button>
           </div>
           {onboarding?.providers?.google===false && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Google OAuth to enable.</div>}
         </section>
@@ -523,9 +562,9 @@ export default function Integrations(){
               <span className={`px-2 py-1 rounded-full text-xs ${onboarding?.inbox_ready ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{onboarding?.inbox_ready? 'Ready' : 'Not linked'}</span>
             </div>
             <div className="mt-3 flex gap-2">
-              <Button variant="outline" disabled={busy || connecting.instagram || onboarding?.providers?.instagram===false} onClick={()=> connect('instagram')}>{connecting.instagram ? 'Connecting…' : 'Connect Instagram'}</Button>
-              <Button variant="outline" disabled={busy} onClick={()=> window.open('/workspace?pane=messages','_self')}>Open Inbox</Button>
-              <Button variant="outline" disabled={busy} onClick={()=> refresh('instagram')}>Refresh</Button>
+              <Button variant="outline" disabled={busy || connecting.instagram || onboarding?.providers?.instagram===false} onClick={()=> connect('instagram')}>{connecting.instagram ? 'Connecting…' : UI_STRINGS.ctas.secondary.connectInstagram}</Button>
+              <Button variant="outline" disabled={busy} onClick={()=> window.open('/workspace?pane=messages','_self')}>{UI_STRINGS.ctas.secondary.openInbox}</Button>
+              <Button variant="outline" disabled={busy} onClick={()=> refresh('instagram')}>{UI_STRINGS.ctas.secondary.refresh}</Button>
             </div>
             {(onboarding?.providers?.instagram===false) && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Instagram OAuth to enable.</div>}
           </section>
@@ -550,9 +589,9 @@ export default function Integrations(){
             <span className={`px-2 py-1 rounded-full text-xs ${onboarding?.connectedMap?.shopify==='connected' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{onboarding?.connectedMap?.shopify==='connected' ? 'Connected' : (onboarding?.connectedMap?.shopify||'Not linked')}</span>
           </div>
           <div className="mt-3 flex gap-2">
-            <Button variant="outline" disabled={busy || connecting.shopify || onboarding?.providers?.shopify===false} onClick={()=> connect('shopify')}>{connecting.shopify ? 'Connecting…' : 'Connect Shopify'}</Button>
-            <Button variant="outline" disabled={busy} onClick={()=> window.open('/workspace?pane=inventory','_self')}>Open Inventory</Button>
-            <Button variant="outline" disabled={busy} onClick={()=> refresh('shopify')}>Refresh</Button>
+            <Button variant="outline" disabled={busy || connecting.shopify || onboarding?.providers?.shopify===false} onClick={()=> connect('shopify')}>{connecting.shopify ? 'Connecting…' : UI_STRINGS.ctas.secondary.connectShopify}</Button>
+            <Button variant="outline" disabled={busy} onClick={()=> window.open('/workspace?pane=inventory','_self')}>{UI_STRINGS.ctas.secondary.openInventory}</Button>
+            <Button variant="outline" disabled={busy} onClick={()=> refresh('shopify')}>{UI_STRINGS.ctas.secondary.refresh}</Button>
           </div>
           {onboarding?.providers?.shopify===false && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Shopify OAuth to enable.</div>}
         </section>

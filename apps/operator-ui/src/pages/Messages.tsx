@@ -7,9 +7,12 @@ import { Table, THead, TR, TH, TD } from '../components/ui/Table';
 import { startGuide } from '../lib/guide';
 import Skeleton from '../components/ui/Skeleton';
 import EmptyState from '../components/ui/EmptyState';
+import { useToast } from '../components/ui/Toast';
+import { UI_STRINGS } from '../lib/strings';
 // import { Link } from 'react-router-dom';
 
 export default function Messages(){
+  const { showToast } = useToast();
   const recommendOnly = String((import.meta as any).env?.VITE_BETA_RECOMMEND_ONLY || localStorage.getItem('bvx_recommend_only') || '0') === '1';
   // Add beta disclosure step to Guide me list
   const [items, setItems] = useState<any[]>([]);
@@ -44,6 +47,13 @@ export default function Messages(){
     { label:'Lead follow‑up', body:'Hi! I saw you were looking at {Service}. Happy to help you book — Soonest or Anytime?' },
   ];
 
+  const draftForMe = () => {
+    const examples = presets.map(p=>p.body);
+    const pick = examples[Math.floor(Math.random()*examples.length)] || examples[0];
+    setSend(s=> ({ ...s, body: pick }));
+    setStatus('Draft prepared');
+  };
+
   const load = async () => {
     const qs = filterContact ? `&contact_id=${encodeURIComponent(filterContact)}` : '';
     const res = await api.get(`/messages/list?tenant_id=${encodeURIComponent(await getTenant())}${qs}`);
@@ -61,6 +71,7 @@ export default function Messages(){
       const r = await api.post('/messages/simulate', { tenant_id:'t1', contact_id: filterContact || 'c_demo', channel, generate: false });
       setStatus(JSON.stringify(r));
       await load();
+      try { showToast({ title: channel==='sms' ? 'Simulated SMS' : 'Simulated Email' }); } catch {}
     } catch(e:any){
       // retry once on transient network error
       try {
@@ -68,6 +79,7 @@ export default function Messages(){
         const r2 = await api.post('/messages/simulate', { tenant_id:'t1', contact_id: filterContact || 'c_demo', channel, generate: false });
         setStatus(JSON.stringify(r2));
         await load();
+        try { showToast({ title: channel==='sms' ? 'Simulated SMS' : 'Simulated Email' }); } catch {}
       } catch(e2:any){ setStatus(String(e2?.message||e2)); }
     }
   };
@@ -90,6 +102,7 @@ export default function Messages(){
       const r = await api.post('/messages/send', { tenant_id:'t1', contact_id: send.contact_id, channel: send.channel, subject: send.subject || undefined, body: send.body || undefined });
       setStatus(JSON.stringify(r));
       await load();
+      try { showToast({ title: 'Message sent', description: send.channel.toUpperCase() }); } catch {}
     } catch(e:any){ setStatus(String(e?.message||e)); }
   };
 
@@ -99,6 +112,7 @@ export default function Messages(){
       if (!txt) { setStatus('No recipient selected.'); return; }
       await navigator.clipboard.writeText(txt);
       setStatus('Recipients copied');
+      try { showToast({ title: 'Copied', description: 'Recipients' }); } catch {}
     } catch(e:any){ setStatus('Copy failed: '+String(e?.message||e)); }
   };
 
@@ -108,6 +122,7 @@ export default function Messages(){
       if (!body) { setStatus('No message body.'); return; }
       await navigator.clipboard.writeText(body);
       setStatus('Message copied');
+      try { showToast({ title: 'Copied', description: 'Message' }); } catch {}
     } catch(e:any){ setStatus('Copy failed: '+String(e?.message||e)); }
   };
 
@@ -121,6 +136,7 @@ export default function Messages(){
       const next = { ...data, suggested_campaigns: [item, ...list].slice(0, 200) };
       await api.post('/settings', { tenant_id: tid, ...next });
       setStatus('Saved to Approvals (pending)');
+      try { showToast({ title: 'Saved to Approvals' }); } catch {}
     } catch(e:any){ setStatus('Save failed: '+String(e?.message||e)); }
   };
 
@@ -131,6 +147,7 @@ export default function Messages(){
       list.push({ ts: Date.now(), contact_id: send.contact_id, channel: send.channel });
       localStorage.setItem(key, JSON.stringify(list));
       setStatus('Marked as sent (local log)');
+      try { showToast({ title: 'Marked as sent' }); } catch {}
     } catch { setStatus('Marked as sent'); }
   };
 
@@ -146,11 +163,11 @@ export default function Messages(){
       {!loading && (
         <>
           <div className="flex flex-wrap gap-2 items-center" data-guide="toolbar">
-            <Input placeholder="Filter by contact_id" value={filterContact} onChange={e=>setFilterContact(e.target.value)} />
-            <Button variant="outline" onClick={load}>Refresh</Button>
-            <Button variant="outline" onClick={()=>simulate('sms')}>Simulate SMS</Button>
-            <Button variant="outline" onClick={()=>simulate('email')}>Simulate Email</Button>
-            <Button variant="outline" className="ml-auto" onClick={()=> startGuide('messages')} aria-label="Open messages guide">Guide me</Button>
+            <Input placeholder="Filter by contact" value={filterContact} onChange={e=>setFilterContact(e.target.value)} />
+            <Button variant="outline" onClick={load} aria-label={UI_STRINGS.a11y.buttons.refresh}>{UI_STRINGS.ctas.secondary.refresh}</Button>
+            <Button variant="outline" onClick={()=>simulate('sms')} aria-label={UI_STRINGS.a11y.buttons.simulateSms}>{UI_STRINGS.ctas.secondary.simulateSms}</Button>
+            <Button variant="outline" onClick={()=>simulate('email')} aria-label={UI_STRINGS.a11y.buttons.simulateEmail}>{UI_STRINGS.ctas.secondary.simulateEmail}</Button>
+            <Button variant="outline" className="ml-auto" onClick={()=> startGuide('messages')} aria-label={UI_STRINGS.a11y.buttons.guideMessages}>{UI_STRINGS.ctas.tertiary.guideMe}</Button>
           </div>
           {lastAnalyzed && (
             <div className="text-[11px] text-slate-500">Last analyzed: {new Date(lastAnalyzed*1000).toLocaleString()}</div>
@@ -158,6 +175,9 @@ export default function Messages(){
 
           <div className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm" data-guide="compose">
             <div className="font-semibold mb-2">Send Message</div>
+            <div className="mb-2 text-xs">
+              <Button variant="outline" size="sm" onClick={draftForMe}>{UI_STRINGS.ctas.secondary.draftForMe}</Button>
+            </div>
             {recommendOnly ? (
               <div className="mb-2 text-xs text-sky-800 bg-sky-50 border border-sky-100 rounded-md px-2 py-1 inline-block">Beta: recommend-only mode — preview and copy. BrandVX sending is coming soon.</div>
             ) : (
@@ -183,13 +203,13 @@ export default function Messages(){
                 <option value="sms">sms</option>
                 <option value="email">email</option>
               </select>
-              <Input placeholder="subject (email)" value={send.subject} onChange={e=>setSend({...send,subject:e.target.value})} />
-              <Input placeholder="body" value={send.body} onChange={e=>setSend({...send,body:e.target.value})} />
+              <Input placeholder="Subject (email)" value={send.subject} onChange={e=>setSend({...send,subject:e.target.value})} />
+              <Input placeholder="Message" value={send.body} onChange={e=>setSend({...send,body:e.target.value})} />
             </div>
             <div className="mt-2 text-xs text-slate-700 flex flex-wrap items-center gap-2">
               <span className="font-medium">Quiet hours:</span>
               <Button variant="outline" size="sm" onClick={()=> setQuiet({ start:'21:00', end:'08:00' })}>Suggest 21:00–08:00</Button>
-              <Button variant="outline" size="sm" onClick={async()=>{ try { await api.post('/settings', { tenant_id: await getTenant(), quiet_hours: quiet }); } catch{} }}>Save</Button>
+              <Button variant="outline" size="sm" onClick={async()=>{ try { await api.post('/settings', { tenant_id: await getTenant(), quiet_hours: quiet }); } catch{} }} aria-label={UI_STRINGS.a11y.buttons.saveQuietHours}>{UI_STRINGS.ctas.secondary.save}</Button>
             </div>
             <div className="mt-2 flex flex-wrap gap-2 text-xs" data-guide="presets">
               {presets.map(p=> (
@@ -202,23 +222,23 @@ export default function Messages(){
             )}
             {recommendOnly ? (
               <div className="mt-2 flex flex-wrap gap-2">
-                <Button variant="outline" onClick={copyRecipients}>Copy recipients</Button>
-                <Button variant="outline" onClick={copyMessage}>Copy message</Button>
-                <Button variant="outline" onClick={saveSuggestion}>Save to Approvals</Button>
-                <Button variant="primary" onClick={markAsSent}>Mark as sent</Button>
+                <Button variant="outline" onClick={copyRecipients}>{UI_STRINGS.ctas.secondary.copyRecipients}</Button>
+                <Button variant="outline" onClick={copyMessage}>{UI_STRINGS.ctas.secondary.copyMessage}</Button>
+                <Button variant="outline" onClick={saveSuggestion}>{UI_STRINGS.ctas.secondary.saveToApprovals}</Button>
+                <Button variant="primary" onClick={markAsSent}>{UI_STRINGS.ctas.secondary.markAsSent}</Button>
               </div>
             ) : (
-              <Button variant="primary" className="mt-2" onClick={sendMsg} disabled={isWithinQuiet(quiet)} data-guide="send">Send</Button>
+              <Button variant="primary" className="mt-2" onClick={sendMsg} disabled={isWithinQuiet(quiet)} data-guide="send" aria-label={UI_STRINGS.a11y.buttons.sendMessage}>{UI_STRINGS.ctas.primary.send}</Button>
             )}
           </div>
 
           <pre className="whitespace-pre-wrap text-sm text-slate-700" data-guide="status">{status}</pre>
           {items.length === 0 ? (
-            <EmptyState title="No messages yet" description="Try Simulate SMS to generate a sample that respects STOP/HELP and consent." />
+            <EmptyState title={UI_STRINGS.emptyStates.messages.title} description={UI_STRINGS.emptyStates.messages.body} />
           ) : (
             <Table data-guide="list">
               <THead>
-                <TR><TH>ID</TH><TH>Contact</TH><TH>Channel</TH><TH>Status</TH><TH>Template</TH><TH>TS</TH></TR>
+                <TR><TH>ID</TH><TH>Contact</TH><TH>Channel</TH><TH>Status</TH><TH>Template</TH><TH>Time</TH></TR>
               </THead>
               <tbody className="divide-y">
                 {items.slice(page*pageSize, (page+1)*pageSize).map((r:any)=> (
