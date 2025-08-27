@@ -10,9 +10,15 @@ import 'driver.js/dist/driver.css';
 export default function Integrations(){
   const [step, setStep] = useState<number>(()=>{
     try{
-      const sp = new URLSearchParams(window.location.search); const s = Number(sp.get('step')||'1'); return Math.max(1, Math.min(8, isFinite(s)? s : 1)) - 1;
+      const sp = new URLSearchParams(window.location.search);
+      const s = Number(sp.get('step')||'1');
+      return Math.max(1, Math.min(8, isFinite(s)? s : 1)) - 1;
     } catch { return 0; }
   });
+  const sp = (()=>{ try { return new URLSearchParams(window.location.search); } catch { return new URLSearchParams(); } })();
+  const providerFromURL = (()=>{ try{ return (sp.get('provider')||'').toLowerCase(); } catch { return ''; } })();
+  const returnHint = (()=>{ try{ return (sp.get('return')||''); } catch { return ''; } })();
+  const [focusedProvider] = useState<string>(providerFromURL);
   const steps = [
     { key:'overview', label:'Overview' },
     { key:'twilio', label:'Twilio SMS' },
@@ -96,6 +102,21 @@ export default function Integrations(){
       }
     })();
   },[]);
+
+  // Focused provider mode: when returning from OAuth, jump to that section and optionally auto-return
+  useEffect(()=>{
+    try{
+      if (focusedProvider) {
+        const map: Record<string, number> = { hubspot:2, google:4, square:5, acuity:5, shopify:6 };
+        const idx = (map[focusedProvider] ?? 1) - 1;
+        setStep(idx);
+        // If asked to return to workspace, bounce after a short confirmation window
+        if (returnHint === 'workspace' && sp.get('connected') === '1') {
+          setTimeout(()=>{ try{ window.location.assign('/workspace?pane=integrations'); }catch{} }, 1800);
+        }
+      }
+    } catch{}
+  }, [focusedProvider]);
 
   // Optional deep-link tour to Twilio card
   useEffect(()=>{
@@ -208,18 +229,13 @@ export default function Integrations(){
           return;
         }
       }
-      const ctrl = new AbortController();
-      const to = window.setTimeout(()=>{ try{ ctrl.abort(); }catch{} }, 15000);
-      const r = await api.get(`/oauth/${provider}/login?tenant_id=${encodeURIComponent(await getTenant())}`, { signal: ctrl.signal, timeoutMs: 15000 });
-      window.clearTimeout(to);
+      // Request the login URL with a generous window; avoid AbortController races
+      const r = await api.get(`/oauth/${provider}/login?tenant_id=${encodeURIComponent(await getTenant())}`, { timeoutMs: 25000 });
       if (r?.url) {
-        // Prefer same-tab navigation to avoid popup blockers; fallback if blocked
-        try {
-          const w = window.open(r.url, '_self');
-          if (!w) window.location.href = r.url;
-        } catch {
-          window.location.href = r.url;
-        }
+        // Always navigate in the same tab immediately; popup blockers won't interfere
+        try { window.location.href = r.url; } catch { window.location.assign(r.url); }
+        // Belt-and-suspenders: reassign shortly if we are still visible (navigation didn’t happen)
+        setTimeout(()=>{ try { if (document.visibilityState === 'visible') window.location.assign(r.url); } catch {} }, 600);
       } else {
         // Retry once after a short delay with a longer window
         setTimeout(async()=>{
@@ -227,10 +243,8 @@ export default function Integrations(){
             try { track('oauth_login_retry', { provider }); } catch {}
             const r2 = await api.get(`/oauth/${provider}/login?tenant_id=${encodeURIComponent(await getTenant())}`, { timeoutMs: 20000 });
             if (r2?.url) {
-              try {
-                const w2 = window.open(r2.url, '_self');
-                if (!w2) window.location.href = r2.url;
-              } catch { window.location.href = r2.url; }
+              try { window.location.href = r2.url; } catch { window.location.assign(r2.url); }
+              setTimeout(()=>{ try { if (document.visibilityState === 'visible') window.location.assign(r2.url); } catch {} }, 600);
             } else {
               setErrorMsg('Connect link unavailable. Verify provider credentials, sandbox vs prod, and callback URLs.');
             }
@@ -239,7 +253,7 @@ export default function Integrations(){
       }
     }catch(e:any){
       const msg = String(e?.message||e||'');
-      if (/abort/i.test(msg) || /timeout/i.test(msg)) setErrorMsg('Connect timed out. Please try again.');
+      if (/abort/i.test(msg) || /timeout/i.test(msg)) setErrorMsg('Connect timed out. Please try again. If it persists, copy the connect URL from the Network tab and open it.');
       else setErrorMsg(msg);
     } finally {
       setConnecting((m)=> ({ ...m, [provider]: false }));
@@ -444,12 +458,23 @@ export default function Integrations(){
             </div>
             <span className={`px-2 py-1 rounded-full text-xs ${onboarding?.connectedMap?.square==='connected' || onboarding?.connectedMap?.acuity==='connected' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{(onboarding?.connectedMap?.square==='connected' || onboarding?.connectedMap?.acuity==='connected') ? 'Connected' : 'Not linked'}</span>
           </div>
+          {focusedProvider==='square' && sp.get('connected')==='1' && (
+            <div className="mb-2 text-xs rounded-md px-2 py-1 bg-emerald-50 border border-emerald-100 text-emerald-700">Square connected. You can import contacts now.</div>
+          )}
           <div className="mt-3 flex gap-2">
             <Button variant="outline" disabled={busy || !squareLink || onboarding?.providers?.square===false} onClick={openSquare}>{squareLink ? 'Open Square booking' : 'No link set'}</Button>
             <Button variant="outline" disabled={busy || connecting.square || onboarding?.providers?.square===false} onClick={()=> connect('square')}>{connecting.square ? 'Connecting…' : 'Connect Square'}</Button>
             <Button variant="outline" disabled={busy || connecting.acuity || onboarding?.providers?.acuity===false} onClick={()=> connect('acuity')}>{connecting.acuity ? 'Connecting…' : 'Connect Acuity'}</Button>
             <Button variant="outline" disabled={busy || onboarding?.providers?.acuity===false} onClick={acuityImportSample}>Import sample appointments</Button>
             <Button variant="outline" disabled={busy} onClick={()=> refresh('square')}>Refresh</Button>
+            <Button variant="outline" disabled={busy} onClick={async()=>{
+              try{
+                setBusy(true);
+                const r = await api.post('/integrations/booking/square/sync-contacts', { tenant_id: await getTenant() });
+                setStatus(`Imported ${r?.imported||0} contacts from Square`);
+              }catch(e:any){ setStatus(String(e?.message||e)); }
+              finally{ setBusy(false); }
+            }}>Import contacts from Square</Button>
           </div>
           {(onboarding?.providers?.square===false || onboarding?.providers?.acuity===false) && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Square/Acuity OAuth to enable.</div>}
           <div className="mt-2 text-xs text-amber-700">Note: Imports and booking merges may queue approvals when auto-approve is off.</div>

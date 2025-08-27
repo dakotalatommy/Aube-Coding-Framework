@@ -23,6 +23,7 @@ from .integrations import inventory_square as inv_square
 from .integrations import calendar_google as cal_google
 from .integrations import calendar_apple as cal_apple
 from .integrations.booking_square import verify_square_signature
+from .crypto import encrypt_text, decrypt_text
 from .integrations.email_sendgrid import sendgrid_verify_signature
 from .utils import normalize_phone
 from .rate_limit import check_and_increment
@@ -1613,7 +1614,7 @@ async def ai_chat(
             # Graceful local fallback per-mode to avoid dead-ends in demo/onboarding
             if (req.mode or "") == "sales_onboarding":
                 last = (req.messages[-1].content if req.messages else "")
-                return {"text": f"Got it — {last.strip()[:80]} … What’s the main goal you want BrandVX to help with this week?"}
+                return {"text": f"Got it — {last.strip()[:80]} … What's the main goal you want BrandVX to help with this week?"}
             return {"text": "AI is temporarily busy. Please try again in a moment."}
     # If generation completed but returned a transient error string, provide a friendly fallback (especially for onboarding)
     try:
@@ -1622,7 +1623,7 @@ async def ai_chat(
         if _is_transient:
             if (req.mode or "") == "sales_onboarding":
                 last = (req.messages[-1].content if req.messages else "")
-                content = f"OK — noted. What’s the main goal you want to hit in your first 30 days (e.g., automate follow‑ups, boost bookings, or clean up contacts)?"
+                content = f"OK — noted. What's the main goal you want to hit in your first 30 days (e.g., automate follow‑ups, boost bookings, or clean up contacts)?"
             else:
                 content = "I can help with setup, messaging, and KPIs. What are you trying to do right now?"
     except Exception:
@@ -3452,7 +3453,17 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
         if error or not exchange_ok:
             reason = error or ("token_exchange_failed" if code else "missing_code")
             return RedirectResponse(url=f"{_frontend_base_url()}/integrations?error={reason}&provider={provider}")
-        return RedirectResponse(url=f"{_frontend_base_url()}/integrations?connected=1&provider={provider}")
+        # Map provider to the Integrations step (1-based) and include a workspace return hint
+        step_map = {
+            "hubspot": 3,
+            "google": 4,
+            "square": 5,
+            "acuity": 5,
+            "shopify": 6,
+            # instagram/twilio are not primary for this flow; default to overview
+        }
+        step = step_map.get(provider, 1)
+        return RedirectResponse(url=f"{_frontend_base_url()}/integrations?connected=1&provider={provider}&step={step}&return=workspace")
     except Exception:
         return RedirectResponse(url=f"{_frontend_base_url()}/integrations?error=oauth_unexpected&provider={provider}")
 
@@ -3460,6 +3471,9 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
 class AnalyzeRequest(BaseModel):
     tenant_id: str
 class HubspotImportRequest(BaseModel):
+    tenant_id: str
+
+class SquareSyncContactsRequest(BaseModel):
     tenant_id: str
 
 
@@ -3482,6 +3496,1425 @@ def hubspot_import(req: HubspotImportRequest, db: Session = Depends(get_db), ctx
     emit_event("CrmImportCompleted", {"tenant_id": req.tenant_id, "system": "hubspot", "imported": created})
     return {"imported": created}
 
+
+@app.post("/integrations/booking/square/sync-contacts", tags=["Integrations"])
+def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
+    """Pull Square customers and upsert into contacts using the Square Customers API.
+    Requires a connected Square account. Uses stored access token from connected_accounts.
+    """
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"imported": 0}
+    # Retrieve Square access token
+    ca = (
+        db.query(dbm.ConnectedAccount)
+        .filter(dbm.ConnectedAccount.tenant_id == req.tenant_id, dbm.ConnectedAccount.provider == "square")
+        .order_by(dbm.ConnectedAccount.id.desc())
+        .first()
+    )
+    if not ca:
+        return {"imported": 0}
+    token = decrypt_text(ca.access_token_enc or "") or ""
+    if not token:
+        return {"imported": 0}
+
+    # Square environment base URL (prod vs sandbox via env flag)
+    base = os.getenv("SQUARE_API_BASE", "https://connect.squareup.com")
+    # Fallback to sandbox if explicitly set
+    if os.getenv("SQUARE_ENV", "prod").lower().startswith("sand"):
+        base = "https://connect.squareupsandbox.com"
+
+    imported = 0
+    seen_ids: set[str] = set()
+
+    def _upsert_contact(square_obj: Dict[str, object]):
+        nonlocal imported
+        try:
+            sq_id = str(square_obj.get("id") or "").strip()
+            if not sq_id or sq_id in seen_ids:
+                return
+            seen_ids.add(sq_id)
+            contact_id = f"sq:{sq_id}"
+            # Prefer primary email/phone
+            email = None
+            try:
+                email = str(square_obj.get("email_address") or "").strip() or None
+            except Exception:
+                email = None
+            phone = None
+            try:
+                phone = str(square_obj.get("phone_number") or "").strip() or None
+            except Exception:
+                phone = None
+            phone_norm = normalize_phone(phone) if phone else None
+            exists = (
+                db.query(dbm.Contact)
+                .filter(dbm.Contact.tenant_id == req.tenant_id, dbm.Contact.contact_id == contact_id)
+                .first()
+            )
+            if not exists:
+                db.add(
+                    dbm.Contact(
+                        tenant_id=req.tenant_id,
+                        contact_id=contact_id,
+                        email_hash=email,
+                        phone_hash=phone_norm,
+                        consent_sms=bool(phone_norm),
+                        consent_email=bool(email),
+                    )
+                )
+                imported += 1
+        except Exception:
+            pass
+
+    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    cursor: Optional[str] = None
+    try:
+        with httpx.Client(timeout=20, headers=headers) as client:
+            while True:
+                params: Dict[str, str] = {}
+                if cursor:
+                    params["cursor"] = cursor
+                r = client.get(f"{base}/v2/customers", params=params)
+                if r.status_code >= 400:
+                    break
+                body = r.json() or {}
+                for c in body.get("customers", []) or []:
+                    _upsert_contact(c)
+                cursor = body.get("cursor") or body.get("next_cursor")
+                if not cursor:
+                    break
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    emit_event("ContactsSynced", {"tenant_id": req.tenant_id, "provider": "square", "imported": imported})
+    return {"imported": imported}
+
+
+@app.post("/integrations/booking/acuity/import", tags=["Integrations"])
+def booking_import(
+    tenant_id: str,
+    since: Optional[str] = None,
+    until: Optional[str] = None,
+    cursor: Optional[str] = None,
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != tenant_id:
+        return {"status": "forbidden"}
+    return booking_acuity.import_appointments(tenant_id, since, until, cursor)
+
+
+@app.get("/metrics", tags=["Health"])
+def get_metrics(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"messages_sent": 0, "time_saved_minutes": 0}
+    m = db.query(dbm.Metrics).filter(dbm.Metrics.tenant_id == tenant_id).first()
+    if not m:
+        base = {"messages_sent": 0, "time_saved_minutes": 0, "ambassador_candidate": False}
+    else:
+        base = {
+            "messages_sent": m.messages_sent,
+            "time_saved_minutes": compute_time_saved_minutes(db, tenant_id),
+            "ambassador_candidate": ambassador_candidate(db, tenant_id),
+        }
+    # enrich via admin_kpis for revenue/referrals
+    k = admin_kpis(db, tenant_id)
+    base.update({"revenue_uplift": k.get("revenue_uplift", 0), "referrals_30d": k.get("referrals_30d", 0)})
+    return base
+
+
+@app.get("/admin/kpis", tags=["Health"])
+def get_admin_kpis(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
+    if ctx.role != "owner_admin" and ctx.tenant_id != tenant_id:
+        return {}
+    ckey = f"kpis:{tenant_id}"
+    cached = cache_get(ckey)
+    if cached is not None:
+        try:
+            CACHE_HIT.labels(endpoint="/admin/kpis").inc()  # type: ignore
+        except Exception:
+            pass
+        return cached
+    data = admin_kpis(db, tenant_id)
+    cache_set(ckey, data, ttl=30)
+    try:
+        CACHE_MISS.labels(endpoint="/admin/kpis").inc()  # type: ignore
+    except Exception:
+        pass
+    return data
+
+
+class TimeAnalysisRequest(BaseModel):
+    tenant_id: str
+
+
+@app.get("/analysis/time", tags=["Analytics"])  # simple computation based on settings + Metrics
+def analysis_time(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"time_saved_minutes": 0, "cost_saved": 0}
+    # Load settings for time analysis inputs
+    hourly_rate = 50.0
+    per_post_minutes = 15
+    try:
+        row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == tenant_id).first()
+        if row:
+            data = json.loads(row.data_json or "{}")
+            ta = data.get("time_analysis") or {}
+            hourly_rate = float(ta.get("hourly_rate", hourly_rate))
+            per_post_minutes = int(ta.get("per_post_minutes", per_post_minutes))
+    except Exception:
+        pass
+    # Pull Metrics
+    m = db.query(dbm.Metrics).filter(dbm.Metrics.tenant_id == tenant_id).first()
+    time_saved_minutes = int(m.time_saved_minutes) if m else 0
+    messages_sent = int(m.messages_sent) if m else 0
+    # Derive approximate content savings (placeholder; will refine with actual scheduled posts)
+    content_minutes = 0
+    # Compute cost saved
+    cost_saved = (time_saved_minutes + content_minutes) * (hourly_rate / 60.0)
+    return {
+        "time_saved_minutes": time_saved_minutes + content_minutes,
+        "cost_saved": round(cost_saved, 2),
+        "inputs": {"hourly_rate": hourly_rate, "per_post_minutes": per_post_minutes},
+        "sources": {"cadences_minutes": time_saved_minutes, "content_minutes": content_minutes, "messages_sent": messages_sent},
+    }
+
+
+@app.get("/metrics/explain", tags=["Analytics"])  # human-friendly breakdown for Ask VX
+def metrics_explain(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"explanation": "forbidden"}
+    # Reuse analysis_time
+    res = analysis_time(tenant_id, db, ctx)
+    if "explanation" in res:
+        return res
+    hourly_rate = res.get("inputs", {}).get("hourly_rate", 50)
+    ts = int(res.get("sources", {}).get("cadences_minutes", 0)) + int(res.get("sources", {}).get("content_minutes", 0))
+    cost_saved = float(res.get("cost_saved", 0.0))
+    text = (
+        f"We compute Time Saved as a sum of automation minutes (currently from messaging/cadences). "
+        f"Cost Saved = Time Saved × hourly rate. Using hourly rate ${hourly_rate:.2f}, "
+        f"Time Saved is {ts} minutes and Cost Saved is ${cost_saved:.2f}."
+    )
+    return {"explanation": text, "details": res}
+
+@app.post("/scheduler/tick", tags=["Cadences"])
+def scheduler_tick(tenant_id: Optional[str] = None, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if tenant_id and ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"processed": 0}
+    return {"processed": run_tick(db, tenant_id)}
+
+
+class RecomputeRequest(BaseModel):
+    tenant_id: str
+
+
+@app.post("/marts/recompute", tags=["Health"])
+def recompute_marts(
+    req: RecomputeRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.role != "owner_admin" and ctx.tenant_id != req.tenant_id:
+        raise HTTPException(status_code=403, detail="forbidden")
+    a = recompute_funnel_daily(db, req.tenant_id)
+    b = recompute_time_saved(db, req.tenant_id)
+    return {"status": "ok", "funnel_updates": a, "time_saved_updates": b}
+
+
+class PreferenceRequest(BaseModel):
+    tenant_id: str
+    contact_id: str
+    preference: str = "soonest"  # soonest|anytime
+
+
+@app.post("/notify-list/set-preference", tags=["Contacts"])
+def set_notify_preference(
+    req: PreferenceRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+) -> Dict[str, str]:
+    if ctx.tenant_id != req.tenant_id:
+        return {"status": "forbidden"}
+    db.add(
+        dbm.NotifyListEntry(
+            tenant_id=req.tenant_id, contact_id=req.contact_id, preference=req.preference
+        )
+    )
+    db.commit()
+    emit_event(
+        "NotifyListCandidateAdded",
+        {"tenant_id": req.tenant_id, "contact_id": req.contact_id, "preference": req.preference},
+    )
+    return {"status": "ok"}
+
+
+class AppointmentCreateRequest(BaseModel):
+    tenant_id: str
+    contact_id: str
+    service: Optional[str] = None
+    start_ts: int
+    end_ts: Optional[int] = None
+    status: str = "booked"  # booked|completed|cancelled
+
+
+@app.post("/appointments", tags=["Cadences"])
+def create_appointment(
+    req: AppointmentCreateRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+) -> Dict[str, str]:
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    db.add(dbm.Appointment(
+        tenant_id=req.tenant_id,
+        contact_id=req.contact_id,
+        service=req.service,
+        start_ts=req.start_ts,
+        end_ts=req.end_ts,
+        status=req.status,
+    ))
+    db.commit()
+    emit_event("AppointmentIngested", {"tenant_id": req.tenant_id, "contact_id": req.contact_id, "service": req.service})
+    # Draft and send a confirmation (subject to consent/rate limits)
+    try:
+        body = f"Your appointment for {req.service or 'service'} is set. Reply HELP for assistance."
+        send_message(db, req.tenant_id, req.contact_id, "sms", None, body, None)
+    except Exception:
+        pass
+    return {"status": "ok"}
+
+
+class SharePromptRequest(BaseModel):
+    tenant_id: str
+    kind: str
+
+
+@app.post("/share/surface", tags=["Integrations"])
+def surface_share_prompt(
+    req: SharePromptRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+) -> Dict[str, str]:
+    if ctx.tenant_id != req.tenant_id:
+        return {"status": "forbidden"}
+    db.add(dbm.SharePrompt(tenant_id=req.tenant_id, kind=req.kind, surfaced=True))
+    db.commit()
+    emit_event(
+        "SharePromptSurfaced",
+        {"tenant_id": req.tenant_id, "kind": req.kind},
+    )
+    return {"status": "ok"}
+
+
+class SettingsRequest(BaseModel):
+    tenant_id: str
+    tone: Optional[str] = None
+    services: Optional[List[str]] = None
+    preferences: Optional[Dict[str, str]] = None
+    brand_profile: Optional[Dict[str, str]] = None
+    completed: Optional[bool] = None
+    providers_live: Optional[Dict[str, bool]] = None  # per-provider live-mode switch
+    wf_progress: Optional[Dict[str, bool]] = None  # first 5 workflows progress flags
+    # Onboarding/tour persistence
+    tour_completed: Optional[bool] = None
+    onboarding_step: Optional[int] = None
+    # Timezone support
+    user_timezone: Optional[str] = None  # e.g., "America/Chicago"
+    # Creator / developer flags
+    developer_mode: Optional[bool] = None
+    master_prompt: Optional[str] = None  # stored under ai.master_prompt
+    rate_limit_multiplier: Optional[int] = None
+
+
+@app.get("/settings", tags=["Integrations"])
+def get_settings(
+    tenant_id: str,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    try:
+        if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+            return {"data": {}}
+        row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == tenant_id).first()
+        if not row or not (row.data_json or "").strip():
+            return {"data": {}}
+        try:
+            return {"data": json.loads(row.data_json)}
+        except Exception:
+            # Malformed JSON from earlier versions — return empty and avoid 500s
+            return {"data": {}}
+    except Exception:
+        return {"data": {}}
+
+
+@app.post("/settings", tags=["Integrations"])
+def update_settings(
+    req: SettingsRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == req.tenant_id).first()
+    data = {}
+    if row:
+        try:
+            data = json.loads(row.data_json)
+        except Exception:
+            data = {}
+    if req.tone is not None:
+        data["tone"] = req.tone
+    if req.services is not None:
+        data["services"] = req.services
+    if req.preferences is not None:
+        data["preferences"] = req.preferences
+    if req.brand_profile is not None:
+        data["brand_profile"] = req.brand_profile
+    if req.providers_live is not None:
+        data["providers_live"] = req.providers_live
+    if req.wf_progress is not None:
+        # Merge into existing map so updates can be partial
+        cur = dict(data.get("wf_progress") or {})
+        for k, v in (req.wf_progress or {}).items():
+            try:
+                cur[str(k)] = bool(v)
+            except Exception:
+                continue
+        data["wf_progress"] = cur
+    if req.tour_completed is not None:
+        data["tour_completed"] = bool(req.tour_completed)
+    if req.onboarding_step is not None:
+        try:
+            data["onboarding_step"] = int(req.onboarding_step)
+        except Exception:
+            data["onboarding_step"] = 0
+    if req.user_timezone is not None:
+        prefs = dict(data.get("preferences") or {})
+        prefs["user_timezone"] = req.user_timezone
+        data["preferences"] = prefs
+    if req.developer_mode is not None:
+        data["developer_mode"] = bool(req.developer_mode)
+    if req.master_prompt is not None:
+        ai_cfg = dict(data.get("ai") or {})
+        ai_cfg["master_prompt"] = req.master_prompt
+        data["ai"] = ai_cfg
+    if req.rate_limit_multiplier is not None:
+        try:
+            data["rate_limit_multiplier"] = max(1, int(req.rate_limit_multiplier))
+        except Exception:
+            data["rate_limit_multiplier"] = 1
+    if not row:
+        row = dbm.Settings(tenant_id=req.tenant_id, data_json=json.dumps(data))
+        db.add(row)
+    else:
+        row.data_json = json.dumps(data)
+    db.commit()
+    emit_event("SettingsUpdated", {"tenant_id": req.tenant_id, "keys": list(data.keys())})
+    return {"status": "ok"}
+
+
+class ProvisionCreatorRequest(BaseModel):
+    tenant_id: str
+    master_prompt: Optional[str] = None
+    rate_limit_multiplier: Optional[int] = 5
+
+
+@app.post("/admin/provision_creator", tags=["Admin"])
+def provision_creator(
+    req: ProvisionCreatorRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    # Allow owner_admin to self-provision creator mode for their tenant
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == req.tenant_id).first()
+    data = {}
+    if row:
+        try:
+            data = json.loads(row.data_json or "{}")
+        except Exception:
+            data = {}
+    data["developer_mode"] = True
+    try:
+        rlm = int(req.rate_limit_multiplier or 5)
+        data["rate_limit_multiplier"] = max(1, rlm)
+    except Exception:
+        data["rate_limit_multiplier"] = 5
+    if req.master_prompt is not None:
+        ai_cfg = dict(data.get("ai") or {})
+        ai_cfg["master_prompt"] = req.master_prompt
+        data["ai"] = ai_cfg
+    if not row:
+        row = dbm.Settings(tenant_id=req.tenant_id, data_json=json.dumps(data))
+        db.add(row)
+    else:
+        row.data_json = json.dumps(data)
+    db.commit()
+    emit_event("CreatorModeProvisioned", {"tenant_id": req.tenant_id, "rate_limit_multiplier": data.get("rate_limit_multiplier", 1)})
+    return {"status": "ok"}
+
+
+class CacheClearRequest(BaseModel):
+    tenant_id: str
+    scope: Optional[str] = "all"  # all | inbox | inventory | calendar
+
+
+@app.post("/admin/cache/clear", tags=["Admin"])
+def admin_cache_clear(req: CacheClearRequest, ctx: UserContext = Depends(get_user_context)) -> Dict[str, Any]:
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    cleared = 0
+    tried = []
+    # Known keys
+    keys = []  # type: ignore
+    if req.scope in ("all", "inbox"):
+        keys.append(f"inbox:{req.tenant_id}:50")
+    if req.scope in ("all", "inventory"):
+        keys.append(f"inv:{req.tenant_id}")
+    if req.scope in ("all", "calendar"):
+        keys.append(f"cal:{req.tenant_id}:0:0")
+    # Attempt prefix scan in Redis when available for broader cleanup
+    client = _get_redis()
+    if client is not None and req.scope == "all":
+        try:
+            for prefix in [f"inbox:{req.tenant_id}", f"inv:{req.tenant_id}", f"cal:{req.tenant_id}"]:
+                cursor = "0"
+                while True:
+                    cursor, batch = client.scan(cursor=cursor, match=f"{prefix}*")  # type: ignore
+                    if batch:
+                        for k in batch:
+                            if k not in keys:
+                                keys.append(k)
+                    if cursor == "0":
+                        break
+        except Exception:
+            pass
+    for k in keys:
+        tried.append(k)
+        try:
+            cache_del(k)
+            cleared += 1
+        except Exception:
+            pass
+    try:
+        emit_event("AdminCacheCleared", {"tenant_id": req.tenant_id, "scope": req.scope, "cleared": cleared})
+    except Exception:
+        pass
+    return {"status": "ok", "cleared": cleared, "keys": tried[:50]}
+
+
+class OnboardingCompleteRequest(BaseModel):
+    tenant_id: str
+
+
+@app.post("/onboarding/complete", tags=["Integrations"])
+def onboarding_complete(
+    req: OnboardingCompleteRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    # mark settings.completed = true
+    row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == req.tenant_id).first()
+    data = {}
+    if row:
+        try:
+            data = json.loads(row.data_json)
+        except Exception:
+            data = {}
+    data["completed"] = True
+    if not row:
+        row = dbm.Settings(tenant_id=req.tenant_id, data_json=json.dumps(data))
+        db.add(row)
+    else:
+        row.data_json = json.dumps(data)
+    db.commit()
+    emit_event("OnboardingCompleted", {"tenant_id": req.tenant_id})
+    # surface share prompt
+    db.add(dbm.SharePrompt(tenant_id=req.tenant_id, kind="share_onboarding", surfaced=True))
+    db.commit()
+    return {"status": "ok"}
+
+
+@app.get("/messages/list", tags=["Cadences"])
+def list_messages(
+    tenant_id: str,
+    contact_id: Optional[str] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"items": []}
+    q = db.query(dbm.Message).filter(dbm.Message.tenant_id == tenant_id)
+    if contact_id:
+        q = q.filter(dbm.Message.contact_id == contact_id)
+    rows = q.order_by(dbm.Message.id.desc()).limit(max(1, min(limit, 200))).all()
+    items = []
+    for r in rows:
+        items.append({
+            "id": r.id,
+            "contact_id": r.contact_id,
+            "channel": r.channel,
+            "direction": r.direction,
+            "status": r.status,
+            "template_id": r.template_id,
+            "ts": r.ts,
+            "metadata": r.message_metadata,
+        })
+    return {"items": items}
+
+
+@app.get("/appointments/list", tags=["Cadences"])
+def list_appointments(
+    tenant_id: str,
+    contact_id: Optional[str] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"items": []}
+    q = db.query(dbm.Appointment).filter(dbm.Appointment.tenant_id == tenant_id)
+    if contact_id:
+        q = q.filter(dbm.Appointment.contact_id == contact_id)
+    rows = q.order_by(dbm.Appointment.id.desc()).limit(max(1, min(limit, 200))).all()
+    items = []
+    for r in rows:
+        items.append({
+            "id": r.id,
+            "contact_id": r.contact_id,
+            "service": r.service,
+            "start_ts": r.start_ts,
+            "end_ts": r.end_ts,
+            "status": r.status,
+            "external_ref": r.external_ref,
+        })
+    return {"items": items}
+
+
+class StopRequest(BaseModel):
+    tenant_id: str
+    contact_id: str
+    channel: str = "sms"
+
+
+@app.post("/consent/stop", tags=["Contacts"])
+def consent_stop(
+    req: StopRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+) -> Dict[str, str]:
+    if ctx.tenant_id != req.tenant_id:
+        return {"status": "forbidden"}
+    db.add(
+        dbm.ConsentLog(
+            tenant_id=req.tenant_id, contact_id=req.contact_id, channel=req.channel, consent="revoked"
+        )
+    )
+    # lightweight audit
+    db.add(
+        dbm.AuditLog(
+            tenant_id=req.tenant_id,
+            actor_id=ctx.user_id,
+            action="consent.stop",
+            entity_ref=f"contact:{req.contact_id}",
+            payload="{}",
+        )
+    )
+    db.commit()
+    emit_event(
+        "SuppressionAdded",
+        {"tenant_id": req.tenant_id, "contact_id": req.contact_id, "channel": req.channel, "keyword": "STOP"},
+    )
+    return {"status": "suppressed"}
+
+
+@app.post("/cadences/stop", tags=["Cadences"])
+def stop_cadence(
+    tenant_id: str,
+    contact_id: str,
+    cadence_id: str,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    q = (
+        db.query(dbm.CadenceState)
+        .filter(
+            dbm.CadenceState.tenant_id == tenant_id,
+            dbm.CadenceState.contact_id == contact_id,
+            dbm.CadenceState.cadence_id == cadence_id,
+        )
+    )
+    count = q.count()
+    q.delete()
+    db.commit()
+    emit_event("CadenceStopped", {"tenant_id": tenant_id, "contact_id": contact_id, "cadence_id": cadence_id, "count": count})
+    return {"status": "ok", "stopped": count}
+
+
+@app.get("/config")
+def get_config() -> Dict[str, object]:
+    return {
+        "version": "v1",
+        "features": {
+            "cadences": True,
+            "notify_list": True,
+            "share_prompts": True,
+            "ambassador_flags": True,
+            "ai_chat": True,
+        },
+        "branding": {
+            "product_name": "BrandVX",
+            "primary_color": "#0EA5E9",
+            "accent_color": "#22C55E",
+        },
+    }
+
+
+@app.get("/ai/tools/schema", tags=["AI"])
+def ai_tools_schema() -> Dict[str, object]:
+    """Return tool registry with public/gated flags and basic param hints.
+    This enables a visible agentic system without external Agents.
+    """
+    return {
+        "version": "v1",
+        "tools": [
+            {
+                "name": "draft_message",
+                "public": True,
+                "description": "Draft a first outreach message respecting consent and tone.",
+                "params": {
+                    "tenant_id": "string",
+                    "contact_id": "string",
+                    "channel": {"enum": ["sms", "email"]},
+                    "service": "string?"
+                }
+            },
+            {
+                "name": "pricing_model",
+                "public": True,
+                "description": "Compute effective hourly and margin from inputs.",
+                "params": {
+                    "tenant_id": "string",
+                    "price": "number",
+                    "product_cost": "number",
+                    "service_time_minutes": "number"
+                }
+            },
+            {
+                "name": "safety_check",
+                "public": True,
+                "description": "Review text for compliance/PII and suggest safe rewrites.",
+                "params": {"tenant_id": "string", "text": "string"}
+            },
+            {
+                "name": "vision_analyze",
+                "public": True,
+                "description": "Analyze an uploaded image and return actionable feedback.",
+                "params": {"tenant_id": "string", "image_b64": "string", "prompt": "string?"}
+            },
+            {
+                "name": "propose_next_cadence_step",
+                "public": True,
+                "description": "Propose the next cadence step for a contact.",
+                "params": {
+                    "tenant_id": "string",
+                    "contact_id": "string",
+                    "cadence_id": "string"
+                }
+            },
+            # Gated tools (require approvals)
+            {"name": "send_message", "public": False, "description": "Send a message (consent + rate limits enforced)."},
+            {"name": "start_cadence", "public": False, "description": "Start a cadence for a contact."},
+            {"name": "stop_cadence", "public": False, "description": "Stop a cadence for a contact."},
+            {"name": "notify_trigger_send", "public": False, "description": "Send waitlist pings to top candidates."},
+            {"name": "scheduler_tick", "public": False, "description": "Process scheduled actions."},
+            {"name": "lead_status.update", "public": False, "description": "Update lead status by intent."},
+            {"name": "appointments.create", "public": False, "description": "Create an appointment and schedule reminders."},
+            {"name": "marts.recompute", "public": False, "description": "Recompute analytics marts."},
+            {"name": "settings.update", "public": False, "description": "Update tenant settings (tone/services)."},
+            {"name": "export.contacts", "public": False, "description": "Export contacts as CSV."},
+            {"name": "contacts.dedupe", "public": False, "description": "Deduplicate contacts by email/phone hashes (keeps first)."},
+            {"name": "campaigns.dormant.start", "public": False, "description": "Start dormant campaign for inactive clients."},
+            {"name": "appointments.schedule_reminders", "public": False, "description": "Schedule appointment reminder messages."},
+            {"name": "inventory.alerts.get", "public": False, "description": "List low-stock inventory items."},
+            {"name": "social.schedule.14days", "public": False, "description": "Draft a 14-day posting plan (approval required)."},
+        ]
+    }
+
+
+class WorkflowPlanRequest(BaseModel):
+    tenant_id: str
+    name: str  # e.g., "crm_organization", "book_filling"
+
+
+@app.post("/ai/workflow/plan", tags=["AI"])
+def ai_workflow_plan(req: WorkflowPlanRequest, ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"steps": []}
+    # Minimal deterministic plans; frontend can map tourTarget to driver.js anchors
+    plans = {
+        "crm_organization": [
+            {"title": "Create HubSpot (free)", "tool": "link.hubspot.signup", "requiresApproval": False},
+            {"title": "Connect HubSpot", "tool": "oauth.hubspot.connect", "requiresApproval": False},
+            {"title": "Import contacts from HubSpot", "tool": "crm.hubspot.import", "requiresApproval": False},
+            {"title": "Dedupe contacts", "tool": "contacts.dedupe", "requiresApproval": False},
+            {"title": "Export current list", "tool": "export.contacts", "requiresApproval": False},
+        ],
+        "book_filling": [
+            {"title": "Preview dormant segment (≥60d)", "tool": "campaigns.dormant.preview", "requiresApproval": False},
+            {"title": "Start dormant campaign", "tool": "campaigns.dormant.start", "requiresApproval": True},
+            {"title": "Schedule reminders", "tool": "appointments.schedule_reminders", "requiresApproval": False},
+        ],
+        "inventory_tracking": [
+            {"title": "Check low stock", "tool": "inventory.alerts.get", "requiresApproval": False},
+        ],
+        "client_communication": [
+            {"title": "Schedule reminders", "tool": "appointments.schedule_reminders", "requiresApproval": False},
+        ],
+        "social_automation": [
+            {"title": "Draft 14‑day schedule", "tool": "social.schedule.14days", "requiresApproval": True},
+        ],
+    }
+    steps = plans.get(req.name)
+    if steps is None:
+        return {
+            "steps": [],
+            "friendly_error": "I couldn't find that workflow. Try one of: crm_organization, book_filling, inventory_tracking, client_communication, social_automation.",
+        }
+    return {"steps": steps}
+
+
+# Minimal cross-panel workflow guide manifest for AskVX
+@app.get("/guide/manifest", tags=["AI"])
+def guide_manifest() -> Dict[str, object]:
+    return {
+        "version": 1,
+        "workflows": {
+            "crm_organization": [
+                {"panel": "integrations", "selector": "[data-tour=connect]", "title": "Connect CRM", "desc": "Link HubSpot to import contacts."},
+                {"panel": "onboarding", "selector": "[data-tour=analyze]", "title": "Analyze setup", "desc": "See what's ready and what's missing."},
+            ],
+            "book_filling": [
+                {"panel": "cadences", "selector": "[data-guide=dormant-preview]", "title": "Preview dormant", "desc": "Find clients not seen recently."},
+                {"panel": "cadences", "selector": "[data-guide=dormant-start]", "title": "Start campaign", "desc": "Queue messages with consent and approvals."},
+            ],
+            "inventory_tracking": [
+                {"panel": "inventory", "selector": "[data-guide=sync]", "title": "Run sync", "desc": "Pull stock from Shopify/Square."},
+                {"panel": "inventory", "selector": "[data-guide=low-threshold]", "title": "Low stock alerts", "desc": "Adjust threshold to watch items."},
+            ],
+            "client_communication": [
+                {"panel": "inbox", "selector": "[data-guide=templates]", "title": "Message templates", "desc": "Pick and schedule reminders."},
+            ],
+            "social_automation": [
+                {"panel": "social", "selector": "[data-guide=plan-14]", "title": "Draft 14‑day plan", "desc": "Review and approve posts."},
+            ],
+        },
+    }
+
+
+@app.get("/ui/contract")
+def ui_contract() -> Dict[str, object]:
+    return {
+        "surfaces": [
+            {
+                "id": "operator_dashboard",
+                "title": "Operator Dashboard",
+                "widgets": [
+                    {"id": "time_saved", "endpoint": "/metrics?tenant_id={tenant_id}"},
+                    {"id": "usage_index", "endpoint": "/metrics?tenant_id={tenant_id}"},
+                    {"id": "funnel", "endpoint": "/funnel/daily?tenant_id={tenant_id}&days=30"},
+                    {"id": "cadence_queue", "endpoint": "/cadences/queue?tenant_id={tenant_id}&limit=50"},
+                ],
+                "actions": [
+                    {"id": "import_contacts", "endpoint": "/import/contacts", "method": "POST"},
+                    {"id": "start_cadence", "endpoint": "/cadences/start", "method": "POST"},
+                    {"id": "simulate_message", "endpoint": "/messages/simulate", "method": "POST"},
+                    {"id": "stop_keyword", "endpoint": "/consent/stop", "method": "POST"},
+                ],
+            },
+            {
+                "id": "admin_kpis",
+                "title": "Admin KPIs",
+                "widgets": [
+                    {"id": "tenants_health", "endpoint": "/metrics?tenant_id={tenant_id}"}
+                ],
+            },
+            {
+                "id": "integrations",
+                "title": "Integrations",
+                "actions": [
+                    {"id": "set_notify_preference", "endpoint": "/notify-list/set-preference", "method": "POST"}
+                ],
+            },
+            {
+                "id": "sharing",
+                "title": "Sharing & Milestones",
+                "actions": [
+                    {"id": "surface_share_prompt", "endpoint": "/share/surface", "method": "POST"}
+                ],
+            },
+            {
+                "id": "ask_vx",
+                "title": "Ask VX",
+                "actions": [
+                    {"id": "ai_chat", "endpoint": "/ai/chat", "method": "POST"}
+                ],
+            },
+            {
+                "id": "approvals",
+                "title": "Approvals",
+                "actions": [
+                    {"id": "list_approvals", "endpoint": "/approvals?tenant_id={tenant_id}", "method": "GET"},
+                    {"id": "action_approval", "endpoint": "/approvals/action", "method": "POST"}
+                ],
+            },
+        ],
+        "events": [
+            "ContactImported",
+            "CadenceStarted",
+            "MessageQueued",
+            "MessageSent",
+            "MetricsComputed",
+            "SuppressionAdded",
+            "NotifyListCandidateAdded",
+            "SharePromptSurfaced",
+            "AIChatResponded",
+            "AIToolExecuted",
+        ],
+    }
+
+
+class ProviderWebhook(BaseModel):
+    tenant_id: str
+    payload: Dict[str, object] = {}
+
+
+class ProvisionSmsRequest(BaseModel):
+    tenant_id: str
+    area_code: Optional[str] = None  # attempt local number if provided
+
+
+@app.post("/integrations/twilio/provision", tags=["Integrations"])
+def twilio_provision(req: ProvisionSmsRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        raise HTTPException(status_code=403, detail="forbidden")
+    # Require master Twilio creds at platform level
+    master_sid = os.getenv("TWILIO_ACCOUNT_SID", "").strip()
+    master_token = os.getenv("TWILIO_AUTH_TOKEN", "").strip()
+    if not (master_sid and master_token):
+        return {"status": "error", "detail": "platform_twilio_not_configured"}
+    # Create subaccount and buy a number
+    sub_sid = ""
+    sub_token = ""
+    from_num = ""
+    try:
+        # 1) create subaccount
+        with httpx.Client(timeout=20, auth=(master_sid, master_token)) as client:
+            r = client.post(f"https://api.twilio.com/2010-04-01/Accounts.json", data={"FriendlyName": f"BrandVX {req.tenant_id}"})
+            r.raise_for_status()
+            j = r.json()
+            sub_sid = j.get("sid", "")
+            sub_token = j.get("auth_token", "")
+        if not (sub_sid and sub_token):
+            return {"status": "error", "detail": "subaccount_create_failed"}
+        # 2) buy a local number (fallback to toll-free search could be added later)
+        with httpx.Client(timeout=20, auth=(sub_sid, sub_token)) as client:
+            q = {"Country": "US", "Type": "Local"}
+            if req.area_code: q["AreaCode"] = req.area_code
+            r = client.get(f"https://api.twilio.com/2010-04-01/Accounts/{sub_sid}/AvailablePhoneNumbers/US/Local.json", params=q)
+            r.raise_for_status()
+            nums = (r.json() or {}).get("available_phone_numbers") or []
+            if not nums:
+                return {"status": "error", "detail": "no_numbers_available"}
+            cand = nums[0].get("phone_number", "")
+            if not cand:
+                return {"status": "error", "detail": "no_numbers_available"}
+            # Purchase
+            r2 = client.post(f"https://api.twilio.com/2010-04-01/Accounts/{sub_sid}/IncomingPhoneNumbers.json", data={"PhoneNumber": cand})
+            r2.raise_for_status()
+            from_num = cand
+        # 3) set webhook (inbound SMS)
+        try:
+            with httpx.Client(timeout=20, auth=(sub_sid, sub_token)) as client:
+                url = f"{_backend_base_url()}/webhooks/twilio?tenant_id={req.tenant_id}"
+                # Fetch list again to get SID of purchased number
+                r = client.get(f"https://api.twilio.com/2010-04-01/Accounts/{sub_sid}/IncomingPhoneNumbers.json")
+                sid = ""
+                for it in (r.json() or {}).get("incoming_phone_numbers", []):
+                    if str(it.get("phone_number")) == from_num:
+                        sid = str(it.get("sid"))
+                        break
+                if sid:
+                    client.post(f"https://api.twilio.com/2010-04-01/Accounts/{sub_sid}/IncomingPhoneNumbers/{sid}.json", data={
+                        "SmsUrl": url,
+                        "SmsMethod": "POST",
+                    })
+        except Exception:
+            pass
+        # 4) persist into Settings
+        row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == req.tenant_id).first()
+        data = {}
+        try:
+            data = json.loads(row.data_json) if row else {}
+        except Exception:
+            data = {}
+        data.setdefault("messaging", {})
+        data["messaging"].update({
+            "twilio_subaccount_sid": sub_sid,
+            "twilio_auth_token": sub_token,
+            "sms_from_number": from_num,
+        })
+        if not row:
+            row = dbm.Settings(tenant_id=req.tenant_id, data_json=json.dumps(data))
+            db.add(row)
+        else:
+            row.data_json = json.dumps(data)
+        db.commit()
+        # 5) test send (optional)
+        try:
+            test_to = os.getenv("TEST_SMS_TO", "")
+            if test_to:
+                twilio_send_sms(test_to, "BrandVX SMS enabled.", sub_sid, sub_token, from_num)
+        except Exception:
+            pass
+        return {"status": "ok", "from": from_num}
+    except Exception as e:
+        try: db.rollback()
+        except Exception: pass
+        return {"status": "error", "detail": str(e)}
+
+
+@app.post("/webhooks/twilio", tags=["Integrations"])
+async def webhook_twilio(
+    req: ProviderWebhook,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+) -> Dict[str, str]:
+    sig = request.headers.get("X-Twilio-Signature", "")
+    url = str(request.url)
+    # Twilio signs form-encoded parameters
+    try:
+        form = await request.form()
+        payload = {k: v for k, v in form.items()}
+    except Exception:
+        payload = dict(req.payload or {})
+    ok = twilio_verify_signature(url, payload, signature=sig)
+    if not ok:
+        raise HTTPException(status_code=403, detail="invalid signature")
+    try:
+        # Throttle inbound webhook processing per tenant
+        ok_rl, _ = check_and_increment(req.tenant_id, "webhook:twilio", max_per_minute=120)
+        if not ok_rl:
+            return {"status": "rate_limited"}
+    except Exception:
+        pass
+    # Parse inbound intent from body
+    body = str(payload.get("Body", "")).strip().lower()
+    intent = "unknown"
+    if body in {"stop", "unsubscribe"}:
+        intent = "stop"
+    elif body in {"help"}:
+        intent = "help"
+    elif body in {"yes", "confirm", "y"}:
+        intent = "confirm"
+    elif "resched" in body:
+        intent = "reschedule"
+    # Handle STOP immediately: add suppression and audit
+    if intent == "stop":
+        db.add(
+            dbm.ConsentLog(
+                tenant_id=req.tenant_id,
+                contact_id=str(payload.get("From", "")),
+                channel="sms",
+                consent="revoked",
+            )
+        )
+        db.add(
+            dbm.AuditLog(
+                tenant_id=req.tenant_id,
+                actor_id=ctx.user_id,
+                action="consent.stop",
+                entity_ref=f"contact:{payload.get('From','')}",
+                payload="{}",
+            )
+        )
+        # Persist to inbox for operator visibility
+        try:
+            db.add(dbm.InboxMessage(
+                tenant_id=req.tenant_id,
+                channel="sms",
+                from_addr=str(payload.get("From", "")),
+                to_addr=str(payload.get("To", "")),
+                preview="STOP",
+                ts=int(_time.time()),
+            ))
+        except Exception:
+            pass
+        db.commit()
+        emit_event(
+            "SuppressionAdded",
+            {"tenant_id": req.tenant_id, "contact_id": str(payload.get("From", "")), "channel": "sms", "keyword": "STOP"},
+        )
+    emit_event("ProviderWebhookReceived", {"tenant_id": req.tenant_id, "provider": "twilio", "intent": intent})
+    return {"status": "ok", "intent": intent}
+
+
+class LeadStatusUpdate(BaseModel):
+    tenant_id: str
+    contact_id: str
+    intent: str  # confirm|reschedule|help|unknown
+
+
+@app.post("/lead-status/update", tags=["Cadences"])
+def update_lead_status(
+    req: LeadStatusUpdate,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        raise HTTPException(status_code=403, detail="forbidden")
+    row = (
+        db.query(dbm.LeadStatus)
+        .filter(dbm.LeadStatus.tenant_id == req.tenant_id, dbm.LeadStatus.contact_id == req.contact_id)
+        .first()
+    )
+    if not row:
+        row = dbm.LeadStatus(tenant_id=req.tenant_id, contact_id=req.contact_id, bucket=1, tag="warm")
+        db.add(row)
+    # Minimal transitions
+    intent = req.intent.lower()
+    if intent == "confirm":
+        row.bucket = 4
+        row.tag = "engaged"
+        row.next_action_at = None
+    elif intent == "reschedule":
+        row.bucket = 4
+        row.tag = "reschedule"
+        row.next_action_at = None
+    row.updated_at = int(__import__("time").time())
+    db.commit()
+    emit_event("LeadStatusUpdated", {"tenant_id": req.tenant_id, "contact_id": req.contact_id, "bucket": row.bucket, "tag": row.tag})
+    return {"status": "ok", "bucket": row.bucket, "tag": row.tag}
+
+
+class DLQReplayRequest(BaseModel):
+    tenant_id: Optional[str] = None
+    limit: int = 20
+
+
+@app.post("/dlq/replay", tags=["Cadences"])
+def dlq_replay(
+    req: DLQReplayRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if req.tenant_id and ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        raise HTTPException(status_code=403, detail="forbidden")
+    q = db.query(dbm.DeadLetter)
+    if req.tenant_id:
+        q = q.filter(dbm.DeadLetter.tenant_id == req.tenant_id)
+    rows = q.order_by(dbm.DeadLetter.id.desc()).limit(max(1, min(req.limit, 100))).all()
+    # Placeholder: real replay would route by provider and payload
+    return {"replayed": 0, "found": len(rows)}
+
+
+@app.get("/buckets/distribution", tags=["Cadences"])
+def get_buckets_distribution(
+    tenant_id: str,
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"buckets": []}
+    # Prefer L (Supabase) read-only adapter for current lead buckets
+    adapter = SupabaseAdapter()
+    try:
+        import asyncio
+
+        rows = asyncio.run(adapter.get_lead_status(tenant_id))
+    except Exception:
+        rows = []
+    counts = {i: 0 for i in range(1, 8)}
+    for r in rows or []:
+        try:
+            b = int(r.get("bucket", 0))
+            if 1 <= b <= 7:
+                counts[b] = counts.get(b, 0) + 1
+        except Exception:
+            continue
+    return {
+        "buckets": [
+            {"bucket": i, "count": counts.get(i, 0)} for i in range(1, 8)
+        ]
+    }
+
+
+@app.get("/cadences/queue", tags=["Cadences"])
+def get_cadence_queue(
+    tenant_id: str,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"items": []}
+    q = (
+        db.query(dbm.CadenceState)
+        .filter(dbm.CadenceState.tenant_id == tenant_id)
+        .filter(dbm.CadenceState.next_action_epoch != None)
+        .order_by(dbm.CadenceState.next_action_epoch.asc())
+        .limit(max(1, min(limit, 200)))
+    )
+    rows = q.all()
+    items = []
+    for r in rows:
+        items.append(
+            {
+                "contact_id": r.contact_id,
+                "cadence_id": r.cadence_id,
+                "step_index": r.step_index,
+                "next_action_at": r.next_action_epoch,
+            }
+        )
+    return {"items": items}
+
+
+@app.get("/funnel/daily", tags=["Health"])
+def get_funnel_daily(
+    tenant_id: str,
+    days: int = 30,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"days": days, "series": []}
+    return funnel_daily_series(db, tenant_id, days)
+
+
+@app.get("/docs/checklist", tags=["Health"])
+def get_checklist_doc() -> Dict[str, str]:
+    try:
+        root = _Path(__file__).resolve().parents[3]
+        p = root / "docs" / "CHECKLIST_BRANDVX_SESSION.md"
+        if not p.exists():
+            return {"content": "Checklist not found."}
+        text = p.read_text(encoding="utf-8")
+        return {"content": text}
+    except Exception as e:
+        return {"content": f"Error reading checklist: {e}"}
+
+@app.get("/oauth/{provider}/login", tags=["Integrations"])
+def oauth_login(provider: str, tenant_id: Optional[str] = None, ctx: UserContext = Depends(get_user_context)):
+    # Dev override: mark as connected instantly if DEV_OAUTH_AUTOCONNECT=1
+    if os.getenv("DEV_OAUTH_AUTOCONNECT", "0") == "1" and provider in {"facebook", "instagram", "google", "shopify", "square"}:
+        try:
+            with next(get_db()) as db:  # type: ignore
+                db.add(dbm.ConnectedAccount(
+                    tenant_id=ctx.tenant_id, user_id=ctx.user_id, provider=provider, scopes=None,
+                    access_token_enc=encrypt_text("dev"), refresh_token_enc=None, expires_at=None, status="connected"
+                ))
+                db.commit()
+        except Exception:
+            pass
+        return {"url": ""}
+    _t = tenant_id or ctx.tenant_id
+    url = _oauth_authorize_url(provider, tenant_id=_t)
+    # Cache state marker for CSRF verification in callback
+    try:
+        if url and "state=" in url:
+            _st = url.split("state=",1)[1].split("&",1)[0]
+            cache_set(f"oauth_state:{_st}", "1", ttl=600)
+    except Exception:
+        pass
+    return {"url": url}
+
+
+@app.get("/oauth/{provider}/callback", tags=["Integrations"])  # scaffold
+def oauth_callback(provider: str, request: Request, code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None, db: Session = Depends(get_db)):
+    # Store a minimal connected-account record even if app credentials are missing
+    try:
+        # Try to extract tenant from encoded state
+        t_id = "t1"
+        try:
+            if state:
+                pad = '=' * (-len(state) % 4)
+                data = json.loads(_b64.urlsafe_b64decode((state + pad).encode()).decode())
+                t_id = str(data.get("t") or t_id)
+        except Exception:
+            t_id = "t1"
+        # Verify state marker to mitigate CSRF
+        try:
+            if state and not cache_get(f"oauth_state:{state}"):
+                return RedirectResponse(url=f"{_frontend_base_url()}/integrations?error=oauth_state_mismatch")
+        except Exception:
+            pass
+        status = "pending_config" if not any([
+            _env("HUBSPOT_CLIENT_ID"), _env("SQUARE_CLIENT_ID"), _env("ACUITY_CLIENT_ID"),
+            _env("FACEBOOK_CLIENT_ID"), _env("INSTAGRAM_CLIENT_ID"), _env("GOOGLE_CLIENT_ID"), _env("SHOPIFY_CLIENT_ID")
+        ]) else "connected"
+        # Attempt token exchange when code present
+        access_token_enc = encrypt_text(code or "")
+        refresh_token_enc = None
+        expires_at = None
+        exchange_ok = False
+        if code:
+            try:
+                # For Google, try PKCE code_verifier lookup by state
+                code_verifier = None
+                try:
+                    if provider == "google" and state:
+                        code_verifier = cache_get(f"pkce:{state}") or None
+                except Exception:
+                    code_verifier = None
+                token = _oauth_exchange_token(provider, code, _redirect_uri(provider), code_verifier=code_verifier) or {}
+                at = str(token.get("access_token") or "")
+                rt = token.get("refresh_token")
+                exp = token.get("expires_in")
+                if at:
+                    access_token_enc = encrypt_text(at)
+                    exchange_ok = True
+                if rt:
+                    refresh_token_enc = encrypt_text(str(rt))
+                if isinstance(exp, (int, float)):
+                    expires_at = int(_time.time()) + int(exp)
+            except Exception:
+                exchange_ok = False
+        try:
+            db.add(dbm.ConnectedAccount(
+                tenant_id=t_id, user_id="dev", provider=provider, scopes=None,
+                access_token_enc=access_token_enc, refresh_token_enc=refresh_token_enc, expires_at=expires_at, status=status
+            ))
+            db.commit()
+        except Exception:
+            try: db.rollback()
+            except Exception: pass
+        try:
+            db.add(dbm.AuditLog(tenant_id=t_id, actor_id="system", action=f"oauth.callback.{provider}", entity_ref="oauth", payload=str({"code": bool(code), "error": error or ""})))
+            db.commit()
+        except Exception:
+            try: db.rollback()
+            except Exception: pass
+        # Redirect UX: success or error with reason
+        if error or not exchange_ok:
+            reason = error or ("token_exchange_failed" if code else "missing_code")
+            return RedirectResponse(url=f"{_frontend_base_url()}/integrations?error={reason}&provider={provider}")
+        # Map provider to the Integrations step (1-based) and include a workspace return hint
+        step_map = {
+            "hubspot": 3,
+            "google": 4,
+            "square": 5,
+            "acuity": 5,
+            "shopify": 6,
+            # instagram/twilio are not primary for this flow; default to overview
+        }
+        step = step_map.get(provider, 1)
+        return RedirectResponse(url=f"{_frontend_base_url()}/integrations?connected=1&provider={provider}&step={step}&return=workspace")
+    except Exception:
+        return RedirectResponse(url=f"{_frontend_base_url()}/integrations?error=oauth_unexpected&provider={provider}")
+
+
+class AnalyzeRequest(BaseModel):
+    tenant_id: str
+class HubspotImportRequest(BaseModel):
+    tenant_id: str
+
+class SquareSyncContactsRequest(BaseModel):
+    tenant_id: str
+
+
+@app.post("/crm/hubspot/import", tags=["Integrations"])
+def hubspot_import(req: HubspotImportRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"imported": 0}
+    # Simulated import via adapter: create a few contacts if missing
+    created = 0
+    sample = [
+        {"contact_id": "hs_demo_1", "email_hash": None, "phone_hash": None, "consent_sms": True, "consent_email": True},
+        {"contact_id": "hs_demo_2", "email_hash": None, "phone_hash": None, "consent_sms": True, "consent_email": False},
+    ]
+    for c in sample:
+        exists = db.query(dbm.Contact).filter(dbm.Contact.tenant_id == req.tenant_id, dbm.Contact.contact_id == c["contact_id"]).first()
+        if not exists:
+            db.add(dbm.Contact(tenant_id=req.tenant_id, contact_id=c["contact_id"], email_hash=c["email_hash"], phone_hash=c["phone_hash"], consent_sms=c["consent_sms"], consent_email=c["consent_email"]))
+            created += 1
+    db.commit()
+    emit_event("CrmImportCompleted", {"tenant_id": req.tenant_id, "system": "hubspot", "imported": created})
+    return {"imported": created}
+
+
+@app.post("/integrations/booking/square/sync-contacts", tags=["Integrations"])
+def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
+    """Pull Square customers and upsert into contacts. For now, simulate using
+    a minimal adapter until full Square Customers API wiring is added.
+    """
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"imported": 0}
+    # Look up Square connected account to ensure token exists (future: use it)
+    try:
+        ca = (
+            db.query(dbm.ConnectedAccount)
+            .filter(dbm.ConnectedAccount.tenant_id == req.tenant_id, dbm.ConnectedAccount.provider == "square")
+            .order_by(dbm.ConnectedAccount.id.desc())
+            .first()
+        )
+        if not ca:
+            return {"imported": 0}
+    except Exception:
+        pass
+    # Simulated sample customers; replace with Square Customers API
+    sample = [
+        {"id": "sq_cust_001", "email": "client1@example.com", "phone": "+13125550001"},
+        {"id": "sq_cust_002", "email": "client2@example.com", "phone": "+13125550002"},
+    ]
+    imported = 0
+    for c in sample:
+        cid = f"sq:{c['id']}"
+        exists = (
+            db.query(dbm.Contact)
+            .filter(dbm.Contact.tenant_id == req.tenant_id, dbm.Contact.contact_id == cid)
+            .first()
+        )
+        if exists:
+            continue
+        email_hash = None
+        phone_hash = None
+        try:
+            email_hash = c.get("email") or None
+        except Exception:
+            email_hash = None
+        try:
+            phone_hash = normalize_phone(c.get("phone") or "") or None
+        except Exception:
+            phone_hash = None
+        db.add(
+            dbm.Contact(
+                tenant_id=req.tenant_id,
+                contact_id=cid,
+                email_hash=email_hash,
+                phone_hash=phone_hash,
+                consent_sms=True,
+                consent_email=bool(email_hash),
+            )
+        )
+        imported += 1
+    try:
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    emit_event("ContactsSynced", {"tenant_id": req.tenant_id, "provider": "square", "imported": imported})
+    return {"imported": imported}
 
 class ShareCreateRequest(BaseModel):
     tenant_id: str

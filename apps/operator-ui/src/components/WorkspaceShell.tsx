@@ -57,7 +57,8 @@ export default function WorkspaceShell(){
           return;
         }
         const dismissed = localStorage.getItem('bvx_billing_dismissed') === '1';
-        const r = await api.get('/settings');
+        const tid = (await supabase.auth.getSession()).data.session ? (localStorage.getItem('bvx_tenant') || '') : '';
+        const r = await api.get(`/settings${tid?`?tenant_id=${encodeURIComponent(tid)}`:''}`);
         const status = String(r?.data?.subscription_status || '');
         setBillingStatus(status);
         const covered = status === 'active' || status === 'trialing';
