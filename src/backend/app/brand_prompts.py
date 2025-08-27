@@ -44,6 +44,14 @@ def chat_system_prompt(
             "\n- If the user changes topics, pivot immediately and answer that topic."
             "\n- If the user asks to stop or seems confused, briefly summarize next steps and pause."
         )
+    if mode == "qa_detailed":
+        base += (
+            "\n\nWorkspace QA mode. Behaviors:"
+            "\n- Answer-first and specific. Prefer 1–2 short paragraphs or a crisp bullet list."
+            "\n- No sales framing unless asked. Avoid repetition and filler."
+            "\n- Provide concrete next actions (links or buttons if relevant)."
+            "\n- Ask a follow‑up only if the user signals they want more detail."
+        )
     if brand_profile_text:
         base += "\n\nBrand profile (voice/tone):\n" + brand_profile_text.strip()
     if capabilities_text:
