@@ -119,7 +119,14 @@ cors_default = (
     "http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175,"
     "https://app.brandvx.io,https://api.brandvx.io,https://brandvx-operator-ui.pages.dev"
 )
-cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", cors_default).split(",") if o.strip()]
+# Merge required defaults with any env-provided overrides to avoid losing prod origins
+_env_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", cors_default).split(",") if o.strip()]
+_required = [
+    "https://app.brandvx.io",
+    "https://api.brandvx.io",
+    "https://brandvx-operator-ui.pages.dev",
+]
+cors_origins = sorted(set(_env_origins + _required))
 
 # Optional regex to allow ephemeral Cloudflare Pages preview URLs like https://<hash>.brandvx-operator-ui.pages.dev
 cors_regex = os.getenv(
@@ -751,7 +758,8 @@ def _oauth_authorize_url(provider: str, tenant_id: Optional[str] = None) -> str:
     if provider == "square":
         auth = _env("SQUARE_AUTH_URL", "https://connect.squareupsandbox.com/oauth2/authorize")
         client_id = _env("SQUARE_CLIENT_ID", "")
-        scope = _env("SQUARE_SCOPES", "MERCHANT_PROFILE_READ PAYMENTS_READ")
+        # Ensure customer/appointments read scopes by default; allow override via env
+        scope = _env("SQUARE_SCOPES", "MERCHANT_PROFILE_READ CUSTOMERS_READ APPOINTMENTS_READ")
         return (
             f"{auth}?client_id={client_id}&response_type=code&scope={_url.quote(scope)}"
             f"&redirect_uri={_url.quote(_redirect_uri('square'))}&state={_state}"
