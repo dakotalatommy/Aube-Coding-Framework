@@ -127,6 +127,15 @@ export default function Approvals(){
             <div className="font-medium text-slate-800 text-sm">Params</div>
             <pre className="text-xs text-slate-700 mt-1 whitespace-pre-wrap">{JSON.stringify(params, null, 2)}</pre>
           </div>
+          {/* Milestone share slot */}
+          <div className="rounded-xl border bg-white p-3 sm:col-span-2">
+            <div className="font-medium text-slate-800 text-sm">Shareable milestone</div>
+            <div className="text-sm text-slate-700 mt-1">When this action succeeds, celebrate it with your audience.</div>
+            <div className="mt-2 flex flex-wrap gap-2 text-xs">
+              <button className="px-2 py-1 rounded-md border bg-white" onClick={()=>{ try{ navigator.clipboard.writeText('We just approved our first 14‑day plan — gentle, human messages only. #BrandVX'); }catch{} }}>Copy caption</button>
+              <button className="px-2 py-1 rounded-md border bg-white" onClick={()=>{ try{ navigator.clipboard.writeText(window.location.origin+'/s/demo'); }catch{} }}>Copy share link</button>
+            </div>
+          </div>
         </div>
       </div>
     );

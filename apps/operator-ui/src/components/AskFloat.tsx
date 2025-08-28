@@ -1,16 +1,19 @@
-import { useEffect, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+// imports removed (legacy component disabled)
 
-type Position = { x: number; y: number; w: number; h: number };
+// type Position = { x: number; y: number; w: number; h: number };
 
+// Legacy dock retained but returns null to avoid rendering; use CommandBar instead.
 export default function AskFloat(){
+  return null;
+}
+/**
   const loc = useLocation();
   const sp = new URLSearchParams(loc.search);
   const onDashboard = loc.pathname === '/dashboard' || loc.pathname.startsWith('/dashboard/');
   const onWorkspace = loc.pathname === '/workspace' || loc.pathname.startsWith('/workspace/');
   const onDemoRoute = loc.pathname.startsWith('/demo') || loc.pathname.startsWith('/ask-vx-demo');
   const inDemo = sp.get('demo') === '1';
-  const dockHeight = 'clamp(280px, 32vh, 360px)';
+  const dockHeight = 'clamp(220px, 26vh, 300px)';
   const [open, setOpen] = useState<boolean>(()=> localStorage.getItem('bvx-ask-open') === '1');
   const [pos, setPos] = useState<Position>(()=>{
     try{ const j = JSON.parse(localStorage.getItem('bvx-ask-pos')||''); if (j && typeof j==='object') return j; }catch{}
@@ -31,17 +34,40 @@ export default function AskFloat(){
         setOpen(true);
         setDocked(true);
         setPos({ x: 0, y: 0, w: vw, h: 320 });
-        try { document.documentElement.style.setProperty('--ask-float-height', dockHeight); } catch {}
+        try {
+          document.documentElement.style.setProperty('--askvx-target-height', dockHeight);
+        } catch {}
       } catch {
         setOpen(true); setDocked(true);
       }
     }
   }, [onDashboard, onWorkspace, inDemo]);
 
-  // Do not reserve body space. Workspace sizes itself to viewport.
+  // Initialize target height variable; reserved height is measured below.
   useEffect(()=>{
-    try { document.documentElement.style.setProperty('--ask-float-height', dockHeight); } catch {}
+    try { document.documentElement.style.setProperty('--askvx-target-height', dockHeight); } catch {}
   }, [onDashboard, onWorkspace, inDemo]);
+
+  // Keep the reserved height CSS var in sync with the actual dock height
+  useEffect(()=>{
+    try{
+      const el = document.getElementById('bvx-ask-float');
+      if (!el) return;
+      const update = () => {
+        try{
+          const rect = el.getBoundingClientRect();
+          const px = Math.max(0, Math.round(rect.height));
+          document.documentElement.style.setProperty('--askvx-reserved-height', `${px}px`);
+        }catch{}
+      };
+      update();
+      const ro = (typeof ResizeObserver !== 'undefined') ? new ResizeObserver(()=> update()) : null as any;
+      if (ro) ro.observe(el);
+      window.addEventListener('resize', update);
+      window.addEventListener('orientationchange', update as any);
+      return ()=>{ try{ window.removeEventListener('resize', update); window.removeEventListener('orientationchange', update as any); if (ro) ro.disconnect(); }catch{} };
+    }catch{}
+  }, [onDashboard, onWorkspace, inDemo, docked]);
 
   // Listen for global open events so header button can summon the floater
   useEffect(()=>{
@@ -102,11 +128,11 @@ export default function AskFloat(){
       )}
       {open && (
         <div id="bvx-ask-float"
-          className={`fixed z-[100] ${(docked || onDashboard || onWorkspace || inDemo) ? 'left-0 right-0' : ''} ${(onDashboard || onWorkspace || inDemo) ? 'rounded-none' : 'rounded-2xl'} ${(onDashboard || onWorkspace || inDemo) ? 'border-t border-slate-200' : 'border'} bg-white shadow-[0_-8px_24px_rgba(0,0,0,0.06)]`}
-          style={(docked || onDashboard || onWorkspace || inDemo) ? { left: 0, right: 0, bottom: 0, height: 'var(--ask-float-height)' } : { left: pos.x, bottom: pos.y, width: pos.w, height: pos.h }}
+          className={`fixed z-[200] ${(docked || onDashboard || onWorkspace || inDemo) ? 'left-0 right-0' : ''} ${(onDashboard || onWorkspace || inDemo) ? 'rounded-none' : 'rounded-2xl'} ${(onDashboard || onWorkspace || inDemo) ? '' : 'border'} bg-white`}
+          style={(docked || onDashboard || onWorkspace || inDemo) ? { left: 0, right: 0, bottom: 'env(safe-area-inset-bottom,0px)', height: 'var(--askvx-target-height)' } : { left: pos.x, bottom: pos.y, width: pos.w, height: pos.h }}
         >
           <div
-            className={`select-none flex items-center justify-between px-3 py-2 text-sm text-slate-800 bg-white border-b border-slate-200`}
+            className={`select-none flex items-center justify-between px-3 py-2 text-sm text-slate-800 bg-white ${!(onDashboard || onWorkspace || inDemo) ? 'border-b border-slate-200' : ''}`}
             style={{ WebkitBackdropFilter: 'none', backdropFilter: 'none' }}
             onMouseDown={onMouseDown}
           >
@@ -118,12 +144,12 @@ export default function AskFloat(){
             </div>
           </div>
           <div className="w-full h-[calc(100%-44px)] overflow-hidden">
-            <iframe title="AskVX" src="/ask?embed=1" className="w-full h-full" sandbox="allow-scripts allow-same-origin allow-top-navigation-by-user-activation" />
+            <iframe title="AskVX" src="/ask?embed=1" className="block w-full h-full" sandbox="allow-scripts allow-top-navigation-by-user-activation" />
           </div>
         </div>
       )}
     </>
   );
-}
+*/
 
 

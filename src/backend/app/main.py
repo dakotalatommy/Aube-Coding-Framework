@@ -658,7 +658,7 @@ def list_redirects():
             "acuity": f"{base_api}/webhooks/acuity",
         },
         "post_auth_redirect": {
-            "supabase_email": f"{base_app}/onboarding?offer=1",
+            "supabase_email": f"{base_app}/workspace?pane=dashboard&tour=1&postVerify=1",
         },
     }
 
@@ -3365,6 +3365,196 @@ def get_checklist_doc() -> Dict[str, str]:
         return {"content": text}
     except Exception as e:
         return {"content": f"Error reading checklist: {e}"}
+
+# --- Onboarding (starter-compatible) API under /api/* -----------------------------------------
+
+class OnboardingSaveInput(BaseModel):
+    step: str
+    data: Dict[str, Any]
+
+
+@app.post("/api/onboarding/save", tags=["Integrations"])  # idempotent, per-tenant
+def api_onboarding_save(
+    req: OnboardingSaveInput,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if not ctx.tenant_id:
+        return JSONResponse({"error": {"code": "unauthorized", "message": "missing tenant"}}, status_code=401)
+    try:
+        row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == ctx.tenant_id).first()
+        data = {}
+        if row and (row.data_json or "").strip():
+            try:
+                data = json.loads(row.data_json or "{}")
+            except Exception:
+                data = {}
+        ob = data.get("onboarding") or {}
+        # Shallow merge per step payload into onboarding snapshot (idempotent)
+        for k, v in (req.data or {}).items():
+            ob[k] = v
+        ob["last_step"] = req.step
+        data["onboarding"] = ob
+        if not row:
+            row = dbm.Settings(tenant_id=ctx.tenant_id, data_json=json.dumps(data))
+            db.add(row)
+        else:
+            row.data_json = json.dumps(data)
+        db.commit()
+        try:
+            emit_event("OnboardingSaved", {"tenant_id": ctx.tenant_id, "step": req.step, "keys": list((req.data or {}).keys())})
+        except Exception:
+            pass
+        return {"ok": True}
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return JSONResponse({"error": {"code": "save_failed", "message": str(e)}}, status_code=500)
+
+
+@app.get("/api/onboarding/context", tags=["Integrations"])  # deterministic page-aware hints
+def api_onboarding_context(scope: Optional[str] = None, step: Optional[str] = None, ctx: UserContext = Depends(get_user_context)):
+    # Minimal, static hints; no LLM needed
+    s = (step or "").strip() or "welcome"
+    hints = {
+        "welcome": ["Micro-tour shows the left nav.", "Setup continues one thing per screen."],
+        "voice": ["Adjust tone sliders.", "Short purpose line influences confirmations and posts."],
+        "basics": ["A few basics help drafts feel like you."],
+        "ops": ["Clients/week and durations size your schedule.", "We estimate time saved later."],
+        "connections": ["OAuth to Square/Acuity.", "You can declare in dev if enabled."],
+        "social": ["Provide Instagram & email to enable helpers."],
+        "goals": ["Pick a few 3-month goals; yearly optional."],
+        "styles": ["Choose up to 3 signature automations to start."],
+        "review": ["You’re live; you can change anything in Settings later."],
+    }
+    examples = {
+        "voice": ["Hey {first} — see you soon. Need to reschedule? Tap here.", "Vivid copper melt for fall — gentle lift. ✨"],
+        "connections": ["We redirect to your provider to connect.", "During dev you may declare without OAuth."],
+        "ops": ["Example: 12 clients/week × 90 min.", "Admin time helps estimate Time Saved."],
+    }
+    return {"pageHints": hints.get(s, ["This step affects your setup later."]), "safeExamples": examples.get(s, [])}
+
+
+class AssistInput(BaseModel):
+    page: Optional[str] = None
+    input: str
+    history: Optional[List[Dict[str, Any]]] = None
+
+
+@app.post("/api/assist", tags=["AI"])  # stub/deterministic
+def api_assist(req: AssistInput, ctx: UserContext = Depends(get_user_context)):
+    try:
+        # Per-tenant simple rate limit: 30/min
+        key = f"assist:{ctx.tenant_id or 'anon'}"
+        ok, ttl = check_and_increment(key, limit=30, window_seconds=60)
+        if not ok:
+            return JSONResponse({"error": {"code": "rate_limited", "message": f"Too many requests. Retry in {ttl}s"}}, status_code=429)
+    except Exception:
+        pass
+    page = (req.page or "").strip() or "generic"
+    generic = {
+        "welcome": "This step orients you without overwhelm. After the micro-tour, setup proceeds one thing per screen.",
+        "voice": "Your brand voice guides copy everywhere — confirmations to posts. Sliders keep tone consistent.",
+        "basics": "Brief bio details make drafts feel like you — short and tasteful.",
+        "ops": "Clients/week, durations, and prices inform capacity and time-saved.",
+        "connections": "Booking first (Square/Acuity) ensures immediate value. OAuth here; you can declare in dev.",
+        "social": "IG + email enable content helper and respectful outreach.",
+        "goals": "3-month goals become dashboard milestones.",
+        "styles": "Pick 3 Styles to activate first; you can add more later.",
+        "review": "You’re live. We summarize choices and link to your workspace.",
+        "generic": "This step affects later suggestions and drafts.",
+    }
+    text = generic.get(page, generic["generic"])
+    return {"text": text}
+
+
+@app.get("/api/oauth/{provider}/start", tags=["Integrations"])  # 302 to provider auth
+def api_oauth_start(provider: str, ctx: UserContext = Depends(get_user_context)):
+    try:
+        url = _oauth_authorize_url(provider, tenant_id=ctx.tenant_id)
+        if not url:
+            return JSONResponse({"error": {"code": "invalid_provider", "message": provider}}, status_code=400)
+        # Cache state for CSRF verification (match behavior of /oauth/{provider}/login)
+        try:
+            if url and "state=" in url:
+                _st = url.split("state=",1)[1].split("&",1)[0]
+                cache_set(f"oauth_state:{_st}", "1", ttl=600)
+        except Exception:
+            pass
+        return RedirectResponse(url=url)
+    except Exception as e:
+        return JSONResponse({"error": {"code": "start_failed", "message": str(e)}}, status_code=500)
+
+
+@app.get("/api/oauth/{provider}/callback", tags=["Integrations"])  # alias: redirect to /onboarding
+def api_oauth_callback(provider: str, request: Request, code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None, db: Session = Depends(get_db)):
+    try:
+        # Tenant from encoded state (base64url of { t: tenantId, n: nonce })
+        t_id = "t1"
+        try:
+            if state:
+                pad = '=' * (-len(state) % 4)
+                data = json.loads(_b64.urlsafe_b64decode((state + pad).encode()).decode())
+                t_id = str(data.get("t") or t_id)
+        except Exception:
+            t_id = "t1"
+        try:
+            if state and not cache_get(f"oauth_state:{state}"):
+                return RedirectResponse(url=f"{_frontend_base_url()}/onboarding?error=oauth_state_mismatch")
+        except Exception:
+            pass
+        status = "pending_config" if not any([
+            _env("HUBSPOT_CLIENT_ID"), _env("SQUARE_CLIENT_ID"), _env("ACUITY_CLIENT_ID"),
+            _env("FACEBOOK_CLIENT_ID"), _env("INSTAGRAM_CLIENT_ID"), _env("GOOGLE_CLIENT_ID"), _env("SHOPIFY_CLIENT_ID")
+        ]) else "connected"
+        access_token_enc = encrypt_text(code or "")
+        refresh_token_enc = None
+        expires_at = None
+        exchange_ok = False
+        if code:
+            try:
+                code_verifier = None
+                try:
+                    if provider == "google" and state:
+                        code_verifier = cache_get(f"pkce:{state}") or None
+                except Exception:
+                    code_verifier = None
+                token = _oauth_exchange_token(provider, code, _redirect_uri(provider), code_verifier=code_verifier) or {}
+                at = str(token.get("access_token") or "")
+                rt = token.get("refresh_token")
+                exp = token.get("expires_in")
+                if at:
+                    access_token_enc = encrypt_text(at)
+                    exchange_ok = True
+                if rt:
+                    refresh_token_enc = encrypt_text(str(rt))
+                if isinstance(exp, (int, float)):
+                    expires_at = int(_time.time()) + int(exp)
+            except Exception:
+                exchange_ok = False
+        try:
+            db.add(dbm.ConnectedAccount(
+                tenant_id=t_id, user_id="system", provider=provider, scopes=None,
+                access_token_enc=access_token_enc, refresh_token_enc=refresh_token_enc, expires_at=expires_at, status=status
+            ))
+            db.commit()
+        except Exception:
+            try: db.rollback()
+            except Exception: pass
+        try:
+            db.add(dbm.AuditLog(tenant_id=t_id, actor_id="system", action=f"oauth.callback.{provider}", entity_ref="oauth", payload=str({"code": bool(code), "error": error or ""})))
+            db.commit()
+        except Exception:
+            try: db.rollback()
+            except Exception: pass
+        if error or not exchange_ok:
+            reason = error or ("token_exchange_failed" if code else "missing_code")
+            return RedirectResponse(url=f"{_frontend_base_url()}/onboarding?error={reason}&provider={provider}")
+        return RedirectResponse(url=f"{_frontend_base_url()}/onboarding?connected={provider}")
+    except Exception:
+        return RedirectResponse(url=f"{_frontend_base_url()}/onboarding?error=oauth_unexpected&provider={provider}")
 
 @app.get("/oauth/{provider}/login", tags=["Integrations"])
 def oauth_login(provider: str, tenant_id: Optional[str] = None, ctx: UserContext = Depends(get_user_context)):

@@ -2,25 +2,19 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { track } from '../lib/analytics';
 import { supabase } from '../lib/supabase';
 import { api, getTenant } from '../lib/api';
-import { UI_STRINGS } from '../lib/strings';
 
 type Msg = { role: 'user'|'assistant'; content: string };
 
+// Trim to 3 highest-signal questions for a faster intake
 const intakeQuestions = [
   { key:'brand',    q:'What’s your brand or studio name?' },
-  { key:'services', q:'Which services do you offer? (cuts, color, lashes, nails, brows, other)' },
   { key:'booking',  q:'Do you use Square, Acuity, or something else for booking?' },
-  { key:'sms',      q: UI_STRINGS.businessNumber.prompt },
   { key:'tone',     q:'Which brand tone feels right? Soft‑care, Editorial crisp, or Playful concierge?' },
-  { key:'quiet',    q:'What quiet hours should we respect? (e.g., 8pm–8am). Your timezone is auto‑detected.' },
 ];
 
 const choiceBank: Record<string, string[]> = {
-  services: ['Cuts','Color','Lashes','Nails','Brows','Skincare','Barbering'],
   booking: ['Square','Acuity','Other / Not sure'],
-  sms: ['Yes, provide a business number','I already have one','Not right now'],
   tone: ['Super chill','Warm','Balanced','Polished','Very professional'],
-  quiet: ['8pm–8am','9pm–8am','10pm–8am','Custom…'],
 };
 
 export default function DemoIntake(){
@@ -61,6 +55,8 @@ export default function DemoIntake(){
 
   const saveRemote = async (next: Record<string,string>) => {
     try {
+      const session = (await supabase.auth.getSession()).data.session;
+      if (!session) return; // avoid 403s in unauthenticated demo
       await supabase
         .from('demo_intake')
         .upsert({ session_id: intakeId, profile: next, source: 'brandvx_landing' }, { onConflict: 'session_id' });
@@ -82,8 +78,27 @@ export default function DemoIntake(){
     pushUser(text);
     setBusy(true);
     try{
-      // If still in scripted intake, capture answer and ask next scripted question
+      // If still in scripted intake, either answer an on-the-fly question or capture the scripted answer
       if (idx < intakeQuestions.length){
+        // Hybrid: if the user asks a question mid‑intake, answer openly and do not advance index
+        if (/[?？]\s*$/.test(text)) {
+          try {
+            const r = await api.post('/ai/chat', {
+              tenant_id: await getTenant(),
+              messages: [ { role:'user', content: text } ],
+              allow_tools: false,
+              session_id: 'demo_open_q',
+              mode: 'open',
+            }, { timeoutMs: 20000 });
+            const reply = String((r as any)?.text || '').trim();
+            pushAssistant(reply || 'Thanks!');
+          } catch(e:any){
+            pushAssistant(String(e?.message||e));
+          } finally {
+            setBusy(false);
+          }
+          return;
+        }
         const key = intakeQuestions[idx].key;
         const next = { ...profile, [key]: text } as Record<string,string>;
         setProfile(next); saveProfile(next);
@@ -101,21 +116,21 @@ export default function DemoIntake(){
         setBusy(false);
         return;
       }
-      // Post‑intake: power replies via AskVX with a 5-turn cap
+      // Post‑intake: power replies via AskVX in open mode with a 5-turn cap
       if (freePromptsLeft > 0) {
         const r = await api.post('/ai/chat', {
           tenant_id: await getTenant(),
           messages: [ { role:'user', content: text } ],
           allow_tools: false,
-          session_id: 'demo_followup',
-          mode: 'sales_onboarding',
+          session_id: 'demo_open',
+          mode: 'open',
         }, { timeoutMs: 20000 }).catch(async ()=>{
           return await api.post('/ai/chat', {
             tenant_id: await getTenant(),
             messages: [ { role:'user', content: text } ],
             allow_tools: false,
-            session_id: 'demo_followup_r1',
-            mode: 'sales_onboarding',
+            session_id: 'demo_open_r1',
+            mode: 'open',
           }, { timeoutMs: 20000 });
         });
         const reply = String((r as any)?.text || '').trim();
@@ -201,14 +216,14 @@ export default function DemoIntake(){
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {(choiceBank[intakeQuestions[idx].key]||[]).map((c)=> (
                     <button key={c} className="px-3 py-1.5 rounded-full border bg-white text-slate-700 text-xs hover:shadow-sm"
-                      onClick={()=>{ setInput(c); setTimeout(()=>{ void handleSend(); }, 10); }}>
+                      onClick={()=>{ if (!busy) { setInput(c); void handleSend(); } }}>
                       {c}
                     </button>
                   ))}
                 </div>
               )}
               <div className="mt-2 flex gap-2 items-start shrink-0">
-                <textarea className="flex-1 border rounded-md px-3 py-2 max-h-24 overflow-auto" rows={2} placeholder="Type here" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={(e)=>{ if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } if (e.key==='Enter' && (e.metaKey||e.ctrlKey)) { e.preventDefault(); handleSend(); } }} />
+                <textarea className="flex-1 border rounded-md px-3 py-2 max-h-24 overflow-auto" rows={2} placeholder="And type short answer here" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={(e)=>{ if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } if (e.key==='Enter' && (e.metaKey||e.ctrlKey)) { e.preventDefault(); handleSend(); } }} />
                 <button className="rounded-full px-4 py-2 bg-gradient-to-r from-blue-100 to-blue-300 hover:from-blue-200 hover:to-blue-400 shadow text-slate-900" onClick={handleSend} disabled={busy}>{busy?'…':'Send'}</button>
               </div>
               {idx >= intakeQuestions.length && (

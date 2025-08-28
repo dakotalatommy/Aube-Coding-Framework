@@ -17,7 +17,7 @@ export default function Signup() {
     e.preventDefault();
     setLoading(true);
     try{
-      const redirectTo = `${window.location.origin}/auth/callback?next=/workspace?pane=dashboard&tour=all`;
+      const redirectTo = `${window.location.origin}/auth/callback?next=/workspace?pane=dashboard&tour=1&postVerify=1`;
       const { error } = await supabase.auth.signUp({
         email,
         password,
@@ -48,55 +48,66 @@ export default function Signup() {
   };
 
   return (
-    <div className="max-w-md mx-auto">
-      <div className="border rounded-2xl p-6 shadow-sm" style={{background:'linear-gradient(180deg, #fff, #fff8fb)'}}>
-        <h1 className="text-3xl font-semibold text-slate-900">Create your account</h1>
-        <p className="text-slate-600 mt-1">Start your onboarding in minutes.</p>
+    <div className="min-h-[calc(100vh-140px)] flex items-center justify-center px-4">
+      <div className="w-full max-w-[560px] min-h-[560px] group rounded-2xl border-[3px] border-white/60 shadow-[0_24px_48px_-22px_rgba(0,0,0,0.25)] bg-white/70 backdrop-blur p-7 md:p-8 relative overflow-visible">
+        <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 w-full h-[120px] md:h-[140px] rounded-2xl blur-md opacity-70" style={{
+          background: 'radial-gradient(60% 140px at 20% 20%, rgba(236,72,153,0.14), transparent 70%), radial-gradient(60% 140px at 80% 20%, rgba(99,102,241,0.12), transparent 72%)'
+        }} />
+        <div aria-hidden className="pointer-events-none absolute -inset-2 rounded-2xl blur-md opacity-0 transition group-hover:opacity-100" style={{
+          background: 'radial-gradient(420px 180px at 20% -10%, rgba(236,72,153,0.18), transparent 60%), radial-gradient(480px 200px at 80% -15%, rgba(99,102,241,0.18), transparent 65%)'
+        }} />
+        <h1 className="text-[40px] md:text-[56px] leading-[1.05] font-extrabold text-slate-900 text-center [text-shadow:0_1px_2px_rgba(0,0,0,0.06)]">Create your account</h1>
+        <p className="text-slate-600 mt-1 text-[16px] md:text-[18px] text-center [text-shadow:0_1px_1px_rgba(0,0,0,0.04)]">Start in minutes—your dashboard is ready.</p>
         {!awaitingConfirm ? (
-        <form onSubmit={onSubmit} className="mt-6 space-y-4">
+        <form onSubmit={onSubmit} className="mt-6 space-y-4" aria-live="polite" role="status">
         <div>
-          <label className="block text-sm text-slate-700">Your name</label>
+          <label className="block text-sm text-slate-700 pl-[10px]">Your name</label>
           <input
             required
             value={name}
             onChange={e=>setName(e.target.value)}
-            className="mt-1 w-full border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-200"
+            autoComplete="name"
+            className="mt-1 w-full h-12 md:h-14 border border-slate-300/60 rounded-xl px-3 bg-white/80 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-pink-300/60 focus:border-transparent"
             placeholder="Alex Rivera"
           />
         </div>
         <div>
-          <label className="block text-sm text-slate-700">Business name</label>
+          <label className="block text-sm text-slate-700 pl-[10px]">Business name</label>
           <input
             required
             value={business}
             onChange={e=>setBusiness(e.target.value)}
-            className="mt-1 w-full border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-200"
+            autoComplete="organization"
+            className="mt-1 w-full h-12 md:h-14 border border-slate-300/60 rounded-xl px-3 bg-white/80 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-pink-300/60 focus:border-transparent"
             placeholder="Vivid Studio"
           />
         </div>
         <div>
-          <label className="block text-sm text-slate-700">Email</label>
+          <label className="block text-sm text-slate-700 pl-[10px]">Email</label>
           <input
             type="email"
             required
             value={email}
             onChange={e=>setEmail(e.target.value)}
-            className="mt-1 w-full border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-200"
+            autoComplete="email"
+            className="mt-1 w-full h-12 md:h-14 border border-slate-300/60 rounded-xl px-3 bg-white/80 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-pink-300/60 focus:border-transparent"
             placeholder="you@example.com"
           />
         </div>
         <div>
-          <label className="block text-sm text-slate-700">Password</label>
+          <label className="block text-sm text-slate-700 pl-[10px]">Password</label>
           <input
             type="password"
             required
             value={password}
             onChange={e=>setPassword(e.target.value)}
-            className="mt-1 w-full border rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-pink-200"
+            autoComplete="new-password"
+            className="mt-1 w-full h-12 md:h-14 border border-slate-300/60 rounded-xl px-3 bg-white/80 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-pink-300/60 focus:border-transparent"
             placeholder="••••••••"
           />
         </div>
-          <button disabled={loading} className="w-full px-4 py-2 rounded-xl bg-pink-500 text-white hover:bg-pink-600 transition">
+          <button disabled={loading} aria-label="Create account" className="relative w-full py-4 rounded-full bg-gradient-to-b from-pink-500 to-violet-500 text-white text-[18px] md:text-[20px] hover:from-pink-600 hover:to-violet-600 transition shadow-[inset_0_2px_0_rgba(255,255,255,.35),0_40px_80px_-32px_rgba(192,132,252,.35)]">
+            <span className="absolute inset-x-0 -top-1 h-1.5 bg-white/40 blur-[2px] pointer-events-none" aria-hidden />
             {loading ? 'Creating…' : 'Create account'}
           </button>
         </form>
@@ -110,15 +121,15 @@ export default function Signup() {
               <span className="text-slate-300">—</span>
               <button type="button" className="text-sm text-slate-700 hover:underline" onClick={async()=>{
                 try {
-                  const redirectTo = `${window.location.origin}/auth/callback?next=/workspace?pane=dashboard&tour=all`;
+                  const redirectTo = `${window.location.origin}/auth/callback?next=/workspace?pane=dashboard&tour=1&postVerify=1`;
                   await supabase.auth.resend({ type:'signup', email, options:{ emailRedirectTo: redirectTo } });
                 } catch {}
               }}>Resend verification</button>
               <span className="text-slate-300">—</span>
               <button type="button" className="text-sm text-slate-700 hover:underline" onClick={async()=>{
                 try{
-                  const redirectTo = `${window.location.origin}/auth/callback?next=/workspace?pane=dashboard&tour=all`;
-                  const { data, error } = await supabase.auth.signInWithOAuth({ provider:'google', options:{ redirectTo } });
+                  const googleRedirect = `${window.location.origin}/auth/callback?next=/workspace?pane=dashboard&tour=1&postVerify=1`;
+                  const { data, error } = await supabase.auth.signInWithOAuth({ provider:'google', options:{ redirectTo: googleRedirect } });
                   if (error) { alert(String(error.message||error)); return; }
                   if (data && (data as any).url) window.location.assign((data as any).url as string);
                 } catch(e:any){ alert(String(e?.message||e)); }
@@ -129,13 +140,13 @@ export default function Signup() {
         <div className="my-4 grid grid-cols-1 gap-2">
           <button
             disabled={loading}
-            className="w-full px-4 py-2 rounded-xl border bg-white hover:shadow-sm"
+            className="w-full h-12 md:h-14 rounded-xl border border-slate-300/60 bg-white hover:bg-slate-50"
             onClick={async()=>{
               try{ track('signup_oauth_click',{provider:'google'}); }catch{}
               try{ localStorage.setItem('bvx_offer_pending','1'); }catch{}
               try{
-                const redirectTo = `${window.location.origin}/onboarding?offer=1`;
-                const { data, error } = await supabase.auth.signInWithOAuth({ provider:'google', options:{ redirectTo } });
+                const oauthRedirect = `${window.location.origin}/auth/callback?next=/workspace?pane=dashboard&tour=1&postVerify=1`;
+                const { data, error } = await supabase.auth.signInWithOAuth({ provider:'google', options:{ redirectTo: oauthRedirect } });
                 if (error) {
                   alert(String(error.message||error));
                   return;
@@ -152,7 +163,7 @@ export default function Signup() {
           {appleEnabled && (
             <button
               disabled={loading}
-              className="w-full px-4 py-2 rounded-xl border bg-white hover:shadow-sm"
+              className="w-full h-12 md:h-14 rounded-xl border border-slate-300/60 bg-white hover:bg-slate-50"
               onClick={async()=>{
                 try{ track('signup_oauth_click',{provider:'apple'}); }catch{}
                 try{ localStorage.setItem('bvx_offer_pending','1'); }catch{}
@@ -161,7 +172,7 @@ export default function Signup() {
             >Continue with Apple</button>
           )}
         </div>
-        <p className="text-sm text-slate-600 mt-4">
+        <p className="text-sm text-slate-600 mt-4 pl-[10px]">
           Already have an account? <Link to="/login" className="text-pink-600 hover:underline">Sign in</Link>
         </p>
       </div>

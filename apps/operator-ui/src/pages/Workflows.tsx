@@ -1,13 +1,14 @@
-import { Link } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import StepPager from '../components/StepPager';
 import Button, { ButtonLink } from '../components/ui/Button';
 import { startGuide } from '../lib/guide';
 import ShareCard from '../components/ui/ShareCard';
 import { useEffect, useState } from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { api, getTenant } from '../lib/api';
 import { track } from '../lib/analytics';
 import { useToast } from '../components/ui/Toast';
-import { useLocation } from 'react-router-dom';
+// removed duplicate useLocation import
 
 type W = { title: string; description: string; to: string; cta?: string };
 
@@ -22,11 +23,13 @@ const workflows: W[] = [
 ];
 
 export default function Workflows(){
+  const navigate = useNavigate();
+  const location = useLocation();
   const [step, setStep] = useState<number>(()=>{
     try{ const sp = new URLSearchParams(window.location.search); const s = Number(sp.get('step')||'1'); return Math.max(1, Math.min(2, isFinite(s)? s : 1)) - 1; } catch { return 0; }
   });
   const steps = [
-    { key:'overview', label:'Overview' },
+    { key:'overview', label:'Work Styles overview' },
     { key:'actions', label:'Actions & Guides' },
   ];
   const recommendOnly = String((import.meta as any).env?.VITE_BETA_RECOMMEND_ONLY || localStorage.getItem('bvx_recommend_only') || '0') === '1';
@@ -79,6 +82,29 @@ export default function Workflows(){
       } catch {}
     })();
   }, []);
+
+  // Sync step with pretty routes
+  useEffect(()=>{
+    try{
+      if (location.pathname.startsWith('/styles/actions')) setStep(1);
+      else if (location.pathname.startsWith('/styles')) setStep(0);
+      else {
+        const sp = new URLSearchParams(location.search);
+        const s = Number(sp.get('step')||'1');
+        if (s>=1 && s<=2) setStep(s-1);
+      }
+    } catch {}
+  }, [location.pathname, location.search]);
+
+  const gotoStep = (idx: number) => {
+    const clamped = Math.max(0, Math.min(1, idx|0));
+    setStep(clamped);
+    if (clamped === 0) navigate('/styles');
+    else navigate('/styles/actions');
+  };
+
+  const prev = () => gotoStep(step - 1);
+  const next = () => gotoStep(step + 1);
 
   const twilioReady = (connected['twilio']||'') === 'connected';
 
@@ -238,10 +264,30 @@ export default function Workflows(){
 
   return (
     <div className="space-y-3">
-      <StepPager steps={steps} index={step} onChange={setStep} persistKey="bvx_wf_step" />
+      <StepPager steps={steps} index={step} onChange={gotoStep} persistKey="bvx_wf_step" />
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">Workflows</h3>
-        <Button variant="outline" size="sm" aria-label="Open workflows guide" onClick={()=> startGuide('workflows')}>Guide me</Button>
+        <h3 className="text-lg font-semibold">Work Styles</h3>
+        <div className="flex items-center gap-2">
+          <button
+            aria-label="Previous"
+            disabled={step===0}
+            onClick={prev}
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border ${step===0? 'opacity-50 cursor-not-allowed' : 'bg-white hover:shadow-sm'}`}
+          >
+            <ChevronLeft size={16} /> Prev
+          </button>
+          <button
+            aria-label="Next"
+            disabled={step===1}
+            onClick={next}
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border ${step===1? 'opacity-50 cursor-not-allowed' : 'bg-white hover:shadow-sm'}`}
+          >
+            Next <ChevronRight size={16} />
+          </button>
+          <Button variant="outline" size="sm" onClick={()=> window.location.assign('/styles')}>Overview</Button>
+          <Button variant="outline" size="sm" onClick={()=> window.location.assign('/styles/actions')}>Actions</Button>
+          <Button variant="outline" size="sm" aria-label="Open workflows guide" onClick={()=> startGuide('workflows')}>Guide me</Button>
+        </div>
       </div>
       {step===0 && (
         <>

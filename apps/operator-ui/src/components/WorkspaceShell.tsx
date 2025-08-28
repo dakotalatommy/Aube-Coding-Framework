@@ -6,8 +6,10 @@ import { api } from '../lib/api';
 import { startGuide } from '../lib/guide';
 import { track } from '../lib/analytics';
 import { UI_STRINGS } from '../lib/strings';
+import PaneManager from './pane/PaneManager';
+import { registerActions, registerMessageBridge } from '../lib/actions';
 
-type PaneKey = 'dashboard' | 'messages' | 'contacts' | 'calendar' | 'cadences' | 'inventory' | 'integrations' | 'approvals' | 'workflows' | 'onboarding';
+type PaneKey = 'dashboard' | 'messages' | 'contacts' | 'calendar' | 'cadences' | 'inventory' | 'integrations' | 'approvals' | 'workflows';
 
 const PANES: { key: PaneKey; label: string; icon: React.ReactNode }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: <Home size={18} /> },
@@ -17,9 +19,8 @@ const PANES: { key: PaneKey; label: string; icon: React.ReactNode }[] = [
   { key: 'cadences', label: 'Cadences', icon: <Layers size={18} /> },
   { key: 'inventory', label: 'Inventory', icon: <Package2 size={18} /> },
   { key: 'integrations', label: 'Settings/Connections', icon: <Plug size={18} /> },
-  { key: 'workflows', label: 'Workflows', icon: <Layers size={18} /> },
+  { key: 'workflows', label: 'Work Styles', icon: <Layers size={18} /> },
   { key: 'approvals', label: 'Approvals', icon: <CheckCircle2 size={18} /> },
-  { key: 'onboarding', label: 'Onboarding', icon: <CheckCircle2 size={18} /> },
 ];
 
 export default function WorkspaceShell(){
@@ -37,6 +38,7 @@ export default function WorkspaceShell(){
   const [billingLoading, setBillingLoading] = useState(false);
   const [billingStatus, setBillingStatus] = useState<string>('');
   const [showDemoWelcome, setShowDemoWelcome] = useState(false);
+  const [showPostVerify, setShowPostVerify] = useState(false);
 
   // Workspace billing gate: open modal if not trialing/active
   useEffect(()=>{
@@ -56,6 +58,11 @@ export default function WorkspaceShell(){
           try { localStorage.setItem('bvx_billing_dismissed','1'); } catch {}
           setBillingOpen(false);
           return;
+        }
+        // Post-verify guide/handoff
+        if (sp.get('postVerify') === '1') {
+          setTimeout(()=>{ try { startGuide('dashboard'); } catch {} }, 300);
+          setTimeout(()=> setShowPostVerify(true), 1800);
         }
         const dismissed = localStorage.getItem('bvx_billing_dismissed') === '1';
         const tid = (await supabase.auth.getSession()).data.session ? (localStorage.getItem('bvx_tenant') || '') : '';
@@ -102,7 +109,6 @@ export default function WorkspaceShell(){
       case 'integrations': return <LazyIntegrations/>;
       case 'approvals': return <LazyApprovals/>;
       case 'workflows': return <LazyWorkflows/>;
-      case 'onboarding': return <LazyOnboardingStepper/>;
       default: return <div/>;
     }
   })();
@@ -126,11 +132,76 @@ export default function WorkspaceShell(){
     }
   };
 
+  useEffect(()=>{
+    // Register UI actions and message bridge once per mount
+    const unregister = registerMessageBridge();
+    registerActions({
+      'nav.dashboard': { id:'nav.dashboard', run: ()=> setPane('dashboard') },
+      'nav.messages': { id:'nav.messages', run: ()=> setPane('messages') },
+      'nav.contacts': { id:'nav.contacts', run: ()=> setPane('contacts') },
+      'nav.calendar': { id:'nav.calendar', run: ()=> setPane('calendar') },
+      'nav.cadences': { id:'nav.cadences', run: ()=> setPane('cadences') },
+      'nav.inventory': { id:'nav.inventory', run: ()=> setPane('inventory') },
+      'nav.integrations': { id:'nav.integrations', run: ()=> setPane('integrations') },
+      'nav.approvals': { id:'nav.approvals', run: ()=> setPane('approvals') },
+      'nav.styles': { id:'nav.styles', run: ()=> setPane('workflows') },
+      'guide.dashboard': { id:'guide.dashboard', run: ()=> startGuide('dashboard') },
+      'guide.integrations': { id:'guide.integrations', run: ()=> startGuide('integrations') },
+      'guide.workflows': { id:'guide.workflows', run: ()=> startGuide('workflows') },
+      'guide.messages': { id:'guide.messages', run: ()=> startGuide('messages') },
+      'guide.contacts': { id:'guide.contacts', run: ()=> startGuide('contacts') },
+      'guide.calendar': { id:'guide.calendar', run: ()=> startGuide('calendar') },
+      'guide.cadences': { id:'guide.cadences', run: ()=> startGuide('cadences') },
+      'guide.inventory': { id:'guide.inventory', run: ()=> startGuide('inventory') },
+      'guide.approvals': { id:'guide.approvals', run: ()=> startGuide('approvals') },
+      'guide.inbox': { id:'guide.inbox', run: ()=> startGuide('inbox') },
+      'nav.wow': { id:'nav.wow', run: ()=> { window.location.assign('/wow'); } },
+      'integrations.reanalyze': { id:'integrations.reanalyze', run: async()=> { try{ await api.post('/onboarding/analyze',{}); }catch{} } },
+      'integrations.square.import_contacts': { id:'integrations.square.import_contacts', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/integrations/booking/square/sync-contacts',{ tenant_id: tid }); }catch{} } },
+      'integrations.twilio.provision': { id:'integrations.twilio.provision', run: async(area_code?: string)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/integrations/twilio/provision',{ tenant_id: tid, area_code: String(area_code||'') }); }catch{} } },
+      'integrations.sendgrid.test_email': { id:'integrations.sendgrid.test_email', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/messages/send',{ tenant_id: tid, contact_id: 'c_demo', channel: 'email', subject: 'BrandVX Test', body: '<p>Hello from BrandVX</p>' }); }catch{} } },
+      'integrations.hubspot.upsert_sample': { id:'integrations.hubspot.upsert_sample', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/integrations/crm/hubspot/upsert',{ tenant_id: tid, obj_type:'contact', attrs:{ email:'demo@example.com', firstName:'Demo', lastName:'User' }, idempotency_key:'demo_contact_1' }); }catch{} } },
+      'integrations.acuity.import_sample': { id:'integrations.acuity.import_sample', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/integrations/booking/acuity/import',{ tenant_id: tid, since:'0', until:'', cursor:'' }); }catch{} } },
+      'integrations.redirects.copy': { id:'integrations.redirects.copy', run: async()=> { try{ const r = await api.get('/integrations/redirects'); const lines: string[] = []; Object.entries(r?.oauth||{}).forEach(([k,v]:any)=> lines.push(`${k}: ${v}`)); Object.entries(r?.webhooks||{}).forEach(([k,v]:any)=> lines.push(`${k} webhook: ${v}`)); await navigator.clipboard?.writeText(lines.join('\n')); }catch{} } },
+      'integrations.connect': { id:'integrations.connect', run: async(provider: string)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; const j = await api.get(`/oauth/${provider}/login?tenant_id=${encodeURIComponent(tid)}`); const url = String(j?.url||''); if (url) window.location.assign(url); }catch{} } },
+      'integrations.refresh': { id:'integrations.refresh', run: async(provider: string)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/oauth/refresh',{ tenant_id: tid, provider }); }catch{} } },
+      'messages.send': { id:'messages.send', run: async(contactId: string, channel: 'sms'|'email', body: string)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/messages/send',{ tenant_id: tid, contact_id: contactId, channel, body }); }catch{} } },
+      'messages.simulate': { id:'messages.simulate', run: async(contactId: string, channel: 'sms'|'email')=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/messages/simulate',{ tenant_id: tid, contact_id: contactId, channel, generate: false }); }catch{} } },
+      'messages.copy.text': { id:'messages.copy.text', run: async(text: string)=> { try{ await navigator.clipboard?.writeText(String(text||'')); }catch{} } },
+      'messages.open.sms': { id:'messages.open.sms', run: (to: string, body: string)=> { try{ window.location.href = `sms:${encodeURIComponent(to||'')}&body=${encodeURIComponent(body||'')}`; }catch{} } },
+      'messages.open.mail': { id:'messages.open.mail', run: (to: string, subject: string, body: string)=> { try{ window.location.href = `mailto:${encodeURIComponent(to||'')}?subject=${encodeURIComponent(subject||'')}&body=${encodeURIComponent(body||'')}`; }catch{} } },
+      'contacts.get_candidates': { id:'contacts.get_candidates', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; return await api.get(`/import/candidates?tenant_id=${encodeURIComponent(tid)}`); }catch(e){ return { error: String((e as any)?.message||e) }; } } },
+      'contacts.import': { id:'contacts.import', run: async(contacts: Array<any>)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/import/contacts',{ tenant_id: tid, contacts: Array.isArray(contacts)? contacts: [] }); }catch{} } },
+      'recon.import_missing_contacts': { id:'recon.import_missing_contacts', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/reconciliation/import_missing_contacts',{ tenant_id: tid }); }catch{} } },
+      'calendar.preview_reminders': { id:'calendar.preview_reminders', run: async()=> { return { status: 'not_available' }; } },
+      'cadences.start': { id:'cadences.start', run: async(contactId: string, cadenceId: string)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/cadences/start',{ tenant_id: tid, contact_id: contactId, cadence_id: cadenceId }); }catch{} } },
+      'cadences.stop': { id:'cadences.stop', run: async(contactId: string, cadenceId: string)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post(`/cadences/stop?tenant_id=${encodeURIComponent(tid)}&contact_id=${encodeURIComponent(contactId)}&cadence_id=${encodeURIComponent(cadenceId)}`, {} as any); }catch{} } },
+      'scheduler.tick': { id:'scheduler.tick', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/scheduler/tick',{ tenant_id: tid }); }catch{} } },
+      'workflows.run.dedupe': { id:'workflows.run.dedupe', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/ai/tools/execute',{ tenant_id: tid, name:'contacts.dedupe', params:{ tenant_id: tid }, require_approval: true }); }catch{} } },
+      'workflows.run.lowstock': { id:'workflows.run.lowstock', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/ai/tools/execute',{ tenant_id: tid, name:'inventory.alerts.get', params:{ tenant_id: tid, low_stock_threshold: Number(localStorage.getItem('bvx_low_threshold')||'5') }, require_approval: false }); }catch{} } },
+      'workflows.run.reminders': { id:'workflows.run.reminders', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/ai/tools/execute',{ tenant_id: tid, name:'appointments.schedule_reminders', params:{ tenant_id: tid }, require_approval: false }); }catch{} } },
+      'workflows.run.dormant_preview': { id:'workflows.run.dormant_preview', run: async(threshold: number = 60)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/ai/tools/execute',{ tenant_id: tid, name:'campaigns.dormant.preview', params:{ tenant_id: tid, threshold_days: threshold }, require_approval: false }); }catch{} } },
+      'workflows.run.social_plan': { id:'workflows.run.social_plan', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/ai/tools/execute',{ tenant_id: tid, name:'social.schedule.14days', params:{ tenant_id: tid }, require_approval: true }); }catch{} } },
+      'approvals.approve': { id:'approvals.approve', run: async()=> { try{ window.location.assign('/workspace?pane=approvals'); return { status:'navigate' }; }catch{} } },
+      'approvals.reject': { id:'approvals.reject', run: async()=> { try{ window.location.assign('/workspace?pane=approvals'); return { status:'navigate' }; }catch{} } },
+      'settings.update': { id:'settings.update', run: async(payload: any)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/settings',{ tenant_id: tid, ...(payload||{}) }); }catch{} } },
+      'settings.quiet_hours': { id:'settings.quiet_hours', run: async(start: string, end: string)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/settings',{ tenant_id: tid, quiet_hours:{ start, end } }); }catch{} } },
+      'settings.brand_profile': { id:'settings.brand_profile', run: async(profile: any)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/settings',{ tenant_id: tid, brand_profile: profile }); }catch{} } },
+      'settings.goals': { id:'settings.goals', run: async(goals: any)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/settings',{ tenant_id: tid, goals }); }catch{} } },
+      'share.create': { id:'share.create', run: async(title: string, description: string)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; return await api.post('/share/create',{ tenant_id: tid, title, description }); }catch(e){ return { error: String((e as any)?.message||e) }; } } },
+      'usage.limits.get': { id:'usage.limits.get', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; const s = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`); return s?.data?.usage_limits || {}; }catch(e){ return { error: String((e as any)?.message||e) }; } } },
+      'config.get': { id:'config.get', run: ()=> { try{ const ro = (import.meta as any).env?.VITE_RECOMMEND_ONLY === '1' || (import.meta as any).env?.VITE_BETA_RECOMMEND_ONLY === '1'; return { recommend_only: !!ro }; }catch{ return { recommend_only:false }; } } },
+      'admin.clear_cache': { id:'admin.clear_cache', run: async(scope: string = 'all')=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/admin/cache/clear',{ tenant_id: tid, scope }); }catch{} } },
+    });
+    return unregister;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div className="max-w-6xl mx-auto">
-      <div className="h-[calc(100vh-0px)] grid grid-cols-[theme(spacing.56)_1fr] gap-4 md:gap-5 overflow-hidden">
+      <div className="h-[100dvh] grid grid-cols-[theme(spacing.56)_1fr] gap-4 md:gap-5 overflow-hidden">
         {/* Left dock */}
-        <aside className="h-full bg-white/70 backdrop-blur border rounded-2xl p-3 md:p-4 flex flex-col pb-[var(--ask-float-height)]" aria-label="Primary navigation">
+        <aside className="h-full bg-white/70 backdrop-blur border border-b-0 rounded-2xl p-3 md:p-4 flex flex-col pb-[calc(var(--bvx-commandbar-height,64px)+env(safe-area-inset-bottom,0px))]" aria-label="Primary navigation">
           <nav className="flex flex-col gap-2" role="tablist" aria-orientation="vertical" onKeyDown={onKeyDown}>
             {items.map((p, i) => {
               const active = pane===p.key;
@@ -185,13 +256,14 @@ export default function WorkspaceShell(){
           </div>
         </aside>
         {/* Canvas */}
-        <main className={`h-full rounded-2xl border ${demo? 'bg-amber-50/60' : 'bg-white/90'} backdrop-blur p-4 md:p-5 shadow-sm overflow-hidden`}>
-          <div className="rounded-xl bg-white/70 backdrop-blur border overflow-y-auto overflow-x-hidden" style={{ height: 'calc(100% - var(--ask-float-height, 0px))' }}>
+        <main className={`h-full rounded-2xl border border-b-0 ${demo? 'bg-amber-50/60' : 'bg-white/90'} backdrop-blur p-4 md:p-5 shadow-sm overflow-hidden`}>
+          <div className="rounded-xl bg-white/70 backdrop-blur border border-b-0 overflow-hidden min-h-full pb-[calc(var(--bvx-commandbar-height,64px)+env(safe-area-inset-bottom,0px))]">
             <Suspense fallback={<div className="p-4 text-slate-600 text-sm">Loading {PANES.find(p=>p.key===pane)?.label}…</div>}>
               {PaneView}
             </Suspense>
           </div>
         </main>
+        <PaneManager pane={pane} items={items} setPane={setPane} />
       </div>
       {showDemoWelcome && (
         <div className="fixed inset-0 z-50 grid place-items-center p-4">
@@ -211,6 +283,15 @@ export default function WorkspaceShell(){
           <div className="flex gap-2 items-center rounded-full border bg-white/90 backdrop-blur px-3 py-2 shadow">
             <span className="text-xs text-amber-800 bg-amber-100 rounded-full px-2 py-0.5 border border-amber-200">Demo</span>
             <a href="/signup" className="text-sm px-3 py-1.5 rounded-full bg-slate-900 text-white">Create account</a>
+          </div>
+        </div>
+      )}
+      {showPostVerify && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40">
+          <div className="rounded-full border bg-white/95 backdrop-blur shadow-lg px-4 py-2 flex items-center gap-3">
+            <span className="text-sm text-slate-800">You’re ready to get started — first, a few quick questions.</span>
+            <a className="px-3 py-1.5 rounded-full text-white bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600" href="/onboarding?offer=1">Start onboarding</a>
+            <button className="px-3 py-1.5 rounded-full border bg-white text-slate-700" onClick={()=> setShowPostVerify(false)}>Skip for now</button>
           </div>
         </div>
       )}
@@ -267,6 +348,6 @@ const LazyInventory = lazy(()=> import('../pages/Inventory'));
 const LazyIntegrations = lazy(()=> import('../pages/Integrations'));
 const LazyApprovals = lazy(()=> import('../pages/Approvals'));
 const LazyWorkflows = lazy(()=> import('../pages/Workflows'));
-const LazyOnboardingStepper = lazy(()=> import('./OnboardingStepper'));
+// Onboarding is now a standalone route (not a workspace pane)
 
 

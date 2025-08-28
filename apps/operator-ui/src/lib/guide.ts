@@ -56,7 +56,7 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-guide="table"]', popover: { title: 'Messages', description: 'Click any row to open details.' } },
   ],
   workflows: [
-    { popover: { title: 'Workflows', description: 'Everything you can do in one place. Click a flow to begin.' } },
+    { popover: { title: 'Work Styles', description: 'Everything you can do in one place. Click a flow to begin.' } },
     { element: '[data-tour="wf-quick"]', popover: { title: 'Quick actions', description: 'Run common steps without leaving this page.' } },
     { element: '[data-tour="wf-dedupe"]', popover: { title: 'Dedupe contacts', description: 'Removes duplicates by email/phone. May require approval.' } },
     { element: '[data-tour="wf-lowstock"]', popover: { title: 'Low stock check', description: 'Find items at or below threshold for restock.' } },

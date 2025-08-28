@@ -1,42 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { track } from '../lib/analytics';
 import BackdropFX from '../components/BackdropFX';
 
-function MetricsInline() {
-  return (
-    <div className="mt-4 md:mt-6 flex flex-wrap items-center justify-center gap-x-4 md:gap-x-6 text-slate-700 text-sm md:text-base">
-      <span className="font-semibold whitespace-nowrap">6.2h weekly time saved</span>
-      <span className="text-slate-400">—</span>
-      <span className="font-semibold whitespace-nowrap">19% no‑show reduction</span>
-      <span className="text-slate-400">—</span>
-      <span className="font-semibold whitespace-nowrap">3.1× faster responses</span>
-    </div>
-  );
-}
+// Metrics line removed
 
-function GlossyCard({ title, sub, icon }:{ title:string; sub:string; icon?: any }){
-  return (
-    <div role="button" tabIndex={0} aria-label={`${title}: ${sub}`} className="relative h-full w-full rounded-3xl p-5 bg-white/70 backdrop-blur border border-white/70 shadow-[0_20px_40px_-20px_rgba(0,0,0,0.25)] overflow-hidden transition will-change-transform hover:-translate-y-1 hover:shadow-[0_28px_60px_-28px_rgba(0,0,0,0.35)] focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300 flex flex-col items-center justify-center text-center"
-      onClick={()=>{ try { track('tile_click', { tile: title }); } catch {} }}
-      onKeyDown={(e)=>{ if (e.key === 'Enter' || e.key === ' ') { (e.target as HTMLElement).click(); e.preventDefault(); } }}>
-      <div aria-hidden className="absolute inset-0 -z-10" style={{
-        background:
-          'radial-gradient(380px 150px at 15% -20%, rgba(236,72,153,0.10), transparent 60%), radial-gradient(420px 160px at 85% -20%, rgba(99,102,241,0.10), transparent 65%)'
-      }} />
-      <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/40 to-white/0" />
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 -top-10 h-10 bg-white/40 blur-md opacity-0 transition-opacity duration-200 hover:opacity-70" />
-      <div aria-hidden className="pointer-events-none absolute -top-8 left-0 right-0 h-16 bg-gradient-to-b from-white/60 to-transparent" />
-      {icon && (
-        <div className="text-slate-700 mb-2" aria-hidden>
-          {icon}
-        </div>
-      )}
-      <div className="font-semibold text-slate-900 text-[18px] md:text-[20px]">{title}</div>
-      <div className="text-slate-600 text-[13px] md:text-[15px] mt-1">{sub}</div>
-    </div>
-  );
-}
+// GlossyCard inlined inside WorkflowRow; leaving placeholder export removed to avoid unused warning.
 
 function IconPlug(){
   return (
@@ -80,19 +50,41 @@ function IconSpark(){
 }
 
 function WorkflowRow() {
-  const items: Array<{title:string; sub:string; icon: any}> = [
-    { title:'Connect tools', sub:'Hook up booking, SMS, CRM', icon:<IconPlug/> },
-    { title:'Import contacts', sub:'Bring clients in safely', icon:<IconUser/> },
-    { title:'Define services', sub:'Menu, durations, prices', icon:<IconList/> },
-    { title:'Preview timing', sub:'Cadence + quiet hours', icon:<IconClock/> },
-    { title:'Go live', sub:'Flip the switch', icon:<IconSpark/> },
+  const items: Array<{title:string; sub:string; proof?:string; icon: any}> = [
+    { title:'Fill cancellations first', sub:'Text your waitlist first so open spots get taken in minutes.', proof:'Typical: +2–4 slots/week', icon:<IconPlug/> },
+    { title:'Cut no‑shows', sub:'Friendly confirmations and day‑of nudges that keep clients on track.', proof:'Typical: 15–25% fewer no‑shows', icon:<IconClock/> },
+    { title:'Revive dormant clients', sub:'Warm check‑ins bring back clients who haven’t visited in 60+ days.', proof:'Typical: 1–3 reactivations/week', icon:<IconUser/> },
+    { title:'Faster replies, less time', sub:'Short, human replies in your voice—across SMS, IG, and email.', proof:'6.2h/week saved (median)', icon:<IconList/> },
+    { title:'Posts in your brand voice', sub:'IG captions drafted from your brand; you approve before anything goes live.', proof:'Stay consistent without sounding robotic', icon:<IconSpark/> },
   ];
   return (
     <section className="my-auto mt-6 md:mt-8">
       <div className="grid grid-cols-5 gap-4 md:gap-5 w-full max-md:overflow-x-auto max-md:[scrollbar-width:none] items-center">
         {items.map(({title, sub, icon}, i) => (
-          <div key={i} className="mx-auto w-[86%] aspect-square min-w-[160px] md:min-w-0">
-            <GlossyCard title={title} sub={sub} icon={icon} />
+          <div key={i} className="mx-auto aspect-square min-w-[160px] md:min-w-0" style={{ width: 'calc(86% + 14px)' }}>
+            <div className="relative group h-full w-full">
+              <div aria-hidden className="pointer-events-none absolute -inset-2 rounded-3xl blur-md opacity-0 transition group-hover:opacity-100" style={{
+                background:
+                  'radial-gradient(380px 150px at 15% -20%, rgba(236,72,153,0.18), transparent 60%), radial-gradient(420px 160px at 85% -20%, rgba(99,102,241,0.18), transparent 65%)'
+              }} />
+              <div role="button" tabIndex={0} aria-label={`${title}: ${sub}`} className="relative h-full w-full rounded-3xl p-6 md:p-7 bg-white/70 backdrop-blur border-[3px] border-white/70 shadow-[0_24px_48px_-22px_rgba(0,0,0,0.28)] overflow-hidden transition will-change-transform hover:-translate-y-1.5 hover:shadow-[0_40px_80px_-32px_rgba(0,0,0,0.45)] focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300 flex flex-col items-center justify-center text-center">
+              <div aria-hidden className="absolute inset-0 -z-10" style={{
+                background:
+                  'radial-gradient(380px 150px at 15% -20%, rgba(236,72,153,0.10), transparent 60%), radial-gradient(420px 160px at 85% -20%, rgba(99,102,241,0.10), transparent 65%)'
+              }} />
+              <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/40 to-white/0" />
+              <div aria-hidden className="pointer-events-none absolute inset-x-0 -top-10 h-10 bg-white/40 blur-md opacity-0 transition-opacity duration-200 hover:opacity-70" />
+              <div aria-hidden className="pointer-events-none absolute -top-8 left-0 right-0 h-16 bg-gradient-to-b from-white/60 to-transparent" />
+              {icon && (
+                <div className="text-slate-700 mb-2" aria-hidden>
+                  {icon}
+                </div>
+              )}
+              <div className="font-semibold text-slate-900 text-[20px] md:text-[22px]">{title}</div>
+              <div className="text-slate-600 text-[14px] md:text-[16px] mt-1">{sub}</div>
+              {/* proof removed per request */}
+              </div>
+            </div>
           </div>
         ))}
       </div>
@@ -133,6 +125,8 @@ function SplitText({ text, startDelayMs=0, as:Tag='p', className='' }:{ text:str
 
 export default function LandingV2(){
   const nav = useNavigate();
+  const mainRef = useRef<HTMLDivElement|null>(null);
+  // const signInRef = useRef<HTMLDivElement|null>(null);
 
   const goDemo = () => {
     try { track('cta_click',{area:'hero',href:'/demo'}); } catch {}
@@ -141,6 +135,10 @@ export default function LandingV2(){
   const goSignup = () => {
     try { track('cta_click',{area:'hero',href:'/signup'}); } catch {}
     nav('/signup');
+  };
+  const goLogin = () => {
+    try { track('cta_click',{area:'hero',href:'/login'}); } catch {}
+    nav('/login');
   };
 
   // Capture referral code and persist for attribution
@@ -165,6 +163,8 @@ export default function LandingV2(){
     } catch {}
   }, []);
 
+  // Metrics removed; spacer preserves layout.
+
 
   return (
     <div className="mx-auto max-w-6xl relative z-10">
@@ -172,73 +172,101 @@ export default function LandingV2(){
       <BackdropFX modelUrl="/spline/swirl.glb" />
       {/* Hairlines */}
       <div aria-hidden className="absolute top-0 left-0 right-0 h-px bg-black/10" />
-      <div aria-hidden className="absolute bottom-0 left-0 right-0 h-px bg-black/10" />
+      {/* bottom hairline removed to avoid visible white line on short laptops */}
 
-      <div className="h-[calc(100vh-140px)] grid grid-cols-1 gap-4 overflow-hidden">
+      <div className="min-h-[calc(100vh-140px)] grid grid-cols-1 gap-4">
         {/* Header removed for now per design — hero remains primary */}
-        <main className="h-full grid grid-rows-[auto_auto_1fr] overflow-hidden">
+        <main ref={mainRef} className="min-h-full grid grid-rows-[auto_auto_1fr] overflow-visible relative">
           {/* Hero (words-only + single CTA) */}
-          <section className="relative pt-4 md:pt-6 pb-10 md:pb-12">
+          <section className="relative pt-4 md:pt-6 pb-10 md:pb-12 mt-[7px]">
             <div
               aria-hidden
               className="absolute inset-0 -z-10"
               style={{
                 background:
-                  'radial-gradient(520px 220px at 60% 42%, rgba(96,165,250,0.35), transparent 60%), radial-gradient(420px 180px at 75% 58%, rgba(236,72,153,0.18), transparent 65%)',
+                  'radial-gradient(65vw 48vh at 60% 42%, rgba(96,165,250,0.48), transparent 70%), radial-gradient(54vw 40vh at 75% 58%, rgba(236,72,153,0.28), transparent 76%)',
               }}
             />
 
-            <div className="max-w-5xl mx-auto px-2 md:px-3">
-              <SplitText
-                as="h1"
-                text="Intuitive ops — luxe client experience — brandVX"
-                startDelayMs={0}
-                className="text-[46px] md:text-[76px] leading-tight text-center"/>
+            <div className="max-w-7xl mx-auto px-2 md:px-3">
+              <div className="relative inline-block w-full">
+                <SplitText
+                  as="h1"
+                  text="intuitive ops — luxe client experience — brandVX"
+                  startDelayMs={0}
+                  className="text-[84px] md:text-[138px] leading-[1.02] tracking-tight text-center font-extrabold"/>
+                {/* Subtle hero shimmer sweep */}
+                <motion.div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-y-0 left-0 w-[18%] bg-gradient-to-r from-white/0 via-white/12 to-white/0"
+                  initial={{ x: '-20%' }}
+                  animate={{ x: ['-20%','120%'] }}
+                  transition={{ duration: 1.2, delay: 2, repeat: Infinity, repeatDelay: 11, ease: 'easeInOut' }}
+                />
+                {/* Very faint background sparkles */}
+                <motion.span aria-hidden className="pointer-events-none absolute -top-4 left-[18%] w-2 h-2 rounded-full bg-white/20 blur-[2px]" initial={{ opacity: 0.05 }} animate={{ opacity: [0.05,0.18,0.05] }} transition={{ duration: 8, repeat: Infinity, repeatDelay: 6 }} />
+                <motion.span aria-hidden className="pointer-events-none absolute -bottom-3 right-[22%] w-1.5 h-1.5 rounded-full bg-white/18 blur-[1.5px]" initial={{ opacity: 0.04 }} animate={{ opacity: [0.04,0.16,0.04] }} transition={{ duration: 9, repeat: Infinity, repeatDelay: 7 }} />
+              </div>
 
               <SplitText
-                text="Cadences, reminders, and follow‑ups that feel human — so you stay in your craft while BrandVX fills your calendar."
+                text="Fewer no‑shows. Faster fills. Short, human messages in your voice."
                 startDelayMs={350}
-                className="mt-[23px] md:mt-[31px] text-slate-700 text-[18px] md:text-[24px] text-center"/>
+                className="mt-[23px] md:mt-[31px] text-slate-700 text-[29px] md:text-[41px] font-medium text-center"/>
 
               <SplitText
                 text="Made by beauty professionals — for beauty professionals"
                 startDelayMs={700}
-                className="mt-[35px] md:mt-[43px] text-slate-600 text-[15px] md:text-[18px] text-center"/>
+                className="mt-[35px] md:mt-[43px] text-slate-600/90 text-[23px] md:text-[29px] text-center"/>
 
               {/* CTA moved below to sit centered between this line and the squares */}
             </div>
           </section>
 
           {/* Thin CTA section between hero and squares */}
-          <section className="py-2 md:py-3 flex justify-center">
-            <div className="flex gap-3 items-center mt-[50px]">
-              <div className="relative group">
-                <div aria-hidden className="absolute -inset-2 rounded-full bg-sky-300/30 blur-md opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100" />
+          <section className="py-2 md:py-2.5 flex justify-center">
+            <div className="flex flex-col items-center mt-[28px] md:mt-[50px]">
+              {/* slightly reduce top margin on laptops to fit common Mac heights */}
+              <div className="flex gap-4 md:gap-5 items-center">
+                <div className="relative group">
+                  <div aria-hidden className="absolute -inset-2 rounded-full bg-sky-300/30 blur-md opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100" />
+                  <button
+                    onClick={goDemo}
+                    className="relative overflow-hidden text-black text-[20px] md:text-[24px] px-9 md:px-10 py-4 md:py-5 rounded-full shadow-md bg-gradient-to-b from-sky-100 to-sky-200 hover:from-sky-200 hover:to-sky-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px shadow-[inset_0_2px_0_rgba(255,255,255,.65),0_56px_128px_rgba(96,165,250,.35)]"
+                    style={{fontFamily:'\"Fraunces\", ui-serif, Georgia, serif'}}
+                  >
+                    Try the demo today →
+                    <span aria-hidden className="pointer-events-none absolute inset-x-0 -top-1 h-1.5 bg-white/50 blur-[2px]" />
+                  </button>
+                </div>
                 <button
-                  onClick={goDemo}
-                  className="text-black text-lg md:text-xl px-7 md:px-8 py-3.5 md:py-4 rounded-full shadow-md bg-gradient-to-b from-sky-100 to-sky-200 hover:from-sky-200 hover:to-sky-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px"
+                  onClick={goSignup}
+                  className="relative overflow-hidden text-white text-[20px] md:text-[24px] px-9 md:px-10 py-4 md:py-5 rounded-full shadow-md bg-gradient-to-b from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-400/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px shadow-[inset_0_2px_0_rgba(255,255,255,.35),0_56px_128px_rgba(192,132,252,.35)]"
                   style={{fontFamily:'\"Fraunces\", ui-serif, Georgia, serif'}}
                 >
-                  Try the demo today →
+                  Start in 5 minutes
+                  <span aria-hidden className="pointer-events-none absolute inset-x-0 -top-1 h-1.5 bg-white/40 blur-[2px]" />
                 </button>
               </div>
-              <button
-                onClick={goSignup}
-                className="text-white text-lg md:text-xl px-7 md:px-8 py-3.5 md:py-4 rounded-full shadow-md bg-gradient-to-b from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px"
-                style={{fontFamily:'\"Fraunces\", ui-serif, Georgia, serif'}}
-              >
-                Start free trial
-              </button>
+              <div style={{height: 'clamp(10px, 1.4vw, 18px)'}} />
+              <div className="mt-2 md:mt-3">
+                <button
+                  aria-label="Sign in"
+                  onClick={goLogin}
+                  className="relative text-slate-900 text-[20px] md:text-[24px] px-9 md:px-10 py-4 md:py-5 rounded-full border bg-white hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+                  style={{fontFamily:'\"Fraunces\", ui-serif, Georgia, serif'}}
+                >
+                  Sign in
+                </button>
+              </div>
             </div>
           </section>
 
-          {/* Inline metrics for social proof */}
-          <section className="flex justify-center">
-            <MetricsInline />
-          </section>
+          {/* Spacer preserves original flow height so squares don't shift */}
+          <div aria-hidden className="h-[25px] md:h-[33px]" />
+
 
           {/* Squares remain centered in remaining space */}
-          <div className="flex flex-col h-full overflow-hidden">
+          <div id="bvx-squares-anchor" className="flex flex-col min-h-[320px] overflow-visible">
             <WorkflowRow />
           </div>
         </main>

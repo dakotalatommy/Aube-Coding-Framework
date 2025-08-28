@@ -19,7 +19,7 @@ export default function Landing() {
     // Idle prefetch common onboarding/integrations flows to smooth first click
     try{
       const idle = (cb:()=>void)=> (window as any).requestIdleCallback ? (window as any).requestIdleCallback(cb) : setTimeout(cb, 1200);
-      idle(()=> { import('./Onboarding'); import('./Integrations'); });
+      idle(()=> { import('./Integrations'); });
     } catch {}
   },[]);
 

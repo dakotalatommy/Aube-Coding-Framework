@@ -208,6 +208,34 @@ export default function Ask(){
 
   const reset = () => { setMessages([]); setInput(''); };
   const setShortcut = (text: string) => { setInput(text); };
+  const saveAssistantAsBrandFact = async () => {
+    try{
+      const text = lastAssistantText || messages.filter(m=>m.role==='assistant').slice(-1)[0]?.content || '';
+      if (!text) { showToast({ title:'Nothing to save', description:'AskVX has not replied yet.' }); return; }
+      const tid = await getTenant();
+      const r = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+      const current = String(r?.data?.training_notes||'');
+      const next = (current ? current + '\n' : '') + `• ${text}`;
+      await api.post('/settings', { tenant_id: tid, training_notes: next });
+      showToast({ title:'Saved', description:'Added to brand training notes.' });
+      try { track('brand_fact_saved'); } catch {}
+    } catch(e:any){ showToast({ title:'Save error', description:String(e?.message||e) }); }
+  };
+  const updateBrandVoice = async () => {
+    try{
+      const tid = await getTenant();
+      const r = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+      const bp = r?.data?.brand_profile || {};
+      const initial = String(bp?.voice||'');
+      // simple prompt UI; could be replaced with modal later
+      const v = window.prompt('Brand voice (e.g., Warm, Editorial crisp):', initial || '');
+      if (v === null) return;
+      const data = { ...(r?.data||{}), brand_profile: { ...(bp||{}), voice: v } };
+      await api.post('/settings', { tenant_id: tid, brand_profile: data.brand_profile });
+      showToast({ title:'Updated', description:'Brand voice updated.' });
+      try { track('brand_voice_updated'); } catch {}
+    } catch(e:any){ showToast({ title:'Update error', description:String(e?.message||e) }); }
+  };
   const clearTenantCache = async () => {
     try{
       const tid = await getTenant();
@@ -273,6 +301,24 @@ export default function Ask(){
   const [running, setRunning] = useState<string>('');
   const [TENANT_ID, setTenantId] = useState<string>(localStorage.getItem('bvx_tenant') || 't1');
   useEffect(()=>{ (async()=>{ try{ setTenantId(await getTenant()); } catch{} })(); },[]);
+  // Inject brand profile and goals from settings into system context via hidden first message
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const tid = await getTenant();
+        const r = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+        const bp = r?.data?.brand_profile || {};
+        const goals = r?.data?.goals || {};
+        const training = String(r?.data?.training_notes||'');
+        const seed = [] as Msg[];
+        if (Object.keys(bp).length || Object.keys(goals).length || training) {
+          const summary = `Context: brand_profile=${JSON.stringify(bp)}; goals=${JSON.stringify(goals)}; training=${training.slice(0,400)}`;
+          seed.push({ role: 'assistant', content: summary });
+          setMessages(m=> (m.length===0 ? seed : m));
+        }
+      } catch {}
+    })();
+  },[]);
   const planKey = (name?: string) => `bvx_plan_queue_${TENANT_ID}${name?`_${name}`:''}`;
   const getSavedQueue = () => {
     try { const v = localStorage.getItem(planKey()); return v? JSON.parse(v): null; } catch { return null; }
@@ -488,8 +534,41 @@ export default function Ask(){
     }
   };
   const isDemo = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('demo') === '1';
+  const postUIAction = async (action: string, args?: any[]) => {
+    try {
+      const isEmbedded = (typeof window !== 'undefined') && (window.self !== window.top);
+      if (!isEmbedded) { return false; }
+      const requestId = 'req_' + Math.random().toString(36).slice(2,10);
+      window.parent?.postMessage({ type:'bvx:action', action, args: Array.isArray(args)? args: [], requestId }, '*');
+      return true;
+    } catch { return false; }
+  };
+  useEffect(() => {
+    const onResult = (e: MessageEvent) => {
+      try{
+        const d = e.data || {};
+        if (d.type !== 'bvx:action:result') return;
+        const res = d.result || {};
+        if (res?.status === 'recommend_only') {
+          showToast({ title: 'Recommend-only mode', description: 'Draft ready. Use Copy/Open to send from your phone or email.' });
+          return;
+        }
+        if (res?.status === 'rate_limited_daily') {
+          showToast({ title: 'Daily limit reached', description: 'Try again tomorrow or adjust limits in Settings.' });
+          return;
+        }
+        if (res?.error) {
+          showToast({ title: 'Action error', description: String(res.error) });
+        } else {
+          showToast({ title: 'Done', description: 'Action completed.' });
+        }
+      } catch {}
+    };
+    window.addEventListener('message', onResult);
+    return () => window.removeEventListener('message', onResult);
+  }, [showToast]);
   return (
-    <div className={`${embedded ? 'h-full min-h-0 flex flex-col min-w-0 overflow-x-hidden' : 'space-y-3'} ${embedded ? '' : ''}`}>
+    <div className={`${embedded ? 'h-full min-h-0 flex flex-col min-w-0 overflow-x-hidden' : 'space-y-3'}`}>
       {isDemo && (
         <div className="rounded-2xl p-3 border bg-amber-50/80 border-amber-200 text-amber-900">
           <div className="flex flex-wrap items-center gap-2">
@@ -508,11 +587,22 @@ export default function Ask(){
           </div>
         </div>
       )}
-      <div className="grid grid-cols-3 items-center gap-2 text-sm">
+      {/* This week quick actions (hidden in embedded to avoid duplication with Dashboard nudges) */}
+      {!embedded && (
+        <div className="rounded-xl border bg-white p-2 text-xs text-slate-700">
+          <div className="font-medium mb-1">This week</div>
+          <div className="flex flex-wrap gap-2">
+            {["Approve 3 posts","Fill cancellations","Revive 2 dormant","Confirm Friday"].map((t)=> (
+              <button key={t} className="px-2 py-1 rounded-full border bg-white">{t}</button>
+            ))}
+          </div>
+        </div>
+      )}
+      <div className={`grid ${embedded ? 'grid-cols-3' : 'grid-cols-3'} items-center gap-2 text-sm`}>
         <div className="flex items-center gap-2">
           <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ setHistoryOpen(h=>!h); if (!historyOpen) void loadHistory(); }}>{historyOpen ? 'Hide history' : 'Show history'}</button>
           <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ const sid = 's_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('bvx_chat_session', sid); window.location.reload(); }}>New session</button>
-          <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ void loadSessions(); }}>Sessions</button>
+          {!embedded && <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ void loadSessions(); }}>Sessions</button>}
         </div>
         <div className="flex items-center">
           <div className="font-semibold" style={{fontFamily:'var(--font-display)'}}>Ask VX</div>
@@ -578,7 +668,7 @@ export default function Ask(){
           )}
         </div>
       )}
-      <div className={`rounded-xl bg-white shadow-sm p-3 border ${embedded ? 'shrink-0 max-h-24 overflow-y-auto overflow-x-hidden' : 'h-64 overflow-auto'} min-w-0`} aria-live="polite" aria-atomic="false" role="log">
+      <div className={`rounded-xl bg-white shadow-sm p-3 border ${embedded ? 'flex-1 min-h-0 overflow-auto' : 'h-64 overflow-auto'} min-w-0`} aria-live="polite" aria-atomic="false" role="log">
         {messages.length === 0 && (
           <div className="text-sm text-slate-500">Start a conversation below.</div>
         )}
@@ -616,40 +706,40 @@ export default function Ask(){
             <div className="pt-2 mt-1 border-t border-slate-100">
               <div className="flex flex-wrap gap-2 text-xs">
                 {contextActions.includes('open_integrations') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=integrations') }>Open Integrations</button>
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={async()=>{ const ok = await postUIAction('nav.integrations'); if (!ok) goto('/workspace?pane=integrations'); }}>Open Integrations</button>
                 )}
                 {contextActions.includes('connect_twilio') && (
                   <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=integrations&tour=twilio') }>Connect SMS (Twilio)</button>
                 )}
                 {contextActions.includes('open_messages') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=messages') }>Open Messages</button>
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={async()=>{ const ok = await postUIAction('nav.messages'); if (!ok) goto('/workspace?pane=messages'); }}>Open Messages</button>
                 )}
                 {contextActions.includes('open_inbox') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=messages') }>Open Inbox</button>
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={async()=>{ const ok = await postUIAction('nav.messages'); if (!ok) goto('/workspace?pane=messages'); }}>Open Inbox</button>
                 )}
                 {contextActions.includes('open_contacts') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=contacts') }>Open Contacts</button>
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={async()=>{ const ok = await postUIAction('nav.contacts'); if (!ok) goto('/workspace?pane=contacts'); }}>Open Contacts</button>
                 )}
                 {contextActions.includes('import_contacts') && (
                   <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=contacts&tour=1') }>Import contacts</button>
                 )}
                 {contextActions.includes('open_inventory') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=inventory') }>Open Inventory</button>
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={async()=>{ const ok = await postUIAction('nav.inventory'); if (!ok) goto('/workspace?pane=inventory'); }}>Open Inventory</button>
                 )}
                 {contextActions.includes('check_lowstock') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=inventory&tour=1') }>Check low stock</button>
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={async()=>{ const ok = await postUIAction('workflows.run.lowstock'); if (!ok) goto('/workspace?pane=inventory&tour=1'); }}>Check low stock</button>
                 )}
                 {contextActions.includes('open_calendar') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=calendar') }>Open Calendar</button>
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={async()=>{ const ok = await postUIAction('nav.calendar'); if (!ok) goto('/workspace?pane=calendar'); }}>Open Calendar</button>
                 )}
                 {contextActions.includes('open_approvals') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=approvals') }>Open Approvals</button>
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={async()=>{ const ok = await postUIAction('nav.approvals'); if (!ok) goto('/workspace?pane=approvals'); }}>Open Approvals</button>
                 )}
                 {contextActions.includes('open_cadences') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=cadences') }>Open Cadences</button>
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={async()=>{ const ok = await postUIAction('nav.cadences'); if (!ok) goto('/workspace?pane=cadences'); }}>Open Cadences</button>
                 )}
                 {contextActions.includes('open_workflows') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=workflows') }>Open Workflows</button>
+                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={async()=>{ const ok = await postUIAction('nav.styles'); if (!ok) goto('/workspace?pane=workflows'); }}>Open Work Styles</button>
                 )}
                 {contextActions.includes('open_onboarding') && (
                   <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/onboarding?tour=1') }>Open Onboarding</button>
@@ -686,9 +776,9 @@ export default function Ask(){
         <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Give me the 48‑hour plan with exact messages for confirmations, dormant, and warm leads. Keep it short and add one CTA.')}>48‑hour plan</button>
       </div>
       )}
-      <div className={`flex gap-2 items-start ${embedded ? 'flex-1 min-h-0 items-stretch' : 'shrink-0'} pb-[max(env(safe-area-inset-bottom,0px),8px)]`}>
+      <div className={`flex gap-2 items-start ${embedded ? 'shrink-0' : 'shrink-0'} pb-[max(env(safe-area-inset-bottom,0px),0px)]`}>
         <textarea
-          className={`flex-1 border rounded-md px-3 py-2 ${embedded ? 'h-full min-h-[180px]' : ''}`}
+          className={`flex-1 border rounded-md px-3 py-2 ${embedded ? 'min-h-[120px]' : ''}`}
           rows={3}
           placeholder="How can I save you time today?"
           value={input}
@@ -715,8 +805,12 @@ export default function Ask(){
             {!!lastAssistantText && (
               <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto(`/workspace?pane=messages&body=${encodeURIComponent(lastAssistantText)}`)}>{UI_STRINGS.ctas.tertiary.useInMessages}</button>
             )}
+            {!!lastAssistantText && (
+              <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={saveAssistantAsBrandFact}>Save as brand fact</button>
+            )}
+            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={updateBrandVoice}>Update brand voice</button>
             <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('dashboard')}>{UI_STRINGS.ctas.tertiary.guideMe}: Dashboard</button>
-            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('integrations')}>{UI_STRINGS.ctas.tertiary.guideMe}: Integrations</button>
+            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('integrations')}>{UI_STRINGS.ctas.tertiary.guideMe}: Settings/Connections</button>
             <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('onboarding')}>{UI_STRINGS.ctas.tertiary.guideMe}: Onboarding</button>
             <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=integrations&tour=twilio') }>{UI_STRINGS.ctas.tertiary.connectSmsTwilio}</button>
           </div>

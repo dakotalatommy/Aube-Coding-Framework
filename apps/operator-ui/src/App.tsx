@@ -6,7 +6,9 @@ import Breadcrumbs from './components/Breadcrumbs';
 import { ToastProvider } from './components/ui/Toast';
 import { useLenis } from './hooks/useLenis';
 import { Provider as TooltipProvider } from '@radix-ui/react-tooltip';
-import AskFloat from './components/AskFloat';
+// import AskFloat from './components/AskFloat';
+import CommandBar from './components/CommandBar';
+import ActionDrawer from './components/ActionDrawer';
 import { initAnalytics, trackPage } from './lib/analytics';
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Messages = lazy(() => import('./pages/Messages'));
@@ -18,11 +20,12 @@ const Ask = lazy(() => import('./pages/Ask'));
 const Admin = lazy(() => import('./pages/Admin'));
 const Agent = lazy(() => import('./pages/Agent'));
 const Vision = lazy(() => import('./pages/Vision'));
-const Onboarding = lazy(() => import('./pages/Onboarding'));
+const Onboarding = lazy(() => import('./onboarding/app-shell/OnboardingRoot'));
 const Calendar = lazy(() => import('./pages/Calendar'));
 const Inventory = lazy(() => import('./pages/Inventory'));
 const Curation = lazy(() => import('./pages/Curation'));
 const Inbox = lazy(() => import('./pages/Inbox'));
+const Styles = lazy(() => import('./pages/Workflows'));
 const Login = lazy(() => import('./pages/Login'));
 const Signup = lazy(() => import('./pages/Signup'));
 const Tutorial = lazy(() => import('./pages/Tutorial'));
@@ -39,7 +42,7 @@ const AuthCallback = lazy(() => import('./pages/AuthCallback'));
 function RouteContent() {
   const loc = useLocation();
   const embed = new URLSearchParams(loc.search).get('embed') === '1';
-  const hideCrumbs = loc.pathname === '/workspace';
+  const hideCrumbs = loc.pathname === '/workspace' || loc.pathname === '/login' || loc.pathname === '/signup';
   initAnalytics();
   try { trackPage(loc.pathname + loc.search); } catch {}
   if (loc.pathname === '/landing-v2') {
@@ -68,6 +71,8 @@ function RouteContent() {
         <Route path="/inbox" element={<Inbox />} />
         <Route path="/ask" element={<Ask />} />
         <Route path="/workflows" element={<Navigate to="/workspace?pane=workflows" replace />} />
+        <Route path="/styles" element={<Styles />} />
+        <Route path="/styles/actions" element={<Navigate to="/styles?step=2" replace />} />
         <Route path="/vision" element={<Vision />} />
         <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
@@ -111,9 +116,6 @@ function Shell() {
   const onLanding = loc.pathname === '/brandvx';
   const onAskPage = loc.pathname.startsWith('/ask');
   const onDemo = loc.pathname.startsWith('/demo') || loc.pathname.startsWith('/ask-vx-demo');
-  // Only show AskFloat in workspace/dashboard to avoid overlays elsewhere
-  const onlyWorkspace = loc.pathname.startsWith('/workspace') || loc.pathname === '/dashboard';
-  const showAsk = !embed && !onAskPage && !onDemo && onlyWorkspace;
 
   // Clear Ask VX persisted state on pure landing to avoid stray artifacts
   useEffect(()=>{
@@ -129,7 +131,7 @@ function Shell() {
       {!embed && (
         <a href="#main" className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:bg-white focus:text-slate-900 focus:px-3 focus:py-2 focus:rounded-md focus:shadow">Skip to content</a>
       )}
-      <div className="relative h-screen overflow-hidden">
+      <div className="relative h-[100dvh] overflow-hidden">
         {!embed && (
           <div aria-hidden className="absolute inset-0 -z-10" style={{
             background: 'radial-gradient(1200px 400px at 10% -10%, rgba(236,72,153,0.14), transparent), radial-gradient(900px 300px at 90% -20%, rgba(99,102,241,0.12), transparent)'
@@ -142,7 +144,9 @@ function Shell() {
               <RouteContent />
             </Suspense>
           </main>
-          {!embed && showAsk && <AskFloat />}
+          {/* Command Mode: dockless AskVX */}
+          {!embed && !onAskPage && !onDemo && <CommandBar />}
+          {!embed && !onAskPage && !onDemo && <ActionDrawer />}
         </div>
       </div>
     </>

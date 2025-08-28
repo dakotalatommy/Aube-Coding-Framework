@@ -6,7 +6,7 @@ export default function Tutorial(){
   useEffect(()=>{ try{ startGuide('workflows'); } catch{} },[]);
   const steps = [
     { id: 1, title: 'Onboarding', desc: 'Connect tools and set tone. We’ll autosave as you go.', href: '/onboarding?tour=1' },
-    { id: 2, title: 'Workflows', desc: 'Run dedupe, low‑stock, and social plan quick actions.', href: '/workflows?tour=1' },
+    { id: 2, title: 'Work Styles', desc: 'Run dedupe, low‑stock, and social plan quick actions.', href: '/workflows?tour=1' },
     { id: 3, title: 'Inbox', desc: 'See unified messages; filters and guides are ready.', href: '/inbox?tour=1' },
   ];
   return (

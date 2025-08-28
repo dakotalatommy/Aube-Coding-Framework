@@ -163,6 +163,7 @@ export default function Integrations(){
       const r = await api.post('/settings',{ tenant_id: await getTenant(), ...settings, preferences: prefs });
       setStatus(JSON.stringify(r));
       try { showToast({ title:'Settings saved', description:'Settings saved successfully' }); } catch {}
+      try { localStorage.setItem('bvx_onboarding_done','1'); } catch {}
     }
     catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
@@ -182,6 +183,15 @@ export default function Integrations(){
   const sendTestEmail = async () => {
     try{ setBusy(true); const r = await api.post('/messages/send',{ tenant_id: await getTenant(), contact_id:'c_demo', channel:'email', subject:'BrandVX Test', body:'<p>Hello from BrandVX</p>' }); setStatus(JSON.stringify(r)); try { showToast({ title:'Test email sent', description:'Test email sent successfully' }); } catch {} }
     catch(e:any){ setStatus(String(e?.message||e)); }
+    finally{ setBusy(false); }
+  };
+  const saveTraining = async () => {
+    try{
+      setBusy(true);
+      const r = await api.post('/settings', { tenant_id: await getTenant(), training_notes: settings.training_notes||'' });
+      setStatus(JSON.stringify(r));
+      try { showToast({ title:'Saved', description:'Training notes saved' }); } catch {}
+    } catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
   };
   const enableSms = async () => {
@@ -237,6 +247,7 @@ export default function Integrations(){
           return;
         }
       }
+      // Defensive: ensure backend returns an oauth link even if first attempt is slow
       // Request the login URL with a generous window; avoid AbortController races
       const r = await api.get(`/oauth/${provider}/login?tenant_id=${encodeURIComponent(await getTenant())}`, { timeoutMs: 25000 });
       if (r?.url) {
@@ -254,7 +265,7 @@ export default function Integrations(){
               try { window.location.href = r2.url; } catch { window.location.assign(r2.url); }
               setTimeout(()=>{ try { if (document.visibilityState === 'visible') window.location.assign(r2.url); } catch {} }, 600);
             } else {
-              setErrorMsg('Connect link unavailable. Verify provider credentials, sandbox vs prod, and callback URLs.');
+              setErrorMsg('Connect link unavailable. Verify provider credentials, sandbox vs prod, and callback URLs. Use “View redirect URIs” with ?dev=1.');
             }
           }catch{}
         }, 800);
@@ -283,15 +294,37 @@ export default function Integrations(){
       setBusy(false);
     }
   };
+  // Full-height canvas first screen gate when coming from demo or fresh
+  const [showIntro, setShowIntro] = useState<boolean>(()=>{
+    try{
+      const seen = sessionStorage.getItem('bvx_integrations_intro_seen') === '1';
+      return !seen;
+    }catch{ return false; }
+  });
+  if (showIntro) {
+    return (
+      <div className="space-y-3 overflow-hidden min-h-[calc(100vh-var(--ask-float-height,0px)-48px)]">
+        <section className="grid place-items-center h-[calc(100vh-var(--ask-float-height,0px)-80px)]">
+          <div className="max-w-lg text-center rounded-2xl p-6 bg-white/70 backdrop-blur border border-white/70 shadow-sm">
+            <div className="text-lg font-semibold text-slate-900">Settings & Connections</div>
+            <div className="text-sm text-slate-600 mt-1">We’ll connect booking, messages, and (optionally) CRM. One step at a time.</div>
+            <div className="mt-4 flex justify-center">
+              <Button onClick={()=>{ setShowIntro(false); try{ sessionStorage.setItem('bvx_integrations_intro_seen','1'); }catch{} }}>Start</Button>
+            </div>
+          </div>
+        </section>
+      </div>
+    );
+  }
   return (
-    <div className="space-y-3 overflow-hidden">
+    <div className="space-y-3 overflow-hidden min-h-[calc(100vh-var(--ask-float-height,0px)-48px)]">
       <div className="flex items-center sticky top-0 z-10 bg-[var(--sticky-bg,white)]/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 rounded-md px-1 py-1">
         <h3 className="text-lg font-semibold">Settings & Connections</h3>
         <div className="flex items-center gap-2 ml-auto">
           <span className="text-xs text-slate-600 px-2 py-1 rounded-md border bg-white/70">
             TZ: {Intl.DateTimeFormat().resolvedOptions().timeZone} (UTC{computeOffsetHours()>=0?'+':''}{computeOffsetHours()})
           </span>
-          <Button variant="outline" size="sm" onClick={reanalyze} aria-label="Re-analyze connections" data-guide="reanalyze">{UI_STRINGS.ctas.secondary.reanalyze}</Button>
+          <Button variant="outline" size="sm" onClick={()=>{ reanalyze(); try{ track('reanalyze_clicked', { area:'integrations' }); }catch{} }} aria-label="Re-analyze connections" data-guide="reanalyze">{UI_STRINGS.ctas.secondary.reanalyze}</Button>
           <Button variant="outline" size="sm" aria-label="Open integrations guide" onClick={()=>{
             try { track('guide_open', { area: 'integrations' }); } catch {}
             const d = driver({ showProgress: true, steps: [
@@ -303,6 +336,11 @@ export default function Integrations(){
           }}>{UI_STRINGS.ctas.tertiary.guideMe}</Button>
         </div>
       </div>
+      {isDemo && (
+        <div className="rounded-md border bg-amber-50 border-amber-200 text-amber-900 text-xs px-2 py-1 inline-block">
+          Demo mode — external provider connections are off. Explore UI and previews here; enable Twilio/SendGrid after signup.
+        </div>
+      )}
       {onboarding?.providers && (
         <div className="flex items-center gap-2">
           <span className="text-xs text-slate-700 bg-white/70 border border-white/70 rounded-md px-2 py-1 inline-block">
@@ -401,6 +439,17 @@ export default function Integrations(){
           <Button variant="outline" disabled={busy} onClick={sendTestSms}>Send Test SMS</Button>
           <Button variant="outline" disabled={busy} onClick={sendTestEmail}>Send Test Email</Button>
         </div>
+        <section className="rounded-2xl p-3 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
+          <div className="font-medium text-slate-900">Train VX</div>
+          <div className="text-sm text-slate-600 mt-1">Add context, phrases, and do/don’t guidance. VX will prefer this voice.</div>
+          <textarea className="mt-2 w-full border rounded-md px-3 py-2 bg-white text-sm" rows={5} placeholder="e.g., We always say 'gentle nudge' not 'blast'. Short, kind, clear."
+            value={settings.training_notes||''}
+            onChange={e=> setSettings({...settings, training_notes: e.target.value})}
+          />
+          <div className="mt-2 flex gap-2">
+            <Button variant="outline" size="sm" disabled={busy} onClick={saveTraining}>Save training</Button>
+          </div>
+        </section>
       </div>
       )}
 
@@ -477,9 +526,13 @@ export default function Integrations(){
               } catch(e:any){ setStatus(String(e?.message||e)); }
             }}>Provision number</Button>
             {twilioFrom && <span className="text-xs text-slate-600">From: {twilioFrom}</span>}
-            <Button variant="outline" disabled={busy || isDemo} onClick={()=>{ try{ track('twilio_test_sms'); }catch{}; if (isDemo) { setStatus('Demo: sending disabled'); return; } sendTestSms(); try { showToast({ title:'Test SMS sent', description:'Test SMS sent successfully' }); } catch {} }}>{isDemo? 'Send test (disabled)' : 'Send test SMS'}</Button>
-            <Button variant="outline" disabled={busy || isDemo} onClick={()=>{ if (isDemo) { setStatus('Demo: console unavailable'); return; } try{ track('twilio_console_open'); }catch{}; window.open('https://www.twilio.com/console', '_blank', 'noreferrer'); try { showToast({ title:'Opening Twilio Console' }); } catch {} }}>{isDemo? 'Twilio Console (demo off)' : 'Open Twilio Console'}</Button>
-            <Button variant="outline" disabled={busy || isDemo} onClick={()=>{ if (isDemo) { setStatus('Demo: guide external link unavailable'); return; } try{ track('twilio_docs_open'); }catch{}; window.open('https://www.twilio.com/en-us/messaging/channels/sms', '_blank', 'noreferrer'); }}>{isDemo? 'Twilio Guide (demo off)' : 'Twilio SMS Guide'}</Button>
+            <Button variant="outline" disabled={busy || isDemo} onClick={()=>{ try{ track('twilio_test_sms'); }catch{}; if (isDemo) { setStatus('Demo: sending disabled'); return; } sendTestSms(); try { showToast({ title:'Test SMS sent', description:'Test SMS sent successfully' }); } catch {} }}>{isDemo? 'Send test (demo off)' : 'Send test SMS'}</Button>
+            {!isDemo && (
+              <>
+                <Button variant="outline" disabled={busy} onClick={()=>{ try{ track('twilio_console_open'); }catch{}; window.open('https://www.twilio.com/console', '_blank', 'noreferrer'); try { showToast({ title:'Opening Twilio Console' }); } catch {} }}>Open Twilio Console</Button>
+                <Button variant="outline" disabled={busy} onClick={()=>{ try{ track('twilio_docs_open'); }catch{}; window.open('https://www.twilio.com/en-us/messaging/channels/sms', '_blank', 'noreferrer'); }}>Twilio SMS Guide</Button>
+              </>
+            )}
           </div>
           <div className="mt-2 text-xs text-amber-700">
             {isDemo ? 'Coming soon in demo. In live workspaces, you can provision a dedicated Twilio business number (no personal numbers).' : 'Use a dedicated Twilio business number for SMS. We’ll add number porting support later. For now, personal mobile numbers are not supported.'}
@@ -597,7 +650,6 @@ export default function Integrations(){
         </section>
         )}
       </div>
-
       {/* Image generation for users is available on the Vision page; intentionally not exposed here to avoid changing app imagery. */}
       <pre className="whitespace-pre-wrap mt-3 text-sm text-slate-700">{status}</pre>
     </div>
