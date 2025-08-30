@@ -465,6 +465,16 @@ def _connected_accounts_columns(db: Session) -> set:
     except Exception:
         return set()
 
+def _audit_logs_columns(db: Session) -> set:
+    try:
+        rows = db.execute(_sql_text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'audit_logs' AND table_schema = 'public'
+        """)).fetchall()
+        return {str(r[0]) for r in rows}
+    except Exception:
+        return set()
+
 def _insert_connected_account(db: Session, tenant_id: str, user_id: str, provider: str,
                               status: str, access_token_enc: Optional[str],
                               refresh_token_enc: Optional[str], expires_at: Optional[int],
@@ -784,20 +794,27 @@ def connected_accounts_list(
                 items.append({"provider": str(r[0] or ""), "status": str(r[1] or ""), "ts": int(r[2] or 0)})
             else:
                 items.append({"provider": str(r[0] or ""), "status": "unknown", "ts": int(r[1] or 0)})
-        last_cb = db.execute(
-            _sql_text(
-                "SELECT action, created_at, payload FROM audit_logs WHERE tenant_id = :t AND action LIKE 'oauth.callback.%' ORDER BY id DESC LIMIT 1"
-            ),
-            {"t": tenant_id},
-        ).fetchone()
+        # Tolerate legacy audit_logs schemas missing 'payload'
+        a_cols = _audit_logs_columns(db)
+        sel_cols = ["action", "created_at"]
+        if "payload" in a_cols:
+            sel_cols.append("payload")
+        sql = f"SELECT {', '.join(sel_cols)} FROM audit_logs WHERE tenant_id = :t AND action LIKE 'oauth.callback.%' ORDER BY id DESC LIMIT 1"
+        last_cb = db.execute(_sql_text(sql), {"t": tenant_id}).fetchone()
         last = None
         if last_cb:
             try:
-                last = {
-                    "action": str(last_cb[0] or ""),
-                    "ts": int(last_cb[1] or 0),
-                    "payload": str(last_cb[2] or ""),
-                }
+                if len(sel_cols) == 3:
+                    last = {
+                        "action": str(last_cb[0] or ""),
+                        "ts": int(last_cb[1] or 0),
+                        "payload": str(last_cb[2] or ""),
+                    }
+                else:
+                    last = {
+                        "action": str(last_cb[0] or ""),
+                        "ts": int(last_cb[1] or 0),
+                    }
             except Exception:
                 last = {"action": str(last_cb[0] or ""), "ts": 0, "payload": ""}
         return {"items": items, "last_callback": last}
