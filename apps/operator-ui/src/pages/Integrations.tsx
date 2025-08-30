@@ -59,12 +59,7 @@ export default function Integrations(){
     } catch(e:any){ setStatus(String(e?.message||e)); }
   };
 
-  const loadPreflight = async () => {
-    try{
-      const pf = await api.get('/integrations/preflight');
-      setStatus((s)=> s ? s + `\nPreflight: ${JSON.stringify(pf)}` : `Preflight: ${JSON.stringify(pf)}`);
-    } catch {}
-  };
+  // (removed troubleshooting preflight UI)
 
   useEffect(()=>{
     (async()=>{
@@ -84,7 +79,7 @@ export default function Integrations(){
           setLastCallback(ca?.last_callback || null);
         }
       }catch{}
-      try { await loadPreflight(); } catch {}
+      // (removed troubleshooting preflight UI)
       try{
         const l = await api.get(`/integrations/booking/square/link?tenant_id=${encodeURIComponent(await getTenant())}`);
         setSquareLink(l?.url||'');
@@ -338,7 +333,7 @@ export default function Integrations(){
   if (showIntro) {
     return (
       <>
-        <div className="space-y-3 overflow-hidden min-h-[calc(100vh-var(--ask-float-height,0px)-48px)]">
+        <div className="space-y-3 overflow-hidden min-h-[calc(100vh-var(--bvx-commandbar-height,64px)-48px)]">
           <section className="grid place-items-center h-[calc(100vh-var(--ask-float-height,0px)-80px)]">
             <div className="max-w-lg text-center rounded-2xl p-6 bg-white/70 backdrop-blur border border-white/70 shadow-sm">
               <div className="text-lg font-semibold text-slate-900">Settings & Connections</div>
@@ -363,15 +358,14 @@ export default function Integrations(){
     );
   }
   return (
-    <div className="space-y-3 overflow-hidden min-h-[calc(100vh-var(--ask-float-height,0px)-48px)]">
-      <div className="flex items-center sticky top-0 z-10 bg-[var(--sticky-bg,white)]/90 backdrop-blur supports-[backdrop-filter]:bg-white/70 rounded-md px-1 py-1">
+    <div className="space-y-3 overflow-hidden min-h-[calc(100vh-var(--bvx-commandbar-height,64px)-48px)]">
+      <div className="flex items-center sticky top-0 z-10 bg-white/80 backdrop-blur rounded-md px-1 py-1">
         <h3 className="text-lg font-semibold">Settings & Connections</h3>
         <div className="flex items-center gap-2 ml-auto">
           <span className="text-xs text-slate-600 px-2 py-1 rounded-md border bg-white/70">
             TZ: {Intl.DateTimeFormat().resolvedOptions().timeZone} (UTC{computeOffsetHours()>=0?'+':''}{computeOffsetHours()})
           </span>
           <Button variant="outline" size="sm" onClick={()=>{ reanalyze(); try{ track('reanalyze_clicked', { area:'integrations' }); }catch{} }} aria-label="Re-analyze connections" data-guide="reanalyze">{UI_STRINGS.ctas.secondary.reanalyze}</Button>
-          <Button variant="outline" size="sm" onClick={loadPreflight}>Preflight</Button>
           <Button variant="outline" size="sm" aria-label="Open integrations guide" onClick={()=>{
             try { track('guide_open', { area: 'integrations' }); } catch {}
             const d = driver({ showProgress: true, steps: [
@@ -383,16 +377,7 @@ export default function Integrations(){
           }}>{UI_STRINGS.ctas.tertiary.guideMe}</Button>
         </div>
       </div>
-      {(connAccounts?.length>0 || lastCallback) && (
-        <div className="text-[11px] text-slate-600 mt-1">
-          {connAccounts?.length>0 && (
-            <span>Connected: {connAccounts.map(x=>x.provider).join(', ')}</span>
-          )}
-          {lastCallback && (
-            <span className="ml-3">Last callback: {new Date((lastCallback.ts||0)*1000).toLocaleString()}</span>
-          )}
-        </div>
-      )}
+      {/* Simplified header; hide connected/last-callback troubleshooting details */}
       {isDemo && (
         <div className="rounded-md border bg-amber-50 border-amber-200 text-amber-900 text-xs px-2 py-1 inline-block">
           Demo mode — external provider connections are off. Explore UI and previews here; enable Twilio/SendGrid after signup.
