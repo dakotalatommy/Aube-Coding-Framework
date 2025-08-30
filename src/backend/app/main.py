@@ -48,6 +48,7 @@ import os.path as _osp
 from pathlib import Path as _Path
 from sqlalchemy import text as _sql_text
 from sqlalchemy import func as _sql_func
+import secrets as _secrets
 import time as _time
 import urllib.parse as _url
 import httpx
@@ -453,6 +454,15 @@ def upsert_usage_limit(body: UsageLimitUpsert, db: Session = Depends(get_db), ct
 # --- OAuth scaffolding helpers (env-driven) ---
 def _env(name: str, default: str = "") -> str:
     return os.getenv(name, default)
+
+def _new_cid() -> str:
+    try:
+        return _secrets.token_hex(8)
+    except Exception:
+        try:
+            return os.urandom(8).hex()
+        except Exception:
+            return str(int(_time.time()*1000))
 
 # --- Connected account helpers (handle legacy 'platform' column) ---
 def _connected_accounts_columns(db: Session) -> set:
@@ -3793,6 +3803,14 @@ def oauth_login(provider: str, tenant_id: Optional[str] = None, ctx: UserContext
         return {"url": ""}
     _t = tenant_id or ctx.tenant_id
     url = _oauth_authorize_url(provider, tenant_id=_t)
+    # Attach correlation id for traceability in callback logs
+    try:
+        if url:
+            cid = _new_cid()
+            sep = '&' if '?' in url else '?'
+            url = f"{url}{sep}cid={cid}"
+    except Exception:
+        pass
     # Cache state marker for CSRF verification in callback
     try:
         if url and "state=" in url:
@@ -3899,7 +3917,11 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
         except Exception:
             pass
         try:
-            db.add(dbm.AuditLog(tenant_id=t_id, actor_id="system", action=f"oauth.callback.{provider}", entity_ref="oauth", payload=str({"code": bool(code), "error": error or "", "exchange_ok": exchange_ok, **({} if not exchange_detail else exchange_detail)})))
+            cid = request.query_params.get('cid') or ''
+            payload = {"code": bool(code), "error": error or "", "exchange_ok": exchange_ok, **({} if not exchange_detail else exchange_detail)}
+            if cid:
+                payload["cid"] = cid
+            db.add(dbm.AuditLog(tenant_id=t_id, actor_id="system", action=f"oauth.callback.{provider}", entity_ref="oauth", payload=str(payload)))
             db.commit()
         except Exception:
             try: db.rollback()

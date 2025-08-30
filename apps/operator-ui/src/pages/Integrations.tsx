@@ -38,6 +38,13 @@ export default function Integrations(){
     } catch(e:any){ setStatus(String(e?.message||e)); }
   };
 
+  const loadPreflight = async () => {
+    try{
+      const pf = await api.get('/integrations/preflight');
+      setStatus((s)=> s ? s + `\nPreflight: ${JSON.stringify(pf)}` : `Preflight: ${JSON.stringify(pf)}`);
+    } catch {}
+  };
+
   useEffect(()=>{
     (async()=>{
       try{
@@ -48,6 +55,7 @@ export default function Integrations(){
         const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() });
         setOnboarding({ ...a?.summary, connectedMap: a?.summary?.connected || {}, providers: a?.summary?.providers || {} });
       }catch{}
+      try { await loadPreflight(); } catch {}
       try{
         const l = await api.get(`/integrations/booking/square/link?tenant_id=${encodeURIComponent(await getTenant())}`);
         setSquareLink(l?.url||'');
@@ -93,8 +101,17 @@ export default function Integrations(){
   // Focused provider mode: when returning from OAuth, jump to that section and optionally auto-return
   useEffect(()=>{
     try{
-      if (focusedProvider && returnHint === 'workspace' && sp.get('connected') === '1') {
-        setTimeout(()=>{ try{ window.location.assign('/workspace?pane=integrations'); }catch{} }, 1800);
+      const connected = sp.get('connected') === '1';
+      const error = sp.get('error') || '';
+      if (focusedProvider && connected) {
+        try { showToast({ title: `${focusedProvider.charAt(0).toUpperCase()+focusedProvider.slice(1)} connected` }); } catch {}
+        // Auto re-analyze so badges update immediately
+        reanalyze();
+        if (returnHint === 'workspace') {
+          setTimeout(()=>{ try{ window.history.replaceState({}, '', '/workspace?pane=integrations'); }catch{} }, 1200);
+        }
+      } else if (focusedProvider && error) {
+        try { showToast({ title: `${focusedProvider} connection failed`, description: error }); } catch {}
       }
     } catch{}
   }, [focusedProvider]);
@@ -313,6 +330,7 @@ export default function Integrations(){
             TZ: {Intl.DateTimeFormat().resolvedOptions().timeZone} (UTC{computeOffsetHours()>=0?'+':''}{computeOffsetHours()})
           </span>
           <Button variant="outline" size="sm" onClick={()=>{ reanalyze(); try{ track('reanalyze_clicked', { area:'integrations' }); }catch{} }} aria-label="Re-analyze connections" data-guide="reanalyze">{UI_STRINGS.ctas.secondary.reanalyze}</Button>
+          <Button variant="outline" size="sm" onClick={loadPreflight}>Preflight</Button>
           <Button variant="outline" size="sm" aria-label="Open integrations guide" onClick={()=>{
             try { track('guide_open', { area: 'integrations' }); } catch {}
             const d = driver({ showProgress: true, steps: [
