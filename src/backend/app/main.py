@@ -3803,6 +3803,41 @@ def oauth_login(provider: str, tenant_id: Optional[str] = None, ctx: UserContext
     return {"url": url}
 
 
+@app.get("/integrations/preflight", tags=["Integrations"])
+def integrations_preflight(ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+    """Report provider readiness: env present, redirect URI, env mode and last callback."""
+    try:
+        with next(get_db()) as db:  # type: ignore
+            base_api = _backend_base_url()
+            info: Dict[str, object] = {"providers": {}}
+            for prov in ["google","square","acuity","hubspot","facebook","instagram","shopify"]:
+                env_ok = bool(_env(f"{prov.upper()}_CLIENT_ID", "")) if prov not in {"facebook","instagram","shopify"} else bool(_env(f"{prov.upper()}_CLIENT_ID", "") or _env(f"{prov.upper()}_APP_ID", ""))
+                info["providers"][prov] = {
+                    "env": env_ok,
+                    "redirect": _redirect_uri(prov),
+                }
+            # Last oauth callback overall
+            a_cols = _audit_logs_columns(db)
+            sel_cols = ["action","created_at"] + (["payload"] if "payload" in a_cols else [])
+            last = db.execute(_sql_text(f"SELECT {', '.join(sel_cols)} FROM audit_logs WHERE action LIKE 'oauth.callback.%' ORDER BY id DESC LIMIT 1")).fetchone()
+            info["last_callback"] = {"action": (last[0] if last else None), "ts": (int(last[1]) if last else None)}
+            return info
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/debug/cors", tags=["Health"])
+def debug_cors(request: Request):
+    try:
+        return {
+            "origin": request.headers.get("Origin"),
+            "allow_origins": cors_origins,
+            "allow_regex": cors_regex,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @app.get("/oauth/{provider}/callback", tags=["Integrations"])  # scaffold
 def oauth_callback(provider: str, request: Request, code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None, db: Session = Depends(get_db)):
     # Store a minimal connected-account record even if app credentials are missing
@@ -3925,15 +3960,21 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"imported": 0}
     # Retrieve Square access token
-    ca = (
-        db.query(dbm.ConnectedAccount)
-        .filter(dbm.ConnectedAccount.tenant_id == req.tenant_id, dbm.ConnectedAccount.provider == "square")
-        .order_by(dbm.ConnectedAccount.id.desc())
-        .first()
-    )
-    if not ca:
+    # Tolerant load of latest Square access token
+    token = ""
+    try:
+        cols = _connected_accounts_columns(db)
+        name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
+        if name_col:
+            sel = ["access_token_enc"]
+            sql = f"SELECT {', '.join(sel)} FROM connected_accounts WHERE tenant_id = :t AND {name_col} = 'square' ORDER BY id DESC LIMIT 1"
+            row = db.execute(_sql_text(sql), {"t": req.tenant_id}).fetchone()
+            if row and row[0]:
+                token = decrypt_text(str(row[0])) or ""
+    except Exception:
+        token = ""
+    if not token:
         return {"imported": 0}
-    token = decrypt_text(ca.access_token_enc or "") or ""
     if not token:
         return {"imported": 0}
 
@@ -6041,8 +6082,7 @@ def inbox_list(
     items: List[Dict[str, object]] = []
     try:
         with next(get_db()) as db:  # type: ignore
-            conns = db.query(dbm.ConnectedAccount).filter(dbm.ConnectedAccount.tenant_id == tenant_id).all()
-            statuses = {c.provider: c.status for c in (conns or [])}
+            statuses = _connected_accounts_map(db, tenant_id)
             # Load services from settings to decide if sms/email should appear
             services: List[str] = []
             try:
