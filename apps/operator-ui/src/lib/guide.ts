@@ -4,6 +4,21 @@ import { track } from './analytics';
 import 'driver.js/dist/driver.css';
 
 const registry: Record<string, GuideStep[]> = {
+  workspace_intro: [
+    { element: '[data-tour="nav-dashboard"]', popover: { title: 'Dashboard', description: 'KPIs and quick actions live here.' } },
+    { element: '[data-tour="nav-messages"]', popover: { title: 'Messages', description: 'Preview and later send SMS/Email in your voice.' } },
+    { element: '[data-tour="nav-contacts"]', popover: { title: 'Contacts', description: 'Import from booking/CRM; manage consent.' } },
+    { element: '[data-tour="nav-calendar"]', popover: { title: 'Calendar', description: 'Merge Google/Apple with Square/Acuity.' } },
+    { element: '[data-tour="nav-cadences"]', popover: { title: 'Follow‑ups', description: 'Friendly follow‑ups; quiet hours and approvals respected.' } },
+    { element: '[data-tour="nav-inventory"]', popover: { title: 'Inventory', description: 'Track low/out‑of‑stock; sync Shopify/Square.' } },
+    { element: '[data-tour="nav-integrations"]', popover: { title: 'Settings/Connections', description: 'Connect tools one step at a time.' } },
+    { element: '[data-tour="nav-workflows"]', popover: { title: 'Work Styles', description: 'Playbooks like 14‑day Social and 10‑Minute Wow.' } },
+    { element: '[data-tour="nav-approvals"]', popover: { title: 'Approvals', description: 'We’ll pause here when your OK is needed.' } },
+    { element: '#bvx-commandbar', popover: { title: 'Ask or type a command', description: 'Quickly navigate or run actions. You approve anything impactful.' } },
+    { element: '[data-tour="demo-toggle"]', popover: { title: 'Demo mode', description: 'Turn demo on/off. Demo uses simulated data only.' } },
+    { element: '[data-tour="book-onboarding"]', popover: { title: 'Book onboarding', description: 'Prefer a white‑glove walkthrough? Book a time.' } },
+    { element: '[data-tour="signup"]', popover: { title: 'Sign up / Sign out', description: 'Create your workspace or sign out anytime.' } },
+  ],
   onboarding: [
     { element: '[data-tour="steps"]', popover: { title: 'Steps', description: 'Quick 5 steps — you can jump around anytime.' } },
     { element: '[data-tour="connect"]', popover: { title: 'Connect tools', description: 'Link booking, messages, payments, and CRM. We keep it human.' } },
@@ -33,10 +48,10 @@ const registry: Record<string, GuideStep[]> = {
     { popover: { title: 'Beta note', description: 'Sending will be enabled soon. For now, use Copy recipients + Copy message and Mark as sent.' } },
   ],
   cadences: [
-    { popover: { title: 'Cadences', description: 'Set up human‑feel follow‑ups; scheduler runs due actions with quiet hours respected.' } },
+    { popover: { title: 'Follow‑ups', description: 'Set up human‑feel follow‑ups. “Update follow‑ups” processes due steps and respects quiet hours.' } },
     { element: '[data-guide="kpis"]', popover: { title: 'Coverage', description: 'See how many contacts are in each step and what’s next.' } },
-    { element: '[data-guide="send-form"]', popover: { title: 'Compose & guardrails', description: 'We honor STOP/HELP, quiet hours, and approvals (if auto‑approve is off).' } },
-    { element: '[data-guide="actions"]', popover: { title: 'Start / Stop', description: 'You can start or stop a cadence anytime; actions may queue Approvals.' } },
+    { element: '[data-guide="send-form"]', popover: { title: 'Compose & guardrails', description: 'STOP/HELP, quiet hours, and approvals (if auto‑approve is off) are always respected.' } },
+    { element: '[data-guide="actions"]', popover: { title: 'Start / Stop', description: 'Start or stop a follow‑up anytime; some steps may queue Approvals.' } },
   ],
   inventory: [
     { popover: { title: 'Inventory', description: 'Sync Shopify/Square; review low/out‑of‑stock and restock fast.' } },
@@ -187,6 +202,14 @@ export function startGuide(page: string) {
     steps,
   } as any);
   d.drive();
+  try {
+    // Notify workspace when the intro finishes so onboarding prompt can trigger
+    if (page === 'workspace_intro' && typeof (d as any).on === 'function') {
+      (d as any).on('destroyed', () => {
+        try { window.dispatchEvent(new CustomEvent('bvx:guide:workspace_intro:done')); } catch {}
+      });
+    }
+  } catch {}
 }
 
 

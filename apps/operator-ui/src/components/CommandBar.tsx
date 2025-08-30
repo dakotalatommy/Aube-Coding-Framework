@@ -18,8 +18,9 @@ export default function CommandBar(){
     const ids = allActionIds
       .filter(id=> id.startsWith('nav.') || id.startsWith('guide.') || id.startsWith('workflows.run.') || id.startsWith('integrations.'))
       .slice(0, 50);
-    if (!q) return ids.slice(0, 6);
-    return ids.filter(id=> id.toLowerCase().includes(q)).slice(0, 6);
+    const filtered = ids.filter(id=> id !== 'workflows.run.wow10');
+    if (!q) return filtered.slice(0, 6);
+    return filtered.filter(id=> id.toLowerCase().includes(q)).slice(0, 6);
   }, [allActionIds, query]);
 
   function requiresApproval(id: string): boolean {
@@ -54,7 +55,7 @@ export default function CommandBar(){
   }
 
   return (
-    <div ref={containerRef} className="fixed left-1/2 -translate-x-1/2 bottom-[env(safe-area-inset-bottom,0px)] z-40 w-full px-4 md:px-6 pb-4" id="bvx-commandbar">
+    <div ref={containerRef} className="fixed left-1/2 -translate-x-1/2 bottom-[env(safe-area-inset-bottom,0px)] z-40 w-full px-4 md:px-6 pb-4" id="bvx-commandbar" style={{ minHeight: 64 }}>
       <div className="mx-auto max-w-3xl rounded-2xl border bg-white/95 backdrop-blur shadow-lg">
         <div className="flex items-center gap-2 px-3 py-2">
           <input

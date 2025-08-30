@@ -208,7 +208,14 @@ export default function Approvals(){
         </div>
       ) : (
       (items.filter(f=> (onlyPending ? (f.status||'pending')==='pending' : true) && (q? JSON.stringify(f).toLowerCase().includes(q.toLowerCase()): true)).length === 0) ? (
-        <EmptyState title="No approvals waiting" description="New actions that affect clients will appear here for your review." />
+        <div className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
+          <EmptyState title="No approvals waiting" description="When VX needs your OK, it will show here. In the meantime, you can set up your Work Styles or run a quick action." />
+          <div className="mt-3 flex flex-wrap gap-2 text-sm">
+            <Button variant="outline" onClick={()=> window.location.assign('/workspace?pane=workflows')}>Set up Work Styles</Button>
+            <Button variant="outline" onClick={()=> window.location.assign('/workspace?pane=workflows&step=1')}>Open Actions</Button>
+            <Button variant="outline" onClick={()=> window.location.assign('/workspace?pane=integrations')}>Connect tools</Button>
+          </div>
+        </div>
       ) : (
         <>
           <div className="flex items-center justify-end gap-2 text-xs mb-2">

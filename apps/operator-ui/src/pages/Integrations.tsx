@@ -4,34 +4,17 @@ import { track } from '../lib/analytics';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import { driver } from 'driver.js';
-import StepPager from '../components/StepPager';
 import 'driver.js/dist/driver.css';
 import { UI_STRINGS } from '../lib/strings';
 import { useToast } from '../components/ui/Toast';
 
 export default function Integrations(){
   const { showToast } = useToast();
-  const [step, setStep] = useState<number>(()=>{
-    try{
-      const sp = new URLSearchParams(window.location.search);
-      const s = Number(sp.get('step')||'1');
-      return Math.max(1, Math.min(8, isFinite(s)? s : 1)) - 1;
-    } catch { return 0; }
-  });
+  // Single-page integrations view (no step pager)
   const sp = (()=>{ try { return new URLSearchParams(window.location.search); } catch { return new URLSearchParams(); } })();
   const providerFromURL = (()=>{ try{ return (sp.get('provider')||'').toLowerCase(); } catch { return ''; } })();
   const returnHint = (()=>{ try{ return (sp.get('return')||''); } catch { return ''; } })();
   const [focusedProvider] = useState<string>(providerFromURL);
-  const steps = [
-    { key:'overview', label:'Overview' },
-    { key:'twilio', label:'Twilio SMS' },
-    { key:'hubspot', label:'HubSpot' },
-    { key:'calendar', label:'Google/Calendar' },
-    { key:'booking', label:'Square/Acuity' },
-    { key:'shopify', label:'Shopify' },
-    { key:'settings', label:'Settings' },
-    { key:'reanalyze', label:'Re‑analyze' },
-  ];
   const SOCIAL_ON = (import.meta as any).env?.VITE_FEATURE_SOCIAL === '1';
   const SHOW_REDIRECT_URIS = ((import.meta as any).env?.VITE_SHOW_REDIRECT_URIS === '1') || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('dev'));
   const [settings, setSettings] = useState<any>({ tone:'helpful', services:['sms','email'], auto_approve_all:false, quiet_hours:{ start:'21:00', end:'08:00' }, brand_profile:{ name:'', voice:'', about:'' }, metrics:{ monthly_revenue:'', avg_service_price:'', avg_service_time:'', rent:'' }, goals:{ primary_goal:'' }, preferences:{} });
@@ -110,14 +93,8 @@ export default function Integrations(){
   // Focused provider mode: when returning from OAuth, jump to that section and optionally auto-return
   useEffect(()=>{
     try{
-      if (focusedProvider) {
-        const map: Record<string, number> = { hubspot:2, google:4, square:5, acuity:5, shopify:6 };
-        const idx = (map[focusedProvider] ?? 1) - 1;
-        setStep(idx);
-        // If asked to return to workspace, bounce after a short confirmation window
-        if (returnHint === 'workspace' && sp.get('connected') === '1') {
-          setTimeout(()=>{ try{ window.location.assign('/workspace?pane=integrations'); }catch{} }, 1800);
-        }
+      if (focusedProvider && returnHint === 'workspace' && sp.get('connected') === '1') {
+        setTimeout(()=>{ try{ window.location.assign('/workspace?pane=integrations'); }catch{} }, 1800);
       }
     } catch{}
   }, [focusedProvider]);
@@ -167,6 +144,17 @@ export default function Integrations(){
     }
     catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
+  };
+
+  // Toggle a provider between Demo and Live directly from the card
+  const setProviderLive = async (provider: string, live: boolean) => {
+    try {
+      setSettings((s:any)=> ({ ...s, providers_live: { ...(s.providers_live||{}), [provider]: live } }));
+      await api.post('/settings', { tenant_id: await getTenant(), providers_live: { ...(settings.providers_live||{}), [provider]: live } });
+      try { showToast({ title: 'Mode updated', description: `${provider}: ${live ? 'Live' : 'Demo'}` }); } catch {}
+    } catch(e:any) {
+      setErrorMsg(String(e?.message||e));
+    }
   };
 
   const computeOffsetHours = () => {
@@ -249,7 +237,7 @@ export default function Integrations(){
       }
       // Defensive: ensure backend returns an oauth link even if first attempt is slow
       // Request the login URL with a generous window; avoid AbortController races
-      const r = await api.get(`/oauth/${provider}/login?tenant_id=${encodeURIComponent(await getTenant())}`, { timeoutMs: 25000 });
+      const r = await api.get(`/oauth/${provider}/login?tenant_id=${encodeURIComponent(await getTenant())}&return=workspace`, { timeoutMs: 25000 });
       if (r?.url) {
         // Always navigate in the same tab immediately; popup blockers won't interfere
         try { window.location.href = r.url; } catch { window.location.assign(r.url); }
@@ -260,7 +248,7 @@ export default function Integrations(){
         setTimeout(async()=>{
           try{
             try { track('oauth_login_retry', { provider }); } catch {}
-            const r2 = await api.get(`/oauth/${provider}/login?tenant_id=${encodeURIComponent(await getTenant())}`, { timeoutMs: 20000 });
+            const r2 = await api.get(`/oauth/${provider}/login?tenant_id=${encodeURIComponent(await getTenant())}&return=workspace`, { timeoutMs: 20000 });
             if (r2?.url) {
               try { window.location.href = r2.url; } catch { window.location.assign(r2.url); }
               setTimeout(()=>{ try { if (document.visibilityState === 'visible') window.location.assign(r2.url); } catch {} }, 600);
@@ -365,7 +353,6 @@ export default function Integrations(){
           </div>
         </div>
       )}
-      {step===0 && (
       <div className="grid gap-3 max-w-xl">
         {onboarding?.providers && Object.entries(onboarding.providers).some(([,v])=> (v as boolean)===false) && (
           <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1">Some providers are pending app credentials; connect buttons will be disabled for those until configured.</div>
@@ -402,18 +389,7 @@ export default function Integrations(){
           <div className="text-slate-700">Primary goal</div>
           <Input placeholder="What do you want BrandVX to do first?" value={settings.goals?.primary_goal||''} onChange={e=> setSettings({...settings, goals:{ ...(settings.goals||{}), primary_goal:e.target.value }})} />
         </div>
-        <div className="text-sm text-slate-700">Provider mode</div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
-          {['google','square','acuity','hubspot','instagram','shopify'].map(p=> (
-            <label key={p} className="flex items-center justify-between rounded-md border bg-white p-2">
-              <span className="capitalize text-slate-700">{p}</span>
-              <span className="flex items-center gap-2">
-                <span className={`${settings.providers_live?.[p] ? 'text-emerald-700':'text-slate-600'}`}>{settings.providers_live?.[p] ? 'Live' : 'Sandbox'}</span>
-                <input type="checkbox" checked={!!settings.providers_live?.[p]} onChange={e=> setSettings((s:any)=> { const next = { ...(s.providers_live||{}) } as Record<string, boolean>; next[p] = e.target.checked; return { ...s, providers_live: next }; })} />
-              </span>
-            </label>
-          ))}
-        </div>
+        {/* Provider mode moved onto each integration card (Demo/Live) */}
         <label className="flex items-center gap-2 text-sm"> SMS
           <input type="checkbox" checked={settings.services?.includes('sms')} onChange={e=>{
             const s = new Set(settings.services||[]); e.target.checked ? s.add('sms') : s.delete('sms'); setSettings({...settings, services: Array.from(s)});
@@ -451,11 +427,9 @@ export default function Integrations(){
           </div>
         </section>
       </div>
-      )}
 
-      <StepPager steps={steps} index={step} onChange={setStep} persistKey="bvx_int_step" />
       <div className="grid md:grid-cols-3 gap-4 mt-1 overflow-hidden" data-guide="providers">
-        {step===0 && SHOW_REDIRECT_URIS && redirects && (
+        {SHOW_REDIRECT_URIS && redirects && (
           <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm md:col-span-3">
             <div className="flex items-center gap-2 mb-2">
               <div className="font-semibold text-slate-900">Redirect URIs</div>
@@ -486,14 +460,20 @@ export default function Integrations(){
             </div>
           </section>
         )}
-        {step===1 && (
+        {(
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
               <div className="font-semibold text-slate-900">HubSpot</div>
               <div className="text-sm text-slate-600">CRM sync (contacts + properties)</div>
             </div>
-            <span className={`px-2 py-1 rounded-full text-xs ${onboarding?.connectedMap?.hubspot==='connected' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{onboarding?.connectedMap?.hubspot==='connected' ? 'Connected' : (onboarding?.connectedMap?.hubspot||'Not linked')}</span>
+            <div className="flex items-center gap-2">
+              <span className={`px-2 py-1 rounded-full text-xs ${onboarding?.connectedMap?.hubspot==='connected' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{onboarding?.connectedMap?.hubspot==='connected' ? 'Connected' : (onboarding?.connectedMap?.hubspot||'Not linked')}</span>
+              <label className="inline-flex items-center gap-1 text-[11px]">
+                <span className={`${settings.providers_live?.hubspot ? 'text-emerald-700' : 'text-slate-600'}`}>{settings.providers_live?.hubspot ? 'Live' : 'Demo'}</span>
+                <input type="checkbox" checked={!!settings.providers_live?.hubspot} onChange={e=> setProviderLive('hubspot', e.target.checked)} />
+              </label>
+            </div>
           </div>
           <div className="mt-3 flex gap-2">
             <Button variant="outline" disabled={busy || connecting.hubspot || onboarding?.providers?.hubspot===false} onClick={()=> connect('hubspot')}>{connecting.hubspot ? 'Connecting…' : 'Connect HubSpot'}</Button>
@@ -505,14 +485,20 @@ export default function Integrations(){
         </section>
         )}
 
-        {step===1 && (
+        {(
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm" id="twilio-card" data-guide="twilio">
           <div className="flex items-center justify-between">
             <div>
               <div className="font-semibold text-slate-900">Twilio SMS</div>
               <div className="text-sm text-slate-600">Business SMS only — personal numbers not supported (yet). Each tenant uses their own number.</div>
             </div>
-            <span className="px-2 py-1 rounded-full text-xs bg-slate-100 text-slate-700">Requires Twilio</span>
+            <div className="flex items-center gap-2">
+              <span className="px-2 py-1 rounded-full text-xs bg-slate-100 text-slate-700">Requires Twilio</span>
+              <label className="inline-flex items-center gap-1 text-[11px]">
+                <span className={`${settings.providers_live?.twilio ? 'text-emerald-700' : 'text-slate-600'}`}>{settings.providers_live?.twilio ? 'Live' : 'Demo'}</span>
+                <input type="checkbox" checked={!!(settings.providers_live as any)?.twilio} onChange={e=> setProviderLive('twilio', e.target.checked)} />
+              </label>
+            </div>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button variant="outline" disabled={busy || isDemo} onClick={enableSms}>{isDemo ? 'Enable (live only)' : 'Enable SMS'}</Button>
@@ -540,7 +526,7 @@ export default function Integrations(){
         </section>
         )}
 
-        {step===4 && (
+        {(
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
@@ -573,14 +559,20 @@ export default function Integrations(){
         </section>
         )}
 
-        {step===6 && (
+        {(
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
               <div className="font-semibold text-slate-900">SendGrid</div>
               <div className="text-sm text-slate-600">Transactional email</div>
             </div>
-            <span className="px-2 py-1 rounded-full text-xs bg-slate-100 text-slate-700">Webhook ready</span>
+            <div className="flex items-center gap-2">
+              <span className="px-2 py-1 rounded-full text-xs bg-slate-100 text-slate-700">Webhook ready</span>
+              <label className="inline-flex items-center gap-1 text-[11px]">
+                <span className={`${settings.providers_live?.sendgrid ? 'text-emerald-700' : 'text-slate-600'}`}>{(settings.providers_live as any)?.sendgrid ? 'Live' : 'Demo'}</span>
+                <input type="checkbox" checked={!!(settings.providers_live as any)?.sendgrid} onChange={e=> setProviderLive('sendgrid', e.target.checked)} />
+              </label>
+            </div>
           </div>
           <div className="mt-3 flex gap-2">
             <Button variant="outline" disabled={busy} onClick={sendTestEmail}>{UI_STRINGS.ctas.secondary.sendTestEmail}</Button>
@@ -595,7 +587,13 @@ export default function Integrations(){
               <div className="font-semibold text-slate-900">Google / Apple Calendar</div>
               <div className="text-sm text-slate-600">Two-way calendar (merge bookings)</div>
             </div>
-            <span className={`px-2 py-1 rounded-full text-xs ${onboarding?.calendar_ready ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{onboarding?.calendar_ready? 'Ready' : 'Not linked'}</span>
+            <div className="flex items-center gap-2">
+              <span className={`px-2 py-1 rounded-full text-xs ${onboarding?.calendar_ready ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{onboarding?.calendar_ready? 'Ready' : 'Not linked'}</span>
+              <label className="inline-flex items-center gap-1 text-[11px]">
+                <span className={`${settings.providers_live?.google ? 'text-emerald-700' : 'text-slate-600'}`}>{settings.providers_live?.google ? 'Live' : 'Demo'}</span>
+                <input type="checkbox" checked={!!settings.providers_live?.google} onChange={e=> setProviderLive('google', e.target.checked)} />
+              </label>
+            </div>
           </div>
           <div className="mt-3 flex gap-2">
             <Button variant="outline" disabled={busy || connecting.google || onboarding?.providers?.google===false} onClick={()=> connect('google')}>{connecting.google ? 'Connecting…' : UI_STRINGS.ctas.secondary.connectGoogle}</Button>
@@ -605,14 +603,20 @@ export default function Integrations(){
           {onboarding?.providers?.google===false && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Google OAuth to enable.</div>}
         </section>
 
-        {step===0 && SOCIAL_ON && (
+        {SOCIAL_ON && (
           <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
                 <div className="font-semibold text-slate-900">Instagram</div>
                 <div className="text-sm text-slate-600">DMs & comments in Master Inbox</div>
               </div>
-              <span className={`px-2 py-1 rounded-full text-xs ${onboarding?.inbox_ready ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{onboarding?.inbox_ready? 'Ready' : 'Not linked'}</span>
+              <div className="flex items-center gap-2">
+                <span className={`px-2 py-1 rounded-full text-xs ${onboarding?.inbox_ready ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{onboarding?.inbox_ready? 'Ready' : 'Not linked'}</span>
+                <label className="inline-flex items-center gap-1 text-[11px]">
+                  <span className={`${settings.providers_live?.instagram ? 'text-emerald-700' : 'text-slate-600'}`}>{settings.providers_live?.instagram ? 'Live' : 'Demo'}</span>
+                  <input type="checkbox" checked={!!settings.providers_live?.instagram} onChange={e=> setProviderLive('instagram', e.target.checked)} />
+                </label>
+              </div>
             </div>
             <div className="mt-3 flex gap-2">
               <Button variant="outline" disabled={busy || connecting.instagram || onboarding?.providers?.instagram===false} onClick={()=> connect('instagram')}>{connecting.instagram ? 'Connecting…' : UI_STRINGS.ctas.secondary.connectInstagram}</Button>
@@ -622,7 +626,7 @@ export default function Integrations(){
             {(onboarding?.providers?.instagram===false) && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Instagram OAuth to enable.</div>}
           </section>
         )}
-        {step===0 && !SOCIAL_ON && (
+        {!SOCIAL_ON && (
           <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
             <div className="font-semibold text-slate-900">Instagram</div>
             <div className="text-sm text-slate-600">Social inbox is not enabled for this environment.</div>
@@ -632,14 +636,20 @@ export default function Integrations(){
       </div>
 
       <div className="grid md:grid-cols-3 gap-4 mt-4">
-        {step===5 && (
+        {(
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
               <div className="font-semibold text-slate-900">Shopify</div>
               <div className="text-sm text-slate-600">Inventory & products</div>
             </div>
-            <span className={`px-2 py-1 rounded-full text-xs ${onboarding?.connectedMap?.shopify==='connected' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{onboarding?.connectedMap?.shopify==='connected' ? 'Connected' : (onboarding?.connectedMap?.shopify||'Not linked')}</span>
+            <div className="flex items-center gap-2">
+              <span className={`px-2 py-1 rounded-full text-xs ${onboarding?.connectedMap?.shopify==='connected' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{onboarding?.connectedMap?.shopify==='connected' ? 'Connected' : (onboarding?.connectedMap?.shopify||'Not linked')}</span>
+              <label className="inline-flex items-center gap-1 text-[11px]">
+                <span className={`${settings.providers_live?.shopify ? 'text-emerald-700' : 'text-slate-600'}`}>{settings.providers_live?.shopify ? 'Live' : 'Demo'}</span>
+                <input type="checkbox" checked={!!settings.providers_live?.shopify} onChange={e=> setProviderLive('shopify', e.target.checked)} />
+              </label>
+            </div>
           </div>
           <div className="mt-3 flex gap-2">
             <Button variant="outline" disabled={busy || connecting.shopify || onboarding?.providers?.shopify===false} onClick={()=> connect('shopify')}>{connecting.shopify ? 'Connecting…' : UI_STRINGS.ctas.secondary.connectShopify}</Button>

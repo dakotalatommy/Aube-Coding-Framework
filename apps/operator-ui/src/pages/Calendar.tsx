@@ -74,11 +74,24 @@ export default function Calendar(){
       {/* Demo: 7-day recommendations view */}
       <div className="rounded-xl border bg-white p-3" aria-label="7-day recommendations" data-guide="list">
         <div className="text-sm font-medium text-slate-800 mb-2">Recommendations (demo)</div>
-        <div className="text-xs text-slate-600 mb-2">A 7‑day reach‑out plan based on approvals and suggested actions.</div>
+        <div className="text-xs text-slate-600 mb-2">A 7‑day plan to get momentum quickly.</div>
         <ul className="list-disc ml-5 text-sm text-slate-700">
-          {Array.from({length:7}).map((_,i)=> (
-            <li key={i}>Day {i+1}: Suggested contacts to reach out (demo)</li>
-          ))}
+          <li>Day 1: Send 5 warm‑lead follow‑ups</li>
+          <li>Day 2: Confirm Friday appointments</li>
+          <li>Day 3: Post 1 service tip on Instagram</li>
+          <li>Day 4: Text no‑shows a friendly rebook link</li>
+          <li>Day 5: Share before/after from this week</li>
+          <li>Day 6: Message 2 dormant clients</li>
+          <li>Day 7: Review next week’s openings</li>
+        </ul>
+      </div>
+      {/* Live: first 3 days quick start */}
+      <div className="rounded-xl border bg-white p-3" aria-label="first 3 days" data-guide="first3">
+        <div className="text-sm font-medium text-slate-800 mb-2">Your first 3 days</div>
+        <ul className="list-disc ml-5 text-sm text-slate-700">
+          <li>Day 1 (10‑Minute Wow): confirm this week’s bookings</li>
+          <li>Day 2: send 3 warm‑lead follow‑ups</li>
+          <li>Day 3: draft next week’s social (14‑day plan ready)</li>
         </ul>
       </div>
       <div className="flex items-center gap-2 text-sm" data-guide="filters">

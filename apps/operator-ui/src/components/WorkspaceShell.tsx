@@ -1,4 +1,5 @@
 import React, { Suspense, lazy, useMemo, useRef, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Home, MessageSquare, Users, Calendar, Layers, Package2, Plug, CheckCircle2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
@@ -6,7 +7,7 @@ import { api } from '../lib/api';
 import { startGuide } from '../lib/guide';
 import { track } from '../lib/analytics';
 import { UI_STRINGS } from '../lib/strings';
-import PaneManager from './pane/PaneManager';
+// import PaneManager from './pane/PaneManager';
 import { registerActions, registerMessageBridge } from '../lib/actions';
 
 type PaneKey = 'dashboard' | 'messages' | 'contacts' | 'calendar' | 'cadences' | 'inventory' | 'integrations' | 'approvals' | 'workflows';
@@ -16,7 +17,7 @@ const PANES: { key: PaneKey; label: string; icon: React.ReactNode }[] = [
   { key: 'messages', label: 'Messages', icon: <MessageSquare size={18} /> },
   { key: 'contacts', label: 'Contacts', icon: <Users size={18} /> },
   { key: 'calendar', label: 'Calendar', icon: <Calendar size={18} /> },
-  { key: 'cadences', label: 'Cadences', icon: <Layers size={18} /> },
+  { key: 'cadences', label: 'Follow‑ups', icon: <Layers size={18} /> },
   { key: 'inventory', label: 'Inventory', icon: <Package2 size={18} /> },
   { key: 'integrations', label: 'Settings/Connections', icon: <Plug size={18} /> },
   { key: 'workflows', label: 'Work Styles', icon: <Layers size={18} /> },
@@ -38,18 +39,27 @@ export default function WorkspaceShell(){
   const [billingLoading, setBillingLoading] = useState(false);
   const [billingStatus, setBillingStatus] = useState<string>('');
   const [showDemoWelcome, setShowDemoWelcome] = useState(false);
-  const [showPostVerify, setShowPostVerify] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
+  const [showOnboardingPrompt, setShowOnboardingPrompt] = useState(false);
 
   // Workspace billing gate: open modal if not trialing/active
   useEffect(()=>{
     (async()=>{
       try{
-        // Auth guard: if not signed in and not explicitly demo, bounce to signup
+        // Auth guard with tolerant resolver to avoid bounce loop
         if (!demo) {
-          const session = (await supabase.auth.getSession()).data.session;
+          let session = (await supabase.auth.getSession()).data.session;
           if (!session) {
-            nav('/signup');
-            return;
+            const inProgress = localStorage.getItem('bvx_auth_in_progress') === '1';
+            if (inProgress) {
+              // wait briefly for session propagation
+              for (let i=0; i<8; i++) {
+                await new Promise(r=> setTimeout(r, 700));
+                session = (await supabase.auth.getSession()).data.session;
+                if (session) break;
+              }
+            }
+            if (!session) { nav('/signup'); return; }
           }
         }
         const sp = new URLSearchParams(loc.search);
@@ -59,11 +69,8 @@ export default function WorkspaceShell(){
           setBillingOpen(false);
           return;
         }
-        // Post-verify guide/handoff
-        if (sp.get('postVerify') === '1') {
-          setTimeout(()=>{ try { startGuide('dashboard'); } catch {} }, 300);
-          setTimeout(()=> setShowPostVerify(true), 1800);
-        }
+        // Determine whether to show welcome based on onboarding status (or forced)
+        const forceWelcome = sp.get('welcome') === '1';
         const dismissed = localStorage.getItem('bvx_billing_dismissed') === '1';
         const tid = (await supabase.auth.getSession()).data.session ? (localStorage.getItem('bvx_tenant') || '') : '';
         const r = await api.get(`/settings${tid?`?tenant_id=${encodeURIComponent(tid)}`:''}`);
@@ -71,18 +78,29 @@ export default function WorkspaceShell(){
         setBillingStatus(status);
         const covered = status === 'active' || status === 'trialing';
         if (!covered && !dismissed) { setBillingOpen(true); try { track('billing_modal_open'); } catch {} }
+        try {
+          const doneServer = Boolean(r?.data?.onboarding_done);
+          if (doneServer) { try { localStorage.setItem('bvx_onboarding_done','1'); } catch {} }
+        } catch {}
+
+        // Show welcome if onboarding not completed (suppress in demo)
+        try {
+          const doneLocal = localStorage.getItem('bvx_onboarding_done') === '1';
+          const seenSession = sessionStorage.getItem('bvx_welcome_seen') === '1';
+          const introFlag2 = localStorage.getItem('bvx_intro_pending') === '1';
+          if (introFlag2) { try{ localStorage.removeItem('bvx_intro_pending'); }catch{} }
+          if (!demo && (forceWelcome || introFlag2 || (!doneLocal && !seenSession))) {
+            setTimeout(()=> setShowWelcome(true), 200);
+          }
+        } catch {}
       } catch {}
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loc.search]);
 
-  // Demo-only welcome shown once per session (per load into demo)
+  // Demo: suppress welcome entirely
   useEffect(()=>{
-    try{
-      if (demo && !sessionStorage.getItem('bvx_demo_welcome_seen')) {
-        setShowDemoWelcome(true);
-      }
-    } catch {}
+    try{ if (demo) setShowDemoWelcome(false); } catch {}
   }, [demo]);
 
   const setPane = (key: PaneKey) => {
@@ -112,6 +130,12 @@ export default function WorkspaceShell(){
       default: return <div/>;
     }
   })();
+  // When welcome opens, force viewport to top to ensure centered overlay
+  useEffect(()=>{
+    if (showWelcome) {
+      try { window.scrollTo(0,0); } catch {}
+    }
+  }, [showWelcome]);
 
   const items = useMemo(()=> PANES, []);
   const refs = useRef<HTMLButtonElement[]>([]);
@@ -197,11 +221,55 @@ export default function WorkspaceShell(){
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // One-time workspace intro for any newly authenticated user (Google or email)
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const session = (await supabase.auth.getSession()).data.session;
+        const uid = session?.user?.id;
+        if (!uid) return;
+        const key = `bvx_intro_seen_${uid}`;
+        if (localStorage.getItem(key) === '1') return;
+        const shownKey = `bvx_welcome_shown_${uid}`;
+        if (localStorage.getItem(shownKey) === '1') return;
+        // Ensure nav is mounted before running the guide
+        let tries = 24;
+        const waitForMarkers = async()=>{
+          while (tries-- > 0) {
+            if (document.querySelector('[data-tour="nav-dashboard"]')) return true;
+            await new Promise(r=> setTimeout(r, 120));
+          }
+          return false;
+        };
+        const ok = await waitForMarkers();
+        if (ok) {
+          if (!demo) {
+            setShowWelcome(true);
+            try { localStorage.setItem(shownKey, '1'); } catch {}
+          }
+        }
+      } catch {}
+    })();
+  }, [loc.pathname]);
+
+  // After workspace intro finishes, show onboarding prompt and persist seen
+  useEffect(()=>{
+    const handler = async () => {
+      try {
+        const uid = (await supabase.auth.getSession()).data.session?.user?.id;
+        if (uid) localStorage.setItem(`bvx_intro_seen_${uid}`, '1');
+      } catch {}
+      setShowOnboardingPrompt(true);
+    };
+    window.addEventListener('bvx:guide:workspace_intro:done', handler, { once: true } as any);
+    return () => window.removeEventListener('bvx:guide:workspace_intro:done', handler as any);
+  }, []);
+
   return (
     <div className="max-w-6xl mx-auto">
-      <div className="h-[100dvh] grid grid-cols-[theme(spacing.56)_1fr] gap-4 md:gap-5 overflow-hidden">
+      <div className="h-[100dvh] grid grid-cols-[theme(spacing.56)_1fr] gap-4 md:gap-5 overflow-hidden pb-[calc(var(--bvx-commandbar-height,64px)+env(safe-area-inset-bottom,0px))] relative">
         {/* Left dock */}
-        <aside className="h-full bg-white/70 backdrop-blur border border-b-0 rounded-2xl p-3 md:p-4 flex flex-col pb-[calc(var(--bvx-commandbar-height,64px)+env(safe-area-inset-bottom,0px))]" aria-label="Primary navigation">
+        <aside className="h-full min-h-0 bg-white/70 backdrop-blur border border-b-0 rounded-2xl p-3 md:p-4 flex flex-col relative" aria-label="Primary navigation">
           <nav className="flex flex-col gap-2" role="tablist" aria-orientation="vertical" onKeyDown={onKeyDown}>
             {items.map((p, i) => {
               const active = pane===p.key;
@@ -214,6 +282,7 @@ export default function WorkspaceShell(){
                   aria-selected={active}
                   aria-current={active ? 'page' : undefined}
                   title={`${p.label}  •  ${i+1}`}
+                  data-tour={`nav-${p.key}`}
                   className={`relative w-full flex items-center gap-3 pl-4 pr-3 py-2 rounded-xl border text-slate-700 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white hover:bg-white hover:ring-1 hover:ring-pink-100 ${active?'bg-gradient-to-r from-pink-50 to-white shadow ring-1 ring-pink-100 text-slate-900':''}`}
                 >
                   {active && <span aria-hidden className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-pink-400 to-violet-400 rounded-l-xl" />}
@@ -224,10 +293,12 @@ export default function WorkspaceShell(){
               );
             })}
           </nav>
-          <div className="mt-auto pt-3">
+          {/* Anchored footer */}
+          <div className="absolute left-3 right-3" style={{ bottom: 'calc(var(--bvx-commandbar-height,64px) + env(safe-area-inset-bottom,0px) + 18px)' }}>
             <button
               className={`mb-2 inline-flex w-full items-center justify-center px-3 py-2 rounded-xl border ${demo? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-white text-slate-700'}`}
               onClick={toggleDemo}
+              data-tour="demo-toggle"
             >{demo? 'Demo mode: on' : 'Demo mode: off'}</button>
             {BOOKING_URL && (
               <a
@@ -235,11 +306,13 @@ export default function WorkspaceShell(){
                 target="_blank"
                 rel="noreferrer"
                 className="mb-2 inline-flex w-full items-center justify-center px-3 py-2 rounded-xl border bg-white text-slate-700 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60"
+                data-tour="book-onboarding"
               >Book onboarding</a>
             )}
             <button
               className="w-full px-3 py-2 rounded-xl border text-slate-700 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60"
               data-guide={new URLSearchParams(loc.search).get('demo')==='1' ? 'demo-signup' : undefined}
+              data-tour="signup"
               onClick={async()=>{
                 const sp = new URLSearchParams(loc.search);
                 const isDemo = sp.get('demo') === '1';
@@ -256,19 +329,23 @@ export default function WorkspaceShell(){
           </div>
         </aside>
         {/* Canvas */}
-        <main className={`h-full rounded-2xl border border-b-0 ${demo? 'bg-amber-50/60' : 'bg-white/90'} backdrop-blur p-4 md:p-5 shadow-sm overflow-hidden`}>
-          <div className="rounded-xl bg-white/70 backdrop-blur border border-b-0 overflow-hidden min-h-full pb-[calc(var(--bvx-commandbar-height,64px)+env(safe-area-inset-bottom,0px))]">
+        <main className={`h-full rounded-2xl border border-b-0 border-l-slate-300/80 ${demo? 'bg-amber-50/60' : 'bg-white/90'} backdrop-blur p-4 md:p-5 shadow-sm overflow-hidden border-l relative`}>
+          <div className="rounded-xl bg-white/70 backdrop-blur overflow-hidden min-h-full">
             <Suspense fallback={<div className="p-4 text-slate-600 text-sm">Loading {PANES.find(p=>p.key===pane)?.label}…</div>}>
               {PaneView}
             </Suspense>
           </div>
+          {/* Bottom hard separator just above Command Bar */}
+          <div aria-hidden className="absolute left-0 right-0" style={{ bottom: 'calc(var(--bvx-commandbar-height,64px) + env(safe-area-inset-bottom,0px))' }}>
+            <div className="h-0.5 w-full bg-slate-800/70" />
+          </div>
         </main>
-        <PaneManager pane={pane} items={items} setPane={setPane} />
+        {/* Arrows removed per product decision */}
       </div>
       {showDemoWelcome && (
         <div className="fixed inset-0 z-50 grid place-items-center p-4">
           <div aria-hidden className="absolute inset-0 bg-black/30" onClick={()=>{ setShowDemoWelcome(false); try{ sessionStorage.setItem('bvx_demo_welcome_seen','1'); }catch{} }} />
-          <div className="relative w-full max-w-md rounded-2xl border bg-white/95 backdrop-blur p-5 shadow-xl">
+          <div className="relative w-full max-w-md rounded-2xl border bg-white p-5 shadow-xl">
             <div className="text-slate-900 text-lg font-semibold">Welcome to the BrandVX demo</div>
             <div className="text-slate-600 text-sm mt-1">We’ll show each panel briefly. Use “Guide me” on any page for a quick walkthrough.</div>
             <div className="mt-4 flex gap-2 justify-end">
@@ -286,20 +363,36 @@ export default function WorkspaceShell(){
           </div>
         </div>
       )}
-      {showPostVerify && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40">
-          <div className="rounded-full border bg-white/95 backdrop-blur shadow-lg px-4 py-2 flex items-center gap-3">
-            <span className="text-sm text-slate-800">You’re ready to get started — first, a few quick questions.</span>
-            <a className="px-3 py-1.5 rounded-full text-white bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600" href="/onboarding?offer=1">Start onboarding</a>
-            <button className="px-3 py-1.5 rounded-full border bg-white text-slate-700" onClick={()=> setShowPostVerify(false)}>Skip for now</button>
+      {showWelcome && createPortal(
+        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4" id="bvx-welcome-modal" style={{position:'fixed',top:0,left:0,right:0,bottom:0,zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <div aria-hidden className="absolute inset-0 bg-black/30" onClick={()=>{ setShowWelcome(false); try{ sessionStorage.setItem('bvx_welcome_seen','1'); }catch{} }} />
+          <div className="relative inline-block max-w-md w-[min(92vw,420px)] rounded-2xl border bg-white p-6 shadow-xl text-center">
+            <div className="text-lg font-semibold text-slate-900">Welcome to brandVX</div>
+            <div className="text-slate-700 text-sm mt-1">Let’s briefly walk through your different views.</div>
+            <div className="mt-4 flex items-center justify-center">
+              <button className="inline-flex rounded-full px-5 py-2 bg-slate-900 text-white" onClick={()=>{ setShowWelcome(false); try{ sessionStorage.setItem('bvx_welcome_seen','1'); }catch{}; try{ startGuide('workspace_intro'); }catch{} }}>Start</button>
+            </div>
           </div>
-        </div>
-      )}
+        </div>, document.body)
+      }
+      {showOnboardingPrompt && createPortal(
+        <div className="fixed inset-0 z-[1000] grid place-items-center p-4" id="bvx-onboarding-modal" style={{position:'fixed',top:0,left:0,right:0,bottom:0,zIndex:1000,display:'grid',alignItems:'center',justifyItems:'center'}}>
+          <div aria-hidden className="absolute inset-0 bg-black/30" onClick={()=> setShowOnboardingPrompt(false)} />
+          <div className="relative w-full max-w-md rounded-2xl border bg-white p-6 shadow-xl text-center">
+            <div className="text-lg font-semibold text-slate-900">Let’s set up your Priority Work Styles</div>
+            <div className="text-slate-700 text-sm mt-1">Full walkthrough will walk the visible sections and show them to click.</div>
+            <div className="mt-4 grid gap-2">
+              <a className="rounded-full px-5 py-2 text-white bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600" href="/workspace?pane=workflows">Open Work Styles</a>
+              <button className="rounded-full px-5 py-2 border" onClick={()=> setShowOnboardingPrompt(false)}>Later</button>
+            </div>
+          </div>
+        </div>, document.body)
+      }
       {/* Billing modal */}
       {billingOpen && (
         <div className="fixed inset-0 z-50 grid place-items-center p-4">
           <div aria-hidden className="absolute inset-0 bg-black/20" onClick={()=>{ setBillingOpen(false); try{ localStorage.setItem('bvx_billing_dismissed','1'); }catch{} }} />
-          <div className="relative w-full max-w-md rounded-2xl border bg-white/95 backdrop-blur p-5 shadow-xl">
+          <div className="relative w-full max-w-md rounded-2xl border bg-white p-5 shadow-xl">
             <div className="text-slate-900 text-lg font-semibold">Start your BrandVX</div>
             <div className="text-slate-600 text-sm mt-1">Choose a plan to unlock your workspace. You can change anytime.</div>
             <div className="mt-4 grid gap-2">

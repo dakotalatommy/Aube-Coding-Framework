@@ -15,7 +15,6 @@ const Messages = lazy(() => import('./pages/Messages'));
 const Contacts = lazy(() => import('./pages/Contacts'));
 const Cadences = lazy(() => import('./pages/Cadences'));
 const Approvals = lazy(() => import('./pages/Approvals'));
-const Integrations = lazy(() => import('./pages/Integrations'));
 const Ask = lazy(() => import('./pages/Ask'));
 const Admin = lazy(() => import('./pages/Admin'));
 const Agent = lazy(() => import('./pages/Agent'));
@@ -25,7 +24,6 @@ const Calendar = lazy(() => import('./pages/Calendar'));
 const Inventory = lazy(() => import('./pages/Inventory'));
 const Curation = lazy(() => import('./pages/Curation'));
 const Inbox = lazy(() => import('./pages/Inbox'));
-const Styles = lazy(() => import('./pages/Workflows'));
 const Login = lazy(() => import('./pages/Login'));
 const Signup = lazy(() => import('./pages/Signup'));
 const Tutorial = lazy(() => import('./pages/Tutorial'));
@@ -38,6 +36,13 @@ const DemoIntake = lazy(() => import('./pages/DemoIntake'));
 const Workspace = lazy(() => import('./pages/Workspace'));
 const Share = lazy(() => import('./pages/Share'));
 const AuthCallback = lazy(() => import('./pages/AuthCallback'));
+
+function IntegrationsRedirect() {
+  const loc = useLocation();
+  const qs = loc.search ? (loc.search.startsWith('?') ? loc.search.slice(1) : loc.search) : '';
+  const target = `/workspace?pane=integrations${qs ? `&${qs}` : ''}`;
+  return <Navigate to={target} replace />;
+}
 
 function RouteContent() {
   const loc = useLocation();
@@ -64,15 +69,15 @@ function RouteContent() {
         <Route path="/contacts" element={<Contacts />} />
         <Route path="/cadences" element={<Cadences />} />
         <Route path="/approvals" element={<Approvals />} />
-        <Route path="/integrations" element={<Integrations />} />
+        <Route path="/integrations" element={<IntegrationsRedirect />} />
         <Route path="/calendar" element={<Calendar />} />
         <Route path="/inventory" element={<Inventory />} />
         <Route path="/curation" element={<Curation />} />
         <Route path="/inbox" element={<Inbox />} />
         <Route path="/ask" element={<Ask />} />
         <Route path="/workflows" element={<Navigate to="/workspace?pane=workflows" replace />} />
-        <Route path="/styles" element={<Styles />} />
-        <Route path="/styles/actions" element={<Navigate to="/styles?step=2" replace />} />
+        <Route path="/styles" element={<Navigate to="/workspace?pane=workflows&step=1" replace />} />
+        <Route path="/styles/actions" element={<Navigate to="/workspace?pane=workflows&step=2" replace />} />
         <Route path="/vision" element={<Vision />} />
         <Route path="/onboarding" element={<Onboarding />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
@@ -134,7 +139,7 @@ function Shell() {
       <div className="relative h-[100dvh] overflow-hidden">
         {!embed && (
           <div aria-hidden className="absolute inset-0 -z-10" style={{
-            background: 'radial-gradient(1200px 400px at 10% -10%, rgba(236,72,153,0.14), transparent), radial-gradient(900px 300px at 90% -20%, rgba(99,102,241,0.12), transparent)'
+            background: onLanding ? '#F7CBDD' : 'radial-gradient(1200px 400px at 10% -10%, rgba(236,72,153,0.14), transparent), radial-gradient(900px 300px at 90% -20%, rgba(99,102,241,0.12), transparent)'
           }} />
         )}
         <div className="px-6 pt-4 md:pt-6 h-full overflow-hidden box-border">
@@ -144,9 +149,9 @@ function Shell() {
               <RouteContent />
             </Suspense>
           </main>
-          {/* Command Mode: dockless AskVX */}
-          {!embed && !onAskPage && !onDemo && <CommandBar />}
-          {!embed && !onAskPage && !onDemo && <ActionDrawer />}
+          {/* Command Mode: dockless AskVX (hide on landing and demos) */}
+          {!embed && !onAskPage && !onDemo && !onLanding && <CommandBar />}
+          {!embed && !onAskPage && !onDemo && !onLanding && <ActionDrawer />}
         </div>
       </div>
     </>

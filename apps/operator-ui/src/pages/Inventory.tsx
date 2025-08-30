@@ -55,7 +55,7 @@ export default function Inventory(){
         <Stat label="Products" value={summary.products ?? 0} />
         <Stat label="Low stock" value={summary.low_stock ?? 0} />
         <Stat label="Out of stock" value={summary.out_of_stock ?? 0} />
-        <Stat label="Top SKU" value={summary.top_sku ?? '—'} />
+        <Stat label="Top seller" value={summary.top_sku ?? '—'} />
       </div>
       <div className="text-sm text-slate-600">Connect Shopify/Square or add products manually to see inventory here.</div>
       {lastAnalyzed && (

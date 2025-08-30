@@ -17,7 +17,7 @@ export default function Signup() {
     e.preventDefault();
     setLoading(true);
     try{
-      const redirectTo = `${window.location.origin}/auth/callback?next=/workspace?pane=dashboard&tour=1&postVerify=1`;
+      const redirectTo = `${window.location.origin}/auth/callback?next=/onboarding`;
       const { error } = await supabase.auth.signUp({
         email,
         password,
@@ -121,14 +121,14 @@ export default function Signup() {
               <span className="text-slate-300">—</span>
               <button type="button" className="text-sm text-slate-700 hover:underline" onClick={async()=>{
                 try {
-                  const redirectTo = `${window.location.origin}/auth/callback?next=/workspace?pane=dashboard&tour=1&postVerify=1`;
+                  const redirectTo = `${window.location.origin}/auth/callback?next=/onboarding`;
                   await supabase.auth.resend({ type:'signup', email, options:{ emailRedirectTo: redirectTo } });
                 } catch {}
               }}>Resend verification</button>
               <span className="text-slate-300">—</span>
               <button type="button" className="text-sm text-slate-700 hover:underline" onClick={async()=>{
                 try{
-                  const googleRedirect = `${window.location.origin}/auth/callback?next=/workspace?pane=dashboard&tour=1&postVerify=1`;
+                  const googleRedirect = `${window.location.origin}/auth/callback?next=/onboarding`;
                   const { data, error } = await supabase.auth.signInWithOAuth({ provider:'google', options:{ redirectTo: googleRedirect } });
                   if (error) { alert(String(error.message||error)); return; }
                   if (data && (data as any).url) window.location.assign((data as any).url as string);
@@ -145,7 +145,8 @@ export default function Signup() {
               try{ track('signup_oauth_click',{provider:'google'}); }catch{}
               try{ localStorage.setItem('bvx_offer_pending','1'); }catch{}
               try{
-                const oauthRedirect = `${window.location.origin}/auth/callback?next=/workspace?pane=dashboard&tour=1&postVerify=1`;
+                const oauthRedirect = `${window.location.origin}/auth/callback?next=/onboarding`;
+                try{ localStorage.setItem('bvx_auth_in_progress','1'); }catch{}
                 const { data, error } = await supabase.auth.signInWithOAuth({ provider:'google', options:{ redirectTo: oauthRedirect } });
                 if (error) {
                   alert(String(error.message||error));

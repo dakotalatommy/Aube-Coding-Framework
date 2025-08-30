@@ -30,6 +30,16 @@ export default function Messages(){
   useEffect(()=>{ (async()=>{ try{ const r = await api.post('/onboarding/analyze', { tenant_id: await getTenant() }); if (r?.summary?.connected) setConnected(r.summary.connected); } catch{} })(); },[]);
   const twilioConnected = (connected['twilio']||'') === 'connected';
 
+  const format12h = (hhmm?: string) => {
+    try{
+      if (!hhmm) return '';
+      const [h,m] = hhmm.split(':').map(Number);
+      const am = h < 12;
+      const hr = ((h % 12) || 12);
+      return `${hr}:${String(m||0).padStart(2,'0')} ${am?'AM':'PM'}`;
+    }catch{ return String(hhmm||''); }
+  };
+
   // Prefill from querystring for Ask→Messages route
   useEffect(()=>{
     try{
@@ -44,7 +54,7 @@ export default function Messages(){
   const presets = [
     { label:'Reminder 24h', body:'Hey {FirstName} — see you tomorrow at {Time}. Need to change it? Tap here. Reply STOP/HELP to opt out.' },
     { label:'Waitlist open', body:'A spot opened for {Service} at {Time}. Want it? Reply YES and we’ll lock it in.' },
-    { label:'Lead follow‑up', body:'Hi! I saw you were looking at {Service}. Happy to help you book — Soonest or Anytime?' },
+    { label:'Lead follow‑up', body:"Hi! I saw you were looking at {Service}. I'd be happy to answer any questions or get you scheduled!" },
   ];
 
   const draftForMe = () => {
@@ -68,19 +78,19 @@ export default function Messages(){
 
   const simulate = async (channel:'sms'|'email') => {
     try {
-      const r = await api.post('/messages/simulate', { tenant_id:'t1', contact_id: filterContact || 'c_demo', channel, generate: false });
-      setStatus(JSON.stringify(r));
+      await api.post('/messages/simulate', { tenant_id:'t1', contact_id: filterContact || 'c_demo', channel, generate: false });
+      setStatus(channel==='sms' ? 'Simulated SMS to Demo Client' : 'Simulated Email to Demo Client');
       await load();
       try { showToast({ title: channel==='sms' ? 'Simulated SMS' : 'Simulated Email' }); } catch {}
     } catch(e:any){
       // retry once on transient network error
       try {
         await new Promise(res=> setTimeout(res, 600));
-        const r2 = await api.post('/messages/simulate', { tenant_id:'t1', contact_id: filterContact || 'c_demo', channel, generate: false });
-        setStatus(JSON.stringify(r2));
+        await api.post('/messages/simulate', { tenant_id:'t1', contact_id: filterContact || 'c_demo', channel, generate: false });
+        setStatus(channel==='sms' ? 'Simulated SMS to Demo Client' : 'Simulated Email to Demo Client');
         await load();
         try { showToast({ title: channel==='sms' ? 'Simulated SMS' : 'Simulated Email' }); } catch {}
-      } catch(e2:any){ setStatus(String(e2?.message||e2)); }
+      } catch(e2:any){ setStatus('Simulation failed. Please try again.'); }
     }
   };
   useEffect(()=>{ setPersisted('msg_draft', send); }, [send]);
@@ -163,7 +173,7 @@ export default function Messages(){
       {!loading && (
         <>
           <div className="flex flex-wrap gap-2 items-center" data-guide="toolbar">
-            <Input placeholder="Filter by contact" value={filterContact} onChange={e=>setFilterContact(e.target.value)} />
+            <Input placeholder="Filter by client" value={filterContact} onChange={e=>setFilterContact(e.target.value)} />
             <Button variant="outline" onClick={load} aria-label={UI_STRINGS.a11y.buttons.refresh}>{UI_STRINGS.ctas.secondary.refresh}</Button>
             <Button variant="outline" onClick={()=>simulate('sms')} aria-label={UI_STRINGS.a11y.buttons.simulateSms}>{UI_STRINGS.ctas.secondary.simulateSms}</Button>
             <Button variant="outline" onClick={()=>simulate('email')} aria-label={UI_STRINGS.a11y.buttons.simulateEmail}>{UI_STRINGS.ctas.secondary.simulateEmail}</Button>
@@ -184,11 +194,11 @@ export default function Messages(){
               <div className="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Some actions may require approval when auto-approve is off. Review in Approvals.</div>
             )}
             {!!quiet?.start && !!quiet?.end && (
-              <div className="mb-2 text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-md px-2 py-1 inline-block" data-guide="quiet">Quiet hours: {quiet.start}–{quiet.end}. Sending will be disabled during this window.</div>
+              <div className="mb-2 text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-md px-2 py-1 inline-block" data-guide="quiet">Quiet hours: {format12h(quiet.start)}–{format12h(quiet.end)}. Sending will be disabled during this window.</div>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" role="form" aria-label="Send message form">
               <div className="relative">
-                <Input placeholder="contact_id" value={send.contact_id} onFocus={()=>setShowSug(true)} onBlur={()=> setTimeout(()=>setShowSug(false), 120)} onChange={e=>setSend({...send,contact_id:e.target.value})} />
+                <Input placeholder="client_search" value={send.contact_id} onFocus={()=>setShowSug(true)} onBlur={()=> setTimeout(()=>setShowSug(false), 120)} onChange={e=>setSend({...send,contact_id:e.target.value})} />
                 {showSug && suggestions.length > 0 && (
                   <div className="absolute z-10 mt-1 max-h-40 overflow-auto bg-white border rounded-md shadow-sm text-xs w-full">
                     {suggestions.map(s => (
@@ -211,7 +221,8 @@ export default function Messages(){
               <Button variant="outline" size="sm" onClick={()=> setQuiet({ start:'21:00', end:'08:00' })}>Suggest 21:00–08:00</Button>
               <Button variant="outline" size="sm" onClick={async()=>{ try { await api.post('/settings', { tenant_id: await getTenant(), quiet_hours: quiet }); } catch{} }} aria-label={UI_STRINGS.a11y.buttons.saveQuietHours}>{UI_STRINGS.ctas.secondary.save}</Button>
             </div>
-            <div className="mt-2 flex flex-wrap gap-2 text-xs" data-guide="presets">
+            <div className="mt-2 text-[11px] font-medium text-slate-700">Client Messaging Templates</div>
+            <div className="mt-1 flex flex-wrap gap-2 text-xs" data-guide="presets">
               {presets.map(p=> (
                 <Button key={p.label} variant="outline" size="sm" onClick={()=>setSend(s=>({...s, body: p.body }))}>{p.label}</Button>
               ))}
@@ -232,7 +243,7 @@ export default function Messages(){
             )}
           </div>
 
-          <pre className="whitespace-pre-wrap text-sm text-slate-700" data-guide="status">{status}</pre>
+          <pre className="whitespace-pre-wrap text-sm text-slate-700" data-guide="status" aria-live="polite">{status}</pre>
           {items.length === 0 ? (
             <EmptyState title={UI_STRINGS.emptyStates.messages.title} description={UI_STRINGS.emptyStates.messages.body} />
           ) : (
@@ -262,7 +273,7 @@ export default function Messages(){
           )}
           <div className="flex gap-2 text-xs">
             {isWithinQuiet(quiet) && (
-              <span className="px-2 py-1 rounded-md border bg-slate-50 border-slate-200 text-slate-700">Quiet hours active ({quiet.start}–{quiet.end})</span>
+              <span className="px-2 py-1 rounded-md border bg-slate-50 border-slate-200 text-slate-700">Quiet hours active ({format12h(quiet.start)}–{format12h(quiet.end)})</span>
             )}
             {status.includes('rate_limited') && (
               <span className="px-2 py-1 rounded-md border bg-amber-50 border-amber-200 text-amber-700">Rate limited recently</span>

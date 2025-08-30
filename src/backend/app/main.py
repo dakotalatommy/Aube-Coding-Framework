@@ -662,6 +662,85 @@ def list_redirects():
         },
     }
 
+@app.get("/integrations/debug/oauth", tags=["Integrations"])
+def debug_oauth(provider: str = "square"):
+    """Return non-sensitive OAuth config and last-callback status for quick troubleshooting."""
+    try:
+        info: Dict[str, Any] = {"provider": provider}
+        if provider == "square":
+            env_mode = _env("SQUARE_ENV", "sandbox").lower()
+            default_auth = "https://connect.squareup.com/oauth2/authorize" if env_mode.startswith("prod") else "https://connect.squareupsandbox.com/oauth2/authorize"
+            default_token = "https://connect.squareup.com/oauth2/token" if env_mode.startswith("prod") else "https://connect.squareupsandbox.com/oauth2/token"
+            info.update({
+                "env": env_mode,
+                "auth_url": _env("SQUARE_AUTH_URL", default_auth),
+                "token_url": _env("SQUARE_TOKEN_URL", default_token),
+                "client_id_present": bool(_env("SQUARE_CLIENT_ID", "")),
+                "client_id_prefix": (_env("SQUARE_CLIENT_ID", "")[:6] or None),
+                "redirect_uri": _redirect_uri("square"),
+            })
+        # Last callback + connected account status for current tenant (best‑effort)
+        try:
+            tenant = "t1"
+            with next(get_db()) as db:  # type: ignore
+                row = db.execute(_sql_text("SELECT tenant_id FROM settings ORDER BY id DESC LIMIT 1")).fetchone()
+                if row and row[0]:
+                    tenant = str(row[0])
+                last_log = db.execute(_sql_text("SELECT action, created_at, payload FROM audit_logs WHERE action LIKE :a ORDER BY id DESC LIMIT 1"), {"a": f"oauth.callback.{provider}%"}).fetchone()
+                ca = db.execute(_sql_text("SELECT status, created_at FROM connected_accounts WHERE tenant_id = :t AND provider = :p ORDER BY id DESC LIMIT 1"), {"t": tenant, "p": provider}).fetchone()
+                info["last_callback"] = {
+                    "seen": bool(last_log),
+                    "ts": int(last_log[1]) if last_log else None,
+                }
+                info["connected_account"] = {
+                    "status": (ca[0] if ca else None),
+                    "ts": int(ca[1]) if ca else None,
+                }
+        except Exception:
+            pass
+        return info
+    except Exception as e:
+        return {"error": str(e)}
+
+# Read-only: list recent connected accounts and last oauth callbacks for a tenant
+@app.get("/integrations/connected-accounts", tags=["Integrations"])
+def connected_accounts_list(
+    tenant_id: str,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    try:
+        if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        rows = db.execute(
+            _sql_text(
+                "SELECT provider, status, created_at FROM connected_accounts WHERE tenant_id = :t ORDER BY id DESC LIMIT 12"
+            ),
+            {"t": tenant_id},
+        ).fetchall()
+        items = [
+            {"provider": r[0], "status": r[1], "ts": int(r[2] or 0)} for r in (rows or [])
+        ]
+        last_cb = db.execute(
+            _sql_text(
+                "SELECT action, created_at, payload FROM audit_logs WHERE tenant_id = :t AND action LIKE 'oauth.callback.%' ORDER BY id DESC LIMIT 1"
+            ),
+            {"t": tenant_id},
+        ).fetchone()
+        last = None
+        if last_cb:
+            try:
+                last = {
+                    "action": str(last_cb[0] or ""),
+                    "ts": int(last_cb[1] or 0),
+                    "payload": str(last_cb[2] or ""),
+                }
+            except Exception:
+                last = {"action": str(last_cb[0] or ""), "ts": 0, "payload": ""}
+        return {"items": items, "last_callback": last}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=500)
+
 def _backend_base_url() -> str:
     return _env("BACKEND_BASE_URL", "http://localhost:8000")
 
@@ -756,7 +835,10 @@ def _oauth_authorize_url(provider: str, tenant_id: Optional[str] = None) -> str:
             f"&scope={_url.quote(scope)}&access_type=offline&prompt=consent&state={_state}{extra}"
         )
     if provider == "square":
-        auth = _env("SQUARE_AUTH_URL", "https://connect.squareupsandbox.com/oauth2/authorize")
+        # Choose endpoints based on SQUARE_ENV unless explicit URLs are provided
+        _env_mode = _env("SQUARE_ENV", "sandbox").lower()
+        _default_auth = "https://connect.squareup.com/oauth2/authorize" if _env_mode.startswith("prod") else "https://connect.squareupsandbox.com/oauth2/authorize"
+        auth = _env("SQUARE_AUTH_URL", _default_auth)
         client_id = _env("SQUARE_CLIENT_ID", "")
         # Ensure customer/appointments read scopes by default; allow override via env
         scope = _env("SQUARE_SCOPES", "MERCHANT_PROFILE_READ CUSTOMERS_READ APPOINTMENTS_READ")
@@ -831,7 +913,9 @@ def _oauth_exchange_token(provider: str, code: str, redirect_uri: str, code_veri
             r = httpx.post(url, data=data, timeout=20)
             return r.json() if r.status_code < 400 else {}
         if provider == "square":
-            url = _env("SQUARE_TOKEN_URL", "https://connect.squareupsandbox.com/oauth2/token")
+            _env_mode = _env("SQUARE_ENV", "sandbox").lower()
+            _default_token = "https://connect.squareup.com/oauth2/token" if _env_mode.startswith("prod") else "https://connect.squareupsandbox.com/oauth2/token"
+            url = _env("SQUARE_TOKEN_URL", _default_token)
             data = {
                 "grant_type": "authorization_code",
                 "code": code,
@@ -840,7 +924,13 @@ def _oauth_exchange_token(provider: str, code: str, redirect_uri: str, code_veri
                 "redirect_uri": redirect_uri,
             }
             r = httpx.post(url, json=data, timeout=40)
-            return r.json() if r.status_code < 400 else {}
+            try:
+                js = r.json()
+            except Exception:
+                js = {"error": r.text}
+            if r.status_code >= 400 and "error" not in js:
+                js["error"] = f"http_{r.status_code}"
+            return js
         if provider == "acuity":
             url = _env("ACUITY_TOKEN_URL", "https://acuityscheduling.com/oauth2/token")
             data = {
@@ -916,7 +1006,9 @@ def _oauth_refresh_token(provider: str, refresh_token: str, redirect_uri: str) -
             r = httpx.post(url, data=data, timeout=20)
             return r.json() if r.status_code < 400 else {}
         if provider == "square":
-            url = _env("SQUARE_TOKEN_URL", "https://connect.squareupsandbox.com/oauth2/token")
+            _env_mode = _env("SQUARE_ENV", "sandbox").lower()
+            _default_token = "https://connect.squareup.com/oauth2/token" if _env_mode.startswith("prod") else "https://connect.squareupsandbox.com/oauth2/token"
+            url = _env("SQUARE_TOKEN_URL", _default_token)
             data = {
                 "grant_type": "refresh_token",
                 "refresh_token": refresh_token,
@@ -924,7 +1016,13 @@ def _oauth_refresh_token(provider: str, refresh_token: str, redirect_uri: str) -
                 "client_secret": _env("SQUARE_CLIENT_SECRET", ""),
             }
             r = httpx.post(url, json=data, timeout=20)
-            return r.json() if r.status_code < 400 else {}
+            try:
+                js = r.json()
+            except Exception:
+                js = {"error": r.text}
+            if r.status_code >= 400 and "error" not in js:
+                js["error"] = f"http_{r.status_code}"
+            return js
         if provider == "acuity":
             url = _env("ACUITY_TOKEN_URL", "https://acuityscheduling.com/oauth2/token")
             data = {
@@ -3610,6 +3708,7 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
         refresh_token_enc = None
         expires_at = None
         exchange_ok = False
+        exchange_detail: Dict[str, Any] = {}
         if code:
             try:
                 # For Google, try PKCE code_verifier lookup by state
@@ -3626,6 +3725,8 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 if at:
                     access_token_enc = encrypt_text(at)
                     exchange_ok = True
+                else:
+                    exchange_detail = {"token_error": token}
                 if rt:
                     refresh_token_enc = encrypt_text(str(rt))
                 if isinstance(exp, (int, float)):
@@ -3642,7 +3743,7 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
             try: db.rollback()
             except Exception: pass
         try:
-            db.add(dbm.AuditLog(tenant_id=t_id, actor_id="system", action=f"oauth.callback.{provider}", entity_ref="oauth", payload=str({"code": bool(code), "error": error or ""})))
+            db.add(dbm.AuditLog(tenant_id=t_id, actor_id="system", action=f"oauth.callback.{provider}", entity_ref="oauth", payload=str({"code": bool(code), "error": error or "", "exchange_ok": exchange_ok, **({} if not exchange_detail else exchange_detail)})))
             db.commit()
         except Exception:
             try: db.rollback()

@@ -59,10 +59,13 @@ export default function Contacts(){
         <section className="border rounded-xl p-3 bg-white shadow-sm" data-guide="import">
           <div className="font-semibold mb-1">Import contacts</div>
           <div className="text-xs text-slate-600">Bring your clients from booking or CRM — no CSV needed.</div>
-          <div className="flex flex-wrap gap-2 mt-2">
+          <div className="flex flex-wrap gap-2 mt-2 items-center">
             <Button variant="outline" disabled={busy} onClick={async()=>{ if (isDemo) { setStatus('Demo: import disabled. Use Guide me for steps.'); return; } await run(async()=>api.post('/calendar/sync',{ tenant_id: await getTenant(), provider: 'auto' })); try{ showToast({ title:'Import queued', description:'Booking' }); }catch{} }}>{UI_STRINGS.ctas.secondary.importFromBooking}</Button>
             <Button variant="outline" disabled={busy} onClick={async()=>{ if (isDemo) { setStatus('Demo: CRM sync disabled.'); return; } await run(async()=>api.post('/crm/hubspot/import',{ tenant_id: await getTenant() })); try{ showToast({ title:'Import queued', description:'HubSpot' }); }catch{} }}>{UI_STRINGS.ctas.secondary.syncFromHubSpot}</Button>
-            <Button variant="outline" size="sm" onClick={()=> startGuide('contacts')}>{UI_STRINGS.ctas.secondary.howToImport}</Button>
+            <span className="text-xs text-slate-600">
+              When your booking is connected, it will automatically sync your data here, your calendar, and your CRM once connected. We handle everything else.
+            </span>
+            <Button variant="outline" size="sm" onClick={()=> startGuide('contacts')} className="ml-auto">{UI_STRINGS.ctas.tertiary.guideMe}</Button>
           </div>
         </section>
 

@@ -1,9 +1,11 @@
 import { api } from '../lib/api';
 
-export async function startOAuth(provider: 'square'|'acuity'|'hubspot'|'google'|'facebook'|'instagram'|'shopify'){
+export async function startOAuth(provider: 'square'|'acuity'|'hubspot'|'google'|'facebook'|'instagram'|'shopify', opts?: { returnTo?: 'onboarding'|'workspace' }){
   // Prefer server to return a URL; handle redirect responses too.
   try {
-    const res = await fetch(`${(import.meta as any).env?.VITE_API_BASE_URL || ''}/api/oauth/${provider}/start`, {
+    const q = new URLSearchParams();
+    if (opts?.returnTo) q.set('return', opts.returnTo);
+    const res = await fetch(`${(import.meta as any).env?.VITE_API_BASE_URL || ''}/api/oauth/${provider}/start${q.toString()?`?${q.toString()}`:''}`, {
       credentials: 'include',
       headers: { 'X-User-Id': 'dev', 'X-Role': 'owner_admin' },
       redirect: 'follow',
@@ -20,7 +22,7 @@ export async function startOAuth(provider: 'square'|'acuity'|'hubspot'|'google'|
   } catch {}
   // Fallback: call non-aliased route if present
   try {
-    const j = await api.get(`/oauth/${provider}/login`);
+    const j = await api.get(`/oauth/${provider}/login${opts?.returnTo?`?return=${encodeURIComponent(opts.returnTo)}`:''}`);
     if (j?.url) { window.location.href = j.url; }
   } catch {}
 }

@@ -36,8 +36,13 @@ export default function OnboardingRoot(){
     try{
       const sp = new URLSearchParams(loc.search)
       const connected = sp.get('connected')
-      if (connected) {
-        const provider = connected as string
+      const error = sp.get('error')
+      const provider = (sp.get('provider')||connected||'') as string
+      if (error && provider) {
+        // Stay in onboarding, surface error inline but do not navigate away
+        try { track('oauth_error', { provider, error }) } catch {}
+        // Keep current step; toast will show in scene components
+      } else if (connected) {
         // Handle booking vs. social providers separately
         if (provider === 'instagram') {
           const payload = { social: { oauth: { instagram: { provider, linked: true } } } }
@@ -100,35 +105,43 @@ export default function OnboardingRoot(){
   })()
 
   return (
-    <div className="relative min-h-screen w-full overflow-hidden bg-gradient-to-b from-white via-white/80 to-white">
-      <header className="relative z-10 mx-auto max-w-6xl px-6 pt-8 pb-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="font-semibold tracking-tight text-slate-900 text-xl" style={{ fontFamily: 'Space Grotesk, Inter, system-ui' }}>Onboarding — 5 quick steps</h1>
-            <p className="text-slate-600 text-sm">Beauty pros • Gentle setup • Your voice • Your clients</p>
-            <p className="text-slate-600/90 text-[12px] mt-1">You can finish anytime in Settings / Connections.</p>
+    <div className="relative min-h-[100dvh] w-full overflow-hidden grid place-items-center px-4 py-8">
+      <div aria-hidden className="pointer-events-none absolute inset-0" style={{
+        background: 'radial-gradient(900px 320px at 10% -10%, rgba(236,72,153,0.08), transparent), radial-gradient(700px 240px at 90% -20%, rgba(99,102,241,0.08), transparent)'
+      }} />
+      <div className="relative w-full max-w-[720px] group rounded-2xl border-[3px] border-white/60 shadow-[0_24px_48px_-22px_rgba(0,0,0,0.25)] bg-white/80 backdrop-blur px-6 py-6 md:px-8 md:py-7 overflow-visible">
+        <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 w-full h-[120px] md:h-[140px] rounded-2xl blur-md opacity-70" style={{
+          background: 'radial-gradient(60% 140px at 20% 20%, rgba(236,72,153,0.14), transparent 70%), radial-gradient(60% 140px at 80% 20%, rgba(99,102,241,0.12), transparent 72%)'
+        }} />
+        <div aria-hidden className="pointer-events-none absolute -inset-2 rounded-2xl blur-md opacity-0 transition group-hover:opacity-100" style={{
+          background: 'radial-gradient(420px 180px at 20% -10%, rgba(236,72,153,0.18), transparent 60%), radial-gradient(480px 200px at 80% -15%, rgba(99,102,241,0.18), transparent 65%)'
+        }} />
+        <header className="relative z-10">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="font-semibold tracking-tight text-slate-900 text-xl" style={{ fontFamily: 'Space Grotesk, Inter, system-ui' }}>Onboarding — 5 quick steps</h1>
+              <p className="text-slate-600 text-sm">Beauty pros • Gentle setup • Your voice • Your clients</p>
+              <p className="text-slate-600/90 text-[12px] mt-1">You can finish anytime in Settings / Connections.</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button aria-label="Skip onboarding for now" variant="ghost" size="sm" onClick={()=> navigate('/workspace?pane=dashboard&tour=1')} className="rounded-full focus-visible:ring-2 focus-visible:ring-pink-300">Skip for now</Button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button aria-label="Skip onboarding for now" variant="ghost" size="sm" onClick={()=> navigate('/workspace?pane=dashboard&tour=1')} className="rounded-full focus-visible:ring-2 focus-visible:ring-pink-300">Skip for now</Button>
+          <div className="mt-3 flex items-center gap-2" aria-label="Progress">
+            {order.map((s,i)=> (
+              <div key={s} aria-label={s} aria-current={i===idx ? 'step' : undefined} className={`h-2 rounded-full transition-all ${i===idx? 'bg-pink-500 w-8':'bg-slate-200 w-3'}`} />
+            ))}
+            <div className="ml-auto text-xs text-slate-500">Step {idx+1}/{order.length}</div>
           </div>
-        </div>
-      </header>
-
-      <main className="relative z-10 mx-auto max-w-4xl px-6 pb-24">
-        <div className="flex items-center gap-2" aria-label="Progress">
-          {order.map((s,i)=> (
-            <div key={s} aria-label={s} aria-current={i===idx ? 'step' : undefined} className={`h-2 rounded-full transition-all ${i===idx? 'bg-pink-500 w-8':'bg-slate-200 w-3'}`} />
-          ))}
-          <div className="ml-auto text-xs text-slate-500">Step {idx+1}/{order.length}</div>
-        </div>
-        <div className="mt-4">
+        </header>
+        <main className="relative z-10 mt-4">
           <AnimatePresence mode="wait">
             <motion.div key={state.step} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.25 }}>
               {Scene}
             </motion.div>
           </AnimatePresence>
-        </div>
-      </main>
+        </main>
+      </div>
     </div>
   )
 }

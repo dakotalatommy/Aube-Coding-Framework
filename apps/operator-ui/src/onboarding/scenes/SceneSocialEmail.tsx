@@ -9,7 +9,7 @@ export default function SceneSocialEmail({ state, next, back, save }: any){
   const [analyzed] = useState(false)
   const onContinue = async()=> { await save({ social: { instagram, email }}); next(); }
   return (
-    <section className="rounded-2xl shadow-xl bg-white/60 backdrop-blur border border-white/70 p-5">
+    <section className="rounded-2xl shadow-xl bg-white border border-white/80 p-5">
       <h2 className="text-xl font-semibold text-slate-900">Instagram & Email</h2>
       <p className="mt-1 text-sm text-slate-600">These enable content helper and respectful communication.</p>
       <div className="mt-4 grid grid-cols-1 gap-3">
@@ -19,7 +19,7 @@ export default function SceneSocialEmail({ state, next, back, save }: any){
               <div className="text-sm font-medium text-slate-800">Connect Instagram</div>
               <div className="text-xs text-slate-600">We’ll tune your 14‑day plan to your recent posts. You approve first.</div>
             </div>
-            <button aria-label="Connect Instagram" className="rounded-full border px-3 py-1.5 text-sm bg-white focus-visible:ring-2 focus-visible:ring-pink-300" onClick={()=> startOAuth('instagram' as any)}>Connect</button>
+            <button aria-label="Connect Instagram" className="rounded-full border px-3 py-1.5 text-sm bg-white focus-visible:ring-2 focus-visible:ring-pink-300" onClick={()=> startOAuth('instagram' as any, { returnTo: 'onboarding' })}>Connect</button>
           </div>
           {analyzing ? (
             <div className="mt-3 animate-pulse">

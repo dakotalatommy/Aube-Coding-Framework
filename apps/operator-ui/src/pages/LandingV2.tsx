@@ -167,7 +167,7 @@ export default function LandingV2(){
 
 
   return (
-    <div className="mx-auto max-w-6xl relative z-10">
+    <div className="mx-auto max-w-6xl relative z-10" style={{ backgroundColor: '#F7CBDD' }}>
       {/* Use GLB copied to /public/spline */}
       <BackdropFX modelUrl="/spline/swirl.glb" />
       {/* Hairlines */}

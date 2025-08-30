@@ -8,7 +8,7 @@ export default function AuthCallback() {
 
   useEffect(() => {
     const sp = new URLSearchParams(loc.search);
-    const next = sp.get('next') || '/workspace?pane=dashboard&tour=all';
+    const next = sp.get('next') || '/onboarding';
 
     // Broadcast to the opener/original tab that auth is ready
     const signalReady = () => {
@@ -17,6 +17,8 @@ export default function AuthCallback() {
         bc.postMessage({ type: 'auth_ready' });
       } catch {}
       try { localStorage.setItem('bvx_auth_ready', '1'); } catch {}
+      try { localStorage.removeItem('bvx_intro_pending'); } catch {}
+      try { localStorage.removeItem('bvx_auth_in_progress'); } catch {}
       try { (window.opener as any)?.postMessage('bvx_auth_ready', window.location.origin); } catch {}
     };
 
@@ -45,7 +47,9 @@ export default function AuthCallback() {
           nav(next, { replace: true });
         }
       }, 1200);
-      return () => window.clearInterval(t);
+      // hard timeout: after 12s, go to next anyway (if cookies lag)
+      const hard = window.setTimeout(()=>{ try{ signalReady(); }catch{}; nav(next, { replace: true }); }, 12000);
+      return () => { window.clearInterval(t); window.clearTimeout(hard); };
     };
     init();
     return () => { try { unsub?.data?.subscription?.unsubscribe?.(); } catch {} };

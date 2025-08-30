@@ -1,5 +1,4 @@
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import StepPager from '../components/StepPager';
 import Button, { ButtonLink } from '../components/ui/Button';
 import { startGuide } from '../lib/guide';
 import ShareCard from '../components/ui/ShareCard';
@@ -28,10 +27,11 @@ export default function Workflows(){
   const [step, setStep] = useState<number>(()=>{
     try{ const sp = new URLSearchParams(window.location.search); const s = Number(sp.get('step')||'1'); return Math.max(1, Math.min(2, isFinite(s)? s : 1)) - 1; } catch { return 0; }
   });
-  const steps = [
-    { key:'overview', label:'Work Styles overview' },
-    { key:'actions', label:'Actions & Guides' },
-  ];
+  // Actions first, Overview last
+  // Sub-pages inside Actions: 1) Playbooks + progress, 2) Impact pack + quick actions
+  const [actionPage, setActionPage] = useState<number>(()=>{
+    try{ const sp = new URLSearchParams(window.location.search); const a = Number(sp.get('ap')||'1'); return Math.max(1, Math.min(2, isFinite(a)? a : 1)) - 1; } catch { return 0; }
+  });
   const recommendOnly = String((import.meta as any).env?.VITE_BETA_RECOMMEND_ONLY || localStorage.getItem('bvx_recommend_only') || '0') === '1';
   const { showToast } = useToast();
   const isDemo = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('demo') === '1';
@@ -86,8 +86,8 @@ export default function Workflows(){
   // Sync step with pretty routes
   useEffect(()=>{
     try{
-      if (location.pathname.startsWith('/styles/actions')) setStep(1);
-      else if (location.pathname.startsWith('/styles')) setStep(0);
+      if (location.pathname.startsWith('/styles/actions')) setStep(0);
+      else if (location.pathname.startsWith('/styles')) setStep(1);
       else {
         const sp = new URLSearchParams(location.search);
         const s = Number(sp.get('step')||'1');
@@ -99,8 +99,21 @@ export default function Workflows(){
   const gotoStep = (idx: number) => {
     const clamped = Math.max(0, Math.min(1, idx|0));
     setStep(clamped);
-    if (clamped === 0) navigate('/styles');
-    else navigate('/styles/actions');
+    // Stay inside the workspace — map steps into querystring
+    const sp = new URLSearchParams(window.location.search);
+    sp.set('pane', 'workflows');
+    sp.set('step', String(clamped + 1));
+    navigate(`/workspace?${sp.toString()}`);
+  };
+
+  const gotoActionPage = (idx: number) => {
+    const clamped = Math.max(0, Math.min(1, idx|0));
+    setActionPage(clamped);
+    const sp = new URLSearchParams(window.location.search);
+    sp.set('pane','workflows');
+    sp.set('step', String(step + 1));
+    sp.set('ap', String(clamped + 1));
+    navigate(`/workspace?${sp.toString()}`);
   };
 
   const prev = () => gotoStep(step - 1);
@@ -264,7 +277,7 @@ export default function Workflows(){
 
   return (
     <div className="space-y-3">
-      <StepPager steps={steps} index={step} onChange={gotoStep} persistKey="bvx_wf_step" />
+      {/* StepPager removed; header Prev/Next + buttons control steps */}
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">Work Styles</h3>
         <div className="flex items-center gap-2">
@@ -284,12 +297,19 @@ export default function Workflows(){
           >
             Next <ChevronRight size={16} />
           </button>
-          <Button variant="outline" size="sm" onClick={()=> window.location.assign('/styles')}>Overview</Button>
-          <Button variant="outline" size="sm" onClick={()=> window.location.assign('/styles/actions')}>Actions</Button>
+          <Button variant="outline" size="sm" onClick={()=> gotoStep(0)}>Actions</Button>
+          <Button variant="outline" size="sm" onClick={()=> gotoStep(1)}>Overview</Button>
           <Button variant="outline" size="sm" aria-label="Open workflows guide" onClick={()=> startGuide('workflows')}>Guide me</Button>
         </div>
       </div>
       {step===0 && (
+        <div className="mt-2 inline-flex items-center gap-2 text-xs">
+          <span className="text-slate-600">Page</span>
+          <button className={`px-2 py-1 rounded-md border ${actionPage===0? 'bg-white' : 'bg-slate-50'}`} onClick={()=> gotoActionPage(0)}>1</button>
+          <button className={`px-2 py-1 rounded-md border ${actionPage===1? 'bg-white' : 'bg-slate-50'}`} onClick={()=> gotoActionPage(1)}>2</button>
+        </div>
+      )}
+      {step===1 && (
         <>
           <p className="text-sm text-slate-600">Everything you can do in BrandVX, in one place. Consent-first, simple language, step-by-step.</p>
           <div className="grid md:grid-cols-2 gap-4">
@@ -305,7 +325,7 @@ export default function Workflows(){
           </div>
         </>
       )}
-      {step===1 && (
+      {step===0 && actionPage===0 && (
       <section className="rounded-2xl p-4 bg-white/70 backdrop-blur border border-white/70 shadow-sm">
         <div className="flex items-center justify-between">
           <h4 className="text-md font-semibold">Playbooks</h4>
@@ -337,7 +357,7 @@ export default function Workflows(){
       </section>
       )}
       {/* Workflow tracker: select a workflow and complete current step */}
-      {step===1 && (
+      {step===0 && actionPage===0 && (
       <section className="rounded-2xl p-4 bg-white/70 backdrop-blur border border-white/70 shadow-sm">
         <div className="flex items-center justify-between">
           <h4 className="text-md font-semibold">Your 5 workflows</h4>
@@ -360,7 +380,7 @@ export default function Workflows(){
         </div>
       </section>
       )}
-      {step===1 && (
+      {step===0 && actionPage===1 && (
       <section className="rounded-2xl p-4 bg-white/70 backdrop-blur border border-white/70 shadow-sm">
         <div className="flex items-center justify-between">
           <h4 className="text-md font-semibold">48‑hour impact pack</h4>
@@ -420,7 +440,7 @@ export default function Workflows(){
       </section>
       )}
       {/* End-of-pack summary */}
-      {step===1 && (() => {
+      {step===0 && actionPage===1 && (() => {
         const vals = Object.values(packState);
         const done = vals.filter(v=> v==='done').length;
         const skipped = vals.filter(v=> v==='skipped').length;
@@ -440,7 +460,7 @@ export default function Workflows(){
           </section>
         );
       })()}
-      {step===1 && (
+      {step===0 && actionPage===1 && (
       <section className="rounded-2xl p-4 bg-white/70 backdrop-blur border border-white/70 shadow-sm" data-tour="wf-quick">
         <div className="font-medium text-slate-900">Quick actions</div>
         <div className="text-sm text-slate-600 mt-1 flex flex-wrap gap-2 items-center">

@@ -10,7 +10,7 @@ export default function SceneConnections({ next, back, save }: any){
     next()
   }
   return (
-    <section className="rounded-2xl shadow-xl bg-white/60 backdrop-blur border border-white/70 p-5">
+    <section className="rounded-2xl shadow-xl bg-white border border-white/80 p-5">
       <h2 className="text-xl font-semibold text-slate-900">Let’s look up your book</h2>
       <p className="mt-1 text-sm text-slate-600">Connecting your calendar unlocks confirmations, reschedules, and notify-list magic.</p>
       <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -23,7 +23,7 @@ export default function SceneConnections({ next, back, save }: any){
       {provider && (
         <div className="mt-4 flex gap-2">
           {provider!=='other' && (
-            <button className="rounded-full border px-3 py-2 text-sm bg-white" onClick={()=> startOAuth(provider as any)}>Continue with {provider.charAt(0).toUpperCase()+provider.slice(1)} (OAuth)</button>
+            <button className="rounded-full border px-3 py-2 text-sm bg-white" onClick={()=> startOAuth(provider as any, { returnTo: 'onboarding' })}>Continue with {provider.charAt(0).toUpperCase()+provider.slice(1)} (OAuth)</button>
           )}
           {allowDeclared && (
             <button className="rounded-full border px-3 py-2 text-sm bg-white" onClick={proceed}>Declare for now (dev)</button>
