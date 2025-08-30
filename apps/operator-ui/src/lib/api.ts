@@ -30,11 +30,16 @@ export async function getTenant(): Promise<string> {
     if (session?.access_token) {
       headers.set('Authorization', `Bearer ${session.access_token}`);
     } else {
-      // Demo/dev fallback so /me returns 200 without auth
-      headers.set('X-User-Id', 'dev');
-      headers.set('X-Role', 'owner_admin');
-      const hintedTid = typeof window !== 'undefined' ? (localStorage.getItem('bvx_tenant') || '') : '';
-      if (hintedTid) headers.set('X-Tenant-Id', hintedTid);
+      // Only allow dev fallback when explicitly in demo or localhost
+      const isLocal = typeof window !== 'undefined' && (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+      const sp = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
+      const isDemo = sp.get('demo') === '1';
+      if (isLocal || isDemo) {
+        headers.set('X-User-Id', 'dev');
+        headers.set('X-Role', 'owner_admin');
+        const hintedTid = typeof window !== 'undefined' ? (localStorage.getItem('bvx_tenant') || '') : '';
+        if (hintedTid) headers.set('X-Tenant-Id', hintedTid);
+      }
     }
     const me = await fetch(`${API_BASE}/me`, { headers }).then(r=>r.ok?r.json():null);
     const tid = me?.tenant_id || '';
@@ -44,7 +49,8 @@ export async function getTenant(): Promise<string> {
       return tid;
     }
   } catch {}
-  return 't1';
+  // In production, never return dev tenant. Force caller to handle lack of tenant.
+  return '';
 }
 
 async function request(path: string, options: RequestInit = {}) {
@@ -61,8 +67,16 @@ async function request(path: string, options: RequestInit = {}) {
   if (session?.access_token) {
     headers.set('Authorization', `Bearer ${session.access_token}`);
   } else {
-    headers.set('X-User-Id', 'dev');
-    headers.set('X-Role', 'owner_admin');
+    // Only use dev headers on localhost or when demo=1
+    try {
+      const isLocal = typeof window !== 'undefined' && (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+      const sp = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : new URLSearchParams();
+      const isDemo = sp.get('demo') === '1';
+      if (isLocal || isDemo) {
+        headers.set('X-User-Id', 'dev');
+        headers.set('X-Role', 'owner_admin');
+      }
+    } catch {}
   }
   // Ensure X-Tenant-Id header is set. Prefer cached/localStorage, then consult /me once.
   if (!headers.get('X-Tenant-Id') && path !== '/me') {
@@ -135,10 +149,13 @@ async function request(path: string, options: RequestInit = {}) {
           const onAuthPage = p === '/login' || p === '/signup' || p === '/auth/callback';
           const sp = new URLSearchParams(window.location.search);
           const isDemo = sp.get('demo') === '1';
+          const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
           if (!onAuthPage && !isDemo && !redirectedRecently) {
-            try { localStorage.setItem('bvx_auth_return', window.location.href); } catch {}
-            try { localStorage.setItem('bvx_last_401_redirect_ts', String(Date.now())); } catch {}
-            window.location.assign('/login');
+            if (!isLocal) {
+              try { localStorage.setItem('bvx_auth_return', window.location.href); } catch {}
+              try { localStorage.setItem('bvx_last_401_redirect_ts', String(Date.now())); } catch {}
+              window.location.assign('/login');
+            }
           }
         } catch {}
       }

@@ -120,7 +120,11 @@ async def get_user_context(
             dev_allow = os.getenv("DEV_AUTH_ALLOW", "0") == "1"
             if not dev_allow:
                 raise HTTPException(status_code=401, detail="invalid_token")
-    # Minimal dev default via headers
+    # No Authorization header provided: only permit dev fallback when explicitly allowed
+    dev_allow = os.getenv("DEV_AUTH_ALLOW", "0") == "1"
+    if not dev_allow:
+        raise HTTPException(status_code=401, detail="missing_token")
+    # Minimal dev default via headers (explicitly allowed)
     user_id = x_user_id or "dev-user"
     role = (x_role or "practitioner").lower()
     tenant_id = x_tenant_id or "t1"
