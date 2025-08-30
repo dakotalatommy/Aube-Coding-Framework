@@ -767,12 +767,12 @@ def connected_accounts_list(
             return JSONResponse({"error": "forbidden"}, status_code=403)
         rows = db.execute(
             _sql_text(
-                "SELECT provider, status, created_at FROM connected_accounts WHERE tenant_id = :t ORDER BY id DESC LIMIT 12"
+                "SELECT COALESCE(provider, platform) as provider, status, COALESCE(connected_at, created_at, 0) as ts FROM connected_accounts WHERE tenant_id = :t ORDER BY id DESC LIMIT 12"
             ),
             {"t": tenant_id},
         ).fetchall()
         items = [
-            {"provider": r[0], "status": r[1], "ts": int(r[2] or 0)} for r in (rows or [])
+            {"provider": str(r[0] or ""), "status": str(r[1] or ""), "ts": int(r[2] or 0)} for r in (rows or [])
         ]
         last_cb = db.execute(
             _sql_text(
