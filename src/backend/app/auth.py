@@ -30,11 +30,30 @@ async def get_user_context(
                 supa_url = os.getenv("SUPABASE_URL", "").strip()
                 if supa_url:
                     host = supa_url.rstrip("/")
-                    jwks_url = f"{host}/auth/v1/certs"
+                    # Supabase JWKS endpoint
+                    jwks_url = f"{host}/auth/v1/keys"
                     os.environ.setdefault("JWT_JWKS_URL", jwks_url)
                     os.environ.setdefault("JWT_ISSUER", f"{host}/auth/v1")
                     os.environ.setdefault("JWT_AUDIENCE", os.getenv("JWT_AUDIENCE", "authenticated"))
-            if jwks_url:
+
+            # Determine algorithm from header, choose appropriate verification path
+            alg = ""
+            try:
+                alg = (jwt.get_unverified_header(token) or {}).get("alg", "")
+            except Exception:
+                alg = ""
+
+            if alg.startswith("HS"):
+                # Supabase project configured for HS256 access tokens
+                payload = jwt.decode(
+                    token,
+                    os.getenv("JWT_SECRET", "dev_secret"),
+                    algorithms=["HS256", "HS512"],
+                    audience=os.getenv("JWT_AUDIENCE", "authenticated"),
+                    issuer=os.getenv("JWT_ISSUER", "brandvx"),
+                )
+            elif jwks_url:
+                # Attempt JWKS verification (RS/ES)
                 jwk_client = PyJWKClient(jwks_url)
                 signing_key = jwk_client.get_signing_key_from_jwt(token)
                 payload = jwt.decode(
@@ -45,6 +64,7 @@ async def get_user_context(
                     issuer=os.getenv("JWT_ISSUER", "brandvx"),
                 )
             else:
+                # Fallback to HS256 if JWKS not configured
                 payload = jwt.decode(
                     token,
                     os.getenv("JWT_SECRET", "dev_secret"),

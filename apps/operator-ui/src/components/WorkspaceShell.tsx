@@ -59,7 +59,7 @@ export default function WorkspaceShell(){
                 if (session) break;
               }
             }
-            if (!session) { nav('/signup'); return; }
+            if (!session) { nav('/login'); return; }
           }
         }
         const sp = new URLSearchParams(loc.search);

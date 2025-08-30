@@ -98,7 +98,14 @@ async function request(path: string, options: RequestInit = {}) {
     const tid = headers.get('X-Tenant-Id');
     if (tid) localStorage.setItem('bvx_tenant', tid);
   } catch {}
-  const doFetch = async (base: string) => {
+  // Prevent rapid redirect loops on repeated 401s
+  let redirectedRecently = false;
+  try {
+    const last = Number(localStorage.getItem('bvx_last_401_redirect_ts') || '0');
+    redirectedRecently = Date.now() - last < 6000;
+  } catch {}
+
+  const doFetch = async (base: string, isRetry: boolean = false) => {
     // Add a default timeout and preserve any passed AbortController
     const ctl = new AbortController();
     const passedSignal = (options as any).signal as AbortSignal | undefined;
@@ -110,11 +117,27 @@ async function request(path: string, options: RequestInit = {}) {
       try { track('api_error', { path, status: res.status, statusText: res.statusText, base }); } catch {}
       // Handle unauthorized centrally (skip in demo contexts)
       if (res.status === 401 && typeof window !== 'undefined') {
+        // Retry once after refreshing the session
+        if (!isRetry) {
+          try {
+            const refreshed = await supabase.auth.refreshSession();
+            const newToken = refreshed?.data?.session?.access_token;
+            if (newToken) {
+              headers.set('Authorization', `Bearer ${newToken}`);
+              window.clearTimeout(to);
+              return await doFetch(base, true);
+            }
+          } catch {}
+        }
+        // Guard redirect to avoid infinite loops or redirects from auth pages
         try {
+          const p = window.location.pathname;
+          const onAuthPage = p === '/login' || p === '/signup' || p === '/auth/callback';
           const sp = new URLSearchParams(window.location.search);
           const isDemo = sp.get('demo') === '1';
-          if (!isDemo) {
+          if (!onAuthPage && !isDemo && !redirectedRecently) {
             try { localStorage.setItem('bvx_auth_return', window.location.href); } catch {}
+            try { localStorage.setItem('bvx_last_401_redirect_ts', String(Date.now())); } catch {}
             window.location.assign('/login');
           }
         } catch {}
