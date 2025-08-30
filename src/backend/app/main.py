@@ -3809,6 +3809,10 @@ def oauth_login(provider: str, tenant_id: Optional[str] = None, ctx: UserContext
             cid = _new_cid()
             sep = '&' if '?' in url else '?'
             url = f"{url}{sep}cid={cid}"
+            try:
+                emit_event("OauthLoginStarted", {"tenant_id": ctx.tenant_id, "user_id": ctx.user_id, "provider": provider, "cid": cid})
+            except Exception:
+                pass
     except Exception:
         pass
     # Cache state marker for CSRF verification in callback
@@ -3926,9 +3930,18 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
         except Exception:
             try: db.rollback()
             except Exception: pass
+        # Emit event for callback
+        try:
+            emit_event("OauthCallback", {"tenant_id": t_id, "provider": provider, "code_present": bool(code), "error": error or ""})
+        except Exception:
+            pass
         # Redirect UX: success or error with reason
         if error or not exchange_ok:
             reason = error or ("token_exchange_failed" if code else "missing_code")
+            try:
+                emit_event("OauthConnectFailed", {"tenant_id": t_id, "provider": provider, "reason": reason})
+            except Exception:
+                pass
             return RedirectResponse(url=f"{_frontend_base_url()}/integrations?error={reason}&provider={provider}")
         # Map provider to the Integrations step (1-based) and include a workspace return hint
         step_map = {
