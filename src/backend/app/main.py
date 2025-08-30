@@ -465,6 +465,43 @@ def _connected_accounts_columns(db: Session) -> set:
     except Exception:
         return set()
 
+def _connected_accounts_map(db: Session, tenant_id: str) -> Dict[str, str]:
+    """Return mapping of provider->status using tolerant column detection.
+    Falls back to 'connected' when status column is missing.
+    """
+    cols = _connected_accounts_columns(db)
+    name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
+    if not name_col:
+        return {}
+    status_col = 'status' if 'status' in cols else None
+    select_cols = [f"{name_col} as provider"]
+    if status_col:
+        select_cols.append(f"{status_col} as status")
+    sql = f"SELECT {', '.join(select_cols)} FROM connected_accounts WHERE tenant_id = :t"
+    try:
+        rows = db.execute(_sql_text(sql), {"t": tenant_id}).fetchall()
+    except Exception:
+        return {}
+    out: Dict[str, str] = {}
+    for r in (rows or []):
+        prov = str(r[0] or '')
+        stat = str(r[1] or 'connected') if status_col else 'connected'
+        if prov:
+            out[prov] = stat
+    return out
+
+def _has_connected_account(db: Session, tenant_id: str, provider: str) -> bool:
+    cols = _connected_accounts_columns(db)
+    name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
+    if not name_col:
+        return False
+    sql = f"SELECT 1 FROM connected_accounts WHERE tenant_id = :t AND {name_col} = :p ORDER BY id DESC LIMIT 1"
+    try:
+        row = db.execute(_sql_text(sql), {"t": tenant_id, "p": provider}).fetchone()
+        return bool(row)
+    except Exception:
+        return False
+
 def _audit_logs_columns(db: Session) -> set:
     try:
         rows = db.execute(_sql_text("""
@@ -5249,13 +5286,7 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
         return {"imported": 0}
     # Look up Square connected account to ensure token exists (future: use it)
     try:
-        ca = (
-            db.query(dbm.ConnectedAccount)
-            .filter(dbm.ConnectedAccount.tenant_id == req.tenant_id, dbm.ConnectedAccount.provider == "square")
-            .order_by(dbm.ConnectedAccount.id.desc())
-            .first()
-        )
-        if not ca:
+        if not _has_connected_account(db, req.tenant_id, "square"):
             return {"imported": 0}
     except Exception:
         pass
@@ -5551,8 +5582,7 @@ def onboarding_analyze(req: AnalyzeRequest, db: Session = Depends(get_db), ctx: 
         return {"summary": {}, "status": "forbidden"}
     # Connected accounts snapshot
     try:
-        ca = db.query(dbm.ConnectedAccount).filter(dbm.ConnectedAccount.tenant_id == req.tenant_id).all()
-        connected = {r.provider: r.status for r in (ca or [])}
+        connected = _connected_accounts_map(db, req.tenant_id)
     except Exception:
         connected = {}
     # Reconciliation (booking vs contacts)
