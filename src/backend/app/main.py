@@ -768,13 +768,22 @@ def connected_accounts_list(
         cols = _connected_accounts_columns(db)
         name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
         ts_col = 'connected_at' if 'connected_at' in cols else ('created_at' if 'created_at' in cols else None)
+        status_col = 'status' if 'status' in cols else None
         if not name_col:
             return {"items": [], "last_callback": None}
         if not ts_col:
             ts_col = '0'
-        sql = f"SELECT {name_col} as provider, status, {ts_col} as ts FROM connected_accounts WHERE tenant_id = :t ORDER BY id DESC LIMIT 12"
+        select_cols = [f"{name_col} as provider", f"{ts_col} as ts"]
+        if status_col:
+            select_cols.insert(1, f"{status_col} as status")
+        sql = f"SELECT {', '.join(select_cols)} FROM connected_accounts WHERE tenant_id = :t ORDER BY id DESC LIMIT 12"
         rows = db.execute(_sql_text(sql), {"t": tenant_id}).fetchall()
-        items = [{"provider": str(r[0] or ""), "status": str(r[1] or ""), "ts": int(r[2] or 0)} for r in (rows or [])]
+        items = []
+        for r in (rows or []):
+            if status_col:
+                items.append({"provider": str(r[0] or ""), "status": str(r[1] or ""), "ts": int(r[2] or 0)})
+            else:
+                items.append({"provider": str(r[0] or ""), "status": "unknown", "ts": int(r[1] or 0)})
         last_cb = db.execute(
             _sql_text(
                 "SELECT action, created_at, payload FROM audit_logs WHERE tenant_id = :t AND action LIKE 'oauth.callback.%' ORDER BY id DESC LIMIT 1"
