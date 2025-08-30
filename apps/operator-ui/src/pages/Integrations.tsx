@@ -15,6 +15,19 @@ export default function Integrations(){
   const providerFromURL = (()=>{ try{ return (sp.get('provider')||'').toLowerCase(); } catch { return ''; } })();
   const returnHint = (()=>{ try{ return (sp.get('return')||''); } catch { return ''; } })();
   const [focusedProvider] = useState<string>(providerFromURL);
+  const PAGE_MAX = 3;
+  const initialStep = (()=>{ try{ const n = parseInt(new URLSearchParams(window.location.search).get('step')||'1',10); return Math.min(Math.max(n,1), PAGE_MAX); } catch { return 1; } })();
+  const [page, setPage] = useState<number>(initialStep);
+  const go = (n: number) => {
+    const clamped = Math.min(Math.max(n,1), PAGE_MAX);
+    setPage(clamped);
+    try {
+      const p = new URLSearchParams(window.location.search);
+      p.set('pane','integrations');
+      p.set('step', String(clamped));
+      window.history.replaceState({}, '', `/workspace?${p.toString()}`);
+    } catch {}
+  };
   const SOCIAL_ON = (import.meta as any).env?.VITE_FEATURE_SOCIAL === '1';
   const SHOW_REDIRECT_URIS = ((import.meta as any).env?.VITE_SHOW_REDIRECT_URIS === '1') || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('dev'));
   const [settings, setSettings] = useState<any>({ tone:'helpful', services:['sms','email'], auto_approve_all:false, quiet_hours:{ start:'21:00', end:'08:00' }, brand_profile:{ name:'', voice:'', about:'' }, metrics:{ monthly_revenue:'', avg_service_price:'', avg_service_time:'', rent:'' }, goals:{ primary_goal:'' }, preferences:{} });
@@ -375,6 +388,11 @@ export default function Integrations(){
             ] } as any);
             d.drive();
           }}>{UI_STRINGS.ctas.tertiary.guideMe}</Button>
+          <div className="flex items-center gap-1 ml-2">
+            <Button variant="outline" size="sm" onClick={()=> go(page-1)} disabled={page<=1}>Prev</Button>
+            <span className="text-xs px-2">Page {page}/3</span>
+            <Button variant="outline" size="sm" onClick={()=> go(page+1)} disabled={page>=3}>Next</Button>
+          </div>
         </div>
       </div>
       {/* Simplified header; hide connected/last-callback troubleshooting details */}
@@ -407,6 +425,7 @@ export default function Integrations(){
           </div>
         </div>
       )}
+      {page===1 && (
       <div className="grid gap-3 max-w-xl">
         {onboarding?.providers && Object.entries(onboarding.providers).some(([,v])=> (v as boolean)===false) && (
           <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1">Some providers are pending app credentials; connect buttons will be disabled for those until configured.</div>
@@ -481,7 +500,9 @@ export default function Integrations(){
           </div>
         </section>
       </div>
+      )}
 
+      {page===2 && (
       <div className="grid md:grid-cols-3 gap-4 mt-1 overflow-hidden" data-guide="providers">
         {SHOW_REDIRECT_URIS && redirects && (
           <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm md:col-span-3">
@@ -695,7 +716,9 @@ export default function Integrations(){
           </section>
         )}
       </div>
+      )}
 
+      {page===3 && (
       <div className="grid md:grid-cols-3 gap-4 mt-4">
         {(
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
@@ -721,6 +744,7 @@ export default function Integrations(){
         </section>
         )}
       </div>
+      )}
       {/* Image generation for users is available on the Vision page; intentionally not exposed here to avoid changing app imagery. */}
       <pre className="whitespace-pre-wrap mt-3 text-sm text-slate-700">{status}</pre>
     </div>
