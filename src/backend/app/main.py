@@ -3713,11 +3713,17 @@ def api_oauth_callback(provider: str, request: Request, code: Optional[str] = No
             except Exception:
                 exchange_ok = False
         try:
-            db.add(dbm.ConnectedAccount(
-                tenant_id=t_id, user_id="system", provider=provider, scopes=None,
-                access_token_enc=access_token_enc, refresh_token_enc=refresh_token_enc, expires_at=expires_at, status=status
-            ))
-            db.commit()
+            _insert_connected_account(
+                db,
+                tenant_id=t_id,
+                user_id="system",
+                provider=provider,
+                status=status,
+                access_token_enc=access_token_enc,
+                refresh_token_enc=refresh_token_enc,
+                expires_at=expires_at,
+                scopes=None,
+            )
         except Exception:
             try: db.rollback()
             except Exception: pass
@@ -5166,11 +5172,17 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
             except Exception:
                 exchange_ok = False
         try:
-            db.add(dbm.ConnectedAccount(
-                tenant_id=t_id, user_id="dev", provider=provider, scopes=None,
-                access_token_enc=access_token_enc, refresh_token_enc=refresh_token_enc, expires_at=expires_at, status=status
-            ))
-            db.commit()
+            _insert_connected_account(
+                db,
+                tenant_id=t_id,
+                user_id="dev",
+                provider=provider,
+                status=status,
+                access_token_enc=access_token_enc,
+                refresh_token_enc=refresh_token_enc,
+                expires_at=expires_at,
+                scopes=None,
+            )
         except Exception:
             try: db.rollback()
             except Exception: pass
