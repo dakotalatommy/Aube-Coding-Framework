@@ -765,15 +765,16 @@ def connected_accounts_list(
     try:
         if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
             return JSONResponse({"error": "forbidden"}, status_code=403)
-        rows = db.execute(
-            _sql_text(
-                "SELECT COALESCE(provider, platform) as provider, status, COALESCE(connected_at, created_at, 0) as ts FROM connected_accounts WHERE tenant_id = :t ORDER BY id DESC LIMIT 12"
-            ),
-            {"t": tenant_id},
-        ).fetchall()
-        items = [
-            {"provider": str(r[0] or ""), "status": str(r[1] or ""), "ts": int(r[2] or 0)} for r in (rows or [])
-        ]
+        cols = _connected_accounts_columns(db)
+        name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
+        ts_col = 'connected_at' if 'connected_at' in cols else ('created_at' if 'created_at' in cols else None)
+        if not name_col:
+            return {"items": [], "last_callback": None}
+        if not ts_col:
+            ts_col = '0'
+        sql = f"SELECT {name_col} as provider, status, {ts_col} as ts FROM connected_accounts WHERE tenant_id = :t ORDER BY id DESC LIMIT 12"
+        rows = db.execute(_sql_text(sql), {"t": tenant_id}).fetchall()
+        items = [{"provider": str(r[0] or ""), "status": str(r[1] or ""), "ts": int(r[2] or 0)} for r in (rows or [])]
         last_cb = db.execute(
             _sql_text(
                 "SELECT action, created_at, payload FROM audit_logs WHERE tenant_id = :t AND action LIKE 'oauth.callback.%' ORDER BY id DESC LIMIT 1"
