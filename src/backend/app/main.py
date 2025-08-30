@@ -454,6 +454,59 @@ def upsert_usage_limit(body: UsageLimitUpsert, db: Session = Depends(get_db), ct
 def _env(name: str, default: str = "") -> str:
     return os.getenv(name, default)
 
+# --- Connected account helpers (handle legacy 'platform' column) ---
+def _connected_accounts_columns(db: Session) -> set:
+    try:
+        rows = db.execute(_sql_text("""
+            SELECT column_name FROM information_schema.columns
+            WHERE table_name = 'connected_accounts' AND table_schema = 'public'
+        """)).fetchall()
+        return {str(r[0]) for r in rows}
+    except Exception:
+        return set()
+
+def _insert_connected_account(db: Session, tenant_id: str, user_id: str, provider: str,
+                              status: str, access_token_enc: Optional[str],
+                              refresh_token_enc: Optional[str], expires_at: Optional[int],
+                              scopes: Optional[str]) -> None:
+    cols = _connected_accounts_columns(db)
+    # Try ORM first when 'provider' column exists
+    try:
+        if 'provider' in cols:
+            db.add(dbm.ConnectedAccount(
+                tenant_id=tenant_id, user_id=user_id, provider=provider, scopes=scopes,
+                access_token_enc=access_token_enc, refresh_token_enc=refresh_token_enc,
+                expires_at=expires_at, status=status
+            ))
+            db.commit();
+            return
+    except Exception:
+        try: db.rollback()
+        except Exception: pass
+    # Fallback: legacy schema with 'platform'
+    try:
+        fields = ["tenant_id","user_id","status","connected_at","created_at"]
+        values = {"tenant_id": tenant_id, "user_id": user_id, "status": status, "connected_at": int(_time.time()), "created_at": int(_time.time())}
+        if 'platform' in cols:
+            fields.append('platform'); values['platform'] = provider
+        if 'provider' in cols:
+            fields.append('provider'); values['provider'] = provider
+        if 'access_token_enc' in cols:
+            fields.append('access_token_enc'); values['access_token_enc'] = access_token_enc
+        if 'refresh_token_enc' in cols:
+            fields.append('refresh_token_enc'); values['refresh_token_enc'] = refresh_token_enc
+        if 'expires_at' in cols:
+            fields.append('expires_at'); values['expires_at'] = expires_at
+        if 'scopes' in cols:
+            fields.append('scopes'); values['scopes'] = scopes
+        cols_sql = ",".join(fields)
+        params_sql = ",".join([":"+k for k in fields])
+        db.execute(_sql_text(f"INSERT INTO connected_accounts ({cols_sql}) VALUES ({params_sql})"), values)
+        db.commit()
+    except Exception:
+        try: db.rollback()
+        except Exception: pass
+
 
 # --------------------------- Billing (Stripe) ---------------------------
 def _stripe_client():
@@ -3734,14 +3787,12 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
             except Exception:
                 exchange_ok = False
         try:
-            db.add(dbm.ConnectedAccount(
-                tenant_id=t_id, user_id="dev", provider=provider, scopes=None,
-                access_token_enc=access_token_enc, refresh_token_enc=refresh_token_enc, expires_at=expires_at, status=status
-            ))
-            db.commit()
+            _insert_connected_account(
+                db, tenant_id=t_id, user_id="dev", provider=provider, status=("connected" if exchange_ok else status),
+                access_token_enc=access_token_enc, refresh_token_enc=refresh_token_enc, expires_at=expires_at, scopes=None
+            )
         except Exception:
-            try: db.rollback()
-            except Exception: pass
+            pass
         try:
             db.add(dbm.AuditLog(tenant_id=t_id, actor_id="system", action=f"oauth.callback.{provider}", entity_ref="oauth", payload=str({"code": bool(code), "error": error or "", "exchange_ok": exchange_ok, **({} if not exchange_detail else exchange_detail)})))
             db.commit()
