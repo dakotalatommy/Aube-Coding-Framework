@@ -30,6 +30,17 @@ export default function Integrations(){
   const [twilioFrom, setTwilioFrom] = useState<string>('');
   const [connAccounts, setConnAccounts] = useState<Array<{provider:string,status?:string,ts?:number}>>([]);
   const [lastCallback, setLastCallback] = useState<any>(null);
+
+  const isConnected = (provider: string): boolean => {
+    try {
+      const map = onboarding?.connectedMap || {};
+      if (map && typeof map[provider] === 'string') return String(map[provider]) === 'connected';
+      if (Array.isArray(connAccounts)) return connAccounts.some(x => (x?.provider||'') === provider);
+    } catch {}
+    return false;
+  };
+
+  const connectLabel = (provider: string) => isConnected(provider) ? `Reconnect ${provider.charAt(0).toUpperCase()+provider.slice(1)}` : `Connect ${provider.charAt(0).toUpperCase()+provider.slice(1)}`;
   const reanalyze = async () => {
     try{
       const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() });
@@ -372,6 +383,16 @@ export default function Integrations(){
           }}>{UI_STRINGS.ctas.tertiary.guideMe}</Button>
         </div>
       </div>
+      {(connAccounts?.length>0 || lastCallback) && (
+        <div className="text-[11px] text-slate-600 mt-1">
+          {connAccounts?.length>0 && (
+            <span>Connected: {connAccounts.map(x=>x.provider).join(', ')}</span>
+          )}
+          {lastCallback && (
+            <span className="ml-3">Last callback: {new Date((lastCallback.ts||0)*1000).toLocaleString()}</span>
+          )}
+        </div>
+      )}
       {isDemo && (
         <div className="rounded-md border bg-amber-50 border-amber-200 text-amber-900 text-xs px-2 py-1 inline-block">
           Demo mode — external provider connections are off. Explore UI and previews here; enable Twilio/SendGrid after signup.
@@ -524,7 +545,7 @@ export default function Integrations(){
             </div>
           </div>
           <div className="mt-3 flex gap-2">
-            <Button variant="outline" disabled={busy || connecting.hubspot || onboarding?.providers?.hubspot===false} onClick={()=> connect('hubspot')}>{connecting.hubspot ? 'Connecting…' : 'Connect HubSpot'}</Button>
+            <Button variant="outline" disabled={busy || connecting.hubspot || onboarding?.providers?.hubspot===false} onClick={()=> connect('hubspot')}>{connecting.hubspot ? 'Connecting…' : connectLabel('hubspot')}</Button>
             <Button variant="outline" disabled={busy || onboarding?.providers?.hubspot===false} onClick={hubspotUpsertSample}>Sync sample contact</Button>
             <Button variant="outline" disabled={busy} onClick={()=> refresh('hubspot')}>Refresh</Button>
           </div>
@@ -588,8 +609,8 @@ export default function Integrations(){
           )}
           <div className="mt-3 flex gap-2">
             <Button variant="outline" disabled={busy || !squareLink || onboarding?.providers?.square===false} onClick={openSquare}>{squareLink ? 'Open Square booking' : 'No link set'}</Button>
-            <Button variant="outline" disabled={busy || connecting.square || onboarding?.providers?.square===false} onClick={()=> connect('square')}>{connecting.square ? 'Connecting…' : 'Connect Square'}</Button>
-            <Button variant="outline" disabled={busy || connecting.acuity || onboarding?.providers?.acuity===false} onClick={()=> connect('acuity')}>{connecting.acuity ? 'Connecting…' : 'Connect Acuity'}</Button>
+            <Button variant="outline" disabled={busy || connecting.square || onboarding?.providers?.square===false} onClick={()=> connect('square')}>{connecting.square ? 'Connecting…' : connectLabel('square')}</Button>
+            <Button variant="outline" disabled={busy || connecting.acuity || onboarding?.providers?.acuity===false} onClick={()=> connect('acuity')}>{connecting.acuity ? 'Connecting…' : connectLabel('acuity')}</Button>
             <Button variant="outline" disabled={busy || onboarding?.providers?.acuity===false} onClick={async()=>{ await acuityImportSample(); try{ showToast({ title:'Imported sample appointments', description:'Acuity sample appointments imported' }); }catch{} }}>Import sample appointments</Button>
             <Button variant="outline" disabled={busy} onClick={()=> { refresh('square'); try { showToast({ title:UI_STRINGS.ctas.secondary.refresh }); } catch {} }}>Refresh</Button>
             <Button variant="outline" disabled={busy} onClick={async()=>{
@@ -651,7 +672,7 @@ export default function Integrations(){
             </div>
           </div>
           <div className="mt-3 flex gap-2">
-            <Button variant="outline" disabled={busy || connecting.google || onboarding?.providers?.google===false} onClick={()=> connect('google')}>{connecting.google ? 'Connecting…' : UI_STRINGS.ctas.secondary.connectGoogle}</Button>
+            <Button variant="outline" disabled={busy || connecting.google || onboarding?.providers?.google===false} onClick={()=> connect('google')}>{connecting.google ? 'Connecting…' : connectLabel('google')}</Button>
             <Button variant="outline" disabled={busy} onClick={()=> window.open('/workspace?pane=calendar','_self')}>{UI_STRINGS.ctas.secondary.openCalendar}</Button>
             <Button variant="outline" disabled={busy} onClick={()=> refresh('google')}>{UI_STRINGS.ctas.secondary.refresh}</Button>
           </div>
@@ -674,7 +695,7 @@ export default function Integrations(){
               </div>
             </div>
             <div className="mt-3 flex gap-2">
-              <Button variant="outline" disabled={busy || connecting.instagram || onboarding?.providers?.instagram===false} onClick={()=> connect('instagram')}>{connecting.instagram ? 'Connecting…' : UI_STRINGS.ctas.secondary.connectInstagram}</Button>
+              <Button variant="outline" disabled={busy || connecting.instagram || onboarding?.providers?.instagram===false} onClick={()=> connect('instagram')}>{connecting.instagram ? 'Connecting…' : connectLabel('instagram')}</Button>
               <Button variant="outline" disabled={busy} onClick={()=> window.open('/workspace?pane=messages','_self')}>{UI_STRINGS.ctas.secondary.openInbox}</Button>
               <Button variant="outline" disabled={busy} onClick={()=> refresh('instagram')}>{UI_STRINGS.ctas.secondary.refresh}</Button>
             </div>
@@ -707,7 +728,7 @@ export default function Integrations(){
             </div>
           </div>
           <div className="mt-3 flex gap-2">
-            <Button variant="outline" disabled={busy || connecting.shopify || onboarding?.providers?.shopify===false} onClick={()=> connect('shopify')}>{connecting.shopify ? 'Connecting…' : UI_STRINGS.ctas.secondary.connectShopify}</Button>
+            <Button variant="outline" disabled={busy || connecting.shopify || onboarding?.providers?.shopify===false} onClick={()=> connect('shopify')}>{connecting.shopify ? 'Connecting…' : connectLabel('shopify')}</Button>
             <Button variant="outline" disabled={busy} onClick={()=> window.open('/workspace?pane=inventory','_self')}>{UI_STRINGS.ctas.secondary.openInventory}</Button>
             <Button variant="outline" disabled={busy} onClick={()=> refresh('shopify')}>{UI_STRINGS.ctas.secondary.refresh}</Button>
           </div>
