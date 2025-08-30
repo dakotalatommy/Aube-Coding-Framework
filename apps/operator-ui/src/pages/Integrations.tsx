@@ -28,6 +28,8 @@ export default function Integrations(){
   const [redirects, setRedirects] = useState<any>(null);
   const [twilioArea, setTwilioArea] = useState<string>('');
   const [twilioFrom, setTwilioFrom] = useState<string>('');
+  const [connAccounts, setConnAccounts] = useState<Array<{provider:string,status?:string,ts?:number}>>([]);
+  const [lastCallback, setLastCallback] = useState<any>(null);
   const reanalyze = async () => {
     try{
       const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() });
@@ -35,6 +37,14 @@ export default function Integrations(){
       const ts = new Date();
       setStatus(`Re‑analyzed at ${ts.toLocaleTimeString()}`);
       try { showToast({ title:'Re‑analyzed', description: ts.toLocaleTimeString() }); } catch {}
+      try{
+        const tid = await getTenant();
+        if (tid) {
+          const ca = await api.get(`/integrations/connected-accounts?tenant_id=${encodeURIComponent(tid)}`);
+          setConnAccounts(Array.isArray(ca?.items)? ca.items: []);
+          setLastCallback(ca?.last_callback || null);
+        }
+      }catch{}
     } catch(e:any){ setStatus(String(e?.message||e)); }
   };
 
@@ -54,6 +64,14 @@ export default function Integrations(){
       try{
         const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() });
         setOnboarding({ ...a?.summary, connectedMap: a?.summary?.connected || {}, providers: a?.summary?.providers || {} });
+      }catch{}
+      try{
+        const tid = await getTenant();
+        if (tid) {
+          const ca = await api.get(`/integrations/connected-accounts?tenant_id=${encodeURIComponent(tid)}`);
+          setConnAccounts(Array.isArray(ca?.items)? ca.items: []);
+          setLastCallback(ca?.last_callback || null);
+        }
       }catch{}
       try { await loadPreflight(); } catch {}
       try{
@@ -308,17 +326,29 @@ export default function Integrations(){
   });
   if (showIntro) {
     return (
-      <div className="space-y-3 overflow-hidden min-h-[calc(100vh-var(--ask-float-height,0px)-48px)]">
-        <section className="grid place-items-center h-[calc(100vh-var(--ask-float-height,0px)-80px)]">
-          <div className="max-w-lg text-center rounded-2xl p-6 bg-white/70 backdrop-blur border border-white/70 shadow-sm">
-            <div className="text-lg font-semibold text-slate-900">Settings & Connections</div>
-            <div className="text-sm text-slate-600 mt-1">We’ll connect booking, messages, and (optionally) CRM. One step at a time.</div>
-            <div className="mt-4 flex justify-center">
-              <Button onClick={()=>{ setShowIntro(false); try{ sessionStorage.setItem('bvx_integrations_intro_seen','1'); }catch{} }}>Start</Button>
+      <>
+        <div className="space-y-3 overflow-hidden min-h-[calc(100vh-var(--ask-float-height,0px)-48px)]">
+          <section className="grid place-items-center h-[calc(100vh-var(--ask-float-height,0px)-80px)]">
+            <div className="max-w-lg text-center rounded-2xl p-6 bg-white/70 backdrop-blur border border-white/70 shadow-sm">
+              <div className="text-lg font-semibold text-slate-900">Settings & Connections</div>
+              <div className="text-sm text-slate-600 mt-1">We’ll connect booking, messages, and (optionally) CRM. One step at a time.</div>
+              <div className="mt-4 flex justify-center">
+                <Button onClick={()=>{ setShowIntro(false); try{ sessionStorage.setItem('bvx_integrations_intro_seen','1'); }catch{} }}>Start</Button>
+              </div>
             </div>
+          </section>
+        </div>
+        {(connAccounts?.length>0 || lastCallback) && (
+          <div className="text-[11px] text-slate-600 mt-1">
+            {connAccounts?.length>0 && (
+              <span>Connected: {connAccounts.map(x=>x.provider).join(', ')}</span>
+            )}
+            {lastCallback && (
+              <span className="ml-3">Last callback: {new Date((lastCallback.ts||0)*1000).toLocaleString()}</span>
+            )}
           </div>
-        </section>
-      </div>
+        )}
+      </>
     );
   }
   return (
@@ -566,9 +596,16 @@ export default function Integrations(){
               try{
                 setBusy(true);
                 const r = await api.post('/integrations/booking/square/sync-contacts', { tenant_id: await getTenant() });
-                setStatus(`Imported ${r?.imported||0} contacts from Square`);
-                try { showToast({ title:'Imported', description: `${Number(r?.imported||0)} contacts` }); } catch {}
-              }catch(e:any){ setStatus(String(e?.message||e)); }
+                if (typeof r?.imported === 'number') {
+                  setStatus(`Imported ${r?.imported||0} contacts from Square`);
+                  try { showToast({ title:'Imported', description: `${Number(r?.imported||0)} contacts` }); } catch {}
+                } else if (r?.error || r?.detail) {
+                  const msg = r?.detail || r?.error || 'Import failed';
+                  setErrorMsg(`Import failed: ${msg}. Try Refresh, then Connect again if needed.`);
+                } else {
+                  setStatus('Import completed');
+                }
+              }catch(e:any){ setErrorMsg('Import failed. Verify Square is connected, then click Refresh and try again.'); }
               finally{ setBusy(false); }
             }}>Import contacts from Square</Button>
           </div>
