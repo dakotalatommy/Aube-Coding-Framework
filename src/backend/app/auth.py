@@ -72,10 +72,17 @@ async def get_user_context(
                     audience=os.getenv("JWT_AUDIENCE", "authenticated"),
                     issuer=os.getenv("JWT_ISSUER", "brandvx"),
                 )
+            # Resolve tenant: prefer explicit claim; else app_metadata.tenant_id; else fallback to subject (Supabase user UUID)
+            _tenant_id = (
+                payload.get("tenant_id")
+                or (payload.get("app_metadata") or {}).get("tenant_id")
+                or payload.get("sub")
+                or "t1"
+            )
             return UserContext(
                 user_id=str(payload.get("sub", "user")),
                 role=str(payload.get("role", "practitioner")),
-                tenant_id=str(payload.get("tenant_id", "t1")),
+                tenant_id=str(_tenant_id),
             )
         except Exception:
             # In TESTING, accept unsigned dev tokens to simplify fixtures
@@ -88,10 +95,16 @@ async def get_user_context(
                         audience=os.getenv("JWT_AUDIENCE", "brandvx-users"),
                         issuer=os.getenv("JWT_ISSUER", "brandvx"),
                     )
+                    _tenant_id = (
+                        payload.get("tenant_id")
+                        or (payload.get("app_metadata") or {}).get("tenant_id")
+                        or payload.get("sub")
+                        or "t1"
+                    )
                     return UserContext(
                         user_id=str(payload.get("sub", "user")),
                         role=str(payload.get("role", "owner_admin")),
-                        tenant_id=str(payload.get("tenant_id", "t1")),
+                        tenant_id=str(_tenant_id),
                     )
                 except Exception:
                     # Last resort: decode without verification in tests
@@ -105,10 +118,16 @@ async def get_user_context(
                                 "verify_exp": False,
                             },
                         )
+                        _tenant_id = (
+                            payload.get("tenant_id")
+                            or (payload.get("app_metadata") or {}).get("tenant_id")
+                            or payload.get("sub")
+                            or "t1"
+                        )
                         return UserContext(
                             user_id=str(payload.get("sub", "user")),
                             role=str(payload.get("role", "owner_admin")),
-                            tenant_id=str(payload.get("tenant_id", "t1")),
+                            tenant_id=str(_tenant_id),
                         )
                     except Exception:
                         pass
