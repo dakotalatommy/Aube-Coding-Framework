@@ -5422,17 +5422,44 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
             except Exception:
                 exchange_ok = False
         try:
-            _insert_connected_account(
-                db,
-                tenant_id=t_id,
-                user_id="dev",
-                provider=provider,
-                status=status,
-                access_token_enc=access_token_enc,
-                refresh_token_enc=refresh_token_enc,
-                expires_at=expires_at,
-                scopes=None,
-            )
+            # Tolerant insert to connected_accounts
+            cols = _connected_accounts_columns(db)
+            fields = ["tenant_id"]
+            values = {"tenant_id": t_id}
+            if 'provider' in cols:
+                fields.append('provider'); values['provider'] = provider
+            elif 'platform' in cols:
+                fields.append('platform'); values['platform'] = provider
+            if 'user_id' in cols:
+                fields.append('user_id'); values['user_id'] = "dev"
+            if 'status' in cols:
+                fields.append('status'); values['status'] = ("connected" if exchange_ok else status)
+            if 'connected_at' in cols:
+                fields.append('connected_at'); values['connected_at'] = int(_time.time())
+            if 'created_at' in cols:
+                fields.append('created_at'); values['created_at'] = int(_time.time())
+            if 'access_token_enc' in cols and access_token_enc is not None:
+                fields.append('access_token_enc'); values['access_token_enc'] = access_token_enc
+            elif 'access_token' in cols and access_token_enc is not None:
+                try:
+                    token_plain = decrypt_text(access_token_enc) or ""
+                except Exception:
+                    token_plain = ""
+                fields.append('access_token'); values['access_token'] = token_plain
+            if 'refresh_token_enc' in cols and refresh_token_enc is not None:
+                fields.append('refresh_token_enc'); values['refresh_token_enc'] = refresh_token_enc
+            elif 'refresh_token' in cols and refresh_token_enc is not None:
+                try:
+                    rt_plain = decrypt_text(refresh_token_enc) or ""
+                except Exception:
+                    rt_plain = ""
+                fields.append('refresh_token'); values['refresh_token'] = rt_plain
+            if 'expires_at' in cols and expires_at is not None:
+                fields.append('expires_at'); values['expires_at'] = expires_at
+            cols_sql = ",".join(fields)
+            params_sql = ",".join([":"+k for k in fields])
+            db.execute(_sql_text(f"INSERT INTO connected_accounts ({cols_sql}) VALUES ({params_sql})"), values)
+            db.commit()
         except Exception:
             try: db.rollback()
             except Exception: pass
