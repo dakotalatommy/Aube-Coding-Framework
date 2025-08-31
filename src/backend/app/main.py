@@ -4023,11 +4023,20 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
         cols = _connected_accounts_columns(db)
         name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
         if name_col:
-            sel = ["access_token_enc"]
-            sql = f"SELECT {', '.join(sel)} FROM connected_accounts WHERE tenant_id = :t AND {name_col} = 'square' ORDER BY id DESC LIMIT 1"
+            # Prefer encrypted token column, fallback to plaintext if present in legacy schemas
+            token_col = 'access_token_enc' if 'access_token_enc' in cols else ('access_token' if 'access_token' in cols else None)
+            if not token_col:
+                token_col = 'access_token_enc'  # attempt anyway; query will simply return NULL if absent
+            sql = f"SELECT {token_col} FROM connected_accounts WHERE tenant_id = :t AND {name_col} = 'square' ORDER BY id DESC LIMIT 1"
             row = db.execute(_sql_text(sql), {"t": req.tenant_id}).fetchone()
             if row and row[0]:
-                token = decrypt_text(str(row[0])) or ""
+                # Try decrypt; if it fails or returns empty, assume plaintext
+                try:
+                    token = decrypt_text(str(row[0])) or ""
+                except Exception:
+                    token = str(row[0])
+                if not token:
+                    token = str(row[0])
     except Exception:
         token = ""
     if not token:
