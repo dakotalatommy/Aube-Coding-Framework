@@ -4081,6 +4081,26 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                     )
                 )
                 imported += 1
+            else:
+                # Enrichment pass: update missing fields and consent on re-import (idempotent)
+                try:
+                    changed = False
+                    if email and not (exists.email_hash or ""):
+                        exists.email_hash = email
+                        changed = True
+                    if phone_norm and not (exists.phone_hash or ""):
+                        exists.phone_hash = phone_norm
+                        changed = True
+                    if bool(email) and not bool(exists.consent_email):
+                        exists.consent_email = True
+                        changed = True
+                    if bool(phone_norm) and not bool(exists.consent_sms):
+                        exists.consent_sms = True
+                        changed = True
+                    if changed:
+                        db.add(exists)
+                except Exception:
+                    pass
         except Exception:
             pass
 
