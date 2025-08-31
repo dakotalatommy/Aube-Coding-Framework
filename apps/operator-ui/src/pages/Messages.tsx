@@ -78,7 +78,7 @@ export default function Messages(){
 
   const simulate = async (channel:'sms'|'email') => {
     try {
-      await api.post('/messages/simulate', { tenant_id:'t1', contact_id: filterContact || 'c_demo', channel, generate: false });
+      await api.post('/messages/simulate', { tenant_id: await getTenant(), contact_id: filterContact || 'c_demo', channel, generate: false });
       setStatus(channel==='sms' ? 'Simulated SMS to Demo Client' : 'Simulated Email to Demo Client');
       await load();
       try { showToast({ title: channel==='sms' ? 'Simulated SMS' : 'Simulated Email' }); } catch {}
@@ -86,7 +86,7 @@ export default function Messages(){
       // retry once on transient network error
       try {
         await new Promise(res=> setTimeout(res, 600));
-        await api.post('/messages/simulate', { tenant_id:'t1', contact_id: filterContact || 'c_demo', channel, generate: false });
+        await api.post('/messages/simulate', { tenant_id: await getTenant(), contact_id: filterContact || 'c_demo', channel, generate: false });
         setStatus(channel==='sms' ? 'Simulated SMS to Demo Client' : 'Simulated Email to Demo Client');
         await load();
         try { showToast({ title: channel==='sms' ? 'Simulated SMS' : 'Simulated Email' }); } catch {}
@@ -109,7 +109,7 @@ export default function Messages(){
     try {
       if (recommendOnly) { setStatus('Beta: recommend-only mode is enabled. Use Copy to send via your channel.'); return; }
       if (send.channel === 'sms' && !twilioConnected) { setStatus('Connect Twilio to send SMS.'); return; }
-      const r = await api.post('/messages/send', { tenant_id:'t1', contact_id: send.contact_id, channel: send.channel, subject: send.subject || undefined, body: send.body || undefined });
+      const r = await api.post('/messages/send', { tenant_id: await getTenant(), contact_id: send.contact_id, channel: send.channel, subject: send.subject || undefined, body: send.body || undefined });
       setStatus(JSON.stringify(r));
       await load();
       try { showToast({ title: 'Message sent', description: send.channel.toUpperCase() }); } catch {}
