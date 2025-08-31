@@ -452,6 +452,28 @@ def upsert_usage_limit(body: UsageLimitUpsert, db: Session = Depends(get_db), ct
 
 
 # --- OAuth scaffolding helpers (env-driven) ---
+
+def _square_env_mode() -> str:
+    """Resolve Square environment mode.
+    Priority: explicit SQUARE_ENV -> infer from client_id prefix -> default sandbox.
+    Returns 'production' or 'sandbox'.
+    """
+    try:
+        forced = _env("SQUARE_ENV", "").strip().lower()
+        if forced:
+            return "production" if forced.startswith("prod") else "sandbox"
+    except Exception:
+        pass
+    try:
+        cid = _env("SQUARE_CLIENT_ID", "").strip()
+        # Square prod OAuth app IDs start with 'sq0idp'; sandbox often include 'sandbox-' or 'sq0idb'
+        if cid.startswith("sq0idp"):
+            return "production"
+        if cid.startswith("sandbox-") or cid.startswith("sq0idb"):
+            return "sandbox"
+    except Exception:
+        pass
+    return "sandbox"
 def _env(name: str, default: str = "") -> str:
     return os.getenv(name, default)
 
@@ -962,9 +984,9 @@ def _oauth_authorize_url(provider: str, tenant_id: Optional[str] = None) -> str:
             f"&scope={_url.quote(scope)}&access_type=offline&prompt=consent&state={_state}{extra}"
         )
     if provider == "square":
-        # Choose endpoints based on SQUARE_ENV unless explicit URLs are provided
-        _env_mode = _env("SQUARE_ENV", "sandbox").lower()
-        _default_auth = "https://connect.squareup.com/oauth2/authorize" if _env_mode.startswith("prod") else "https://connect.squareupsandbox.com/oauth2/authorize"
+        # Choose endpoints based on environment; infer from client_id if SQUARE_ENV not set
+        _env_mode = _square_env_mode()
+        _default_auth = "https://connect.squareup.com/oauth2/authorize" if _env_mode == "production" else "https://connect.squareupsandbox.com/oauth2/authorize"
         auth = _env("SQUARE_AUTH_URL", _default_auth)
         client_id = _env("SQUARE_CLIENT_ID", "")
         # Ensure customer/appointments read scopes by default; allow override via env
@@ -1040,8 +1062,8 @@ def _oauth_exchange_token(provider: str, code: str, redirect_uri: str, code_veri
             r = httpx.post(url, data=data, timeout=20)
             return r.json() if r.status_code < 400 else {}
         if provider == "square":
-            _env_mode = _env("SQUARE_ENV", "sandbox").lower()
-            _default_token = "https://connect.squareup.com/oauth2/token" if _env_mode.startswith("prod") else "https://connect.squareupsandbox.com/oauth2/token"
+            _env_mode = _square_env_mode()
+            _default_token = "https://connect.squareup.com/oauth2/token" if _env_mode == "production" else "https://connect.squareupsandbox.com/oauth2/token"
             url = _env("SQUARE_TOKEN_URL", _default_token)
             data = {
                 "grant_type": "authorization_code",
@@ -1133,8 +1155,8 @@ def _oauth_refresh_token(provider: str, refresh_token: str, redirect_uri: str) -
             r = httpx.post(url, data=data, timeout=20)
             return r.json() if r.status_code < 400 else {}
         if provider == "square":
-            _env_mode = _env("SQUARE_ENV", "sandbox").lower()
-            _default_token = "https://connect.squareup.com/oauth2/token" if _env_mode.startswith("prod") else "https://connect.squareupsandbox.com/oauth2/token"
+            _env_mode = _square_env_mode()
+            _default_token = "https://connect.squareup.com/oauth2/token" if _env_mode == "production" else "https://connect.squareupsandbox.com/oauth2/token"
             url = _env("SQUARE_TOKEN_URL", _default_token)
             data = {
                 "grant_type": "refresh_token",
