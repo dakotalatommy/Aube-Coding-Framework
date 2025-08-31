@@ -836,7 +836,9 @@ def debug_oauth(provider: str = "square"):
                 if row and row[0]:
                     tenant = str(row[0])
                 last_log = db.execute(_sql_text("SELECT action, created_at, payload FROM audit_logs WHERE action LIKE :a ORDER BY id DESC LIMIT 1"), {"a": f"oauth.callback.{provider}%"}).fetchone()
-                ca = db.execute(_sql_text("SELECT status, created_at FROM connected_accounts WHERE tenant_id = :t AND provider = :p ORDER BY id DESC LIMIT 1"), {"t": tenant, "p": provider}).fetchone()
+                is_uuid = _connected_accounts_tenant_is_uuid(db)
+                where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
+                ca = db.execute(_sql_text(f"SELECT status, created_at FROM connected_accounts WHERE {where_tid} AND provider = :p ORDER BY id DESC LIMIT 1"), {"t": tenant, "p": provider}).fetchone()
                 info["last_callback"] = {
                     "seen": bool(last_log),
                     "ts": int(last_log[1]) if last_log else None,
@@ -872,7 +874,9 @@ def connected_accounts_list(
         select_cols = [f"{name_col} as provider", f"{ts_col} as ts"]
         if status_col:
             select_cols.insert(1, f"{status_col} as status")
-        sql = f"SELECT {', '.join(select_cols)} FROM connected_accounts WHERE tenant_id = :t ORDER BY id DESC LIMIT 12"
+        is_uuid = _connected_accounts_tenant_is_uuid(db)
+        where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
+        sql = f"SELECT {', '.join(select_cols)} FROM connected_accounts WHERE {where_tid} ORDER BY id DESC LIMIT 12"
         rows = db.execute(_sql_text(sql), {"t": tenant_id}).fetchall()
         items = []
         for r in (rows or []):
