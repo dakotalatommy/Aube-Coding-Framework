@@ -2541,17 +2541,18 @@ def crm_upsert(
     return crm_hubspot.upsert(tenant_id, obj_type, attrs, idempotency_key)
 
 
+class AcuityImportRequest(BaseModel):
+    tenant_id: str
+    since: Optional[str] = None
+    until: Optional[str] = None
+    cursor: Optional[str] = None
+
+
 @app.post("/integrations/booking/acuity/import", tags=["Integrations"])
-def booking_import(
-    tenant_id: str,
-    since: Optional[str] = None,
-    until: Optional[str] = None,
-    cursor: Optional[str] = None,
-    ctx: UserContext = Depends(get_user_context),
-):
-    if ctx.tenant_id != tenant_id:
+def booking_import(req: AcuityImportRequest, ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
-    return booking_acuity.import_appointments(tenant_id, since, until, cursor)
+    return booking_acuity.import_appointments(req.tenant_id, req.since, req.until, req.cursor)
 
 
 @app.get("/metrics", tags=["Health"])
@@ -4052,15 +4053,15 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 pass
             return RedirectResponse(url=f"{_frontend_base_url()}/integrations?error={reason}&provider={provider}")
         # Map provider to the Integrations step (1-based) and include a workspace return hint
+        # Map to Integrations page index (1..3). Square/HubSpot group on page 2.
         step_map = {
-            "hubspot": 3,
-            "google": 4,
-            "square": 5,
-            "acuity": 5,
-            "shopify": 6,
-            # instagram/twilio are not primary for this flow; default to overview
+            "hubspot": 2,
+            "square": 2,
+            "acuity": 2,
+            "google": 3,
+            "shopify": 3,
         }
-        step = step_map.get(provider, 1)
+        step = max(1, min(3, step_map.get(provider, 1)))
         return RedirectResponse(url=f"{_frontend_base_url()}/integrations?connected=1&provider={provider}&step={step}&return=workspace")
     except Exception:
         return RedirectResponse(url=f"{_frontend_base_url()}/integrations?error=oauth_unexpected&provider={provider}")
@@ -5475,14 +5476,13 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
             return RedirectResponse(url=f"{_frontend_base_url()}/integrations?error={reason}&provider={provider}")
         # Map provider to the Integrations step (1-based) and include a workspace return hint
         step_map = {
-            "hubspot": 3,
-            "google": 4,
-            "square": 5,
-            "acuity": 5,
-            "shopify": 6,
-            # instagram/twilio are not primary for this flow; default to overview
+            "hubspot": 2,
+            "square": 2,
+            "acuity": 2,
+            "google": 3,
+            "shopify": 3,
         }
-        step = step_map.get(provider, 1)
+        step = max(1, min(3, step_map.get(provider, 1)))
         return RedirectResponse(url=f"{_frontend_base_url()}/integrations?connected=1&provider={provider}&step={step}&return=workspace")
     except Exception:
         return RedirectResponse(url=f"{_frontend_base_url()}/integrations?error=oauth_unexpected&provider={provider}")
@@ -5518,63 +5518,9 @@ def hubspot_import(req: HubspotImportRequest, db: Session = Depends(get_db), ctx
 
 
 @app.post("/integrations/booking/square/sync-contacts", tags=["Integrations"])
-def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
-    """Pull Square customers and upsert into contacts. For now, simulate using
-    a minimal adapter until full Square Customers API wiring is added.
-    """
-    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
-        return {"imported": 0}
-    # Look up Square connected account to ensure token exists (future: use it)
-    try:
-        if not _has_connected_account(db, req.tenant_id, "square"):
-            return {"imported": 0}
-    except Exception:
-        pass
-    # Simulated sample customers; replace with Square Customers API
-    sample = [
-        {"id": "sq_cust_001", "email": "client1@example.com", "phone": "+13125550001"},
-        {"id": "sq_cust_002", "email": "client2@example.com", "phone": "+13125550002"},
-    ]
-    imported = 0
-    for c in sample:
-        cid = f"sq:{c['id']}"
-        exists = (
-            db.query(dbm.Contact)
-            .filter(dbm.Contact.tenant_id == req.tenant_id, dbm.Contact.contact_id == cid)
-            .first()
-        )
-        if exists:
-            continue
-        email_hash = None
-        phone_hash = None
-        try:
-            email_hash = c.get("email") or None
-        except Exception:
-            email_hash = None
-        try:
-            phone_hash = normalize_phone(c.get("phone") or "") or None
-        except Exception:
-            phone_hash = None
-        db.add(
-            dbm.Contact(
-                tenant_id=req.tenant_id,
-                contact_id=cid,
-                email_hash=email_hash,
-                phone_hash=phone_hash,
-                consent_sms=True,
-                consent_email=bool(email_hash),
-            )
-        )
-        imported += 1
-    try:
-        db.commit()
-    except Exception:
-        try:
-            db.rollback()
-        except Exception:
-            pass
-    emit_event("ContactsSynced", {"tenant_id": req.tenant_id, "provider": "square", "imported": imported})
-    return {"imported": imported}
+def square_sync_contacts_legacy(req: SquareSyncContactsRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    # Delegate to the primary importer above
+    return square_sync_contacts(req, db, ctx)
 
 class ShareCreateRequest(BaseModel):
     tenant_id: str
