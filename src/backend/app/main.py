@@ -961,6 +961,9 @@ def _oauth_authorize_url(provider: str, tenant_id: Optional[str] = None) -> str:
     # Cache state marker for CSRF protection (all providers)
     try:
         cache_set(f"oauth_state:{_state}", "1", ttl=600)
+        # Also cache tenant mapping in case state decode fails at callback
+        t_cache = (tenant_id or "t1")
+        cache_set(f"oauth_state_t:{_state}", t_cache, ttl=600)
     except Exception:
         pass
     if provider == "google":
@@ -3934,7 +3937,7 @@ def debug_cors(request: Request):
 def oauth_callback(provider: str, request: Request, code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None, db: Session = Depends(get_db)):
     # Store a minimal connected-account record even if app credentials are missing
     try:
-        # Try to extract tenant from encoded state
+        # Try to extract tenant from encoded state; fallback to cached state mapping
         t_id = "t1"
         try:
             if state:
@@ -3942,7 +3945,12 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 data = json.loads(_b64.urlsafe_b64decode((state + pad).encode()).decode())
                 t_id = str(data.get("t") or t_id)
         except Exception:
-            t_id = "t1"
+            try:
+                t_cached = cache_get(f"oauth_state_t:{state}") if state else None
+                if t_cached:
+                    t_id = str(t_cached)
+            except Exception:
+                t_id = "t1"
         # Verify state marker to mitigate CSRF
         try:
             if state and not cache_get(f"oauth_state:{state}"):
