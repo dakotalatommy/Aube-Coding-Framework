@@ -1210,35 +1210,82 @@ def oauth_refresh(req: OAuthRefreshRequest, db: Session = Depends(get_db), ctx: 
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
     try:
-        row = (
-            db.query(dbm.ConnectedAccount)
-            .filter(dbm.ConnectedAccount.tenant_id == req.tenant_id, dbm.ConnectedAccount.provider == req.provider)
-            .order_by(dbm.ConnectedAccount.id.desc())
-            .first()
-        )
+        cols = _connected_accounts_columns(db)
+        name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
+        if not name_col:
+            return {"status": "not_found"}
+        # Identify columns present in this schema
+        id_col = 'id'  # primary key should exist
+        rt_enc_col = 'refresh_token_enc' if 'refresh_token_enc' in cols else None
+        rt_plain_col = 'refresh_token' if 'refresh_token' in cols else None
+        at_enc_col = 'access_token_enc' if 'access_token_enc' in cols else None
+        at_plain_col = 'access_token' if 'access_token' in cols else None
+        status_col = 'status' if 'status' in cols else None
+        exp_col = 'expires_at' if 'expires_at' in cols else None
+
+        # Select latest row for this provider/tenant
+        select_cols = [id_col]
+        for c in (rt_enc_col, rt_plain_col, at_enc_col, at_plain_col, status_col, exp_col):
+            if c and c not in select_cols:
+                select_cols.append(c)
+        sql = f"SELECT {', '.join(select_cols)} FROM connected_accounts WHERE tenant_id = :t AND {name_col} = :p ORDER BY id DESC LIMIT 1"
+        row = db.execute(_sql_text(sql), {"t": req.tenant_id, "p": req.provider}).fetchone()
         if not row:
             return {"status": "not_found"}
-        if not row.refresh_token_enc:
+
+        # Extract refresh token
+        rt_val = None
+        col_to_idx = {select_cols[i]: i for i in range(len(select_cols))}
+        if rt_enc_col and rt_enc_col in col_to_idx and row[col_to_idx[rt_enc_col]]:
+            try:
+                rt_val = decrypt_text(str(row[col_to_idx[rt_enc_col]])) or ""
+            except Exception:
+                rt_val = str(row[col_to_idx[rt_enc_col]])
+        elif rt_plain_col and rt_plain_col in col_to_idx and row[col_to_idx[rt_plain_col]]:
+            rt_val = str(row[col_to_idx[rt_plain_col]])
+        if not rt_val:
             return {"status": "no_refresh_token"}
-        rt = decrypt_text(row.refresh_token_enc) or ""
-        if not rt:
-            return {"status": "invalid_refresh_token"}
-        token = _oauth_refresh_token(req.provider, rt, _redirect_uri(req.provider)) or {}
+
+        # Refresh via provider
+        token = _oauth_refresh_token(req.provider, rt_val, _redirect_uri(req.provider)) or {}
         if not token:
-            row.status = "error"
-            db.commit()
+            # best-effort mark error if status column exists
+            if status_col:
+                db.execute(_sql_text(f"UPDATE connected_accounts SET {status_col} = :s WHERE id = :id"), {"s": "error", "id": row[col_to_idx[id_col]]})
+                db.commit()
             return {"status": "error"}
+
         new_at = str(token.get("access_token") or "")
         new_rt = token.get("refresh_token")
         exp = token.get("expires_in")
+
+        # Build update
+        sets: Dict[str, object] = {}
         if new_at:
-            row.access_token_enc = encrypt_text(new_at)
+            if at_enc_col:
+                sets[at_enc_col] = encrypt_text(new_at)
+            elif at_plain_col:
+                sets[at_plain_col] = new_at
         if new_rt:
-            row.refresh_token_enc = encrypt_text(str(new_rt))
-        if isinstance(exp, (int, float)):
-            row.expires_at = int(_time.time()) + int(exp)
-        row.status = "connected"
-        db.add(dbm.AuditLog(tenant_id=req.tenant_id, actor_id=ctx.user_id, action=f"oauth.refresh.{req.provider}", entity_ref="oauth", payload="{}"))
+            if rt_enc_col:
+                sets[rt_enc_col] = encrypt_text(str(new_rt))
+            elif rt_plain_col:
+                sets[rt_plain_col] = str(new_rt)
+        if isinstance(exp, (int, float)) and exp_col:
+            sets[exp_col] = int(_time.time()) + int(exp)
+        if status_col:
+            sets[status_col] = 'connected'
+
+        if sets:
+            set_clause = ", ".join([f"{k} = :{k}" for k in sets.keys()])
+            params = dict(sets)
+            params["id"] = row[col_to_idx[id_col]]
+            db.execute(_sql_text(f"UPDATE connected_accounts SET {set_clause} WHERE id = :id"), params)
+        # Add audit log (tolerant)
+        try:
+            db.add(dbm.AuditLog(tenant_id=req.tenant_id, actor_id=ctx.user_id, action=f"oauth.refresh.{req.provider}", entity_ref="oauth", payload="{}"))
+        except Exception:
+            pass
         db.commit()
         return {"status": "ok"}
     except Exception as e:
