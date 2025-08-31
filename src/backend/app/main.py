@@ -497,6 +497,19 @@ def _connected_accounts_columns(db: Session) -> set:
     except Exception:
         return set()
 
+def _connected_accounts_tenant_is_uuid(db: Session) -> bool:
+    try:
+        row = db.execute(_sql_text(
+            """
+            SELECT data_type FROM information_schema.columns
+            WHERE table_name = 'connected_accounts' AND table_schema = 'public' AND column_name = 'tenant_id'
+            """
+        )).fetchone()
+        dt = (row[0] if row else '').lower()
+        return 'uuid' in dt
+    except Exception:
+        return False
+
 def _connected_accounts_map(db: Session, tenant_id: str) -> Dict[str, str]:
     """Return mapping of provider->status using tolerant column detection.
     Falls back to 'connected' when status column is missing.
@@ -509,7 +522,9 @@ def _connected_accounts_map(db: Session, tenant_id: str) -> Dict[str, str]:
     select_cols = [f"{name_col} as provider"]
     if status_col:
         select_cols.append(f"{status_col} as status")
-    sql = f"SELECT {', '.join(select_cols)} FROM connected_accounts WHERE tenant_id = :t"
+    is_uuid = _connected_accounts_tenant_is_uuid(db)
+    where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
+    sql = f"SELECT {', '.join(select_cols)} FROM connected_accounts WHERE {where_tid}"
     try:
         rows = db.execute(_sql_text(sql), {"t": tenant_id}).fetchall()
     except Exception:
@@ -527,7 +542,9 @@ def _has_connected_account(db: Session, tenant_id: str, provider: str) -> bool:
     name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
     if not name_col:
         return False
-    sql = f"SELECT 1 FROM connected_accounts WHERE tenant_id = :t AND {name_col} = :p ORDER BY id DESC LIMIT 1"
+    is_uuid = _connected_accounts_tenant_is_uuid(db)
+    where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
+    sql = f"SELECT 1 FROM connected_accounts WHERE {where_tid} AND {name_col} = :p ORDER BY id DESC LIMIT 1"
     try:
         row = db.execute(_sql_text(sql), {"t": tenant_id, "p": provider}).fetchone()
         return bool(row)
@@ -1231,7 +1248,9 @@ def oauth_refresh(req: OAuthRefreshRequest, db: Session = Depends(get_db), ctx: 
         for c in (rt_enc_col, rt_plain_col, at_enc_col, at_plain_col, status_col, exp_col):
             if c and c not in select_cols:
                 select_cols.append(c)
-        sql = f"SELECT {', '.join(select_cols)} FROM connected_accounts WHERE tenant_id = :t AND {name_col} = :p ORDER BY id DESC LIMIT 1"
+        is_uuid = _connected_accounts_tenant_is_uuid(db)
+        where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
+        sql = f"SELECT {', '.join(select_cols)} FROM connected_accounts WHERE {where_tid} AND {name_col} = :p ORDER BY id DESC LIMIT 1"
         row = db.execute(_sql_text(sql), {"t": req.tenant_id, "p": req.provider}).fetchone()
         if not row:
             return {"status": "not_found"}
@@ -4122,7 +4141,9 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
             token_col = 'access_token_enc' if 'access_token_enc' in cols else ('access_token' if 'access_token' in cols else None)
             if not token_col:
                 token_col = 'access_token_enc'  # attempt anyway; query will simply return NULL if absent
-            sql = f"SELECT {token_col} FROM connected_accounts WHERE tenant_id = :t AND {name_col} = 'square' ORDER BY id DESC LIMIT 1"
+            is_uuid = _connected_accounts_tenant_is_uuid(db)
+            where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
+            sql = f"SELECT {token_col} FROM connected_accounts WHERE {where_tid} AND {name_col} = 'square' ORDER BY id DESC LIMIT 1"
             row = db.execute(_sql_text(sql), {"t": req.tenant_id}).fetchone()
             if row and row[0]:
                 # Try decrypt; if it fails or returns empty, assume plaintext
@@ -4135,7 +4156,7 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
     except Exception:
         token = ""
     if not token:
-        return {"imported": 0}
+        return {"imported": 0, "error": "missing_access_token"}
     if not token:
         return {"imported": 0}
 
@@ -4218,7 +4239,7 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                     params["cursor"] = cursor
                 r = client.get(f"{base}/v2/customers", params=params)
                 if r.status_code >= 400:
-                    break
+                    return {"imported": 0, "error": f"square_http_{r.status_code}", "detail": (r.text or "")[:200]}
                 body = r.json() or {}
                 for c in body.get("customers", []) or []:
                     _upsert_contact(c)
