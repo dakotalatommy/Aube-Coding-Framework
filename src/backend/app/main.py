@@ -4303,28 +4303,39 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
             try: db.rollback()
             except Exception: pass
 
-        # Retrieve Square access token (tolerant across legacy schemas)
+        # Retrieve Square access token: prefer v2 store, fallback to legacy
         token = ""
         try:
-            cols = _connected_accounts_columns(db)
-            name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
-            if name_col:
-                token_col = 'access_token_enc' if 'access_token_enc' in cols else ('access_token' if 'access_token' in cols else None)
-                if not token_col:
-                    token_col = 'access_token_enc'
-                is_uuid = _connected_accounts_tenant_is_uuid(db)
-                where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
-                sql = f"SELECT {token_col} FROM connected_accounts WHERE {where_tid} AND {name_col} = 'square' ORDER BY id DESC LIMIT 1"
-                row = db.execute(_sql_text(sql), {"t": req.tenant_id}).fetchone()
-                if row and row[0]:
-                    try:
-                        token = decrypt_text(str(row[0])) or ""
-                    except Exception:
-                        token = str(row[0])
-                    if not token:
-                        token = str(row[0])
-        except Exception as e:
-            return {"imported": 0, "error": "connected_account_lookup_failed", "detail": str(e)[:200]}
+            with engine.begin() as conn:
+                row_v2 = conn.execute(_sql_text("SELECT access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider='square' ORDER BY id DESC LIMIT 1"), {"t": req.tenant_id}).fetchone()
+            if row_v2 and row_v2[0]:
+                try:
+                    token = decrypt_text(str(row_v2[0])) or ""
+                except Exception:
+                    token = str(row_v2[0])
+        except Exception:
+            token = ""
+        if not token:
+            try:
+                cols = _connected_accounts_columns(db)
+                name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
+                if name_col:
+                    token_col = 'access_token_enc' if 'access_token_enc' in cols else ('access_token' if 'access_token' in cols else None)
+                    if not token_col:
+                        token_col = 'access_token_enc'
+                    is_uuid = _connected_accounts_tenant_is_uuid(db)
+                    where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
+                    sql = f"SELECT {token_col} FROM connected_accounts WHERE {where_tid} AND {name_col} = 'square' ORDER BY id DESC LIMIT 1"
+                    row = db.execute(_sql_text(sql), {"t": req.tenant_id}).fetchone()
+                    if row and row[0]:
+                        try:
+                            token = decrypt_text(str(row[0])) or ""
+                        except Exception:
+                            token = str(row[0])
+                        if not token:
+                            token = str(row[0])
+            except Exception as e:
+                return {"imported": 0, "error": "connected_account_lookup_failed", "detail": str(e)[:200]}
         if not token:
             return {"imported": 0, "error": "missing_access_token"}
 
