@@ -12,12 +12,28 @@ class Contact(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     contact_id: Mapped[str] = mapped_column(String(64), index=True)
+    # External refs
+    square_customer_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    # Pseudonymous hashes
     email_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
-    phone_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)                           
+    phone_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    # Consent flags
     consent_sms: Mapped[bool] = mapped_column(Boolean, default=False)
     consent_email: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Soft delete
     deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Enriched analytics fields
+    first_visit: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    last_visit: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    txn_count: Mapped[int] = mapped_column(Integer, default=0)
+    lifetime_cents: Mapped[int] = mapped_column(Integer, default=0)
+    birthday: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)  # YYYY-MM-DD
+    creation_source: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    email_subscription_status: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    instant_profile: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Timestamps
     created_at: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()))
+    updated_at: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()))
 
 
 class CadenceState(Base):
