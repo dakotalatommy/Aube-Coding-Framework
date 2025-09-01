@@ -8,6 +8,7 @@ from .cadence import get_cadence_definition
 from .messaging import send_message
 from sqlalchemy import text as _sql_text
 from .db import engine
+import re as _re
 import math
 import io
 import csv
@@ -600,6 +601,7 @@ REGISTRY.update(
         "calendar.merge": tool_calendar_merge,
         "oauth.refresh": tool_oauth_refresh,
         "square.backfill": tool_square_backfill,
+        # db.query.* registered below after definitions
     }
 )
 
@@ -668,6 +670,22 @@ async def _dispatch_extended(name: str, params: Dict[str, Any], db: Session, ctx
         return await tool_contacts_import_square(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)))
     if name == "square.backfill":
         return await tool_square_backfill(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)))
+    if name == "db.query.sql":
+        return await tool_db_query_sql(
+            db,
+            ctx,
+            tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
+            sql=str(params.get("sql", "")),
+            limit=int(params.get("limit", 100)),
+        )
+    if name == "db.query.named":
+        return await tool_db_query_named(
+            db,
+            ctx,
+            tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
+            name=str(params.get("name", "")),
+            params=params.get("params") if isinstance(params.get("params"), dict) else None,
+        )
     return None
 
 
@@ -717,11 +735,93 @@ async def tool_contacts_import_square(
         return {"status": "error", "detail": str(e)}
 
 
+# ---------------------- DB query tools (read-only) ----------------------
+
+ALLOWED_TABLES = {
+    "contacts",
+    "appointments",
+    "lead_status",
+    "events_ledger",
+}
+
+def _is_safe_select(sql: str) -> bool:
+    s = sql.strip().lower()
+    if not s.startswith("select "):
+        return False
+    forbidden = [";", "--", "/*", " insert ", " update ", " delete ", " drop ", " alter ", " truncate "]
+    if any(tok in s for tok in forbidden):
+        return False
+    tables = set(_re.findall(r"\bfrom\s+([a-zA-Z_][a-zA-Z0-9_\.]*)|\bjoin\s+([a-zA-Z_][a-zA-Z0-9_\.]*)", s))
+    flat = {t for pair in tables for t in pair if t}
+    flat = {t.split(".")[-1] for t in flat}
+    return all(t in ALLOWED_TABLES for t in flat if t)
+
+
+async def tool_db_query_sql(
+    db: Session,
+    ctx: UserContext,
+    tenant_id: str,
+    sql: str,
+    limit: int = 100,
+) -> Dict[str, Any]:
+    _require_tenant(ctx, tenant_id)
+    sql = sql.strip()
+    if not _is_safe_select(sql):
+        return {"status": "rejected", "reason": "unsafe_sql"}
+    hard_limit = max(1, min(int(limit or 100), 500))
+    try:
+        with engine.begin() as conn:
+            conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            q = sql
+            if " limit " not in sql.lower():
+                q = f"{sql} LIMIT {hard_limit}"
+            rows = conn.execute(_sql_text(q)).fetchall()
+            cols = [c for c in rows[0].keys()] if rows else []
+            data = [dict(r._mapping) for r in rows]
+            return {"status": "ok", "columns": cols, "rows": data}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
+
+
+async def tool_db_query_named(
+    db: Session,
+    ctx: UserContext,
+    tenant_id: str,
+    name: str,
+    params: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    _require_tenant(ctx, tenant_id)
+    n = (name or "").strip().lower()
+    p = params or {}
+    try:
+        with engine.begin() as conn:
+            conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            if n == "cohort.dormant_90d":
+                q = _sql_text(
+                    """
+                    SELECT contact_id, lifetime_cents, last_visit
+                    FROM contacts
+                    WHERE tenant_id = CAST(:t AS uuid)
+                      AND (last_visit IS NULL OR last_visit < (EXTRACT(epoch FROM now())::bigint - 90*86400))
+                    ORDER BY lifetime_cents DESC
+                    LIMIT :lim
+                    """
+                )
+                lim = max(1, min(int(p.get("limit", 25)), 100))
+                rows = conn.execute(q, {"t": tenant_id, "lim": lim}).fetchall()
+                return {"status": "ok", "rows": [dict(r._mapping) for r in rows]}
+            return {"status": "not_implemented", "name": n}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
 # Extend registry with CRM tools
 REGISTRY.update(
     {
         "contacts.list.top_ltv": tool_contacts_list_top_ltv,
         "contacts.import.square": tool_contacts_import_square,  # async
+        "db.query.sql": tool_db_query_sql,
+        "db.query.named": tool_db_query_named,
     }
 )
 
