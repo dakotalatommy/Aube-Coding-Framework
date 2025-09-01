@@ -4074,88 +4074,99 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
             except Exception:
                 exchange_ok = False
         try:
-            # Tolerant insert to connected_accounts (with upsert and user_id type detection)
+            # Schema‑tolerant UPDATE‑then‑INSERT to avoid ON CONFLICT requirement
             cols = _connected_accounts_columns(db)
-            fields = ["tenant_id"]
-            values = {"tenant_id": t_id}
-            # Provider/platform
-            if 'provider' in cols:
-                fields.append('provider'); values['provider'] = provider
-            elif 'platform' in cols:
-                fields.append('platform'); values['platform'] = provider
-            # Optional columns present in some schemas
-            if 'user_id' in cols:
-                # Write a compatible user_id value if required by schema
-                try:
-                    uid = (locals().get('ctx').user_id if 'ctx' in locals() else None) or None
-                except Exception:
-                    uid = None
-                is_uuid = _connected_accounts_user_is_uuid(db)
-                nullable = _connected_accounts_user_is_nullable(db)
-                if uid:
-                    if is_uuid:
-                        try:
-                            import uuid as _uuid
-                            _ = _uuid.UUID(str(uid))
-                            fields.append('user_id'); values['user_id'] = str(uid)
-                        except Exception:
-                            if not nullable:
-                                fields.append('user_id'); values['user_id'] = '00000000-0000-0000-0000-000000000000'
-                    else:
-                        fields.append('user_id'); values['user_id'] = str(uid)
-                else:
-                    if not nullable:
-                        fields.append('user_id'); values['user_id'] = ('00000000-0000-0000-0000-000000000000' if is_uuid else 'system')
-            if 'status' in cols:
-                fields.append('status'); values['status'] = ("connected" if exchange_ok else status)
-            if 'connected_at' in cols:
-                fields.append('connected_at'); values['connected_at'] = int(_time.time())
-            if 'created_at' in cols:
-                fields.append('created_at'); values['created_at'] = int(_time.time())
-            if 'access_token_enc' in cols and access_token_enc is not None:
-                fields.append('access_token_enc'); values['access_token_enc'] = access_token_enc
-            elif 'access_token' in cols and access_token_enc is not None:
-                try:
-                    # store decrypted token when only plaintext column exists
-                    token_plain = decrypt_text(access_token_enc) or ""
-                except Exception:
-                    token_plain = ""
-                fields.append('access_token'); values['access_token'] = token_plain
-            if 'refresh_token_enc' in cols and refresh_token_enc is not None:
-                fields.append('refresh_token_enc'); values['refresh_token_enc'] = refresh_token_enc
-            elif 'refresh_token' in cols and refresh_token_enc is not None:
-                try:
-                    rt_plain = decrypt_text(refresh_token_enc) or ""
-                except Exception:
-                    rt_plain = ""
-                fields.append('refresh_token'); values['refresh_token'] = rt_plain
-            if 'expires_at' in cols and expires_at is not None:
-                fields.append('expires_at'); values['expires_at'] = expires_at
-            # Execute insert with upsert on (tenant_id, provider|platform) when possible
-            cols_sql = ",".join(fields)
-            params_sql = ",".join([":"+k for k in fields])
             name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
-            conflict = f"(tenant_id, {name_col})" if name_col else None
-            if conflict:
-                sets = [f"{c}=EXCLUDED.{c}" for c in fields if c not in {"tenant_id", name_col}]
-                on_conflict = f" ON CONFLICT {conflict} DO UPDATE SET {', '.join(sets)}"
-            else:
-                on_conflict = ""
-            # If tenant_id column is UUID, cast the parameter in a CTE to satisfy types
-            try:
+            if not name_col:
+                raise RuntimeError("connected_accounts missing provider/platform")
+            # Build UPDATE set clause
+            set_parts = []
+            params: Dict[str, Any] = {"t": t_id, "prov": provider}
+            if 'status' in cols:
+                set_parts.append("status = :st"); params['st'] = ("connected" if exchange_ok else status)
+            if 'connected_at' in cols:
+                set_parts.append("connected_at = NOW()")
+            if 'created_at' in cols:
+                set_parts.append("created_at = NOW()")
+            if access_token_enc is not None:
+                if 'access_token_enc' in cols:
+                    set_parts.append("access_token_enc = :at"); params['at'] = access_token_enc
+                elif 'access_token' in cols:
+                    try:
+                        params['at'] = decrypt_text(access_token_enc) or ""
+                    except Exception:
+                        params['at'] = ""
+                    set_parts.append("access_token = :at")
+            if refresh_token_enc is not None:
+                if 'refresh_token_enc' in cols:
+                    set_parts.append("refresh_token_enc = :rt"); params['rt'] = refresh_token_enc
+                elif 'refresh_token' in cols:
+                    try:
+                        params['rt'] = decrypt_text(refresh_token_enc) or ""
+                    except Exception:
+                        params['rt'] = ""
+                    set_parts.append("refresh_token = :rt")
+            if 'expires_at' in cols and isinstance(expires_at, (int, float)):
+                set_parts.append("expires_at = :exp"); params['exp'] = int(expires_at)
+            updated = False
+            if set_parts:
                 is_uuid_tid = _connected_accounts_tenant_is_uuid(db)
+                where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid_tid else "tenant_id = :t"
+                upd_sql = f"UPDATE connected_accounts SET {', '.join(set_parts)} WHERE {where_tid} AND {name_col} = :prov"
+                res = db.execute(_sql_text(upd_sql), params)
+                db.commit()
+                try:
+                    updated = bool(res.rowcount and int(res.rowcount) > 0)
+                except Exception:
+                    updated = False
+            if not updated:
+                # INSERT minimal row if none updated
+                is_uuid_tid = _connected_accounts_tenant_is_uuid(db)
+                ins_cols = ["tenant_id", name_col]
+                placeholders = ["CAST(:t AS uuid)" if is_uuid_tid else ":t", ":prov"]
+                if 'status' in cols:
+                    ins_cols.append('status'); placeholders.append(":st"); params['st'] = params.get('st', ("connected" if exchange_ok else status))
+                if 'connected_at' in cols:
+                    ins_cols.append('connected_at'); placeholders.append('NOW()')
+                if 'created_at' in cols:
+                    ins_cols.append('created_at'); placeholders.append('NOW()')
+                if access_token_enc is not None:
+                    if 'access_token_enc' in cols:
+                        ins_cols.append('access_token_enc'); placeholders.append(':at'); params['at'] = params.get('at', access_token_enc)
+                    elif 'access_token' in cols:
+                        if 'at' not in params:
+                            try:
+                                params['at'] = decrypt_text(access_token_enc) or ""
+                            except Exception:
+                                params['at'] = ""
+                        ins_cols.append('access_token'); placeholders.append(':at')
+                if refresh_token_enc is not None:
+                    if 'refresh_token_enc' in cols:
+                        ins_cols.append('refresh_token_enc'); placeholders.append(':rt'); params['rt'] = params.get('rt', refresh_token_enc)
+                    elif 'refresh_token' in cols:
+                        if 'rt' not in params:
+                            try:
+                                params['rt'] = decrypt_text(refresh_token_enc) or ""
+                            except Exception:
+                                params['rt'] = ""
+                        ins_cols.append('refresh_token'); placeholders.append(':rt')
+                if 'expires_at' in cols and 'exp' in params:
+                    ins_cols.append('expires_at'); placeholders.append(':exp')
+                ins_sql = f"INSERT INTO connected_accounts ({', '.join(ins_cols)}) VALUES ({', '.join(placeholders)})"
+                db.execute(_sql_text(ins_sql), params)
+                db.commit()
+        except Exception as e:
+            try:
+                db.rollback()
             except Exception:
-                is_uuid_tid = False
-            if is_uuid_tid:
-                values_cast = dict(values)
-                # Postgres will cast at execute time using CAST
-                db.execute(_sql_text(f"INSERT INTO connected_accounts ({cols_sql}) VALUES ({params_sql}){on_conflict}"), values_cast)
-            else:
-                db.execute(_sql_text(f"INSERT INTO connected_accounts ({cols_sql}) VALUES ({params_sql}){on_conflict}"), values)
-            db.commit()
-        except Exception:
-            try: db.rollback()
-            except Exception: pass
+                pass
+            # Record DB insert error for fast diagnosis
+            try:
+                db.add(dbm.AuditLog(tenant_id=t_id, actor_id="system", action=f"oauth.connect_failed.{provider}", entity_ref="oauth", payload=str({"db_error": str(e)[:300], "tenant": t_id})))
+                db.commit()
+            except Exception:
+                try: db.rollback()
+                except Exception: pass
         try:
             cid = request.query_params.get('cid') or ''
             payload = {"code": bool(code), "error": error or "", "exchange_ok": exchange_ok, **({} if not exchange_detail else exchange_detail)}
