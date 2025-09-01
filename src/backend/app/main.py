@@ -2223,7 +2223,7 @@ async def ai_chat_raw(
                 n = 3
             rows = (
                 db.query(dbm.Contact)
-                .filter(dbm.Contact.tenant_id == ctx.tenant_id, dbm.Contact.deleted == False)
+                .filter(dbm.Contact.tenant_id == ctx.tenant_id)
                 .order_by(dbm.Contact.lifetime_cents.desc())
                 .limit(n)
                 .all()
