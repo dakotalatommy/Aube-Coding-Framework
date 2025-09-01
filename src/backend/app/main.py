@@ -1,3 +1,37 @@
+class SelfTestResult(BaseModel):
+    ok: bool
+    error: Optional[str] = None
+
+@app.post("/integrations/connected-accounts/self-test", tags=["Integrations"])
+def connected_accounts_self_test(ctx: UserContext = Depends(get_user_context), db: Session = Depends(get_db)) -> Dict[str, object]:
+    try:
+        cols = _connected_accounts_columns(db)
+        is_uuid = _connected_accounts_tenant_is_uuid(db)
+        name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
+        if not name_col:
+            return {"ok": False, "error": "missing provider/platform column"}
+        fields = ["tenant_id", name_col]
+        values = {"tenant_id": ctx.tenant_id, name_col: "square"}
+        if 'status' in cols:
+            fields.append('status'); values['status'] = 'connected'
+        if 'connected_at' in cols:
+            fields.append('connected_at'); values['connected_at'] = int(_time.time())
+        cols_sql = ",".join(fields)
+        params_sql = ",".join([":"+k for k in fields])
+        conflict = f"(tenant_id, {name_col})"
+        sets = [f"{c}=EXCLUDED.{c}" for c in fields if c not in {"tenant_id", name_col}]
+        db.execute(_sql_text(f"INSERT INTO connected_accounts ({cols_sql}) VALUES ({params_sql}) ON CONFLICT {conflict} DO UPDATE SET {', '.join(sets)}"), values)
+        db.commit()
+        # Read back quickly
+        where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
+        row = db.execute(_sql_text(f"SELECT 1 FROM connected_accounts WHERE {where_tid} AND {name_col} = 'square' LIMIT 1"), {"t": ctx.tenant_id}).fetchone()
+        return {"ok": bool(row)}
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "error": str(e)}
 from __future__ import annotations
 from fastapi import FastAPI, Depends, Response, Request, HTTPException
 from fastapi.responses import PlainTextResponse, RedirectResponse, FileResponse, JSONResponse, HTMLResponse
@@ -497,6 +531,19 @@ def _connected_accounts_columns(db: Session) -> set:
     except Exception:
         return set()
 
+def _connected_accounts_user_is_uuid(db: Session) -> bool:
+    try:
+        row = db.execute(_sql_text(
+            """
+            SELECT data_type FROM information_schema.columns
+            WHERE table_name = 'connected_accounts' AND table_schema = 'public' AND column_name = 'user_id'
+            """
+        )).fetchone()
+        dt = (row[0] if row else '').lower()
+        return 'uuid' in dt
+    except Exception:
+        return False
+
 def _connected_accounts_tenant_is_uuid(db: Session) -> bool:
     try:
         row = db.execute(_sql_text(
@@ -838,14 +885,24 @@ def debug_oauth(provider: str = "square"):
                 last_log = db.execute(_sql_text("SELECT action, created_at, payload FROM audit_logs WHERE action LIKE :a ORDER BY id DESC LIMIT 1"), {"a": f"oauth.callback.{provider}%"}).fetchone()
                 is_uuid = _connected_accounts_tenant_is_uuid(db)
                 where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
-                ca = db.execute(_sql_text(f"SELECT status, created_at FROM connected_accounts WHERE {where_tid} AND provider = :p ORDER BY id DESC LIMIT 1"), {"t": tenant, "p": provider}).fetchone()
+                # Report access_token presence
+                cols = _connected_accounts_columns(db)
+                token_col = 'access_token_enc' if 'access_token_enc' in cols else ('access_token' if 'access_token' in cols else None)
+                ca = db.execute(_sql_text(f"SELECT status, created_at{', ' + token_col if token_col else ''} FROM connected_accounts WHERE {where_tid} AND provider = :p ORDER BY id DESC LIMIT 1"), {"t": tenant, "p": provider}).fetchone()
                 info["last_callback"] = {
                     "seen": bool(last_log),
                     "ts": int(last_log[1]) if last_log else None,
                 }
+                at_present = None
+                if ca and token_col:
+                    try:
+                        at_present = bool(ca[2])
+                    except Exception:
+                        at_present = None
                 info["connected_account"] = {
                     "status": (ca[0] if ca else None),
                     "ts": int(ca[1]) if ca else None,
+                    "access_token_present": at_present,
                 }
         except Exception:
             pass
@@ -4015,7 +4072,7 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
             except Exception:
                 exchange_ok = False
         try:
-            # Tolerant insert to connected_accounts
+            # Tolerant insert to connected_accounts (with upsert and user_id type detection)
             cols = _connected_accounts_columns(db)
             fields = ["tenant_id"]
             values = {"tenant_id": t_id}
@@ -4026,7 +4083,22 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 fields.append('platform'); values['platform'] = provider
             # Optional columns present in some schemas
             if 'user_id' in cols:
-                fields.append('user_id'); values['user_id'] = "dev"
+                # write the actual ctx.user_id when available and compatible; otherwise omit
+                try:
+                    uid = (locals().get('ctx').user_id if 'ctx' in locals() else None) or None
+                except Exception:
+                    uid = None
+                if uid:
+                    if _connected_accounts_user_is_uuid(db):
+                        # accept only UUID-like values, else omit
+                        try:
+                            import uuid as _uuid
+                            _ = _uuid.UUID(str(uid))
+                            fields.append('user_id'); values['user_id'] = str(uid)
+                        except Exception:
+                            pass
+                    else:
+                        fields.append('user_id'); values['user_id'] = str(uid)
             if 'status' in cols:
                 fields.append('status'); values['status'] = ("connected" if exchange_ok else status)
             if 'connected_at' in cols:
@@ -4052,10 +4124,17 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 fields.append('refresh_token'); values['refresh_token'] = rt_plain
             if 'expires_at' in cols and expires_at is not None:
                 fields.append('expires_at'); values['expires_at'] = expires_at
-            # Execute insert
+            # Execute insert with upsert on (tenant_id, provider|platform) when possible
             cols_sql = ",".join(fields)
             params_sql = ",".join([":"+k for k in fields])
-            db.execute(_sql_text(f"INSERT INTO connected_accounts ({cols_sql}) VALUES ({params_sql})"), values)
+            name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
+            conflict = f"(tenant_id, {name_col})" if name_col else None
+            if conflict:
+                sets = [f"{c}=EXCLUDED.{c}" for c in fields if c not in {"tenant_id", name_col}]
+                on_conflict = f" ON CONFLICT {conflict} DO UPDATE SET {', '.join(sets)}"
+            else:
+                on_conflict = ""
+            db.execute(_sql_text(f"INSERT INTO connected_accounts ({cols_sql}) VALUES ({params_sql}){on_conflict}"), values)
             db.commit()
         except Exception:
             try: db.rollback()
