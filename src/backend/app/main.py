@@ -920,19 +920,31 @@ def upsert_square_account(req: UpsertSquareRequest, db: Session = Depends(get_db
         values = {"tenant_id": tid_value, name_col: "square"}
         if 'status' in cols:
             fields.append('status'); values['status'] = 'connected'
+        # Respect timestamp types
+        ts_now = _sql_func.now()
         if 'connected_at' in cols:
-            fields.append('connected_at'); values['connected_at'] = int(_time.time())
+            fields.append('connected_at'); values['connected_at'] = ts_now
         if 'created_at' in cols:
-            fields.append('created_at'); values['created_at'] = int(_time.time())
+            fields.append('created_at'); values['created_at'] = ts_now
         cols_sql = ",".join(fields)
         params_sql = ",".join([":"+k for k in fields])
         conflict = f"(tenant_id, {name_col})"
         sets = [f"{c}=EXCLUDED.{c}" for c in fields if c not in {"tenant_id", name_col}]
         # Build a statement that coerces tenant_id properly for uuid/text
-        if 'uuid' in tid_type:
-            stmt = f"INSERT INTO connected_accounts ({cols_sql}) VALUES (CAST(:tenant_id AS uuid), :{name_col}{''.join([', :'+c for c in fields if c not in ['tenant_id', name_col]])}) ON CONFLICT {conflict} DO UPDATE SET {', '.join(sets)}"
-        else:
-            stmt = f"INSERT INTO connected_accounts ({cols_sql}) VALUES ({params_sql}) ON CONFLICT {conflict} DO UPDATE SET {', '.join(sets)}"
+        # Build placeholders list with correct order
+        placeholders = []
+        for c in fields:
+            if c == 'tenant_id' and 'uuid' in tid_type:
+                placeholders.append('CAST(:tenant_id AS uuid)')
+            elif c in ('connected_at','created_at'):
+                placeholders.append('NOW()')
+            else:
+                placeholders.append(f":{c}")
+        stmt = f"INSERT INTO connected_accounts ({cols_sql}) VALUES ({', '.join(placeholders)}) ON CONFLICT {conflict} DO UPDATE SET {', '.join(sets)}"
+        # Remove SQL func values from parameters since NOW() is inline
+        for k in ['connected_at','created_at']:
+            if k in values and isinstance(values[k], type(ts_now)):
+                values.pop(k, None)
         db.execute(_sql_text(stmt), values)
         db.commit()
         return {"ok": True}
