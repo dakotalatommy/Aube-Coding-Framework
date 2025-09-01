@@ -929,7 +929,16 @@ def upsert_square_account(req: UpsertSquareRequest, db: Session = Depends(get_db
             if set_parts:
                 upd_sql = f"UPDATE connected_accounts SET {', '.join(set_parts)} WHERE {where_tid} AND {name_col} = :prov"
                 params = {"tenant_id": req.tenant_id, "prov": "square"}
-                res = conn.exec_driver_sql(upd_sql, params)
+                try:
+                    res = conn.execute(_sql_text(upd_sql), params)
+                except Exception:
+                    # Fallback: literal SQL (provider fixed; tenant_id sanitized)
+                    safe_tid = str(req.tenant_id).replace("'", "''")
+                    where_tid_lit = (
+                        f"tenant_id = CAST('{safe_tid}' AS uuid)" if 'uuid' in tid_type else f"tenant_id = '{safe_tid}'"
+                    )
+                    upd_sql2 = f"UPDATE connected_accounts SET {', '.join(set_parts)} WHERE {where_tid_lit} AND {name_col} = 'square'"
+                    res = conn.exec_driver_sql(upd_sql2)
                 try:
                     updated = bool(getattr(res, 'rowcount', 0) and int(res.rowcount) > 0)
                 except Exception:
@@ -946,7 +955,22 @@ def upsert_square_account(req: UpsertSquareRequest, db: Session = Depends(get_db
             if 'created_at' in cols:
                 ins_cols.append('created_at'); placeholders.append('NOW()')
             ins_sql = f"INSERT INTO connected_accounts ({', '.join(ins_cols)}) VALUES ({', '.join(placeholders)})"
-            conn.exec_driver_sql(ins_sql, {"tenant_id": req.tenant_id, "prov": "square"})
+            try:
+                conn.execute(_sql_text(ins_sql), {"tenant_id": req.tenant_id, "prov": "square"})
+            except Exception:
+                safe_tid = str(req.tenant_id).replace("'", "''")
+                lit_vals: List[str] = [
+                    f"CAST('{safe_tid}' AS uuid)" if 'uuid' in tid_type else f"'{safe_tid}'",
+                    "'square'",
+                ]
+                if 'status' in cols:
+                    lit_vals.append("'connected'")
+                if 'connected_at' in cols:
+                    lit_vals.append("NOW()")
+                if 'created_at' in cols:
+                    lit_vals.append("NOW()")
+                ins_sql2 = f"INSERT INTO connected_accounts ({', '.join(ins_cols)}) VALUES ({', '.join(lit_vals)})"
+                conn.exec_driver_sql(ins_sql2)
             return {"ok": True, "inserted": True}
     except Exception as e:
         try:
