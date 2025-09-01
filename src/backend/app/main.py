@@ -4043,6 +4043,15 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
             _env("HUBSPOT_CLIENT_ID"), _env("SQUARE_CLIENT_ID"), _env("ACUITY_CLIENT_ID"),
             _env("FACEBOOK_CLIENT_ID"), _env("INSTAGRAM_CLIENT_ID"), _env("GOOGLE_CLIENT_ID"), _env("SHOPIFY_CLIENT_ID")
         ]) else "connected"
+        # Set RLS GUCs as early as possible so all DB writes honor tenant policies
+        try:
+            CURRENT_TENANT_ID.set(t_id)
+            CURRENT_ROLE.set("authenticated")
+            db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": t_id})
+            db.execute(_sql_text("SET LOCAL app.role = 'authenticated'"))
+        except Exception:
+            try: db.rollback()
+            except Exception: pass
         # Attempt token exchange when code present
         access_token_enc = encrypt_text(code or "")
         refresh_token_enc = None
@@ -4182,13 +4191,21 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
             emit_event("OauthCallback", {"tenant_id": t_id, "provider": provider, "code_present": bool(code), "error": error or ""})
         except Exception:
             pass
-        # Redirect UX: success or error with reason
+        # Redirect UX or debug JSON: success or error with reason
         if error or not exchange_ok:
             reason = error or ("token_exchange_failed" if code else "missing_code")
             try:
                 emit_event("OauthConnectFailed", {"tenant_id": t_id, "provider": provider, "reason": reason})
             except Exception:
                 pass
+            if request.query_params.get('debug') == '1':
+                return JSONResponse({
+                    "tenant_id": t_id,
+                    "provider": provider,
+                    "exchange_ok": exchange_ok,
+                    "reason": reason,
+                    "detail": exchange_detail or {},
+                })
             return RedirectResponse(url=f"{_frontend_base_url()}/integrations?error={reason}&provider={provider}")
         # Map provider to the Integrations step (1-based) and include a workspace return hint
         # Map to Integrations page index (1..3). Square/HubSpot group on page 2.
@@ -4200,6 +4217,13 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
             "shopify": 3,
         }
         step = max(1, min(3, step_map.get(provider, 1)))
+        if request.query_params.get('debug') == '1':
+            return JSONResponse({
+                "tenant_id": t_id,
+                "provider": provider,
+                "exchange_ok": exchange_ok,
+                "saved": True,
+            })
         return RedirectResponse(url=f"{_frontend_base_url()}/integrations?connected=1&provider={provider}&step={step}&return=workspace")
     except Exception:
         return RedirectResponse(url=f"{_frontend_base_url()}/integrations?error=oauth_unexpected&provider={provider}")
