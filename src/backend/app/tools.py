@@ -249,6 +249,20 @@ async def execute_tool(name: str, params: Dict[str, Any], db: Session, ctx: User
                 max_candidates=int(params.get("max_candidates", 5)),
                 message_template=params.get("message_template"),
             )
+        # CRM helpers
+        if name == "contacts.list.top_ltv":
+            return tool_contacts_list_top_ltv(
+                db,
+                ctx,
+                tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
+                limit=int(params.get("limit", 10)),
+            )
+        if name == "contacts.import.square":
+            return await tool_contacts_import_square(
+                db,
+                ctx,
+                tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
+            )
         return {"status": "not_implemented"}
     except ToolError as te:
         return {"status": str(te)}

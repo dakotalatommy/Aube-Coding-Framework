@@ -2120,16 +2120,14 @@ async def ai_chat(
                 last = (req.messages[-1].content if req.messages else "")
                 return {"text": f"Got it — {last.strip()[:80]} … What's the main goal you want BrandVX to help with this week?"}
             return {"text": "AI is temporarily busy. Please try again in a moment."}
-    # If generation completed but returned a transient error string, provide a friendly fallback (especially for onboarding)
+    # Only fallback when the model returns an empty string; preserve model text otherwise
     try:
         _ct = (content or "").strip()
-        _is_transient = (not _ct) or (_ct.lower().startswith("ai is temporarily busy") or _ct.lower().startswith("rate_limited") or _ct.lower().startswith("openai error") or _ct.lower().startswith("openai http") or _ct.lower().startswith("debug_http_error"))
-        if _is_transient:
+        if not _ct:
             if (req.mode or "") == "sales_onboarding":
-                last = (req.messages[-1].content if req.messages else "")
-                content = f"OK — noted. What's the main goal you want to hit in your first 30 days (e.g., automate follow‑ups, boost bookings, or clean up contacts)?"
+                content = "OK — noted. What's the main goal you want to hit in your first 30 days (e.g., automate follow‑ups, boost bookings, or clean up contacts)?"
             else:
-                content = "I can help with setup, messaging, and KPIs. What are you trying to do right now?"
+                content = "How can I help right now? I can summarize your brand settings, list contacts, or suggest next steps."
     except Exception:
         pass
     # Persist chat logs (last user msg + assistant reply) and record usage

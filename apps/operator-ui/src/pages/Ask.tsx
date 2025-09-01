@@ -154,7 +154,7 @@ export default function Ask(){
       const r = await api.post('/ai/chat', {
         tenant_id: await getTenant(),
         messages: next,
-        allow_tools: false,
+        allow_tools: true,
         session_id: sessionId,
         mode: 'qa_detailed',
       }, { timeoutMs: 20000 });
