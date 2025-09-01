@@ -4432,53 +4432,74 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                 phone_norm = normalize_phone(phone) if phone else None
 
                 # Raw SQL upsert (tolerant of existing schema) to avoid ORM PK/type mismatches
-                row = db.execute(
-                    _sql_text(
-                        "SELECT id FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid LIMIT 1"
-                    ),
-                    {"t": req.tenant_id, "cid": contact_id},
-                ).fetchone()
-                if not row:
-                    db.execute(
+                try:
+                    row = db.execute(
                         _sql_text(
-                            """
-                            INSERT INTO contacts (tenant_id, contact_id, email_hash, phone_hash, consent_sms, consent_email)
-                            VALUES (CAST(:t AS uuid), :cid, :eh, :ph, :csms, :cemail)
-                            """
+                            "SELECT id FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid LIMIT 1"
                         ),
-                        {
-                            "t": req.tenant_id,
-                            "cid": contact_id,
-                            "eh": email,
-                            "ph": phone_norm,
-                            "csms": bool(phone_norm),
-                            "cemail": bool(email),
-                        },
-                    )
+                        {"t": req.tenant_id, "cid": contact_id},
+                    ).fetchone()
+                except Exception:
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
+                    return
+                if not row:
+                    try:
+                        db.execute(
+                            _sql_text(
+                                """
+                                INSERT INTO contacts (tenant_id, contact_id, email_hash, phone_hash, consent_sms, consent_email)
+                                VALUES (CAST(:t AS uuid), :cid, :eh, :ph, :csms, :cemail)
+                                """
+                            ),
+                            {
+                                "t": req.tenant_id,
+                                "cid": contact_id,
+                                "eh": email,
+                                "ph": phone_norm,
+                                "csms": bool(phone_norm),
+                                "cemail": bool(email),
+                            },
+                        )
+                    except Exception:
+                        try:
+                            db.rollback()
+                        except Exception:
+                            pass
+                        return
                     created_total += 1
                 else:
-                    res = db.execute(
-                        _sql_text(
-                            """
-                            UPDATE contacts
-                            SET
-                                email_hash = COALESCE(email_hash, :eh),
-                                phone_hash = COALESCE(phone_hash, :ph),
-                                consent_sms = (consent_sms OR :csms),
-                                consent_email = (consent_email OR :cemail),
-                                updated_at = EXTRACT(epoch FROM now())::bigint
-                            WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid
-                            """
-                        ),
-                        {
-                            "t": req.tenant_id,
-                            "cid": contact_id,
-                            "eh": email,
-                            "ph": phone_norm,
-                            "csms": bool(phone_norm),
-                            "cemail": bool(email),
-                        },
-                    )
+                    try:
+                        res = db.execute(
+                            _sql_text(
+                                """
+                                UPDATE contacts
+                                SET
+                                    email_hash = COALESCE(email_hash, :eh),
+                                    phone_hash = COALESCE(phone_hash, :ph),
+                                    consent_sms = (consent_sms OR :csms),
+                                    consent_email = (consent_email OR :cemail),
+                                    updated_at = EXTRACT(epoch FROM now())::bigint
+                                WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid
+                                """
+                            ),
+                            {
+                                "t": req.tenant_id,
+                                "cid": contact_id,
+                                "eh": email,
+                                "ph": phone_norm,
+                                "csms": bool(phone_norm),
+                                "cemail": bool(email),
+                            },
+                        )
+                    except Exception:
+                        try:
+                            db.rollback()
+                        except Exception:
+                            pass
+                        return
                     try:
                         rc = int(getattr(res, "rowcount", 0) or 0)
                     except Exception:
