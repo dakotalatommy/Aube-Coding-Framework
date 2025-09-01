@@ -83,12 +83,10 @@ export default function DemoIntake(){
         // Hybrid: if the user asks a question mid‑intake, answer openly and do not advance index
         if (/[?？]\s*$/.test(text)) {
           try {
-            const r = await api.post('/ai/chat', {
+            const r = await api.post('/ai/chat/raw', {
               tenant_id: await getTenant(),
               messages: [ { role:'user', content: text } ],
-              allow_tools: false,
               session_id: 'demo_open_q',
-              mode: 'open',
             }, { timeoutMs: 20000 });
             const reply = String((r as any)?.text || '').trim();
             pushAssistant(reply || 'Thanks!');
@@ -118,19 +116,15 @@ export default function DemoIntake(){
       }
       // Post‑intake: power replies via AskVX in open mode with a 5-turn cap
       if (freePromptsLeft > 0) {
-        const r = await api.post('/ai/chat', {
+        const r = await api.post('/ai/chat/raw', {
           tenant_id: await getTenant(),
           messages: [ { role:'user', content: text } ],
-          allow_tools: false,
           session_id: 'demo_open',
-          mode: 'open',
         }, { timeoutMs: 20000 }).catch(async ()=>{
-          return await api.post('/ai/chat', {
+          return await api.post('/ai/chat/raw', {
             tenant_id: await getTenant(),
             messages: [ { role:'user', content: text } ],
-            allow_tools: false,
             session_id: 'demo_open_r1',
-            mode: 'open',
           }, { timeoutMs: 20000 });
         });
         const reply = String((r as any)?.text || '').trim();

@@ -20,12 +20,10 @@ export default function AskMini(){
     setInput('');
     setBusy(true);
     try{
-      const r = await api.post('/ai/chat', {
+      const r = await api.post('/ai/chat/raw', {
         tenant_id: await getTenant(),
         messages: next,
-        allow_tools: false,
         session_id: 'onboarding_sales',
-        mode: 'sales_onboarding',
       });
       const reply = String(r?.text || '').trim();
       setMessages(curr=> [...curr, { role:'assistant', content: reply || 'Thanks! Let\'s continue.' }]);
