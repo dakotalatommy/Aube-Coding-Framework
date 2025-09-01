@@ -2651,6 +2651,35 @@ def contacts_search(
     ]}
 
 
+@app.get("/contacts/list", tags=["Contacts"])
+def contacts_list(
+    tenant_id: str,
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"items": []}
+    q = db.query(dbm.Contact).filter(dbm.Contact.tenant_id == tenant_id, dbm.Contact.deleted == False)  # type: ignore
+    rows = q.order_by(dbm.Contact.last_visit.desc()).limit(max(1, min(limit, 500))).all()
+    out = []
+    for r in rows:
+        out.append({
+            "contact_id": r.contact_id,
+            "birthday": getattr(r, "birthday", None),
+            "creation_source": getattr(r, "creation_source", None),
+            "first_visit": getattr(r, "first_visit", 0),
+            "last_visit": getattr(r, "last_visit", 0),
+            "txn_count": getattr(r, "txn_count", 0),
+            "lifetime_cents": getattr(r, "lifetime_cents", 0),
+            "email_subscription_status": getattr(r, "email_subscription_status", None),
+            "instant_profile": bool(getattr(r, "instant_profile", False)),
+            "email_hash": r.email_hash,
+            "phone_hash": r.phone_hash,
+        })
+    return {"items": out}
+
+
 # --- Human-friendly tool schema for AskVX palette ---
 @app.get("/ai/tools/schema_human", tags=["AI"])
 def ai_tools_schema_human() -> Dict[str, object]:
