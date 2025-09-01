@@ -4430,6 +4430,33 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                 except Exception:
                     phone = None
                 phone_norm = normalize_phone(phone) if phone else None
+                # Optional enrichments from Square Customers
+                birthday = None
+                try:
+                    bday = str(square_obj.get("birthday") or "").strip()
+                    # Square uses YYYY-MM-DD string
+                    birthday = (bday if bday else None)
+                except Exception:
+                    birthday = None
+                creation_source = None
+                try:
+                    creation_source = str(square_obj.get("creation_source") or "").strip() or None
+                except Exception:
+                    creation_source = None
+                instant_profile = False
+                try:
+                    # Heuristic: Square marks instant profile via creation_source or flags
+                    ip = str(square_obj.get("creation_source") or "").lower()
+                    instant_profile = ("instant" in ip)
+                except Exception:
+                    instant_profile = False
+                email_sub_status = None
+                try:
+                    prefs = square_obj.get("preferences") or {}
+                    unsub = bool(prefs.get("email_unsubscribed", False))
+                    email_sub_status = ("unsubscribed" if unsub else "subscribed")
+                except Exception:
+                    email_sub_status = None
 
                 # Raw SQL upsert using a connection-bound transaction to avoid session state issues
                 with engine.begin() as _conn:
@@ -4443,8 +4470,14 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                         _conn.execute(
                             _sql_text(
                                 """
-                                INSERT INTO contacts (tenant_id, contact_id, email_hash, phone_hash, consent_sms, consent_email)
-                                VALUES (CAST(:t AS uuid), :cid, :eh, :ph, :csms, :cemail)
+                                INSERT INTO contacts (
+                                  tenant_id, contact_id, email_hash, phone_hash, consent_sms, consent_email,
+                                  square_customer_id, birthday, creation_source, email_subscription_status, instant_profile
+                                )
+                                VALUES (
+                                  CAST(:t AS uuid), :cid, :eh, :ph, :csms, :cemail,
+                                  :sqcid, :bday, :csrc, :esub, :ip
+                                )
                                 """
                             ),
                             {
@@ -4454,6 +4487,11 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                                 "ph": phone_norm,
                                 "csms": bool(phone_norm),
                                 "cemail": bool(email),
+                                "sqcid": sq_id,
+                                "bday": birthday,
+                                "csrc": creation_source,
+                                "esub": email_sub_status,
+                                "ip": bool(instant_profile),
                             },
                         )
                         created_total += 1
@@ -4467,6 +4505,11 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                                     phone_hash = COALESCE(phone_hash, :ph),
                                     consent_sms = (consent_sms OR :csms),
                                     consent_email = (consent_email OR :cemail),
+                                    square_customer_id = COALESCE(square_customer_id, :sqcid),
+                                    birthday = COALESCE(birthday, :bday),
+                                    creation_source = COALESCE(creation_source, :csrc),
+                                    email_subscription_status = COALESCE(email_subscription_status, :esub),
+                                    instant_profile = (instant_profile OR :ip),
                                     updated_at = EXTRACT(epoch FROM now())::bigint
                                 WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid
                                 """
@@ -4478,6 +4521,11 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                                 "ph": phone_norm,
                                 "csms": bool(phone_norm),
                                 "cemail": bool(email),
+                                "sqcid": sq_id,
+                                "bday": birthday,
+                                "csrc": creation_source,
+                                "esub": email_sub_status,
+                                "ip": bool(instant_profile),
                             },
                         )
                         try:
