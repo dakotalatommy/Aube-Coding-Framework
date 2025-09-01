@@ -112,6 +112,31 @@ async def get_user_context(
                 tenant_id=str(_tenant_id),
             )
         except Exception:
+            # Optional weak JWT mode: allow unverified decode when explicitly enabled (dev only)
+            if os.getenv("ALLOW_WEAK_JWT", "0") == "1":
+                try:
+                    payload = jwt.decode(
+                        token,
+                        options={
+                            "verify_signature": False,
+                            "verify_aud": False,
+                            "verify_iss": False,
+                            "verify_exp": False,
+                        },
+                    )
+                    _tenant_id = (
+                        payload.get("tenant_id")
+                        or (payload.get("app_metadata") or {}).get("tenant_id")
+                        or payload.get("sub")
+                        or "t1"
+                    )
+                    return UserContext(
+                        user_id=str(payload.get("sub", "user")),
+                        role=str(payload.get("role", "authenticated")),
+                        tenant_id=str(_tenant_id),
+                    )
+                except Exception:
+                    pass
             # In TESTING, accept unsigned dev tokens to simplify fixtures
             if os.getenv("TESTING") == "1":
                 try:
