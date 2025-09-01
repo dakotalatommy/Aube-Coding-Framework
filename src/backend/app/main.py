@@ -3966,11 +3966,15 @@ def oauth_login(provider: str, tenant_id: Optional[str] = None, ctx: UserContext
                 pass
     except Exception:
         pass
-    # Cache state marker for CSRF verification in callback
+    # Cache state marker for CSRF verification in callback, and map state -> tenant_id
     try:
         if url and "state=" in url:
             _st = url.split("state=",1)[1].split("&",1)[0]
             cache_set(f"oauth_state:{_st}", "1", ttl=600)
+            try:
+                cache_set(f"oauth_state_t:{_st}", (tenant_id or ctx.tenant_id), ttl=600)
+            except Exception:
+                pass
     except Exception:
         pass
     return {"url": url}
