@@ -1,4 +1,3 @@
- 
 from fastapi import FastAPI, Depends, Response, Request, HTTPException
 from fastapi.responses import PlainTextResponse, RedirectResponse, FileResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -475,10 +474,6 @@ def upsert_usage_limit(body: UsageLimitUpsert, db: Session = Depends(get_db), ct
         r.grace_until = body.grace_until
     db.commit()
     return {"ok": True}
-
-
-
-
 # --- OAuth scaffolding helpers (env-driven) ---
 
 def _square_env_mode() -> str:
@@ -932,7 +927,6 @@ def debug_oauth(provider: str = "square"):
 # Admin: upsert a Square connected-account row for the current tenant (tolerant schema)
 class UpsertSquareRequest(BaseModel):
     tenant_id: str
-
 @app.post("/integrations/admin/upsert-square", tags=["Integrations"])
 def upsert_square_account(req: UpsertSquareRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
@@ -1382,8 +1376,6 @@ def _oauth_refresh_token(provider: str, refresh_token: str, redirect_uri: str) -
 class OAuthRefreshRequest(BaseModel):
     tenant_id: str
     provider: str
-
-
 @app.post("/oauth/refresh", tags=["Integrations"])
 def oauth_refresh(req: OAuthRefreshRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
@@ -2209,6 +2201,41 @@ async def ai_chat_raw(
     system_prompt = BRAND_SYSTEM
     if brand_profile_text:
         system_prompt = system_prompt + "\n\nBrand profile (voice/tone):\n" + brand_profile_text
+    # Lightweight data context: answer top LTV queries concretely when available
+    try:
+        user_q = (req.messages[-1].content if req.messages else "").lower()
+        data_notes: List[str] = []
+        if ("top" in user_q and ("clients" in user_q or "contacts" in user_q) and ("lifetime" in user_q or "spend" in user_q or "value" in user_q)):
+            import re as _re, datetime as _dt
+            m = _re.search(r"top\s+(\d+)", user_q)
+            n = 3
+            try:
+                if m:
+                    n = max(1, min(10, int(m.group(1))))
+            except Exception:
+                n = 3
+            rows = (
+                db.query(dbm.Contact)
+                .filter(dbm.Contact.tenant_id == ctx.tenant_id, dbm.Contact.deleted == False)
+                .order_by(dbm.Contact.lifetime_cents.desc())
+                .limit(n)
+                .all()
+            )
+            def _fmt(ts: Optional[int]) -> str:
+                try:
+                    if not ts:
+                        return "—"
+                    if ts < 10**12:
+                        ts = ts * 1000  # type: ignore
+                    return _dt.datetime.fromtimestamp(int(ts/1000)).strftime("%Y-%m-%d")
+                except Exception:
+                    return "—"
+            for r in rows:
+                data_notes.append(f"• {r.contact_id} — LTV ${(int(getattr(r,'lifetime_cents',0) or 0)/100):.2f}, Txns {int(getattr(r,'txn_count',0) or 0)}, Last {_fmt(getattr(r,'last_visit',0))}")
+        if data_notes:
+            system_prompt = system_prompt + "\n\nContext data (do not invent; use as source):\n" + "\n".join(data_notes[:10])
+    except Exception:
+        pass
     # Call provider directly via Responses API only (no local fallbacks)
     reply_max_tokens = int(os.getenv("AI_CHAT_MAX_TOKENS", "1600"))
     base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
@@ -2299,7 +2326,6 @@ async def ai_chat_raw(
             return _JR({"error": "provider_error", "detail": str(e)[:400]}, status_code=502)
     if not content or not isinstance(content, str) or not content.strip():
         from fastapi.responses import JSONResponse as _JR
-        # Return an excerpt of provider JSON for diagnosis without leaking full payload
         excerpt = json.dumps({k: provider_json.get(k) for k in ("status", "incomplete_details", "usage")})
         return _JR({"error": "provider_error", "detail": "no_text_output", "provider_excerpt": excerpt}, status_code=502)
     # Persist logs (best-effort)
@@ -2311,10 +2337,8 @@ async def ai_chat_raw(
         db.add(dbm.ChatLog(tenant_id=ctx.tenant_id, session_id=sid, role="assistant", content=content))
         db.commit()
     except Exception:
-        try:
-            db.rollback()
-        except Exception:
-            pass
+        try: db.rollback()
+        except Exception: pass
     return {"text": content}
 
 @app.get("/ai/diag", tags=["AI"])
@@ -2374,8 +2398,6 @@ async def proxy_master_agent_orchestrator(
     payload = {"tenant_id": req.tenant_id, **(req.payload or {})}
     out = await _call_edge_function("master-agent-orchestrator", payload)
     return out
-
-
 @app.post("/ai/proxy/realtime-token", tags=["AI"])
 async def proxy_realtime_token(
     req: EdgeProxyRequest,
@@ -2842,8 +2864,6 @@ def ai_tools_schema_human() -> Dict[str, object]:
 
 class SeedRequest(BaseModel):
     tenant_id: str
-
-
 @app.post("/l/seed", tags=["Integrations"])
 async def l_seed(req: SeedRequest, ctx: UserContext = Depends(get_user_context)):
     # Dev-only seed endpoint to create one template and rule in Supabase
@@ -4095,7 +4115,7 @@ def api_onboarding_context(scope: Optional[str] = None, step: Optional[str] = No
         "social": ["Provide Instagram & email to enable helpers."],
         "goals": ["Pick a few 3-month goals; yearly optional."],
         "styles": ["Choose up to 3 signature automations to start."],
-        "review": ["You’re live; you can change anything in Settings later."],
+        "review": ["You're live; you can change anything in Settings later."],
     }
     examples = {
         "voice": ["Hey {first} — see you soon. Need to reschedule? Tap here.", "Vivid copper melt for fall — gentle lift. ✨"],
@@ -4131,7 +4151,7 @@ def api_assist(req: AssistInput, ctx: UserContext = Depends(get_user_context)):
         "social": "IG + email enable content helper and respectful outreach.",
         "goals": "3-month goals become dashboard milestones.",
         "styles": "Pick 3 Styles to activate first; you can add more later.",
-        "review": "You’re live. We summarize choices and link to your workspace.",
+        "review": "You're live. We summarize choices and link to your workspace.",
         "generic": "This step affects later suggestions and drafts.",
     }
     text = generic.get(page, generic["generic"])
@@ -4236,8 +4256,6 @@ def debug_cors(request: Request):
         }
     except Exception as e:
         return {"error": str(e)}
-
-
 @app.get("/oauth/{provider}/callback", tags=["Integrations"])  # single canonical callback
 def oauth_callback(provider: str, request: Request, code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None, db: Session = Depends(get_db)):
     if provider == "square" and os.getenv("INTEGRATIONS_V1_DISABLED", "0") == "1":
@@ -5652,8 +5670,6 @@ def guide_manifest() -> Dict[str, object]:
             ],
         },
     }
-
-
 @app.get("/ui/contract")
 def ui_contract() -> Dict[str, object]:
     return {
@@ -6151,8 +6167,6 @@ def share_create(req: ShareCreateRequest, db: Session = Depends(get_db), ctx: Us
         raw = json.dumps(payload)
         tok = _b64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
         return {"url": f"{_frontend_base_url()}/s/{tok}"}
-
-
 @app.get("/s/{token}")
 def share_landing(token: str) -> HTMLResponse:
     # Try DB first, then fall back to token decode
@@ -7090,112 +7104,51 @@ def calendar_list(
 @app.get("/inventory/metrics", tags=["Integrations"])
 def inventory_metrics(
     tenant_id: str,
+    provider: Optional[str] = None,
     db: Session = Depends(get_db),
     ctx: UserContext = Depends(get_user_context),
 ):
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
-        return {"summary": {}, "last_sync": {}}
-    inv_sync: Dict[str, object] = {}
-    try:
-        recent = (
-            db.query(dbm.EventLedger)
-            .filter(dbm.EventLedger.tenant_id == tenant_id, dbm.EventLedger.name.like("sync.inventory.%"))
-            .order_by(dbm.EventLedger.ts.desc())
-            .limit(50)
-            .all()
-        )
-        for ev in recent:
-            try:
-                prov = (ev.name or "").split(".")[-1]
-                inv_sync[prov] = {"status": "completed", "ts": ev.ts}
-            except Exception:
-                continue
-    except Exception:
-        inv_sync = {}
-    # Try cache first
-    try:
-        ckey = f"inv:{tenant_id}"
-        cached = cache_get(ckey)
-        if cached is not None:
-            try:
-                CACHE_HIT.labels(endpoint="/inventory/metrics").inc()  # type: ignore
-            except Exception:
-                pass
-            return cached
-    except Exception:
-        pass
-    srow = db.query(dbm.InventorySummary).filter(dbm.InventorySummary.tenant_id == tenant_id).first()
-    items = db.query(dbm.InventoryItem).filter(dbm.InventoryItem.tenant_id == tenant_id).order_by(dbm.InventoryItem.name.asc()).all()
-    summary = {
-        "products": int(srow.products) if srow else 0,
-        "low_stock": int(srow.low_stock) if srow else 0,
-        "out_of_stock": int(srow.out_of_stock) if srow else 0,
-        "top_sku": srow.top_sku if srow else None,
-    }
-    out = {
-        "summary": summary,
-        "last_sync": inv_sync,
-        "items": [{"sku": it.sku, "name": it.name, "stock": it.stock, "provider": it.provider} for it in items],
-    }
-    try:
-        cache_set(ckey, out, ttl=30)
-        try:
-            CACHE_MISS.labels(endpoint="/inventory/metrics").inc()  # type: ignore
-        except Exception:
-            pass
-    except Exception:
-        pass
-    return out
-
-
-class SyncRequest(BaseModel):
-    tenant_id: str
-    provider: Optional[str] = None  # shopify|square|manual or google|apple for calendar
-
-
-@app.post("/inventory/sync", tags=["Integrations"])
-def inventory_sync(req: SyncRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, str]:
-    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
-    prov = (req.provider or "auto").lower()
+    prov = (provider or "auto").lower()
     now = int(_time.time())
     # Record sync queued in events_ledger instead of in-memory state
     try:
-        db.add(dbm.EventLedger(ts=now, tenant_id=req.tenant_id, name=f"sync.inventory.{prov}", payload=None))
+        db.add(dbm.EventLedger(ts=now, tenant_id=tenant_id, name=f"sync.inventory.{prov}", payload=None))
         db.commit()
     except Exception:
         pass
     # Simulate a quick sync completion and basic metrics for visibility during scaffolding
-    summary_row = db.query(dbm.InventorySummary).filter(dbm.InventorySummary.tenant_id == req.tenant_id).first()
+    summary_row = db.query(dbm.InventorySummary).filter(dbm.InventorySummary.tenant_id == tenant_id).first()
     if not summary_row:
-        summary_row = dbm.InventorySummary(tenant_id=req.tenant_id)
+        summary_row = dbm.InventorySummary(tenant_id=tenant_id)
         db.add(summary_row)
         db.commit()
         db.refresh(summary_row)
     if prov == "shopify":
-        snap = inv_shopify.fetch_inventory_snapshot(req.tenant_id)
+        snap = inv_shopify.fetch_inventory_snapshot(tenant_id)
         ss = snap.get("summary", {})
         summary_row.products = int(ss.get("products", summary_row.products or 0))
         summary_row.low_stock = int(ss.get("low_stock", summary_row.low_stock or 0))
         summary_row.out_of_stock = int(ss.get("out_of_stock", summary_row.out_of_stock or 0))
         summary_row.top_sku = ss.get("top_sku", summary_row.top_sku)
-        db.query(dbm.InventoryItem).filter(dbm.InventoryItem.tenant_id == req.tenant_id).delete()
+        db.query(dbm.InventoryItem).filter(dbm.InventoryItem.tenant_id == tenant_id).delete()
         for it in snap.get("items", []):
-            db.add(dbm.InventoryItem(tenant_id=req.tenant_id, sku=it.get("sku"), name=it.get("name"), stock=int(it.get("stock", 0)), provider="shopify"))
+            db.add(dbm.InventoryItem(tenant_id=tenant_id, sku=it.get("sku"), name=it.get("name"), stock=int(it.get("stock", 0)), provider="shopify"))
     elif prov == "square":
-        snap = inv_square.fetch_inventory_snapshot(req.tenant_id)
+        snap = inv_square.fetch_inventory_snapshot(tenant_id)
         ss = snap.get("summary", {})
         summary_row.products = max(int(summary_row.products or 0), int(ss.get("products", 0)))
         summary_row.low_stock = int(ss.get("low_stock", summary_row.low_stock or 0))
         summary_row.out_of_stock = int(ss.get("out_of_stock", summary_row.out_of_stock or 0))
         summary_row.top_sku = summary_row.top_sku or ss.get("top_sku")
-        existing = {r.sku for r in db.query(dbm.InventoryItem).filter(dbm.InventoryItem.tenant_id == req.tenant_id).all()}
+        existing = {r.sku for r in db.query(dbm.InventoryItem).filter(dbm.InventoryItem.tenant_id == tenant_id).all()}
         for it in snap.get("items", []):
             if it.get("sku") not in existing:
-                db.add(dbm.InventoryItem(tenant_id=req.tenant_id, sku=it.get("sku"), name=it.get("name"), stock=int(it.get("stock", 0)), provider="square"))
+                db.add(dbm.InventoryItem(tenant_id=tenant_id, sku=it.get("sku"), name=it.get("name"), stock=int(it.get("stock", 0)), provider="square"))
     else:
         # Manual recompute based on current items snapshot
-        items = db.query(dbm.InventoryItem).filter(dbm.InventoryItem.tenant_id == req.tenant_id).all()
+        items = db.query(dbm.InventoryItem).filter(dbm.InventoryItem.tenant_id == tenant_id).all()
         products = len(items)
         low_stock = sum(1 for it in items if int(it.stock or 0) > 0 and int(it.stock or 0) <= 5)
         out_of_stock = sum(1 for it in items if int(it.stock or 0) == 0)
@@ -7206,17 +7159,22 @@ def inventory_sync(req: SyncRequest, db: Session = Depends(get_db), ctx: UserCon
         summary_row.top_sku = top_sku
     db.commit()
     try:
-        cache_del(f"inv:{req.tenant_id}")
+        cache_del(f"inv:{tenant_id}")
     except Exception:
         pass
     try:
         with next(get_db()) as _db:  # type: ignore
-            _db.add(dbm.EventLedger(ts=now, tenant_id=req.tenant_id, name=f"sync.inventory.{prov}", payload=json.dumps({"status":"completed"})))
+            _db.add(dbm.EventLedger(ts=now, tenant_id=tenant_id, name=f"sync.inventory.{prov}", payload=json.dumps({"status":"completed"})))
             _db.commit()
     except Exception:
         pass
-    emit_event("InventorySyncRequested", {"tenant_id": req.tenant_id, "provider": prov})
+    emit_event("InventorySyncRequested", {"tenant_id": tenant_id, "provider": prov})
     return {"status": "completed", "provider": prov}
+
+
+class SyncRequest(BaseModel):
+    tenant_id: str
+    provider: Optional[str] = None
 
 
 @app.post("/calendar/sync", tags=["Integrations"])
@@ -7453,7 +7411,7 @@ def square_booking_link(
         t = tenant_id or ctx.tenant_id
         row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == t).first()
         if row:
-            data = json.loads(row.data_json or "{}")
+            data = json.loads(row.data_json or '{}')
             url = data.get("square_booking_url", url)
     except Exception:
         pass
@@ -7474,5 +7432,3 @@ def instagram_status(ctx: UserContext = Depends(get_user_context)):
             return {"status": "connected" if ok else "not_connected"}
     except Exception:
         return {"status": "unknown"}
-
-
