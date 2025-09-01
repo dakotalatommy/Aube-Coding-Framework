@@ -2313,7 +2313,7 @@ async def ai_chat_raw(
     api_key = (os.getenv("OPENAI_API_KEY", "") or "").strip()
     if not api_key:
         from fastapi.responses import JSONResponse as _JR
-        return _JR({"error": "provider_error", "detail": "missing_openai_key"}, status_code=502)
+        return _JR({"error": "provider_error", "detail": "missing_openai_key"}, status_code=200)
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     project_id = os.getenv("OPENAI_PROJECT", "").strip()
     if project_id:
@@ -2340,11 +2340,11 @@ async def ai_chat_raw(
             r = await client.post(f"{base_url}/responses", headers=headers, json=payload)
             if r.status_code >= 400:
                 from fastapi.responses import JSONResponse as _JR
-                return _JR({"error": "provider_error", "detail": r.text[:400]}, status_code=r.status_code)
+                return _JR({"error": "provider_error", "detail": r.text[:400]}, status_code=200)
             provider_json = r.json()
     except Exception as e:
         from fastapi.responses import JSONResponse as _JR
-        return _JR({"error": "provider_error", "detail": str(e)[:400]}, status_code=502)
+        return _JR({"error": "provider_error", "detail": str(e)[:400]}, status_code=200)
     # Extract text robustly
     def _extract_text(obj: Any) -> Optional[str]:
         if isinstance(obj, dict):
@@ -2374,6 +2374,36 @@ async def ai_chat_raw(
                     pass
         return None
     content = _extract_text(provider_json)
+    # Retry once for reasoning-only / hit-cap cases with higher max_output_tokens
+    try:
+        usage = provider_json.get("usage") or {}
+        out_tokens = int((usage.get("output_tokens") or 0) or 0)
+        details = usage.get("output_tokens_details") or {}
+        reasoning_tokens = int((details.get("reasoning_tokens") or 0) or 0)
+        incomplete = (provider_json.get("incomplete_details") or {}).get("reason")
+        hit_cap = out_tokens >= int(reply_max_tokens)
+        reasoning_only = (reasoning_tokens > 0) and (not content)
+        if reasoning_only or hit_cap or incomplete == "max_output_tokens":
+            bigger = min(2400, max(int(reply_max_tokens) * 2, 1200))
+            payload_retry = {
+                "model": model,
+                "input": content_blocks,
+                "max_output_tokens": bigger,
+            }
+            try:
+                async with httpx.AsyncClient(timeout=90) as client:
+                    r3 = await client.post(f"{base_url}/responses", headers=headers, json=payload_retry)
+                    if r3.status_code < 400:
+                        provider_json = r3.json()
+                        content = _extract_text(provider_json) or content
+                    else:
+                        from fastapi.responses import JSONResponse as _JR
+                        return _JR({"error": "provider_error", "detail": r3.text[:400]}, status_code=200)
+            except Exception as e:
+                from fastapi.responses import JSONResponse as _JR
+                return _JR({"error": "provider_error", "detail": str(e)[:400]}, status_code=200)
+    except Exception:
+        pass
     # If no text, attempt a simpler string input form
     if not content:
         simple_input = "\n".join([f"{m.role}: {m.content}" for m in req.messages]).strip()
@@ -2391,14 +2421,14 @@ async def ai_chat_raw(
                     content = _extract_text(provider_json)
                 else:
                     from fastapi.responses import JSONResponse as _JR
-                    return _JR({"error": "provider_error", "detail": r2.text[:400]}, status_code=r2.status_code)
+                    return _JR({"error": "provider_error", "detail": r2.text[:400]}, status_code=200)
         except Exception as e:
             from fastapi.responses import JSONResponse as _JR
-            return _JR({"error": "provider_error", "detail": str(e)[:400]}, status_code=502)
+            return _JR({"error": "provider_error", "detail": str(e)[:400]}, status_code=200)
     if not content or not isinstance(content, str) or not content.strip():
         from fastapi.responses import JSONResponse as _JR
         excerpt = json.dumps({k: provider_json.get(k) for k in ("status", "incomplete_details", "usage")})
-        return _JR({"error": "provider_error", "detail": "no_text_output", "provider_excerpt": excerpt}, status_code=502)
+        return _JR({"error": "provider_error", "detail": "no_text_output", "provider_excerpt": excerpt}, status_code=200)
     # Persist logs (best-effort)
     try:
         sid = req.session_id or "default"
