@@ -288,6 +288,58 @@ export default function Integrations(){
     finally{ setBusy(false); }
   };
 
+  const hubspotImportContacts = async () => {
+    try{
+      setBusy(true);
+      const r = await api.post('/crm/hubspot/import', { tenant_id: await getTenant() });
+      const c = Number(r?.imported||0);
+      setStatus(`HubSpot import: ${c} contacts`);
+      try { showToast({ title:'HubSpot import', description: `${c} contacts imported` }); } catch {}
+    } catch(e:any){ setErrorMsg(String(e?.message||e)); }
+    finally{ setBusy(false); }
+  };
+
+  const calendarSync = async (prov: string) => {
+    try{
+      setBusy(true);
+      const r = await api.post('/calendar/sync', { tenant_id: await getTenant(), provider: prov });
+      setStatus(`Calendar sync (${prov}): ${r?.status||'done'}`);
+      try { showToast({ title:'Calendar sync', description: prov }); } catch {}
+    }catch(e:any){ setErrorMsg(String(e?.message||e)); }
+    finally{ setBusy(false); }
+  };
+
+  const calendarMerge = async () => {
+    try{
+      setBusy(true);
+      const r = await api.post('/calendar/merge', { tenant_id: await getTenant() });
+      const m = Number(r?.merged||0);
+      setStatus(`Calendar merged: ${m} duplicates dropped`);
+      try { showToast({ title:'Calendar merged', description: `${m} drops` }); } catch {}
+    }catch(e:any){ setErrorMsg(String(e?.message||e)); }
+    finally{ setBusy(false); }
+  };
+
+  const rlsSelfcheck = async () => {
+    try{
+      setBusy(true);
+      const r = await api.get('/integrations/rls/selfcheck');
+      setStatus(`RLS ok for tenant ${r?.tenant_id||''}: ${JSON.stringify(r?.counts||{})}`);
+      try { showToast({ title:'RLS self-check', description:'OK' }); } catch {}
+    }catch(e:any){ setErrorMsg(String(e?.message||e)); }
+    finally{ setBusy(false); }
+  };
+
+  const connectorsCleanup = async () => {
+    try{
+      setBusy(true);
+      const r = await api.post('/integrations/connectors/cleanup', { tenant_id: await getTenant() });
+      setStatus(`Connectors cleaned: ${Number(r?.deleted||0)} removed`);
+      try { showToast({ title:'Connectors cleaned' }); } catch {}
+    }catch(e:any){ setErrorMsg(String(e?.message||e)); }
+    finally{ setBusy(false); }
+  };
+
   const acuityImportSample = async () => {
     try{
       setBusy(true);
@@ -601,6 +653,7 @@ export default function Integrations(){
           <div className="mt-3 flex gap-2 items-center flex-wrap">
             <Button variant="outline" disabled={busy || connecting.hubspot || onboarding?.providers?.hubspot===false} onClick={()=> connect('hubspot')}>{connecting.hubspot ? 'Connecting…' : connectLabel('hubspot')}</Button>
             <Button variant="outline" disabled={busy || onboarding?.providers?.hubspot===false} onClick={hubspotUpsertSample}>Sync sample contact</Button>
+            <Button variant="outline" disabled={busy || onboarding?.providers?.hubspot===false} onClick={hubspotImportContacts}>Import contacts</Button>
             <Button variant="outline" disabled={busy} onClick={()=> refresh('hubspot')}>Refresh</Button>
             {providerStatus?.hubspot?.last_sync && (
               <span className="text-[11px] text-slate-600">Last sync: {fmtTs(providerStatus.hubspot.last_sync)}</span>
@@ -751,6 +804,8 @@ export default function Integrations(){
           <div className="mt-3 flex gap-2 items-center flex-wrap">
             <Button variant="outline" disabled={busy || connecting.google || onboarding?.providers?.google===false} onClick={()=> connect('google')}>{connecting.google ? 'Connecting…' : connectLabel('google')}</Button>
             <Button variant="outline" disabled={busy} onClick={()=> window.open('/workspace?pane=calendar','_self')}>{UI_STRINGS.ctas.secondary.openCalendar}</Button>
+            <Button variant="outline" disabled={busy} onClick={()=> calendarSync('google')}>Sync calendar</Button>
+            <Button variant="outline" disabled={busy} onClick={calendarMerge}>Merge duplicates</Button>
             <Button variant="outline" disabled={busy} onClick={()=> refresh('google')}>{UI_STRINGS.ctas.secondary.refresh}</Button>
             {providerStatus?.google?.last_sync && (
               <span className="text-[11px] text-slate-600">Last sync: {fmtTs(providerStatus.google.last_sync)}</span>
@@ -796,6 +851,20 @@ export default function Integrations(){
         )}
       </div>
       )}
+
+      {/* Troubleshooting (dev helpers) */}
+      {(() => {
+        try{
+          const dev = new URLSearchParams(window.location.search).has('dev')
+          if (!dev) return null
+        }catch{ return null }
+        return (
+          <div className="mt-3 rounded-md border bg-slate-50 px-2 py-2 text-xs flex gap-2">
+            <Button variant="outline" size="sm" disabled={busy} onClick={rlsSelfcheck}>RLS self-check</Button>
+            <Button variant="outline" size="sm" disabled={busy} onClick={connectorsCleanup}>Cleanup connectors</Button>
+          </div>
+        )
+      })()}
 
       {page===3 && (
       <div className="grid md:grid-cols-3 gap-4 mt-4">
