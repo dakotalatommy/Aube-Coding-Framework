@@ -2236,7 +2236,6 @@ async def ai_chat_raw(
         "model": model,
         "input": content_blocks,
         "max_output_tokens": reply_max_tokens,
-        "temperature": 0.3,
     }
     provider_json: Dict[str, Any] = {}
     try:
@@ -2285,7 +2284,6 @@ async def ai_chat_raw(
             "model": model,
             "input": [{"role": "system", "content": [{"type": "input_text", "text": system_prompt}]}, {"role": "user", "content": [{"type": "input_text", "text": simple_input}]}],
             "max_output_tokens": min(1200, reply_max_tokens),
-            "temperature": 0.3,
         }
         try:
             async with httpx.AsyncClient(timeout=90) as client:
