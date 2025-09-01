@@ -522,6 +522,18 @@ def _connected_accounts_user_is_nullable(db: Session) -> bool:
     except Exception:
         return True
 
+def _connected_accounts_col_type(db: Session, col: str) -> str:
+    try:
+        row = db.execute(_sql_text(
+            """
+            SELECT data_type FROM information_schema.columns
+            WHERE table_name = 'connected_accounts' AND table_schema = 'public' AND column_name = :c
+            """
+        ), {"c": col}).fetchone()
+        return (row[0] if row else '').lower()
+    except Exception:
+        return ''
+
 def _connected_accounts_tenant_is_uuid(db: Session) -> bool:
     try:
         row = db.execute(_sql_text(
@@ -901,8 +913,11 @@ def upsert_square_account(req: UpsertSquareRequest, db: Session = Depends(get_db
         name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
         if not name_col:
             return {"ok": False, "error": "missing provider/platform column"}
+        # Respect tenant_id type (uuid vs text)
+        tid_type = _connected_accounts_col_type(db, 'tenant_id')
+        tid_value = req.tenant_id
         fields = ["tenant_id", name_col]
-        values = {"tenant_id": req.tenant_id, name_col: "square"}
+        values = {"tenant_id": tid_value, name_col: "square"}
         if 'status' in cols:
             fields.append('status'); values['status'] = 'connected'
         if 'connected_at' in cols:
@@ -913,7 +928,12 @@ def upsert_square_account(req: UpsertSquareRequest, db: Session = Depends(get_db
         params_sql = ",".join([":"+k for k in fields])
         conflict = f"(tenant_id, {name_col})"
         sets = [f"{c}=EXCLUDED.{c}" for c in fields if c not in {"tenant_id", name_col}]
-        db.execute(_sql_text(f"INSERT INTO connected_accounts ({cols_sql}) VALUES ({params_sql}) ON CONFLICT {conflict} DO UPDATE SET {', '.join(sets)}"), values)
+        # Build a statement that coerces tenant_id properly for uuid/text
+        if 'uuid' in tid_type:
+            stmt = f"INSERT INTO connected_accounts ({cols_sql}) VALUES (CAST(:tenant_id AS uuid), :{name_col}{''.join([', :'+c for c in fields if c not in ['tenant_id', name_col]])}) ON CONFLICT {conflict} DO UPDATE SET {', '.join(sets)}"
+        else:
+            stmt = f"INSERT INTO connected_accounts ({cols_sql}) VALUES ({params_sql}) ON CONFLICT {conflict} DO UPDATE SET {', '.join(sets)}"
+        db.execute(_sql_text(stmt), values)
         db.commit()
         return {"ok": True}
     except Exception as e:
