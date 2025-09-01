@@ -4268,7 +4268,7 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
         base = os.getenv("SQUARE_API_BASE", "https://connect.squareup.com")
         if os.getenv("SQUARE_ENV", "prod").lower().startswith("sand"):
             base = "https://connect.squareupsandbox.com"
-        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json", "Square-Version": os.getenv("SQUARE_VERSION", "2023-10-18")}
         imported, cursor = 0, None
         try:
             with httpx.Client(timeout=20, headers=headers) as client:
@@ -4278,6 +4278,12 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                     if r.status_code >= 400:
                         return {"imported": 0, "error": f"square_http_{r.status_code}", "detail": (r.text or "")[:200]}
                     body = r.json() or {}
+                    # If Square returns an errors array with 200, surface it
+                    try:
+                        if isinstance(body, dict) and body.errors:
+                            return {"imported": 0, "error": "square_error", "detail": str(body.errors)[:200]}
+                    except Exception:
+                        pass
                     for _c in body.get("customers", []) or []:
                         imported += 1
                     cursor = body.get("cursor") or body.get("next_cursor")
@@ -4401,20 +4407,62 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
             except Exception:
                 pass
 
-        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Square-Version": os.getenv("SQUARE_VERSION", "2023-10-18"),
+        }
         cursor: Optional[str] = None
         try:
             with httpx.Client(timeout=20, headers=headers) as client:
+                def _handle_response(resp: httpx.Response) -> Dict[str, object]:
+                    if resp.status_code >= 400:
+                        return {"err": f"square_http_{resp.status_code}", "detail": (resp.text or "")[:400]}
+                    try:
+                        body = resp.json() or {}
+                    except Exception:
+                        return {"err": "square_body_parse_failed", "detail": (resp.text or "")[:400]}
+                    # Surface Square errors field even on 200s
+                    try:
+                        if isinstance(body, dict) and body.get("errors"):
+                            return {"err": "square_error", "detail": str(body.get("errors"))[:400]}
+                    except Exception:
+                        pass
+                    return {"body": body}
+
                 while True:
-                    params: Dict[str, str] = {}
+                    # First try ListCustomers
+                    params: Dict[str, str] = {"limit": "100"}
                     if cursor:
                         params["cursor"] = cursor
                     r = client.get(f"{base}/v2/customers", params=params)
-                    if r.status_code >= 400:
-                        return {"imported": 0, "error": f"square_http_{r.status_code}", "detail": (r.text or "")[:200]}
-                    body = r.json() or {}
-                    for c in body.get("customers", []) or []:
+                    handled = _handle_response(r)
+                    if handled.get("err"):
+                        return {"imported": 0, "error": handled["err"], "detail": handled.get("detail")}
+                    body = handled.get("body", {})
+                    customers = body.get("customers") or []
+
+                    # If ListCustomers yields nothing on the first page, fall back to SearchCustomers
+                    used_search = False
+                    if not customers and not cursor:
+                        search_payload: Dict[str, object] = {"limit": 100}
+                        if cursor:
+                            search_payload["cursor"] = cursor
+                        sr = client.post(f"{base}/v2/customers/search", json=search_payload)
+                        shandled = _handle_response(sr)
+                        if shandled.get("err"):
+                            return {"imported": 0, "error": shandled["err"], "detail": shandled.get("detail")}
+                        sbody = shandled.get("body", {})
+                        customers = sbody.get("customers") or []
+                        # Square uses "cursor" for next page on search
+                        body = sbody
+                        used_search = True
+
+                    for c in customers:
                         _upsert_contact(c)
+
+                    # Advance cursor depending on which API we used
                     cursor = body.get("cursor") or body.get("next_cursor")
                     if not cursor:
                         break
