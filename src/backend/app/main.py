@@ -2863,14 +2863,15 @@ class SettingsRequest(BaseModel):
 
 @app.get("/settings", tags=["Integrations"])
 def get_settings(
-    tenant_id: str,
+    tenant_id: Optional[str] = None,
     db: Session = Depends(get_db),
     ctx: UserContext = Depends(get_user_context),
 ):
     try:
-        if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        tid = tenant_id or ctx.tenant_id
+        if ctx.tenant_id != tid and ctx.role != "owner_admin":
             return {"data": {}}
-        row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == tenant_id).first()
+        row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == tid).first()
         if not row or not (row.data_json or "").strip():
             return {"data": {}}
         try:
@@ -3924,9 +3925,18 @@ def api_oauth_callback(provider: str, request: Request, code: Optional[str] = No
                 expires_at=expires_at,
                 scopes=None,
             )
-        except Exception:
-            try: db.rollback()
-            except Exception: pass
+        except Exception as e:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            # Record DB insert error for fast diagnosis
+            try:
+                db.add(dbm.AuditLog(tenant_id=t_id, actor_id="system", action=f"oauth.connect_failed.{provider}", entity_ref="oauth", payload=str({"db_error": str(e)[:300]})))
+                db.commit()
+            except Exception:
+                try: db.rollback()
+                except Exception: pass
         try:
             db.add(dbm.AuditLog(tenant_id=t_id, actor_id="system", action=f"oauth.callback.{provider}", entity_ref="oauth", payload=str({"code": bool(code), "error": error or ""})))
             db.commit()
