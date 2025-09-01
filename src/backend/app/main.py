@@ -4293,15 +4293,11 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
     try:
         if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
             return {"imported": 0, "error": "forbidden"}
-        # Ensure RLS-friendly writes for this tenant
+        # Reset any failed transaction state to avoid "transaction is inactive"
         try:
-            CURRENT_TENANT_ID.set(req.tenant_id)
-            CURRENT_ROLE.set(ctx.role or "authenticated")
-            db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
-            db.execute(_sql_text("SET LOCAL app.role = :r"), {"r": (ctx.role or "authenticated")})
+            db.rollback()
         except Exception:
-            try: db.rollback()
-            except Exception: pass
+            pass
 
         # Retrieve Square access token: prefer v2 store, fallback to legacy
         token = ""
@@ -4422,10 +4418,19 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                     cursor = body.get("cursor") or body.get("next_cursor")
                     if not cursor:
                         break
-            db.commit()
+            try:
+                db.commit()
+            except Exception as ce:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+                return {"imported": 0, "error": "db_commit_failed", "detail": str(ce)[:200]}
         except Exception as e:
-            try: db.rollback()
-            except Exception: pass
+            try:
+                db.rollback()
+            except Exception:
+                pass
             return {"imported": 0, "error": "square_fetch_failed", "detail": str(e)[:200]}
 
         emit_event("ContactsSynced", {"tenant_id": req.tenant_id, "provider": "square", "imported": imported})
