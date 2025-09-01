@@ -2415,6 +2415,119 @@ async def ai_chat(
     try:
         user_q = (req.messages[-1].content if req.messages else "").lower()
         data_notes: List[str] = []
+        # Direct cohort: gloss within 6 weeks of balayage, no rebook in 12 weeks (top 10 by LTV)
+        if ("gloss" in user_q and "balayage" in user_q and ("no rebook" in user_q or "haven't rebooked" in user_q or "haven’t rebooked" in user_q)):
+            try:
+                with engine.begin() as conn:
+                    rows = conn.execute(
+                        _sql_text(
+                            """
+                            WITH b AS (
+                              SELECT contact_id, start_ts
+                              FROM appointments
+                              WHERE tenant_id = CAST(:t AS uuid)
+                                AND (status IS NULL OR status IN ('completed','approved','captured'))
+                                AND lower(coalesce(service,'')) LIKE '%balayage%'
+                            ),
+                            g AS (
+                              SELECT contact_id, start_ts
+                              FROM appointments
+                              WHERE tenant_id = CAST(:t AS uuid)
+                                AND (status IS NULL OR status IN ('completed','approved','captured'))
+                                AND lower(coalesce(service,'')) LIKE '%gloss%'
+                            ),
+                            pairs AS (
+                              SELECT g.contact_id, g.start_ts AS g_ts
+                              FROM g JOIN b ON g.contact_id = b.contact_id
+                              WHERE g.start_ts BETWEEN b.start_ts AND (b.start_ts + 42*86400)
+                            ),
+                            no_rebook AS (
+                              SELECT p.contact_id, p.g_ts
+                              FROM pairs p
+                              LEFT JOIN appointments a2
+                                ON a2.tenant_id = CAST(:t AS uuid)
+                               AND a2.contact_id = p.contact_id
+                               AND a2.start_ts > p.g_ts
+                               AND a2.start_ts < p.g_ts + 84*86400
+                              WHERE a2.id IS NULL
+                            )
+                            SELECT c.contact_id, c.lifetime_cents, c.last_visit
+                            FROM contacts c
+                            JOIN (
+                              SELECT contact_id, MAX(g_ts) AS last_g_ts
+                              FROM no_rebook
+                              GROUP BY contact_id
+                            ) q ON q.contact_id = c.contact_id
+                            WHERE c.tenant_id = CAST(:t AS uuid)
+                            ORDER BY c.lifetime_cents DESC
+                            LIMIT 10
+                            """
+                        ),
+                        {"t": ctx.tenant_id},
+                    ).fetchall()
+                if rows:
+                    lines = []
+                    for r in rows:
+                        try:
+                            cid = str(r[0])
+                            ltv = int(r[1] or 0) / 100.0
+                            lv = int(r[2] or 0)
+                            from datetime import datetime as _dt
+                            lv_s = ("—" if not lv else _dt.fromtimestamp(lv if lv > 10**12 else lv).strftime("%Y-%m-%d"))
+                            lines.append(f"• {cid} — LTV ${ltv:.2f} — Last {lv_s}")
+                        except Exception:
+                            continue
+                    if lines:
+                        return {"text": "\n".join(lines)}
+            except Exception:
+                pass
+        # Direct metric: rebook rate by service category on Fridays after 4pm over past 90 days
+        if ("rebook" in user_q and "friday" in user_q and ("4pm" in user_q or "after 4" in user_q)):
+            try:
+                with engine.begin() as conn:
+                    base = conn.execute(
+                        _sql_text(
+                            """
+                            WITH base AS (
+                              SELECT id, contact_id, lower(coalesce(service,'unknown')) AS category, start_ts
+                              FROM appointments
+                              WHERE tenant_id = CAST(:t AS uuid)
+                                AND start_ts > (EXTRACT(epoch FROM now())::bigint - 90*86400)
+                                AND EXTRACT(dow FROM to_timestamp(start_ts)) = 5
+                                AND EXTRACT(hour FROM to_timestamp(start_ts)) >= 16
+                                AND (status IS NULL OR status IN ('completed','approved','captured'))
+                            ),
+                            next AS (
+                              SELECT b.id,
+                                     EXISTS (
+                                       SELECT 1 FROM appointments a2
+                                       WHERE a2.tenant_id = CAST(:t AS uuid)
+                                         AND a2.contact_id = b.contact_id
+                                         AND a2.start_ts > b.start_ts
+                                         AND a2.start_ts <= b.start_ts + 30*86400
+                                     ) AS rebooked
+                              FROM base b
+                            )
+                            SELECT b.category, COUNT(*)::int AS total, SUM(CASE WHEN n.rebooked THEN 1 ELSE 0 END)::int AS rebooked
+                            FROM base b JOIN next n ON n.id = b.id
+                            GROUP BY b.category
+                            ORDER BY total DESC
+                            """
+                        ),
+                        {"t": ctx.tenant_id},
+                    ).fetchall()
+                if base:
+                    lines = []
+                    for cat, total, rebooked in base:
+                        try:
+                            pct = 0.0 if int(total or 0) == 0 else (int(rebooked or 0) * 100.0 / int(total))
+                            lines.append(f"• {cat}: {int(rebooked or 0)}/{int(total or 0)} ({pct:.0f}%)")
+                        except Exception:
+                            continue
+                    if lines:
+                        return {"text": "\n".join(lines)}
+            except Exception:
+                pass
         if ("top" in user_q and ("clients" in user_q or "contacts" in user_q) and ("lifetime" in user_q or "spend" in user_q or "value" in user_q)):
             import re as _re, datetime as _dt
             m = _re.search(r"top\s+(\d+)", user_q)
