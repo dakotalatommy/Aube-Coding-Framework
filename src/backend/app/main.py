@@ -4367,6 +4367,23 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
         if os.getenv("SQUARE_ENV", "prod").lower().startswith("sand"):
             base = "https://connect.squareupsandbox.com"
 
+        # Ensure RLS GUCs for this transaction when enabled
+        try:
+            if getattr(db.bind, "dialect", None) and db.bind.dialect.name == "postgresql" and os.getenv("ENABLE_PG_RLS", "0") == "1":
+                try:
+                    CURRENT_TENANT_ID.set(req.tenant_id)
+                    CURRENT_ROLE.set("owner_admin")
+                except Exception:
+                    pass
+                try:
+                    db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+                    db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                except Exception:
+                    # Non-fatal; proceed without GUCs if not supported
+                    pass
+        except Exception:
+            pass
+
         created_total = 0
         updated_total = 0
         existing_total = 0
