@@ -888,6 +888,41 @@ def debug_oauth(provider: str = "square"):
     except Exception as e:
         return {"error": str(e)}
 
+# Admin: upsert a Square connected-account row for the current tenant (tolerant schema)
+class UpsertSquareRequest(BaseModel):
+    tenant_id: str
+
+@app.post("/integrations/admin/upsert-square", tags=["Integrations"])
+def upsert_square_account(req: UpsertSquareRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"ok": False, "error": "forbidden"}
+    try:
+        cols = _connected_accounts_columns(db)
+        name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
+        if not name_col:
+            return {"ok": False, "error": "missing provider/platform column"}
+        fields = ["tenant_id", name_col]
+        values = {"tenant_id": req.tenant_id, name_col: "square"}
+        if 'status' in cols:
+            fields.append('status'); values['status'] = 'connected'
+        if 'connected_at' in cols:
+            fields.append('connected_at'); values['connected_at'] = int(_time.time())
+        if 'created_at' in cols:
+            fields.append('created_at'); values['created_at'] = int(_time.time())
+        cols_sql = ",".join(fields)
+        params_sql = ",".join([":"+k for k in fields])
+        conflict = f"(tenant_id, {name_col})"
+        sets = [f"{c}=EXCLUDED.{c}" for c in fields if c not in {"tenant_id", name_col}]
+        db.execute(_sql_text(f"INSERT INTO connected_accounts ({cols_sql}) VALUES ({params_sql}) ON CONFLICT {conflict} DO UPDATE SET {', '.join(sets)}"), values)
+        db.commit()
+        return {"ok": True}
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return {"ok": False, "error": str(e)[:300]}
+
 # Read-only: list recent connected accounts and last oauth callbacks for a tenant
 @app.get("/integrations/connected-accounts", tags=["Integrations"])
 def connected_accounts_list(
