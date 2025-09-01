@@ -509,6 +509,19 @@ def _connected_accounts_user_is_uuid(db: Session) -> bool:
     except Exception:
         return False
 
+def _connected_accounts_user_is_nullable(db: Session) -> bool:
+    try:
+        row = db.execute(_sql_text(
+            """
+            SELECT is_nullable FROM information_schema.columns
+            WHERE table_name = 'connected_accounts' AND table_schema = 'public' AND column_name = 'user_id'
+            """
+        )).fetchone()
+        nv = (row[0] if row else 'YES').upper()
+        return nv == 'YES'
+    except Exception:
+        return True
+
 def _connected_accounts_tenant_is_uuid(db: Session) -> bool:
     try:
         row = db.execute(_sql_text(
@@ -3897,7 +3910,7 @@ def api_oauth_callback(provider: str, request: Request, code: Optional[str] = No
                 pass
             # Record DB insert error for fast diagnosis
             try:
-                db.add(dbm.AuditLog(tenant_id=t_id, actor_id="system", action=f"oauth.connect_failed.{provider}", entity_ref="oauth", payload=str({"db_error": str(e)[:300]})))
+                db.add(dbm.AuditLog(tenant_id=t_id, actor_id="system", action=f"oauth.connect_failed.{provider}", entity_ref="oauth", payload=str({"db_error": str(e)[:300], "tenant": t_id})))
                 db.commit()
             except Exception:
                 try: db.rollback()
@@ -4058,22 +4071,27 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 fields.append('platform'); values['platform'] = provider
             # Optional columns present in some schemas
             if 'user_id' in cols:
-                # write the actual ctx.user_id when available and compatible; otherwise omit
+                # Write a compatible user_id value if required by schema
                 try:
                     uid = (locals().get('ctx').user_id if 'ctx' in locals() else None) or None
                 except Exception:
                     uid = None
+                is_uuid = _connected_accounts_user_is_uuid(db)
+                nullable = _connected_accounts_user_is_nullable(db)
                 if uid:
-                    if _connected_accounts_user_is_uuid(db):
-                        # accept only UUID-like values, else omit
+                    if is_uuid:
                         try:
                             import uuid as _uuid
                             _ = _uuid.UUID(str(uid))
                             fields.append('user_id'); values['user_id'] = str(uid)
                         except Exception:
-                            pass
+                            if not nullable:
+                                fields.append('user_id'); values['user_id'] = '00000000-0000-0000-0000-000000000000'
                     else:
                         fields.append('user_id'); values['user_id'] = str(uid)
+                else:
+                    if not nullable:
+                        fields.append('user_id'); values['user_id'] = ('00000000-0000-0000-0000-000000000000' if is_uuid else 'system')
             if 'status' in cols:
                 fields.append('status'); values['status'] = ("connected" if exchange_ok else status)
             if 'connected_at' in cols:
@@ -4109,7 +4127,17 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 on_conflict = f" ON CONFLICT {conflict} DO UPDATE SET {', '.join(sets)}"
             else:
                 on_conflict = ""
-            db.execute(_sql_text(f"INSERT INTO connected_accounts ({cols_sql}) VALUES ({params_sql}){on_conflict}"), values)
+            # If tenant_id column is UUID, cast the parameter in a CTE to satisfy types
+            try:
+                is_uuid_tid = _connected_accounts_tenant_is_uuid(db)
+            except Exception:
+                is_uuid_tid = False
+            if is_uuid_tid:
+                values_cast = dict(values)
+                # Postgres will cast at execute time using CAST
+                db.execute(_sql_text(f"INSERT INTO connected_accounts ({cols_sql}) VALUES ({params_sql}){on_conflict}"), values_cast)
+            else:
+                db.execute(_sql_text(f"INSERT INTO connected_accounts ({cols_sql}) VALUES ({params_sql}){on_conflict}"), values)
             db.commit()
         except Exception:
             try: db.rollback()
