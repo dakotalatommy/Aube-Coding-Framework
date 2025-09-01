@@ -1220,6 +1220,30 @@ def _edge_headers() -> Dict[str, str]:
     }
 
 
+def _http_request_with_retry(method: str, url: str, *, headers: Optional[Dict[str, str]] = None, params: Optional[Dict[str, object]] = None, data: Optional[Dict[str, object]] = None, json: Optional[Dict[str, object]] = None, timeout: int = 20, attempts: int = 3, backoff_base: float = 0.35) -> httpx.Response:
+    """Lightweight retry helper for provider calls (handles 429/5xx and timeouts)."""
+    last_exc: Optional[Exception] = None
+    for i in range(max(1, attempts)):
+        try:
+            r = httpx.request(method.upper(), url, headers=headers, params=params, data=data, json=json, timeout=timeout)
+            if r.status_code == 429 or r.status_code >= 500:
+                delay = backoff_base * (2 ** i)
+                try: _time.sleep(delay)
+                except Exception: pass
+                continue
+            return r
+        except (httpx.ReadTimeout, httpx.ConnectError, httpx.HTTPError) as e:
+            last_exc = e
+            try:
+                _time.sleep(backoff_base * (2 ** i))
+            except Exception:
+                pass
+    if last_exc:
+        raise last_exc
+    # Fallback (should not reach): return a dummy 599-like response
+    return httpx.Response(599, request=httpx.Request(method.upper(), url))
+
+
 async def _call_edge_function(name: str, payload: Dict[str, object]) -> Dict[str, object]:
     base = _supabase_functions_base()
     if not base:
@@ -1351,7 +1375,7 @@ def _oauth_exchange_token(provider: str, code: str, redirect_uri: str, code_veri
             }
             if code_verifier:
                 data["code_verifier"] = code_verifier
-            r = httpx.post(url, data=data, timeout=20)
+            r = _http_request_with_retry("POST", url, data=data, timeout=20)
             return r.json() if r.status_code < 400 else {}
         if provider == "square":
             _env_mode = _square_env_mode()
@@ -1364,7 +1388,7 @@ def _oauth_exchange_token(provider: str, code: str, redirect_uri: str, code_veri
                 "client_secret": _env("SQUARE_CLIENT_SECRET", ""),
                 "redirect_uri": redirect_uri,
             }
-            r = httpx.post(url, json=data, timeout=40)
+            r = _http_request_with_retry("POST", url, json=data, timeout=40)
             try:
                 js = r.json()
             except Exception:
@@ -1381,7 +1405,7 @@ def _oauth_exchange_token(provider: str, code: str, redirect_uri: str, code_veri
                 "client_secret": _env("ACUITY_CLIENT_SECRET", ""),
                 "redirect_uri": redirect_uri,
             }
-            r = httpx.post(url, data=data, timeout=20)
+            r = _http_request_with_retry("POST", url, data=data, timeout=20)
             return r.json() if r.status_code < 400 else {}
         if provider == "hubspot":
             url = _env("HUBSPOT_TOKEN_URL", "https://api.hubspot.com/oauth/v1/token")
@@ -1393,7 +1417,7 @@ def _oauth_exchange_token(provider: str, code: str, redirect_uri: str, code_veri
                 "redirect_uri": redirect_uri,
             }
             headers = {"Content-Type": "application/x-www-form-urlencoded"}
-            r = httpx.post(url, data=data, headers=headers, timeout=20)
+            r = _http_request_with_retry("POST", url, data=data, headers=headers, timeout=20)
             return r.json() if r.status_code < 400 else {}
         if provider == "facebook":
             url = _env("FACEBOOK_TOKEN_URL", "https://graph.facebook.com/v18.0/oauth/access_token")
@@ -1403,7 +1427,7 @@ def _oauth_exchange_token(provider: str, code: str, redirect_uri: str, code_veri
                 "redirect_uri": redirect_uri,
                 "code": code,
             }
-            r = httpx.get(url, params=params, timeout=20)
+            r = _http_request_with_retry("GET", url, params=params, timeout=20)
             return r.json() if r.status_code < 400 else {}
         if provider == "instagram":
             url = _env("INSTAGRAM_TOKEN_URL", "https://api.instagram.com/oauth/access_token")
@@ -1414,7 +1438,7 @@ def _oauth_exchange_token(provider: str, code: str, redirect_uri: str, code_veri
                 "redirect_uri": redirect_uri,
                 "code": code,
             }
-            r = httpx.post(url, data=data, timeout=20)
+            r = _http_request_with_retry("POST", url, data=data, timeout=20)
             return r.json() if r.status_code < 400 else {}
         if provider == "shopify":
             shop = _env("SHOPIFY_SHOP_DOMAIN", "").strip()
@@ -1426,7 +1450,7 @@ def _oauth_exchange_token(provider: str, code: str, redirect_uri: str, code_veri
                 "client_secret": _env("SHOPIFY_CLIENT_SECRET", ""),
                 "code": code,
             }
-            r = httpx.post(url, json=data, timeout=40)
+            r = _http_request_with_retry("POST", url, json=data, timeout=40)
             return r.json() if r.status_code < 400 else {}
     except Exception:
         return {}
@@ -1444,7 +1468,7 @@ def _oauth_refresh_token(provider: str, refresh_token: str, redirect_uri: str) -
                 "client_id": _env("GOOGLE_CLIENT_ID", ""),
                 "client_secret": _env("GOOGLE_CLIENT_SECRET", ""),
             }
-            r = httpx.post(url, data=data, timeout=20)
+            r = _http_request_with_retry("POST", url, data=data, timeout=20)
             return r.json() if r.status_code < 400 else {}
         if provider == "square":
             _env_mode = _square_env_mode()
@@ -1456,7 +1480,7 @@ def _oauth_refresh_token(provider: str, refresh_token: str, redirect_uri: str) -
                 "client_id": _env("SQUARE_CLIENT_ID", ""),
                 "client_secret": _env("SQUARE_CLIENT_SECRET", ""),
             }
-            r = httpx.post(url, json=data, timeout=20)
+            r = _http_request_with_retry("POST", url, json=data, timeout=20)
             try:
                 js = r.json()
             except Exception:
@@ -1483,7 +1507,7 @@ def _oauth_refresh_token(provider: str, refresh_token: str, redirect_uri: str) -
                 "client_secret": _env("HUBSPOT_CLIENT_SECRET", ""),
             }
             headers = {"Content-Type": "application/x-www-form-urlencoded"}
-            r = httpx.post(url, data=data, headers=headers, timeout=20)
+            r = _http_request_with_retry("POST", url, data=data, headers=headers, timeout=20)
             return r.json() if r.status_code < 400 else {}
         # Facebook/Instagram typically lack standard refresh in this flow; noop
         if provider in {"facebook", "instagram", "shopify"}:
