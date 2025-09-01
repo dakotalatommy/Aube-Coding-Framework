@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from . import models as dbm
 from sqlalchemy import text
-from .metrics_counters import sum_counter, CACHE_HIT, CACHE_MISS  # type: ignore
+from .metrics_counters import sum_counter, CACHE_HIT, CACHE_MISS, AI_CHAT_USED, DB_QUERY_TOOL_USED, INSIGHTS_SERVED  # type: ignore
 
 
 def compute_time_saved_minutes(db: Session, tenant_id: str) -> int:
@@ -51,6 +51,10 @@ def admin_kpis(db: Session, tenant_id: str) -> dict:
         "share_prompts": shares,
         "cache_hits": sum_counter(CACHE_HIT),
         "cache_misses": sum_counter(CACHE_MISS),
+        # AI usage counters (summed across labels)
+        "ai_chat_used": sum_counter(AI_CHAT_USED),
+        "db_query_tool_used": sum_counter(DB_QUERY_TOOL_USED),
+        "insights_served": sum_counter(INSIGHTS_SERVED),
     }
 
 

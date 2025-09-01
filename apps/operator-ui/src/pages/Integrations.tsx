@@ -593,6 +593,13 @@ export default function Integrations(){
         <label className="flex items-center gap-2 text-sm"> Auto-approve risky tools
           <input type="checkbox" checked={!!settings.auto_approve_all} onChange={e=>setSettings({...settings, auto_approve_all: e.target.checked})} />
         </label>
+        <label className="flex items-center gap-2 text-sm"> Share anonymized insights
+          <input type="checkbox" checked={!!(settings.ai?.share_insights)} onChange={e=>{
+            const ai = { ...(settings.ai||{}), share_insights: e.target.checked };
+            setSettings({ ...settings, ai });
+            (async()=>{ try{ await api.post('/settings', { tenant_id: await getTenant(), ai_share_insights: e.target.checked }); }catch{} })();
+          }} />
+        </label>
         <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Some actions may require approval when auto-approve is off. Review in <a className="underline" href="/workspace?pane=approvals">Approvals</a>.</div>
         <div className="flex gap-2">
           <Button variant="outline" disabled={busy} onClick={save}>{UI_STRINGS.ctas.primary.saveChanges}</Button>

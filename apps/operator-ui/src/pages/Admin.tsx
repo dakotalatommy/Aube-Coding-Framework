@@ -49,6 +49,14 @@ export default function Admin(){
         <Card title="Errors 24h" value={kpis?.errors_24h||0}/>
         <Card title="Uptime %" value={kpis?.uptime_pct||0}/>
       </div>
+      <section style={{border:'1px solid #eee',borderRadius:8,padding:12,marginBottom:12}}>
+        <div style={{fontWeight:600, marginBottom:6}}>AI Metrics</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12}}>
+          <Card title="AI chats" value={kpis?.ai_chat_used||0}/>
+          <Card title="DB queries (tools)" value={kpis?.db_query_tool_used||0}/>
+          <Card title="Insights served" value={kpis?.insights_served||0}/>
+        </div>
+      </section>
       <div style={{display:'flex', gap:8, marginBottom:12}}>
         <button onClick={recompute}>Recompute Marts</button>
         <button onClick={provisionCreator}>Provision Creator Mode</button>
