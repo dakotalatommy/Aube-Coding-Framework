@@ -1,134 +1,4 @@
-@app.get("/v2/oauth/{provider}/login", tags=["Integrations"])
-def v2_oauth_login(provider: str, tenant_id: Optional[str] = None, ctx: UserContext = Depends(get_user_context)):
-    _t = tenant_id or ctx.tenant_id
-    # Build state with tenant mapping
-    try:
-        st_obj = {"t": _t, "n": _secrets.token_hex(8)}
-        st = _b64.urlsafe_b64encode(json.dumps(st_obj).encode()).decode().rstrip("=")
-        cache_set(f"oauth_state:{st}", "1", ttl=600)
-        cache_set(f"oauth_state_t:{st}", _t, ttl=600)
-    except Exception:
-        st = _secrets.token_hex(16)
-    # Construct provider URL
-    if provider == "square":
-        auth = _env("SQUARE_AUTH_URL", "https://connect.squareup.com/oauth2/authorize")
-        client_id = _env("SQUARE_CLIENT_ID", "")
-        scope = _env("SQUARE_SCOPES", "MERCHANT_PROFILE_READ CUSTOMERS_READ APPOINTMENTS_READ")
-        redir = f"{_backend_base_url()}/v2/oauth/square/callback"
-        url = f"{auth}?client_id={client_id}&response_type=code&scope={_url.quote(scope)}&redirect_uri={_url.quote(redir)}&state={st}"
-        return {"url": url, "state": st}
-    return {"url": ""}
-
-@app.get("/v2/oauth/{provider}/callback", tags=["Integrations"])
-def v2_oauth_callback(provider: str, request: Request, code: Optional[str] = None, state: Optional[str] = None):
-    try:
-        t_id = None
-        if state:
-            try:
-                pad = '=' * (-len(state) % 4)
-                data = json.loads(_b64.urlsafe_b64decode((state + pad).encode()).decode())
-                t_id = str(data.get("t") or "")
-            except Exception:
-                t_id = None
-        if not t_id:
-            t_cached = cache_get(f"oauth_state_t:{state}") if state else None
-            t_id = str(t_cached or "")
-        if not t_id:
-            return JSONResponse({"exchange_ok": False, "reason": "missing_tenant"}, status_code=400)
-        # Exchange token
-        redir = f"{_backend_base_url()}/v2/oauth/{provider}/callback"
-        tok = _oauth_exchange_token(provider, code or "", redir) if code else {}
-        at = str(tok.get("access_token") or "")
-        rt = tok.get("refresh_token")
-        exp = tok.get("expires_in")
-        exchange_ok = bool(at)
-        # Persist to v2 table using single transaction
-        saved = False
-        if exchange_ok:
-            at_enc = encrypt_text(at)
-            rt_enc = encrypt_text(str(rt)) if rt else None
-            with engine.begin() as conn:
-                try:
-                    # UPDATE
-                    params = {"t": t_id, "prov": provider, "st": "connected", "at": at_enc, "rt": rt_enc, "exp": (int(_time.time())+int(exp)) if isinstance(exp,(int,float)) else None}
-                    set_parts = ["status=:st", "connected_at=NOW()"]
-                    if at_enc: set_parts.append("access_token_enc=:at")
-                    if rt_enc: set_parts.append("refresh_token_enc=:rt")
-                    if params.get("exp") is not None: set_parts.append("expires_at=:exp")
-                    upd = f"UPDATE connected_accounts_v2 SET {', '.join(set_parts)} WHERE tenant_id = CAST(:t AS uuid) AND provider = :prov"
-                    res = conn.execute(_sql_text(upd), params)
-                    saved = bool(getattr(res,'rowcount',0))
-                    if not saved:
-                        cols = ["tenant_id","provider","status","connected_at"]
-                        vals = ["CAST(:t AS uuid)",":prov",":st","NOW()"]
-                        if at_enc: cols.append("access_token_enc"); vals.append(":at")
-                        if rt_enc: cols.append("refresh_token_enc"); vals.append(":rt")
-                        if params.get("exp") is not None: cols.append("expires_at"); vals.append(":exp")
-                        ins = f"INSERT INTO connected_accounts_v2 ({', '.join(cols)}) VALUES ({', '.join(vals)})"
-                        conn.execute(_sql_text(ins), params)
-                        saved = True
-                except Exception:
-                    saved = False
-        if request.query_params.get('debug') == '1':
-            return {"tenant_id": t_id, "provider": provider, "exchange_ok": exchange_ok, "saved": saved}
-        # Redirect back to app
-        return RedirectResponse(url=f"{_frontend_base_url()}/integrations?connected=1&provider={provider}&step=2")
-    except Exception as e:
-        return JSONResponse({"exchange_ok": False, "error": str(e)[:200]}, status_code=500)
-
-@app.get("/v2/integrations/status", tags=["Integrations"])
-def v2_status(tenant_id: str):
-    try:
-        with engine.begin() as conn:
-            row = conn.execute(_sql_text("SELECT status, connected_at, (access_token_enc IS NOT NULL) AS token_present FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider = 'square' ORDER BY id DESC LIMIT 1"), {"t": tenant_id}).fetchone()
-            sq = {"connected": bool(row[0] == 'connected') if row else False, "connected_at": str(row[1]) if row else None, "token_present": bool(row[2]) if row else False}
-            return {"square": sq}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.post("/v2/booking/square/sync-contacts", tags=["Integrations"])
-def v2_square_import(req):
-    try:
-        # Resolve tenant_id from Pydantic model or dict
-        try:
-            tenant_id = getattr(req, "tenant_id", None)
-            if tenant_id is None and isinstance(req, dict):
-                tenant_id = req.get("tenant_id")
-        except Exception:
-            tenant_id = None
-        if not tenant_id:
-            return {"imported": 0, "error": "missing_tenant_id"}
-        # Read token from v2 table
-        with engine.begin() as conn:
-            row = conn.execute(_sql_text("SELECT access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider='square' ORDER BY id DESC LIMIT 1"), {"t": tenant_id}).fetchone()
-        if not row or not row[0]:
-            return {"imported": 0, "error": "missing_access_token"}
-        try:
-            token = decrypt_text(str(row[0])) or ""
-        except Exception:
-            token = str(row[0])
-        if not token:
-            return {"imported": 0, "error": "missing_access_token"}
-        base = os.getenv("SQUARE_API_BASE", "https://connect.squareup.com")
-        if os.getenv("SQUARE_ENV", "prod").lower().startswith("sand"):
-            base = "https://connect.squareupsandbox.com"
-        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-        imported, cursor = 0, None
-        with httpx.Client(timeout=20, headers=headers) as client:
-            while True:
-                params = {"cursor": cursor} if cursor else {}
-                r = client.get(f"{base}/v2/customers", params=params)
-                if r.status_code >= 400:
-                    return {"imported": 0, "error": f"square_http_{r.status_code}", "detail": (r.text or "")[:200]}
-                body = r.json() or {}
-                for c in body.get("customers", []) or []:
-                    imported += 1  # minimal confirmation path; full upsert wired in v1 already
-                cursor = body.get("cursor") or body.get("next_cursor")
-                if not cursor:
-                    break
-        return {"imported": imported}
-    except Exception as e:
-        return {"imported": 0, "error": "internal_error", "detail": str(e)[:200]}
+ 
 from fastapi import FastAPI, Depends, Response, Request, HTTPException
 from fastapi.responses import PlainTextResponse, RedirectResponse, FileResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -4376,8 +4246,46 @@ def hubspot_import(req: HubspotImportRequest, db: Session = Depends(get_db), ctx
 @app.post("/integrations/booking/square/sync-contacts", tags=["Integrations"])
 def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
     if os.getenv("INTEGRATIONS_V1_DISABLED", "0") == "1":
-        # Delegate to v2 importer for a smooth transition
-        return v2_square_import(req)
+        # V1 disabled: inline minimal v2 read path to avoid unresolved reference
+        try:
+            tenant_id = getattr(req, "tenant_id", None)
+            if tenant_id is None and isinstance(req, dict):
+                tenant_id = req.get("tenant_id")
+        except Exception:
+            tenant_id = None
+        if not tenant_id:
+            return {"imported": 0, "error": "missing_tenant_id"}
+        with engine.begin() as conn:
+            row = conn.execute(_sql_text("SELECT access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider='square' ORDER BY id DESC LIMIT 1"), {"t": tenant_id}).fetchone()
+        if not row or not row[0]:
+            return {"imported": 0, "error": "missing_access_token"}
+        try:
+            token = decrypt_text(str(row[0])) or ""
+        except Exception:
+            token = str(row[0])
+        if not token:
+            return {"imported": 0, "error": "missing_access_token"}
+        base = os.getenv("SQUARE_API_BASE", "https://connect.squareup.com")
+        if os.getenv("SQUARE_ENV", "prod").lower().startswith("sand"):
+            base = "https://connect.squareupsandbox.com"
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        imported, cursor = 0, None
+        try:
+            with httpx.Client(timeout=20, headers=headers) as client:
+                while True:
+                    params = {"cursor": cursor} if cursor else {}
+                    r = client.get(f"{base}/v2/customers", params=params)
+                    if r.status_code >= 400:
+                        return {"imported": 0, "error": f"square_http_{r.status_code}", "detail": (r.text or "")[:200]}
+                    body = r.json() or {}
+                    for _c in body.get("customers", []) or []:
+                        imported += 1
+                    cursor = body.get("cursor") or body.get("next_cursor")
+                    if not cursor:
+                        break
+            return {"imported": imported}
+        except Exception as e:
+            return {"imported": 0, "error": "internal_error", "detail": str(e)[:200]}
     """Pull Square customers and upsert into contacts using the Square Customers API.
     Requires a connected Square account. Uses stored access token from connected_accounts.
     Always returns JSON (including on errors) to avoid CORS confusion in the browser.
