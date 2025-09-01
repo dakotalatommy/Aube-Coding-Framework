@@ -3936,90 +3936,9 @@ def api_oauth_start(provider: str, ctx: UserContext = Depends(get_user_context))
         return JSONResponse({"error": {"code": "start_failed", "message": str(e)}}, status_code=500)
 
 
-@app.get("/api/oauth/{provider}/callback", tags=["Integrations"])  # alias: redirect to /onboarding
-def api_oauth_callback(provider: str, request: Request, code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None, db: Session = Depends(get_db)):
-    try:
-        # Tenant from encoded state (base64url of { t: tenantId, n: nonce })
-        t_id = "t1"
-        try:
-            if state:
-                pad = '=' * (-len(state) % 4)
-                data = json.loads(_b64.urlsafe_b64decode((state + pad).encode()).decode())
-                t_id = str(data.get("t") or t_id)
-        except Exception:
-            t_id = "t1"
-        try:
-            if state and not cache_get(f"oauth_state:{state}"):
-                return RedirectResponse(url=f"{_frontend_base_url()}/onboarding?error=oauth_state_mismatch")
-        except Exception:
-            pass
-        status = "pending_config" if not any([
-            _env("HUBSPOT_CLIENT_ID"), _env("SQUARE_CLIENT_ID"), _env("ACUITY_CLIENT_ID"),
-            _env("FACEBOOK_CLIENT_ID"), _env("INSTAGRAM_CLIENT_ID"), _env("GOOGLE_CLIENT_ID"), _env("SHOPIFY_CLIENT_ID")
-        ]) else "connected"
-        access_token_enc = encrypt_text(code or "")
-        refresh_token_enc = None
-        expires_at = None
-        exchange_ok = False
-        if code:
-            try:
-                code_verifier = None
-                try:
-                    if provider == "google" and state:
-                        code_verifier = cache_get(f"pkce:{state}") or None
-                except Exception:
-                    code_verifier = None
-                token = _oauth_exchange_token(provider, code, _redirect_uri(provider), code_verifier=code_verifier) or {}
-                at = str(token.get("access_token") or "")
-                rt = token.get("refresh_token")
-                exp = token.get("expires_in")
-                if at:
-                    access_token_enc = encrypt_text(at)
-                    exchange_ok = True
-                if rt:
-                    refresh_token_enc = encrypt_text(str(rt))
-                if isinstance(exp, (int, float)):
-                    expires_at = int(_time.time()) + int(exp)
-            except Exception:
-                exchange_ok = False
-        try:
-            _insert_connected_account(
-                db,
-                tenant_id=t_id,
-                user_id="system",
-                provider=provider,
-                status=status,
-                access_token_enc=access_token_enc,
-                refresh_token_enc=refresh_token_enc,
-                expires_at=expires_at,
-                scopes=None,
-            )
-        except Exception as e:
-            try:
-                db.rollback()
-            except Exception:
-                pass
-            # Record DB insert error for fast diagnosis
-            try:
-                db.add(dbm.AuditLog(tenant_id=t_id, actor_id="system", action=f"oauth.connect_failed.{provider}", entity_ref="oauth", payload=str({"db_error": str(e)[:300], "tenant": t_id})))
-                db.commit()
-            except Exception:
-                try: db.rollback()
-                except Exception: pass
-        try:
-            db.add(dbm.AuditLog(tenant_id=t_id, actor_id="system", action=f"oauth.callback.{provider}", entity_ref="oauth", payload=str({"code": bool(code), "error": error or ""})))
-            db.commit()
-        except Exception:
-            try: db.rollback()
-            except Exception: pass
-        if error or not exchange_ok:
-            reason = error or ("token_exchange_failed" if code else "missing_code")
-            return RedirectResponse(url=f"{_frontend_base_url()}/onboarding?error={reason}&provider={provider}")
-        return RedirectResponse(url=f"{_frontend_base_url()}/onboarding?connected={provider}")
-    except Exception:
-        return RedirectResponse(url=f"{_frontend_base_url()}/onboarding?error=oauth_unexpected&provider={provider}")
+## Removed legacy alias /api/oauth/{provider}/callback to avoid duplicate callback handling
 
-@app.get("/oauth/{provider}/login", tags=["Integrations"])
+@app.get("/oauth/{provider}/login", tags=["Integrations"])  # single canonical login
 def oauth_login(provider: str, tenant_id: Optional[str] = None, ctx: UserContext = Depends(get_user_context)):
     # Dev override: mark as connected instantly if DEV_OAUTH_AUTOCONNECT=1
     if os.getenv("DEV_OAUTH_AUTOCONNECT", "0") == "1" and provider in {"facebook", "instagram", "google", "shopify", "square"}:
@@ -4092,7 +4011,7 @@ def debug_cors(request: Request):
         return {"error": str(e)}
 
 
-@app.get("/oauth/{provider}/callback", tags=["Integrations"])  # scaffold
+@app.get("/oauth/{provider}/callback", tags=["Integrations"])  # single canonical callback
 def oauth_callback(provider: str, request: Request, code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None, db: Session = Depends(get_db)):
     # Store a minimal connected-account record even if app credentials are missing
     try:
@@ -5742,10 +5661,7 @@ def hubspot_import(req: HubspotImportRequest, db: Session = Depends(get_db), ctx
     return {"imported": created}
 
 
-@app.post("/integrations/booking/square/sync-contacts", tags=["Integrations"])
-def square_sync_contacts_legacy(req: SquareSyncContactsRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
-    # Delegate to the primary importer above
-    return square_sync_contacts(req, db, ctx)
+## Removed legacy duplicate endpoint for square sync-contacts to avoid path ambiguity
 
 class ShareCreateRequest(BaseModel):
     tenant_id: str
