@@ -4304,133 +4304,141 @@ def hubspot_import(req: HubspotImportRequest, db: Session = Depends(get_db), ctx
 def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
     """Pull Square customers and upsert into contacts using the Square Customers API.
     Requires a connected Square account. Uses stored access token from connected_accounts.
+    Always returns JSON (including on errors) to avoid CORS confusion in the browser.
     """
-    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
-        return {"imported": 0}
-    # Retrieve Square access token
-    # Tolerant load of latest Square access token
-    token = ""
     try:
-        cols = _connected_accounts_columns(db)
-        name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
-        if name_col:
-            # Prefer encrypted token column, fallback to plaintext if present in legacy schemas
-            token_col = 'access_token_enc' if 'access_token_enc' in cols else ('access_token' if 'access_token' in cols else None)
-            if not token_col:
-                token_col = 'access_token_enc'  # attempt anyway; query will simply return NULL if absent
-            is_uuid = _connected_accounts_tenant_is_uuid(db)
-            where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
-            sql = f"SELECT {token_col} FROM connected_accounts WHERE {where_tid} AND {name_col} = 'square' ORDER BY id DESC LIMIT 1"
-            row = db.execute(_sql_text(sql), {"t": req.tenant_id}).fetchone()
-            if row and row[0]:
-                # Try decrypt; if it fails or returns empty, assume plaintext
-                try:
-                    token = decrypt_text(str(row[0])) or ""
-                except Exception:
-                    token = str(row[0])
-                if not token:
-                    token = str(row[0])
-    except Exception:
+        if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+            return {"imported": 0, "error": "forbidden"}
+        # Ensure RLS-friendly writes for this tenant
+        try:
+            CURRENT_TENANT_ID.set(req.tenant_id)
+            CURRENT_ROLE.set(ctx.role or "authenticated")
+            db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+            db.execute(_sql_text("SET LOCAL app.role = :r"), {"r": (ctx.role or "authenticated")})
+        except Exception:
+            try: db.rollback()
+            except Exception: pass
+
+        # Retrieve Square access token (tolerant across legacy schemas)
         token = ""
-    if not token:
-        return {"imported": 0, "error": "missing_access_token"}
-    if not token:
-        return {"imported": 0}
-
-    # Square environment base URL (prod vs sandbox via env flag)
-    base = os.getenv("SQUARE_API_BASE", "https://connect.squareup.com")
-    # Fallback to sandbox if explicitly set
-    if os.getenv("SQUARE_ENV", "prod").lower().startswith("sand"):
-        base = "https://connect.squareupsandbox.com"
-
-    imported = 0
-    seen_ids: set[str] = set()
-
-    def _upsert_contact(square_obj: Dict[str, object]):
-        nonlocal imported
         try:
-            sq_id = str(square_obj.get("id") or "").strip()
-            if not sq_id or sq_id in seen_ids:
-                return
-            seen_ids.add(sq_id)
-            contact_id = f"sq:{sq_id}"
-            # Prefer primary email/phone
-            email = None
+            cols = _connected_accounts_columns(db)
+            name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
+            if name_col:
+                token_col = 'access_token_enc' if 'access_token_enc' in cols else ('access_token' if 'access_token' in cols else None)
+                if not token_col:
+                    token_col = 'access_token_enc'
+                is_uuid = _connected_accounts_tenant_is_uuid(db)
+                where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
+                sql = f"SELECT {token_col} FROM connected_accounts WHERE {where_tid} AND {name_col} = 'square' ORDER BY id DESC LIMIT 1"
+                row = db.execute(_sql_text(sql), {"t": req.tenant_id}).fetchone()
+                if row and row[0]:
+                    try:
+                        token = decrypt_text(str(row[0])) or ""
+                    except Exception:
+                        token = str(row[0])
+                    if not token:
+                        token = str(row[0])
+        except Exception as e:
+            return {"imported": 0, "error": "connected_account_lookup_failed", "detail": str(e)[:200]}
+        if not token:
+            return {"imported": 0, "error": "missing_access_token"}
+
+        # Square environment base URL (prod vs sandbox via env flag)
+        base = os.getenv("SQUARE_API_BASE", "https://connect.squareup.com")
+        if os.getenv("SQUARE_ENV", "prod").lower().startswith("sand"):
+            base = "https://connect.squareupsandbox.com"
+
+        imported = 0
+        seen_ids: set[str] = set()
+
+        def _upsert_contact(square_obj: Dict[str, object]):
+            nonlocal imported
             try:
-                email = str(square_obj.get("email_address") or "").strip() or None
-            except Exception:
+                sq_id = str(square_obj.get("id") or "").strip()
+                if not sq_id or sq_id in seen_ids:
+                    return
+                seen_ids.add(sq_id)
+                contact_id = f"sq:{sq_id}"
                 email = None
-            phone = None
-            try:
-                phone = str(square_obj.get("phone_number") or "").strip() or None
-            except Exception:
-                phone = None
-            phone_norm = normalize_phone(phone) if phone else None
-            exists = (
-                db.query(dbm.Contact)
-                .filter(dbm.Contact.tenant_id == req.tenant_id, dbm.Contact.contact_id == contact_id)
-                .first()
-            )
-            if not exists:
-                db.add(
-                    dbm.Contact(
-                        tenant_id=req.tenant_id,
-                        contact_id=contact_id,
-                        email_hash=email,
-                        phone_hash=phone_norm,
-                        consent_sms=bool(phone_norm),
-                        consent_email=bool(email),
-                    )
-                )
-                imported += 1
-            else:
-                # Enrichment pass: update missing fields and consent on re-import (idempotent)
                 try:
-                    changed = False
-                    if email and not (exists.email_hash or ""):
-                        exists.email_hash = email
-                        changed = True
-                    if phone_norm and not (exists.phone_hash or ""):
-                        exists.phone_hash = phone_norm
-                        changed = True
-                    if bool(email) and not bool(exists.consent_email):
-                        exists.consent_email = True
-                        changed = True
-                    if bool(phone_norm) and not bool(exists.consent_sms):
-                        exists.consent_sms = True
-                        changed = True
-                    if changed:
-                        db.add(exists)
+                    email = str(square_obj.get("email_address") or "").strip() or None
                 except Exception:
-                    pass
-        except Exception:
-            pass
+                    email = None
+                phone = None
+                try:
+                    phone = str(square_obj.get("phone_number") or "").strip() or None
+                except Exception:
+                    phone = None
+                phone_norm = normalize_phone(phone) if phone else None
+                exists = (
+                    db.query(dbm.Contact)
+                    .filter(dbm.Contact.tenant_id == req.tenant_id, dbm.Contact.contact_id == contact_id)
+                    .first()
+                )
+                if not exists:
+                    db.add(
+                        dbm.Contact(
+                            tenant_id=req.tenant_id,
+                            contact_id=contact_id,
+                            email_hash=email,
+                            phone_hash=phone_norm,
+                            consent_sms=bool(phone_norm),
+                            consent_email=bool(email),
+                        )
+                    )
+                    imported += 1
+                else:
+                    try:
+                        changed = False
+                        if email and not (exists.email_hash or ""):
+                            exists.email_hash = email
+                            changed = True
+                        if phone_norm and not (exists.phone_hash or ""):
+                            exists.phone_hash = phone_norm
+                            changed = True
+                        if bool(email) and not bool(exists.consent_email):
+                            exists.consent_email = True
+                            changed = True
+                        if bool(phone_norm) and not bool(exists.consent_sms):
+                            exists.consent_sms = True
+                            changed = True
+                        if changed:
+                            db.add(exists)
+                    except Exception:
+                        pass
+            except Exception:
+                pass
 
-    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
-    cursor: Optional[str] = None
-    try:
-        with httpx.Client(timeout=20, headers=headers) as client:
-            while True:
-                params: Dict[str, str] = {}
-                if cursor:
-                    params["cursor"] = cursor
-                r = client.get(f"{base}/v2/customers", params=params)
-                if r.status_code >= 400:
-                    return {"imported": 0, "error": f"square_http_{r.status_code}", "detail": (r.text or "")[:200]}
-                body = r.json() or {}
-                for c in body.get("customers", []) or []:
-                    _upsert_contact(c)
-                cursor = body.get("cursor") or body.get("next_cursor")
-                if not cursor:
-                    break
-        db.commit()
-    except Exception:
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        cursor: Optional[str] = None
         try:
-            db.rollback()
-        except Exception:
-            pass
-    emit_event("ContactsSynced", {"tenant_id": req.tenant_id, "provider": "square", "imported": imported})
-    return {"imported": imported}
+            with httpx.Client(timeout=20, headers=headers) as client:
+                while True:
+                    params: Dict[str, str] = {}
+                    if cursor:
+                        params["cursor"] = cursor
+                    r = client.get(f"{base}/v2/customers", params=params)
+                    if r.status_code >= 400:
+                        return {"imported": 0, "error": f"square_http_{r.status_code}", "detail": (r.text or "")[:200]}
+                    body = r.json() or {}
+                    for c in body.get("customers", []) or []:
+                        _upsert_contact(c)
+                    cursor = body.get("cursor") or body.get("next_cursor")
+                    if not cursor:
+                        break
+            db.commit()
+        except Exception as e:
+            try: db.rollback()
+            except Exception: pass
+            return {"imported": 0, "error": "square_fetch_failed", "detail": str(e)[:200]}
+
+        emit_event("ContactsSynced", {"tenant_id": req.tenant_id, "provider": "square", "imported": imported})
+        return {"imported": imported}
+    except Exception as e:
+        try: db.rollback()
+        except Exception: pass
+        return {"imported": 0, "error": "internal_error", "detail": str(e)[:200]}
 
 
 @app.post("/integrations/booking/acuity/import", tags=["Integrations"])
