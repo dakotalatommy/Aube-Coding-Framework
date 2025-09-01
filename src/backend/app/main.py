@@ -1,38 +1,3 @@
-class SelfTestResult(BaseModel):
-    ok: bool
-    error: Optional[str] = None
-
-@app.post("/integrations/connected-accounts/self-test", tags=["Integrations"])
-def connected_accounts_self_test(ctx: UserContext = Depends(get_user_context), db: Session = Depends(get_db)) -> Dict[str, object]:
-    try:
-        cols = _connected_accounts_columns(db)
-        is_uuid = _connected_accounts_tenant_is_uuid(db)
-        name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
-        if not name_col:
-            return {"ok": False, "error": "missing provider/platform column"}
-        fields = ["tenant_id", name_col]
-        values = {"tenant_id": ctx.tenant_id, name_col: "square"}
-        if 'status' in cols:
-            fields.append('status'); values['status'] = 'connected'
-        if 'connected_at' in cols:
-            fields.append('connected_at'); values['connected_at'] = int(_time.time())
-        cols_sql = ",".join(fields)
-        params_sql = ",".join([":"+k for k in fields])
-        conflict = f"(tenant_id, {name_col})"
-        sets = [f"{c}=EXCLUDED.{c}" for c in fields if c not in {"tenant_id", name_col}]
-        db.execute(_sql_text(f"INSERT INTO connected_accounts ({cols_sql}) VALUES ({params_sql}) ON CONFLICT {conflict} DO UPDATE SET {', '.join(sets)}"), values)
-        db.commit()
-        # Read back quickly
-        where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
-        row = db.execute(_sql_text(f"SELECT 1 FROM connected_accounts WHERE {where_tid} AND {name_col} = 'square' LIMIT 1"), {"t": ctx.tenant_id}).fetchone()
-        return {"ok": bool(row)}
-    except Exception as e:
-        try:
-            db.rollback()
-        except Exception:
-            pass
-        return {"ok": False, "error": str(e)}
-from __future__ import annotations
 from fastapi import FastAPI, Depends, Response, Request, HTTPException
 from fastapi.responses import PlainTextResponse, RedirectResponse, FileResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
