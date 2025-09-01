@@ -5629,43 +5629,54 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
             except Exception:
                 exchange_ok = False
         try:
-            # Tolerant insert to connected_accounts
+            # Set RLS GUCs so policies allow the insert under this tenant
+            try:
+                CURRENT_TENANT_ID.set(t_id)
+                CURRENT_ROLE.set("authenticated")
+                db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": t_id})
+                db.execute(_sql_text("SET LOCAL app.role = 'authenticated'"))
+            except Exception:
+                try: db.rollback()
+                except Exception: pass
+            # Tolerant insert to connected_accounts with proper casts/timestamps
             cols = _connected_accounts_columns(db)
-            fields = ["tenant_id"]
-            values = {"tenant_id": t_id}
-            if 'provider' in cols:
-                fields.append('provider'); values['provider'] = provider
-            elif 'platform' in cols:
-                fields.append('platform'); values['platform'] = provider
-            if 'user_id' in cols:
-                fields.append('user_id'); values['user_id'] = "dev"
+            name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
+            if not name_col:
+                raise RuntimeError("connected_accounts missing provider/platform")
+            tid_type = _connected_accounts_col_type(db, 'tenant_id')
+            ins_cols: List[str] = ["tenant_id", name_col]
+            placeholders: List[str] = [
+                "CAST(:tenant_id AS uuid)" if ('uuid' in tid_type) else ":tenant_id",
+                ":prov",
+            ]
+            params: Dict[str, Any] = {"tenant_id": t_id, "prov": provider}
             if 'status' in cols:
-                fields.append('status'); values['status'] = ("connected" if exchange_ok else status)
+                ins_cols.append('status'); placeholders.append("'connected'" if exchange_ok else "'pending_config'")
             if 'connected_at' in cols:
-                fields.append('connected_at'); values['connected_at'] = int(_time.time())
+                ins_cols.append('connected_at'); placeholders.append('NOW()')
             if 'created_at' in cols:
-                fields.append('created_at'); values['created_at'] = int(_time.time())
+                ins_cols.append('created_at'); placeholders.append('NOW()')
             if 'access_token_enc' in cols and access_token_enc is not None:
-                fields.append('access_token_enc'); values['access_token_enc'] = access_token_enc
+                ins_cols.append('access_token_enc'); placeholders.append(':access_token_enc'); params['access_token_enc'] = access_token_enc
             elif 'access_token' in cols and access_token_enc is not None:
+                # Fallback for legacy plaintext token schema
                 try:
                     token_plain = decrypt_text(access_token_enc) or ""
                 except Exception:
                     token_plain = ""
-                fields.append('access_token'); values['access_token'] = token_plain
+                ins_cols.append('access_token'); placeholders.append(':access_token'); params['access_token'] = token_plain
             if 'refresh_token_enc' in cols and refresh_token_enc is not None:
-                fields.append('refresh_token_enc'); values['refresh_token_enc'] = refresh_token_enc
+                ins_cols.append('refresh_token_enc'); placeholders.append(':refresh_token_enc'); params['refresh_token_enc'] = refresh_token_enc
             elif 'refresh_token' in cols and refresh_token_enc is not None:
                 try:
                     rt_plain = decrypt_text(refresh_token_enc) or ""
                 except Exception:
                     rt_plain = ""
-                fields.append('refresh_token'); values['refresh_token'] = rt_plain
+                ins_cols.append('refresh_token'); placeholders.append(':refresh_token'); params['refresh_token'] = rt_plain
             if 'expires_at' in cols and expires_at is not None:
-                fields.append('expires_at'); values['expires_at'] = expires_at
-            cols_sql = ",".join(fields)
-            params_sql = ",".join([":"+k for k in fields])
-            db.execute(_sql_text(f"INSERT INTO connected_accounts ({cols_sql}) VALUES ({params_sql})"), values)
+                ins_cols.append('expires_at'); placeholders.append(':expires_at'); params['expires_at'] = expires_at
+            ins_sql = f"INSERT INTO connected_accounts ({', '.join(ins_cols)}) VALUES ({', '.join(placeholders)})"
+            db.execute(_sql_text(ins_sql), params)
             db.commit()
         except Exception:
             try: db.rollback()
