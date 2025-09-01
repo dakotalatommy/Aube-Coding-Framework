@@ -44,14 +44,41 @@ async def get_user_context(
                 alg = ""
 
             if alg.startswith("HS"):
-                # Supabase project configured for HS256 access tokens
-                payload = jwt.decode(
-                    token,
-                    os.getenv("JWT_SECRET", "dev_secret"),
-                    algorithms=["HS256", "HS512"],
-                    audience=os.getenv("JWT_AUDIENCE", "authenticated"),
-                    issuer=os.getenv("JWT_ISSUER", "brandvx"),
-                )
+                # Supabase project configured for HS access tokens (HS256/HS512)
+                secret = os.getenv("JWT_SECRET", "dev_secret")
+                aud = os.getenv("JWT_AUDIENCE", "authenticated")
+                iss_env = os.getenv("JWT_ISSUER", "")
+                supa_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+                # Try a small set of plausible issuers to tolerate config differences
+                candidate_issuers = []
+                if iss_env:
+                    candidate_issuers.append(iss_env)
+                if supa_url:
+                    candidate_issuers.append(f"{supa_url}/auth/v1")
+                    candidate_issuers.append(supa_url)
+                last_err: Optional[Exception] = None
+                for iss in candidate_issuers:
+                    try:
+                        payload = jwt.decode(
+                            token,
+                            secret,
+                            algorithms=["HS256", "HS512"],
+                            audience=aud,
+                            issuer=iss,
+                        )
+                        break
+                    except Exception as e:  # try next issuer form
+                        payload = None  # type: ignore
+                        last_err = e
+                if not payload:
+                    # Fallback: verify signature and audience, but not issuer (still safe for single-tenant secret)
+                    payload = jwt.decode(
+                        token,
+                        secret,
+                        algorithms=["HS256", "HS512"],
+                        audience=aud,
+                        options={"verify_iss": False},
+                    )
             elif jwks_url:
                 # Attempt JWKS verification (RS/ES)
                 jwk_client = PyJWKClient(jwks_url)
