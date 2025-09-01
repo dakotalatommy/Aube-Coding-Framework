@@ -4183,6 +4183,32 @@ def ai_tools_schema() -> Dict[str, object]:
     }
 
 
+@app.get("/ai/schema/map", tags=["AI"])
+def ai_schema_map(db: Session = Depends(get_db)) -> Dict[str, object]:
+    """Return a sanitized schema map (table -> columns) for routing db.query.* tools.
+    Only exposes allow-listed tables, no constraints or PII examples.
+    """
+    allow = ["contacts", "appointments", "lead_status", "events_ledger"]
+    out: Dict[str, List[Dict[str, str]]] = {}
+    try:
+        for t in allow:
+            rows = db.execute(
+                _sql_text(
+                    """
+                    SELECT column_name, data_type
+                    FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = :tbl
+                    ORDER BY ordinal_position
+                    """
+                ),
+                {"tbl": t},
+            ).fetchall()
+            out[t] = [{"name": str(r[0]), "type": str(r[1])} for r in rows or []]
+    except Exception:
+        pass
+    return {"tables": out}
+
+
 class WorkflowPlanRequest(BaseModel):
     tenant_id: str
     name: str  # e.g., "crm_organization", "book_filling"

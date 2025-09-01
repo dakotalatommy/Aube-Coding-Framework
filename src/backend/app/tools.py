@@ -602,6 +602,7 @@ REGISTRY.update(
         "oauth.refresh": tool_oauth_refresh,
         "square.backfill": tool_square_backfill,
         # db.query.* registered below after definitions
+        # registered after definition below
     }
 )
 
@@ -815,6 +816,43 @@ async def tool_db_query_named(
             return {"status": "not_implemented", "name": n}
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
+
+
+# ---------------------- Report generation (CSV) ----------------------
+
+def _rows_to_csv(rows: list[dict], header_order: Optional[list[str]] = None) -> str:
+    buffer = io.StringIO()
+    if not rows:
+        return ""
+    cols = header_order or list(rows[0].keys())
+    writer = csv.DictWriter(buffer, fieldnames=cols)
+    writer.writeheader()
+    for r in rows:
+        writer.writerow({k: r.get(k) for k in cols})
+    return buffer.getvalue()
+
+
+async def tool_report_generate_csv(
+    db: Session,
+    ctx: UserContext,
+    tenant_id: str,
+    source: str,
+    params: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    _require_tenant(ctx, tenant_id)
+    # For now, support named-query backed CSV
+    if source == "db.query.named":
+        name = str((params or {}).get("name", ""))
+        qparams = (params or {}).get("params") if isinstance((params or {}).get("params"), dict) else {}
+        result = await tool_db_query_named(db, ctx, tenant_id, name=name, params=qparams)
+        if result.get("status") != "ok":
+            return result
+        rows = result.get("rows") or []
+        if not isinstance(rows, list):
+            return {"status": "error", "detail": "rows_not_list"}
+        csv_text = _rows_to_csv(rows)
+        return {"status": "ok", "mime": "text/csv", "filename": f"report_{name.replace('.', '_')}.csv", "csv": csv_text}
+    return {"status": "not_implemented"}
 # Extend registry with CRM tools
 REGISTRY.update(
     {
@@ -822,6 +860,7 @@ REGISTRY.update(
         "contacts.import.square": tool_contacts_import_square,  # async
         "db.query.sql": tool_db_query_sql,
         "db.query.named": tool_db_query_named,
+        "report.generate.csv": tool_report_generate_csv,
     }
 )
 
