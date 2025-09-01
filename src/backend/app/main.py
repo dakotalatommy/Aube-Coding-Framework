@@ -202,6 +202,17 @@ class TenantScopeMiddleware(BaseHTTPMiddleware):
                 CURRENT_TENANT_ID.set(x_tenant)
             if x_role:
                 CURRENT_ROLE.set(x_role)
+            # Warm AI cache lightly for the tenant (best-effort)
+            try:
+                if x_tenant:
+                    key_warm = f"ai_cache_warm:{x_tenant}"
+                    if not cache_get(key_warm):
+                        with next(get_db()) as _db:  # type: ignore
+                            _ = _load_tenant_memories(_db, x_tenant, limit=20)
+                            _ = _load_global_insights(_db, limit=10)
+                        cache_set(key_warm, "1", ttl=600)
+            except Exception:
+                pass
         except Exception:
             pass
         response = await call_next(request)
@@ -536,7 +547,14 @@ def _run_insights_aggregate_tick(db: Session) -> None:
             except Exception:
                 pass
             out.append({"week": str(wk), "count": cnt})
-        if out:
+        # Only write if any tenant has opted in or if global opt-in is set
+        allow = False
+        try:
+            row = db.execute(_sql_text("SELECT COUNT(1) FROM settings WHERE (data_json)::text ILIKE '%""share_insights"": true%'" )).scalar()
+            allow = bool(int(row or 0) > 0)
+        except Exception:
+            allow = False
+        if out and allow:
             db.execute(
                 _sql_text(
                     """
@@ -783,8 +801,6 @@ def _insert_connected_account(db: Session, tenant_id: str, user_id: str, provide
     except Exception:
         try: db.rollback()
         except Exception: pass
-
-
 # --------------------------- Billing (Stripe) ---------------------------
 def _stripe_client():
     secret = _env("STRIPE_SECRET_KEY")
@@ -3940,8 +3956,6 @@ def surface_share_prompt(
         {"tenant_id": req.tenant_id, "kind": req.kind},
     )
     return {"status": "ok"}
-
-
 class SettingsRequest(BaseModel):
     tenant_id: str
     tone: Optional[str] = None
@@ -3960,6 +3974,8 @@ class SettingsRequest(BaseModel):
     developer_mode: Optional[bool] = None
     master_prompt: Optional[str] = None  # stored under ai.master_prompt
     rate_limit_multiplier: Optional[int] = None
+    # AI insights sharing (opt-in)
+    ai_share_insights: Optional[bool] = None
 
 
 @app.get("/settings", tags=["Integrations"])
@@ -4040,6 +4056,10 @@ def update_settings(
             data["rate_limit_multiplier"] = max(1, int(req.rate_limit_multiplier))
         except Exception:
             data["rate_limit_multiplier"] = 1
+    if req.ai_share_insights is not None:
+        ai_cfg = dict(data.get("ai") or {})
+        ai_cfg["share_insights"] = bool(req.ai_share_insights)
+        data["ai"] = ai_cfg
     if not row:
         row = dbm.Settings(tenant_id=req.tenant_id, data_json=json.dumps(data))
         db.add(row)
@@ -7658,7 +7678,6 @@ def inbox_list(
 ):
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"items": []}
-    # Unified inbox scaffold: surface a few sample items if providers are connected
     try:
         ckey = f"inbox:{tenant_id}:{limit}"
         cached = cache_get(ckey)
