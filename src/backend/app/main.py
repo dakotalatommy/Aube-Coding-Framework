@@ -4090,87 +4090,92 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
             except Exception:
                 exchange_ok = False
         try:
-            # Schema‑tolerant UPDATE‑then‑INSERT to avoid ON CONFLICT requirement
+            # Schema‑tolerant UPDATE‑then‑INSERT using a fresh transaction and elevated role to satisfy RLS
             cols = _connected_accounts_columns(db)
             name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
             if not name_col:
                 raise RuntimeError("connected_accounts missing provider/platform")
-            # Build UPDATE set clause
-            set_parts = []
-            params: Dict[str, Any] = {"t": t_id, "prov": provider}
-            if 'status' in cols:
-                set_parts.append("status = :st"); params['st'] = ("connected" if exchange_ok else status)
-            if 'connected_at' in cols:
-                set_parts.append("connected_at = NOW()")
-            if 'created_at' in cols:
-                set_parts.append("created_at = NOW()")
-            if access_token_enc is not None:
-                if 'access_token_enc' in cols:
-                    set_parts.append("access_token_enc = :at"); params['at'] = access_token_enc
-                elif 'access_token' in cols:
-                    try:
-                        params['at'] = decrypt_text(access_token_enc) or ""
-                    except Exception:
-                        params['at'] = ""
-                    set_parts.append("access_token = :at")
-            if refresh_token_enc is not None:
-                if 'refresh_token_enc' in cols:
-                    set_parts.append("refresh_token_enc = :rt"); params['rt'] = refresh_token_enc
-                elif 'refresh_token' in cols:
-                    try:
-                        params['rt'] = decrypt_text(refresh_token_enc) or ""
-                    except Exception:
-                        params['rt'] = ""
-                    set_parts.append("refresh_token = :rt")
-            if 'expires_at' in cols and isinstance(expires_at, (int, float)):
-                set_parts.append("expires_at = :exp"); params['exp'] = int(expires_at)
-            updated = False
-            if set_parts:
-                is_uuid_tid = _connected_accounts_tenant_is_uuid(db)
-                where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid_tid else "tenant_id = :t"
-                upd_sql = f"UPDATE connected_accounts SET {', '.join(set_parts)} WHERE {where_tid} AND {name_col} = :prov"
-                res = db.execute(_sql_text(upd_sql), params)
-                db.commit()
+            with engine.begin() as conn:
+                # Set tenant/role GUCs in this transaction
                 try:
-                    updated = bool(res.rowcount and int(res.rowcount) > 0)
+                    conn.exec_driver_sql("SET LOCAL app.tenant_id = %s", (t_id,))
+                    conn.exec_driver_sql("SET LOCAL app.role = 'owner_admin'")
                 except Exception:
-                    updated = False
-            if not updated:
-                # INSERT minimal row if none updated
-                is_uuid_tid = _connected_accounts_tenant_is_uuid(db)
-                ins_cols = ["tenant_id", name_col]
-                placeholders = ["CAST(:t AS uuid)" if is_uuid_tid else ":t", ":prov"]
+                    pass
+                # Build UPDATE
+                set_parts = []
+                params: Dict[str, Any] = {"t": t_id, "prov": provider}
                 if 'status' in cols:
-                    ins_cols.append('status'); placeholders.append(":st"); params['st'] = params.get('st', ("connected" if exchange_ok else status))
+                    set_parts.append("status = :st"); params['st'] = ("connected" if exchange_ok else status)
                 if 'connected_at' in cols:
-                    ins_cols.append('connected_at'); placeholders.append('NOW()')
+                    set_parts.append("connected_at = NOW()")
                 if 'created_at' in cols:
-                    ins_cols.append('created_at'); placeholders.append('NOW()')
+                    set_parts.append("created_at = NOW()")
                 if access_token_enc is not None:
                     if 'access_token_enc' in cols:
-                        ins_cols.append('access_token_enc'); placeholders.append(':at'); params['at'] = params.get('at', access_token_enc)
+                        set_parts.append("access_token_enc = :at"); params['at'] = access_token_enc
                     elif 'access_token' in cols:
-                        if 'at' not in params:
-                            try:
-                                params['at'] = decrypt_text(access_token_enc) or ""
-                            except Exception:
-                                params['at'] = ""
-                        ins_cols.append('access_token'); placeholders.append(':at')
+                        try:
+                            params['at'] = decrypt_text(access_token_enc) or ""
+                        except Exception:
+                            params['at'] = ""
+                        set_parts.append("access_token = :at")
                 if refresh_token_enc is not None:
                     if 'refresh_token_enc' in cols:
-                        ins_cols.append('refresh_token_enc'); placeholders.append(':rt'); params['rt'] = params.get('rt', refresh_token_enc)
+                        set_parts.append("refresh_token_enc = :rt"); params['rt'] = refresh_token_enc
                     elif 'refresh_token' in cols:
-                        if 'rt' not in params:
-                            try:
-                                params['rt'] = decrypt_text(refresh_token_enc) or ""
-                            except Exception:
-                                params['rt'] = ""
-                        ins_cols.append('refresh_token'); placeholders.append(':rt')
-                if 'expires_at' in cols and 'exp' in params:
-                    ins_cols.append('expires_at'); placeholders.append(':exp')
-                ins_sql = f"INSERT INTO connected_accounts ({', '.join(ins_cols)}) VALUES ({', '.join(placeholders)})"
-                db.execute(_sql_text(ins_sql), params)
-                db.commit()
+                        try:
+                            params['rt'] = decrypt_text(refresh_token_enc) or ""
+                        except Exception:
+                            params['rt'] = ""
+                        set_parts.append("refresh_token = :rt")
+                if 'expires_at' in cols and isinstance(expires_at, (int, float)):
+                    set_parts.append("expires_at = :exp"); params['exp'] = int(expires_at)
+                updated = False
+                if set_parts:
+                    is_uuid_tid = _connected_accounts_tenant_is_uuid(db)
+                    where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid_tid else "tenant_id = :t"
+                    upd_sql = f"UPDATE connected_accounts SET {', '.join(set_parts)} WHERE {where_tid} AND {name_col} = :prov"
+                    res = conn.execute(_sql_text(upd_sql), params)
+                    try:
+                        updated = bool(getattr(res, 'rowcount', 0) and int(res.rowcount) > 0)
+                    except Exception:
+                        updated = False
+                if not updated:
+                    # INSERT minimal row if none updated
+                    is_uuid_tid = _connected_accounts_tenant_is_uuid(db)
+                    ins_cols = ["tenant_id", name_col]
+                    placeholders = ["CAST(:t AS uuid)" if is_uuid_tid else ":t", ":prov"]
+                    if 'status' in cols:
+                        ins_cols.append('status'); placeholders.append(":st"); params['st'] = params.get('st', ("connected" if exchange_ok else status))
+                    if 'connected_at' in cols:
+                        ins_cols.append('connected_at'); placeholders.append('NOW()')
+                    if 'created_at' in cols:
+                        ins_cols.append('created_at'); placeholders.append('NOW()')
+                    if access_token_enc is not None:
+                        if 'access_token_enc' in cols:
+                            ins_cols.append('access_token_enc'); placeholders.append(':at'); params['at'] = params.get('at', access_token_enc)
+                        elif 'access_token' in cols:
+                            if 'at' not in params:
+                                try:
+                                    params['at'] = decrypt_text(access_token_enc) or ""
+                                except Exception:
+                                    params['at'] = ""
+                            ins_cols.append('access_token'); placeholders.append(':at')
+                    if refresh_token_enc is not None:
+                        if 'refresh_token_enc' in cols:
+                            ins_cols.append('refresh_token_enc'); placeholders.append(':rt'); params['rt'] = params.get('rt', refresh_token_enc)
+                        elif 'refresh_token' in cols:
+                            if 'rt' not in params:
+                                try:
+                                    params['rt'] = decrypt_text(refresh_token_enc) or ""
+                                except Exception:
+                                    params['rt'] = ""
+                            ins_cols.append('refresh_token'); placeholders.append(':rt')
+                    if 'expires_at' in cols and 'exp' in params:
+                        ins_cols.append('expires_at'); placeholders.append(':exp')
+                    ins_sql = f"INSERT INTO connected_accounts ({', '.join(ins_cols)}) VALUES ({', '.join(placeholders)})"
+                    conn.execute(_sql_text(ins_sql), params)
         except Exception as e:
             try:
                 db.rollback()
