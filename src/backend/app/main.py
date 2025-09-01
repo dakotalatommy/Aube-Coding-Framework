@@ -4270,28 +4270,49 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
             base = "https://connect.squareupsandbox.com"
         headers = {"Authorization": f"Bearer {token}", "Accept": "application/json", "Square-Version": os.getenv("SQUARE_VERSION", "2023-10-18")}
         imported, cursor = 0, None
+        sample_ids: list[str] = []
+        used_search_any = False
         try:
             with httpx.Client(timeout=20, headers=headers) as client:
                 while True:
-                    params = {"cursor": cursor} if cursor else {}
+                    params = {"limit": "100"}
+                    if cursor:
+                        params["cursor"] = cursor
                     r = client.get(f"{base}/v2/customers", params=params)
                     if r.status_code >= 400:
-                        return {"imported": 0, "error": f"square_http_{r.status_code}", "detail": (r.text or "")[:200]}
+                        return {"imported": 0, "error": f"square_http_{r.status_code}", "detail": (r.text or "")[:200], "meta": {"mode": "v1_disabled", "base": base}}
                     body = r.json() or {}
                     # If Square returns an errors array with 200, surface it
                     try:
                         if isinstance(body, dict) and body.errors:
-                            return {"imported": 0, "error": "square_error", "detail": str(body.errors)[:200]}
+                            return {"imported": 0, "error": "square_error", "detail": str(body.errors)[:200], "meta": {"mode": "v1_disabled", "base": base}}
                     except Exception:
                         pass
-                    for _c in body.get("customers", []) or []:
+                    customers = body.get("customers", []) or []
+                    if not customers and not cursor:
+                        sr = client.post(f"{base}/v2/customers/search", json={"limit": 100})
+                        if sr.status_code >= 400:
+                            return {"imported": 0, "error": f"square_http_{sr.status_code}", "detail": (sr.text or "")[:200], "meta": {"mode": "v1_disabled", "base": base, "used_search": True}}
+                        try:
+                            sbody = sr.json() or {}
+                            customers = sbody.get("customers") or []
+                            body = sbody
+                            used_search_any = True
+                        except Exception:
+                            customers = []
+                    for _c in customers:
                         imported += 1
+                        if len(sample_ids) < 3:
+                            try:
+                                sample_ids.append(str(_c.get("id") or ""))
+                            except Exception:
+                                pass
                     cursor = body.get("cursor") or body.get("next_cursor")
                     if not cursor:
                         break
-            return {"imported": imported}
+            return {"imported": imported, "meta": {"mode": "v1_disabled", "base": base, "used_search": used_search_any, "samples": sample_ids}}
         except Exception as e:
-            return {"imported": 0, "error": "internal_error", "detail": str(e)[:200]}
+            return {"imported": 0, "error": "internal_error", "detail": str(e)[:200], "meta": {"mode": "v1_disabled", "base": base}}
     """Pull Square customers and upsert into contacts using the Square Customers API.
     Requires a connected Square account. Uses stored access token from connected_accounts.
     Always returns JSON (including on errors) to avoid CORS confusion in the browser.
@@ -4348,6 +4369,8 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
 
         imported = 0
         seen_ids: set[str] = set()
+        sample_ids: list[str] = []
+        used_search_any = False
 
         def _upsert_contact(square_obj: Dict[str, object]):
             nonlocal imported
@@ -4458,9 +4481,15 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                         # Square uses "cursor" for next page on search
                         body = sbody
                         used_search = True
+                        used_search_any = True
 
                     for c in customers:
                         _upsert_contact(c)
+                        if len(sample_ids) < 3:
+                            try:
+                                sample_ids.append(str(c.get("id") or ""))
+                            except Exception:
+                                pass
 
                     # Advance cursor depending on which API we used
                     cursor = body.get("cursor") or body.get("next_cursor")
@@ -4482,7 +4511,7 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
             return {"imported": 0, "error": "square_fetch_failed", "detail": str(e)[:200]}
 
         emit_event("ContactsSynced", {"tenant_id": req.tenant_id, "provider": "square", "imported": imported})
-        return {"imported": imported}
+        return {"imported": imported, "meta": {"mode": "v1", "base": base, "used_search": used_search_any, "samples": sample_ids}}
     except Exception as e:
         try: db.rollback()
         except Exception: pass
