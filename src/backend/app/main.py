@@ -2300,7 +2300,9 @@ async def ai_chat_raw(
                 system_prompt
                 + "\n\nContext data (do not invent; use as source):\n"
                 + "\n".join(data_notes[:10])
-                + "\n\nInstruction: When context data is present, answer directly using ONLY this context. Present a short list like 'ID — LTV $X.XX — Last YYYY-MM-DD' or a one-line summary. Do not ask for connections or exports."
+                + "\n\nInstruction: When context data is present, answer directly and concisely using ONLY this context."
+                + " Output the result immediately in plain text with one item per line."
+                + " Do not ask clarifying questions, request connections, or suggest exports."
             )
     except Exception:
         pass
@@ -2888,24 +2890,40 @@ def contacts_list(
 ):
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"items": []}
-    q = db.query(dbm.Contact).filter(dbm.Contact.tenant_id == tenant_id, dbm.Contact.deleted == False)  # type: ignore
-    rows = q.order_by(dbm.Contact.last_visit.desc()).limit(max(1, min(limit, 500))).all()
-    out = []
-    for r in rows:
-        out.append({
-            "contact_id": r.contact_id,
-            "birthday": getattr(r, "birthday", None),
-            "creation_source": getattr(r, "creation_source", None),
-            "first_visit": getattr(r, "first_visit", 0),
-            "last_visit": getattr(r, "last_visit", 0),
-            "txn_count": getattr(r, "txn_count", 0),
-            "lifetime_cents": getattr(r, "lifetime_cents", 0),
-            "email_subscription_status": getattr(r, "email_subscription_status", None),
-            "instant_profile": bool(getattr(r, "instant_profile", False)),
-            "email_hash": r.email_hash,
-            "phone_hash": r.phone_hash,
-        })
-    return {"items": out}
+    try:
+        # Cast tenant_id to UUID if model uses PG UUID type
+        tid = tenant_id
+        try:
+            import uuid as _uuid
+            tid = _uuid.UUID(str(tenant_id))
+        except Exception:
+            tid = tenant_id
+        q = db.query(dbm.Contact).filter(dbm.Contact.tenant_id == tid)  # type: ignore
+        q = q.filter(dbm.Contact.deleted == False)  # type: ignore
+        rows = (
+            q.order_by(dbm.Contact.lifetime_cents.desc(), dbm.Contact.last_visit.desc())
+            .limit(max(1, min(limit, 500)))
+            .all()
+        )
+        out = []
+        for r in rows:
+            out.append({
+                "contact_id": r.contact_id,
+                "birthday": getattr(r, "birthday", None),
+                "creation_source": getattr(r, "creation_source", None),
+                "first_visit": int(getattr(r, "first_visit", 0) or 0),
+                "last_visit": int(getattr(r, "last_visit", 0) or 0),
+                "txn_count": int(getattr(r, "txn_count", 0) or 0),
+                "lifetime_cents": int(getattr(r, "lifetime_cents", 0) or 0),
+                "email_subscription_status": getattr(r, "email_subscription_status", None),
+                "instant_profile": bool(getattr(r, "instant_profile", False)),
+                "email_hash": getattr(r, "email_hash", None),
+                "phone_hash": getattr(r, "phone_hash", None),
+            })
+        return {"items": out}
+    except Exception as e:
+        from fastapi.responses import JSONResponse as _JR
+        return _JR({"error": "internal_error", "detail": str(e)[:200]}, status_code=500)
 
 
 # --- Human-friendly tool schema for AskVX palette ---
