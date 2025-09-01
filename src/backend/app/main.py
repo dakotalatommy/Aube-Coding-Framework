@@ -4367,13 +4367,16 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
         if os.getenv("SQUARE_ENV", "prod").lower().startswith("sand"):
             base = "https://connect.squareupsandbox.com"
 
-        imported = 0
+        created_total = 0
+        updated_total = 0
+        existing_total = 0
+        fetched_total = 0
         seen_ids: set[str] = set()
         sample_ids: list[str] = []
         used_search_any = False
 
         def _upsert_contact(square_obj: Dict[str, object]):
-            nonlocal imported
+            nonlocal created_total, updated_total, existing_total
             try:
                 sq_id = str(square_obj.get("id") or "").strip()
                 if not sq_id or sq_id in seen_ids:
@@ -4407,7 +4410,7 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                             consent_email=bool(email),
                         )
                     )
-                    imported += 1
+                    created_total += 1
                 else:
                     try:
                         changed = False
@@ -4425,6 +4428,9 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                             changed = True
                         if changed:
                             db.add(exists)
+                            updated_total += 1
+                        else:
+                            existing_total += 1
                     except Exception:
                         pass
             except Exception:
@@ -4465,6 +4471,7 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                         return {"imported": 0, "error": handled["err"], "detail": handled.get("detail")}
                     body = handled.get("body", {})
                     customers = body.get("customers") or []
+                    fetched_total += len(customers)
 
                     # If ListCustomers yields nothing on the first page, fall back to SearchCustomers
                     used_search = False
@@ -4478,6 +4485,7 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                             return {"imported": 0, "error": shandled["err"], "detail": shandled.get("detail")}
                         sbody = shandled.get("body", {})
                         customers = sbody.get("customers") or []
+                        fetched_total += len(customers)
                         # Square uses "cursor" for next page on search
                         body = sbody
                         used_search = True
@@ -4510,8 +4518,17 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                 pass
             return {"imported": 0, "error": "square_fetch_failed", "detail": str(e)[:200]}
 
-        emit_event("ContactsSynced", {"tenant_id": req.tenant_id, "provider": "square", "imported": imported})
-        return {"imported": imported, "meta": {"mode": "v1", "base": base, "used_search": used_search_any, "samples": sample_ids}}
+        emit_event("ContactsSynced", {"tenant_id": req.tenant_id, "provider": "square", "imported": created_total})
+        return {
+            "imported": created_total,
+            "meta": {
+                "mode": "v1",
+                "base": base,
+                "used_search": used_search_any,
+                "samples": sample_ids,
+                "stats": {"fetched": fetched_total, "created": created_total, "updated": updated_total, "existing": existing_total},
+            },
+        }
     except Exception as e:
         try: db.rollback()
         except Exception: pass
