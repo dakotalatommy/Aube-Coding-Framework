@@ -4421,56 +4421,72 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                     return
                 seen_ids.add(sq_id)
                 contact_id = f"sq:{sq_id}"
-                email = None
                 try:
                     email = str(square_obj.get("email_address") or "").strip() or None
                 except Exception:
                     email = None
-                phone = None
                 try:
                     phone = str(square_obj.get("phone_number") or "").strip() or None
                 except Exception:
                     phone = None
                 phone_norm = normalize_phone(phone) if phone else None
-                exists = (
-                    db.query(dbm.Contact)
-                    .filter(dbm.Contact.tenant_id == req.tenant_id, dbm.Contact.contact_id == contact_id)
-                    .first()
-                )
-                if not exists:
-                    db.add(
-                        dbm.Contact(
-                            tenant_id=req.tenant_id,
-                            contact_id=contact_id,
-                            email_hash=email,
-                            phone_hash=phone_norm,
-                            consent_sms=bool(phone_norm),
-                            consent_email=bool(email),
-                        )
+
+                # Raw SQL upsert (tolerant of existing schema) to avoid ORM PK/type mismatches
+                row = db.execute(
+                    _sql_text(
+                        "SELECT id FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid LIMIT 1"
+                    ),
+                    {"t": req.tenant_id, "cid": contact_id},
+                ).fetchone()
+                if not row:
+                    db.execute(
+                        _sql_text(
+                            """
+                            INSERT INTO contacts (tenant_id, contact_id, email_hash, phone_hash, consent_sms, consent_email)
+                            VALUES (CAST(:t AS uuid), :cid, :eh, :ph, :csms, :cemail)
+                            """
+                        ),
+                        {
+                            "t": req.tenant_id,
+                            "cid": contact_id,
+                            "eh": email,
+                            "ph": phone_norm,
+                            "csms": bool(phone_norm),
+                            "cemail": bool(email),
+                        },
                     )
                     created_total += 1
                 else:
+                    res = db.execute(
+                        _sql_text(
+                            """
+                            UPDATE contacts
+                            SET
+                                email_hash = COALESCE(email_hash, :eh),
+                                phone_hash = COALESCE(phone_hash, :ph),
+                                consent_sms = (consent_sms OR :csms),
+                                consent_email = (consent_email OR :cemail),
+                                updated_at = EXTRACT(epoch FROM now())::bigint
+                            WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid
+                            """
+                        ),
+                        {
+                            "t": req.tenant_id,
+                            "cid": contact_id,
+                            "eh": email,
+                            "ph": phone_norm,
+                            "csms": bool(phone_norm),
+                            "cemail": bool(email),
+                        },
+                    )
                     try:
-                        changed = False
-                        if email and not (exists.email_hash or ""):
-                            exists.email_hash = email
-                            changed = True
-                        if phone_norm and not (exists.phone_hash or ""):
-                            exists.phone_hash = phone_norm
-                            changed = True
-                        if bool(email) and not bool(exists.consent_email):
-                            exists.consent_email = True
-                            changed = True
-                        if bool(phone_norm) and not bool(exists.consent_sms):
-                            exists.consent_sms = True
-                            changed = True
-                        if changed:
-                            db.add(exists)
-                            updated_total += 1
-                        else:
-                            existing_total += 1
+                        rc = int(getattr(res, "rowcount", 0) or 0)
                     except Exception:
-                        pass
+                        rc = 0
+                    if rc > 0:
+                        updated_total += 1
+                    else:
+                        existing_total += 1
             except Exception:
                 pass
 
