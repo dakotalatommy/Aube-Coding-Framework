@@ -909,6 +909,18 @@ def upsert_square_account(req: UpsertSquareRequest, db: Session = Depends(get_db
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"ok": False, "error": "forbidden"}
     try:
+        # Make RLS-friendly: set per-transaction GUCs when supported so policies allow the write
+        try:
+            CURRENT_TENANT_ID.set(req.tenant_id)
+            CURRENT_ROLE.set(ctx.role or "authenticated")
+            db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+            db.execute(_sql_text("SET LOCAL app.role = :r"), {"r": (ctx.role or "authenticated")})
+        except Exception:
+            # If the DB doesn't recognize these custom GUCs, clear the failed tx and continue without them
+            try:
+                db.rollback()
+            except Exception:
+                pass
         cols = _connected_accounts_columns(db)
         name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
         if not name_col:
