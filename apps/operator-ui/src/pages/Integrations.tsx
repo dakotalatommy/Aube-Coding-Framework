@@ -52,6 +52,14 @@ export default function Integrations(){
     const ex = Number(providerStatus?.[p]?.expires_at||0);
     return ex>0 && (ex - nowSec) < (7*24*3600);
   };
+  const [events, setEvents] = useState<Array<{name:string;ts:number;payload?:any}>>([]);
+  const loadEvents = async () => {
+    try{
+      const tid = await getTenant();
+      const r = await api.get(`/integrations/events?tenant_id=${encodeURIComponent(tid)}&limit=50`);
+      setEvents(Array.isArray(r?.items)? r.items: []);
+    }catch{}
+  };
 
   const isConnected = (provider: string): boolean => {
     try {
@@ -158,6 +166,9 @@ export default function Integrations(){
           });
         } catch {}
       }
+      try{
+        if (new URLSearchParams(window.location.search).has('dev')) await loadEvents();
+      }catch{}
     })();
   },[]);
 
@@ -897,6 +908,28 @@ export default function Integrations(){
         )}
       </div>
       )}
+      {(() => {
+        try{ if (!new URLSearchParams(window.location.search).has('dev')) return null }catch{ return null }
+        return (
+          <section className="rounded-2xl p-3 bg-white/60 backdrop-blur border border-white/70 shadow-sm mt-3">
+            <div className="flex items-center justify-between">
+              <div className="font-medium text-slate-900">Integration events</div>
+              <Button variant="outline" size="sm" disabled={busy} onClick={loadEvents}>Refresh</Button>
+            </div>
+            <div className="mt-2 text-[12px] max-h-48 overflow-auto">
+              {events.map((e,i)=> (
+                <div key={i} className="py-1 border-b border-slate-100/70">
+                  <div className="text-slate-800">{e.name}</div>
+                  <div className="text-slate-500">{fmtTs(e.ts)}</div>
+                </div>
+              ))}
+              {events.length===0 && (
+                <div className="text-slate-500">No recent events</div>
+              )}
+            </div>
+          </section>
+        )
+      })()}
       {/* Image generation for users is available on the Vision page; intentionally not exposed here to avoid changing app imagery. */}
       <pre className="whitespace-pre-wrap mt-3 text-sm text-slate-700">{status}</pre>
     </div>

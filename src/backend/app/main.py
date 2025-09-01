@@ -7725,6 +7725,118 @@ def rls_selfcheck(db: Session = Depends(get_db), ctx: UserContext = Depends(get_
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
 
+
+class ConnectorsNormalizeRequest(BaseModel):
+    tenant_id: Optional[str] = None
+    migrate_legacy: bool = True
+    dedupe: bool = True
+
+
+@app.post("/integrations/connectors/normalize", tags=["Integrations"])
+def connectors_normalize(req: ConnectorsNormalizeRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+    # Owner scope or same tenant
+    if req.tenant_id and ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"normalized": 0}
+    normalized = 0
+    migrated = 0
+    try:
+        with engine.begin() as conn:
+            # Dedupe v2 by keeping the latest id per tenant/provider
+            if req.dedupe:
+                if req.tenant_id:
+                    conn.execute(
+                        _sql_text(
+                            """
+                            DELETE FROM connected_accounts_v2 a
+                            USING connected_accounts_v2 b
+                            WHERE a.tenant_id = b.tenant_id AND a.provider = b.provider AND a.id < b.id AND a.tenant_id = CAST(:t AS uuid)
+                            """
+                        ),
+                        {"t": req.tenant_id},
+                    )
+                else:
+                    conn.execute(
+                        _sql_text(
+                            """
+                            DELETE FROM connected_accounts_v2 a
+                            USING connected_accounts_v2 b
+                            WHERE a.tenant_id = b.tenant_id AND a.provider = b.provider AND a.id < b.id
+                            """
+                        )
+                    )
+            # Migrate legacy connected_accounts if present
+            if req.migrate_legacy:
+                try:
+                    cols = _connected_accounts_columns(db)
+                except Exception:
+                    cols = set()
+                if cols:
+                    name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
+                    if name_col:
+                        where_tid = ""
+                        params: Dict[str, Any] = {}
+                        if req.tenant_id:
+                            where_tid = " WHERE tenant_id = CAST(:t AS uuid)"
+                            params["t"] = req.tenant_id
+                        rows = conn.execute(
+                            _sql_text(
+                                f"SELECT tenant_id,{name_col}, access_token_enc, refresh_token_enc, expires_at, COALESCE(status,'connected') FROM connected_accounts{where_tid}"
+                            ),
+                            params,
+                        ).fetchall()
+                        for t_id, prov, at, rt, exp, st in rows or []:
+                            try:
+                                upd = conn.execute(
+                                    _sql_text(
+                                        "UPDATE connected_accounts_v2 SET status=:st, access_token_enc=COALESCE(access_token_enc,:at), refresh_token_enc=COALESCE(refresh_token_enc,:rt), expires_at=COALESCE(expires_at,:exp) WHERE tenant_id=:t AND provider=:p"
+                                    ),
+                                    {"t": t_id, "p": prov, "st": st, "at": at, "rt": rt, "exp": exp},
+                                )
+                                if not getattr(upd, 'rowcount', 0):
+                                    conn.execute(
+                                        _sql_text(
+                                            "INSERT INTO connected_accounts_v2(tenant_id,provider,status,access_token_enc,refresh_token_enc,expires_at,connected_at) VALUES(:t,:p,:st,:at,:rt,:exp,NOW())"
+                                        ),
+                                        {"t": t_id, "p": prov, "st": st, "at": at, "rt": rt, "exp": exp},
+                                    )
+                                    migrated += 1
+                                normalized += 1
+                            except Exception:
+                                continue
+    except Exception as e:
+        return {"normalized": normalized, "migrated": migrated, "error": str(e)[:200]}
+    try:
+        emit_event("ConnectorsNormalized", {"tenant_id": req.tenant_id or ctx.tenant_id, "normalized": int(normalized), "migrated": int(migrated)})
+    except Exception:
+        pass
+    return {"normalized": normalized, "migrated": migrated}
+
+
+@app.get("/integrations/events", tags=["Integrations"])
+def integrations_events(tenant_id: str, limit: int = 50, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"items": []}
+    try:
+        q = (
+            db.query(dbm.EventLedger)
+            .filter(dbm.EventLedger.tenant_id == tenant_id)
+            .order_by(dbm.EventLedger.id.desc())
+            .limit(max(1, min(limit, 200)))
+        )
+        rows = q.all()
+        items = []
+        for r in rows:
+            n = str(r.name or "")
+            # Only surface integration-related events
+            if any(k in n.lower() for k in ["oauth", "sync.", "import", "backfill", "calendar", "inventory", "crm", "contacts", "squarebackfill"]):
+                try:
+                    items.append({"name": n, "ts": int(r.ts or 0), "payload": r.payload})
+                except Exception:
+                    items.append({"name": n, "ts": 0, "payload": None})
+        return {"items": items}
+    except Exception as e:
+        return {"items": [], "error": str(e)[:200]}
+
 class ErasureRequest(BaseModel):
     tenant_id: str
     contact_id: str
