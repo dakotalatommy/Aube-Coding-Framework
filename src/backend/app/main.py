@@ -2210,23 +2210,100 @@ async def ai_chat_raw(
     if brand_profile_text:
         system_prompt = system_prompt + "\n\nBrand profile (voice/tone):\n" + brand_profile_text
     # Call provider directly via Responses API only (no local fallbacks)
-    client = AIClient(model=os.getenv("OPENAI_MODEL", "gpt-5"))  # type: ignore
     reply_max_tokens = int(os.getenv("AI_CHAT_MAX_TOKENS", "1600"))
+    base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    model = os.getenv("OPENAI_MODEL", "gpt-5")
+    api_key = (os.getenv("OPENAI_API_KEY", "") or "").strip()
+    if not api_key:
+        from fastapi.responses import JSONResponse as _JR
+        return _JR({"error": "provider_error", "detail": "missing_openai_key"}, status_code=502)
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    project_id = os.getenv("OPENAI_PROJECT", "").strip()
+    if project_id:
+        headers["OpenAI-Project"] = project_id
+    content_blocks: List[Dict[str, Any]] = [
+        {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]}
+    ]
+    for m in req.messages:
+        role = m.role
+        text_val = m.content
+        block = {
+            "role": role,
+            "content": ([{"type": "output_text", "text": text_val}] if role == "assistant" else [{"type": "input_text", "text": text_val}])
+        }
+        content_blocks.append(block)
+    payload: Dict[str, Any] = {
+        "model": model,
+        "input": content_blocks,
+        "max_output_tokens": reply_max_tokens,
+        "temperature": 0.3,
+    }
+    provider_json: Dict[str, Any] = {}
     try:
-        content = await client._generate_via_responses(  # type: ignore
-            system_prompt,
-            [
-                {"role": m.role, "content": m.content}
-                for m in req.messages
-            ],
-            reply_max_tokens,
-        )
+        async with httpx.AsyncClient(timeout=90) as client:
+            r = await client.post(f"{base_url}/responses", headers=headers, json=payload)
+            if r.status_code >= 400:
+                from fastapi.responses import JSONResponse as _JR
+                return _JR({"error": "provider_error", "detail": r.text[:400]}, status_code=r.status_code)
+            provider_json = r.json()
     except Exception as e:
         from fastapi.responses import JSONResponse as _JR
         return _JR({"error": "provider_error", "detail": str(e)[:400]}, status_code=502)
+    # Extract text robustly
+    def _extract_text(obj: Any) -> Optional[str]:
+        if isinstance(obj, dict):
+            for key in ("output_text", "text"):
+                val = obj.get(key)
+                if isinstance(val, str) and val.strip():
+                    return val.strip()
+            out = obj.get("output")
+            if isinstance(out, list):
+                parts: List[str] = []
+                for item in out:
+                    if isinstance(item, dict):
+                        content = item.get("content")
+                        if isinstance(content, list):
+                            for ch in content:
+                                if isinstance(ch, dict):
+                                    if ch.get("type") in ("output_text", "text", "input_text"):
+                                        t = ch.get("text") or ch.get("content")
+                                        if isinstance(t, str) and t.strip():
+                                            parts.append(t.strip())
+                if parts:
+                    return " ".join(parts)[:4000]
+            if obj.get("choices"):
+                try:
+                    return obj["choices"][0]["message"]["content"].strip()
+                except Exception:
+                    pass
+        return None
+    content = _extract_text(provider_json)
+    # If no text, attempt a simpler string input form
+    if not content:
+        simple_input = "\n".join([f"{m.role}: {m.content}" for m in req.messages]).strip()
+        alt_payload = {
+            "model": model,
+            "input": [{"role": "system", "content": [{"type": "input_text", "text": system_prompt}]}, {"role": "user", "content": [{"type": "input_text", "text": simple_input}]}],
+            "max_output_tokens": min(1200, reply_max_tokens),
+            "temperature": 0.3,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=90) as client:
+                r2 = await client.post(f"{base_url}/responses", headers=headers, json=alt_payload)
+                if r2.status_code < 400:
+                    provider_json = r2.json()
+                    content = _extract_text(provider_json)
+                else:
+                    from fastapi.responses import JSONResponse as _JR
+                    return _JR({"error": "provider_error", "detail": r2.text[:400]}, status_code=r2.status_code)
+        except Exception as e:
+            from fastapi.responses import JSONResponse as _JR
+            return _JR({"error": "provider_error", "detail": str(e)[:400]}, status_code=502)
     if not content or not isinstance(content, str) or not content.strip():
         from fastapi.responses import JSONResponse as _JR
-        return _JR({"error": "provider_error", "detail": "no_text_output"}, status_code=502)
+        # Return an excerpt of provider JSON for diagnosis without leaking full payload
+        excerpt = json.dumps({k: provider_json.get(k) for k in ("status", "incomplete_details", "usage")})
+        return _JR({"error": "provider_error", "detail": "no_text_output", "provider_excerpt": excerpt}, status_code=502)
     # Persist logs (best-effort)
     try:
         sid = req.session_id or "default"
