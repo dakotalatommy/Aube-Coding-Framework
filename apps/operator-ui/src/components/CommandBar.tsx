@@ -71,7 +71,14 @@ export default function CommandBar(){
             aria-label="AskVX command input"
             disabled={busy}
           />
-          <div className="text-[11px] text-slate-500">{busy? 'Working…' : lastResult? (lastResult.status==='ok'?'Ready':'Check') : 'Ready'}</div>
+          <div className="flex items-center gap-2">
+            <button
+              className="text-[11px] px-2 py-1 rounded-md border bg-white hover:shadow-sm"
+              onClick={()=>{ try{ window.location.assign('/ask?embed=0'); } catch { window.location.href='/ask?embed=0'; } }}
+              aria-label="Open Ask VX"
+            >Ask VX</button>
+            <div className="text-[11px] text-slate-500">{busy? 'Working…' : lastResult? (lastResult.status==='ok'?'Ready':'Check') : 'Ready'}</div>
+          </div>
         </div>
         {suggestions.length>0 && (
           <div className="px-3 pb-2 flex flex-wrap gap-2">
