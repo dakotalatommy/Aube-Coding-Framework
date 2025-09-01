@@ -1963,6 +1963,7 @@ class ChatRequest(BaseModel):
 async def ai_chat(
     req: ChatRequest,
     ctx: UserContext = Depends(get_user_context),
+    db: Session = Depends(get_db),
 ) -> Dict[str, str]:
     # Soft cost guardrails: enforce per-tenant and global daily token and USD budgets
     try:
@@ -2068,6 +2069,44 @@ async def ai_chat(
         scaffolds_text=scaffolds_text,
         brand_profile_text=brand_profile_text,
     )
+    # Lightweight data context: enrich for common analytical asks without explicit tool calls
+    try:
+        user_q = (req.messages[-1].content if req.messages else "").lower()
+        data_notes: List[str] = []
+        if ("top" in user_q and ("clients" in user_q or "contacts" in user_q) and ("lifetime" in user_q or "spend" in user_q or "value" in user_q)):
+            import re as _re, datetime as _dt
+            m = _re.search(r"top\s+(\d+)", user_q)
+            n = 3
+            try:
+                if m:
+                    n = max(1, min(10, int(m.group(1))))
+            except Exception:
+                n = 3
+            try:
+                rows = (
+                    db.query(dbm.Contact)
+                    .filter(dbm.Contact.tenant_id == ctx.tenant_id, dbm.Contact.deleted == False)  # type: ignore
+                    .order_by(dbm.Contact.lifetime_cents.desc())
+                    .limit(n)
+                    .all()
+                )
+                def _fmt(ts: Optional[int]) -> str:
+                    try:
+                        if not ts:
+                            return "—"
+                        if ts < 10**12:
+                            ts = ts * 1000  # type: ignore
+                        return _dt.datetime.fromtimestamp(int(ts/1000)).strftime("%Y-%m-%d")
+                    except Exception:
+                        return "—"
+                for r in rows:
+                    data_notes.append(f"• {r.contact_id} — LTV ${(int(getattr(r,'lifetime_cents',0) or 0)/100):.2f}, Txns {int(getattr(r,'txn_count',0) or 0)}, Last {_fmt(getattr(r,'last_visit',0))}")
+            except Exception:
+                pass
+        if data_notes:
+            system_prompt = system_prompt + "\n\nContext data (do not invent; use as source):\n" + "\n".join(data_notes[:10])
+    except Exception:
+        pass
     # Model selection: always use GPT‑5 Mini by default; Nano only as fallback
     user_text = (req.messages[-1].content if req.messages else "")
     short = len(user_text.split()) < 24
