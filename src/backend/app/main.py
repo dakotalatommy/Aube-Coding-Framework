@@ -261,6 +261,11 @@ def _scheduler_loop():
                             SCHED_TICKS.labels(scope="all").inc()  # type: ignore
                         except Exception:
                             pass
+                        # Run insights aggregation tick (lightweight)
+                        try:
+                            _run_insights_aggregate_tick(_db)
+                        except Exception:
+                            pass
                     except Exception:
                         pass
             except Exception:
@@ -439,6 +444,53 @@ class UsageLimitUpsert(BaseModel):
     ai_daily_cents_cap: Optional[int] = None
     ai_monthly_cents_cap: Optional[int] = None
     messages_daily_cap: Optional[int] = None
+
+
+def _run_insights_aggregate_tick(db: Session) -> None:
+    """Lightweight anonymized aggregator writing to ai_global_insights.
+    Uses k-anonymity (k>=5) by dropping small buckets; adds ±1 jitter to counts.
+    """
+    try:
+        # Example aggregate: weekly appointment counts (global), rolling_30d
+        rows = db.execute(
+            _sql_text(
+                """
+                SELECT date_trunc('week', to_timestamp(start_ts)) AS wk, COUNT(1) AS c
+                FROM appointments
+                WHERE start_ts > EXTRACT(epoch FROM now())::bigint - (30*86400)
+                GROUP BY 1
+                ORDER BY 1 DESC
+                LIMIT 12
+                """
+            )
+        ).fetchall()
+        out = []
+        for wk, c in rows or []:
+            cnt = int(c or 0)
+            if cnt < 5:
+                continue
+            try:
+                import random as _rnd
+                cnt = max(0, cnt + _rnd.choice([-1, 0, 1]))
+            except Exception:
+                pass
+            out.append({"week": str(wk), "count": cnt})
+        if out:
+            db.execute(
+                _sql_text(
+                    """
+                    INSERT INTO ai_global_insights(metric, scope, time_window, value)
+                    VALUES (:m, 'global', 'rolling_30d', :v)
+                    """
+                ),
+                {"m": "appointments_by_week", "v": json.dumps(out)},
+            )
+            db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
     grace_until: Optional[int] = None
 
 
@@ -1242,6 +1294,98 @@ def _http_request_with_retry(method: str, url: str, *, headers: Optional[Dict[st
         raise last_exc
     # Fallback (should not reach): return a dummy 599-like response
     return httpx.Response(599, request=httpx.Request(method.upper(), url))
+
+
+# ---- AskVX context loaders (tenant memories, global insights/faq, providers status) ----
+def _load_tenant_memories(db: Session, tenant_id: str, limit: int = 20) -> List[Dict[str, object]]:
+    try:
+        rows = db.execute(
+            _sql_text(
+                """
+                SELECT key, value, tags, updated_at
+                FROM ai_memories
+                WHERE tenant_id = CAST(:t AS uuid)
+                ORDER BY updated_at DESC
+                LIMIT :lim
+                """
+            ),
+            {"t": tenant_id, "lim": max(1, min(int(limit or 20), 200))},
+        ).fetchall()
+        return [
+            {
+                "key": str(r[0]),
+                "value": str(r[1]) if not isinstance(r[1], (dict, list)) else r[1],
+                "tags": r[2],
+                "updated_at": str(r[3]) if r[3] is not None else None,
+            }
+            for r in rows or []
+        ]
+    except Exception:
+        return []
+
+
+def _load_global_insights(db: Session, limit: int = 10) -> List[Dict[str, object]]:
+    try:
+        rows = db.execute(
+            _sql_text(
+                """
+                SELECT metric, scope, time_window, value, created_at
+                FROM ai_global_insights
+                ORDER BY created_at DESC
+                LIMIT :lim
+                """
+            ),
+            {"lim": max(1, min(int(limit or 10), 50))},
+        ).fetchall()
+        return [
+            {
+                "metric": str(r[0]),
+                "scope": str(r[1] or "global"),
+                "time_window": str(r[2] or "rolling_30d"),
+                "value": str(r[3]) if not isinstance(r[3], (dict, list)) else r[3],
+            }
+            for r in rows or []
+        ]
+    except Exception:
+        return []
+
+
+def _load_global_faq(db: Session, limit: int = 10) -> List[Dict[str, object]]:
+    try:
+        rows = db.execute(
+            _sql_text(
+                """
+                SELECT intent, answer
+                FROM ai_global_faq
+                ORDER BY updated_at DESC, created_at DESC
+                LIMIT :lim
+                """
+            ),
+            {"lim": max(1, min(int(limit or 10), 50))},
+        ).fetchall()
+        return [{"intent": str(r[0]), "answer": str(r[1])} for r in rows or []]
+    except Exception:
+        return []
+
+
+def _providers_status_quick(db: Session, tenant_id: str) -> Dict[str, Dict[str, int]]:
+    try:
+        rows = db.execute(
+            _sql_text(
+                """
+                SELECT provider, COALESCE(expires_at,0) AS exp, COALESCE(last_sync,0) AS ls
+                FROM connected_accounts_v2
+                WHERE tenant_id = CAST(:t AS uuid)
+                """
+            ),
+            {"t": tenant_id},
+        ).fetchall()
+        out: Dict[str, Dict[str, int]] = {}
+        for p, exp, ls in rows or []:
+            out[str(p).lower()] = {"expires_at": int(exp or 0), "last_sync": int(ls or 0)}
+        return out
+    except Exception:
+        return {}
 
 
 async def _call_edge_function(name: str, payload: Dict[str, object]) -> Dict[str, object]:
@@ -2404,10 +2548,44 @@ async def ai_chat_raw(
                 brand_profile_text = _json.dumps(bp, ensure_ascii=False)
     except Exception:
         brand_profile_text = ""
-    # Compose BrandVX voice system prompt only
+    # Compose BrandVX voice system prompt with enriched context
     system_prompt = BRAND_SYSTEM + "\nYou have direct access to the current tenant's workspace data via backend queries. Answer using provided context; do not claim you lack access. Keep responses concise and plain text."
     if brand_profile_text:
         system_prompt = system_prompt + "\n\nBrand profile (voice/tone):\n" + brand_profile_text
+    # Enrich with tenant memories and global insights/faq
+    try:
+        mems = _load_tenant_memories(db, ctx.tenant_id, limit=20)
+        if mems:
+            system_prompt += "\n\nTenant memories:" + "\n" + "\n".join([
+                f"- {m.get('key')}: {m.get('value')}" for m in mems[:10]
+            ])
+    except Exception:
+        pass
+    try:
+        gins = _load_global_insights(db, limit=10)
+        if gins:
+            system_prompt += "\n\nGlobal insights:" + "\n" + "\n".join([
+                f"- {gi.get('metric')}[{gi.get('time_window')}]: {gi.get('value')}" for gi in gins[:8]
+            ])
+    except Exception:
+        pass
+    try:
+        gfaq = _load_global_faq(db, limit=10)
+        if gfaq:
+            system_prompt += "\n\nGlobal FAQ snippets:" + "\n" + "\n".join([
+                f"- {q.get('intent')}: {q.get('answer')[:160]}" for q in gfaq[:6]
+            ])
+    except Exception:
+        pass
+    # Providers status quick snapshot
+    try:
+        pmap = _providers_status_quick(db, ctx.tenant_id)
+        if pmap:
+            system_prompt += "\n\nProviders status: " + ", ".join([
+                f"{k}(last_sync={v.get('last_sync',0)})" for k,v in pmap.items()
+            ])
+    except Exception:
+        pass
     # Lightweight data context: answer top LTV queries concretely when available
     try:
         user_q = (req.messages[-1].content if req.messages else "").lower()
@@ -2478,7 +2656,7 @@ async def ai_chat_raw(
                     data_notes.append(f"• {r.contact_id} — Last {_fmt2(getattr(r,'last_visit',0))}, Txns {int(getattr(r,'txn_count',0) or 0)}, LTV ${(int(getattr(r,'lifetime_cents',0) or 0)/100):.2f}")
             except Exception:
                 pass
-        # Birthdays this month
+        # Birthdays this month (direct list)
         if ("birthday" in user_q or "birthdays" in user_q):
             try:
                 from datetime import datetime as _dt2
@@ -2489,10 +2667,13 @@ async def ai_chat_raw(
                     .limit(100)
                     .all()
                 )
+                shown = 0
                 for r in rows:
                     b = str(getattr(r, 'birthday', '') or '')
                     if mon in b:
                         data_notes.append(f"• {r.contact_id} — Birthday {b}")
+                        shown += 1
+                        if shown >= 25: break
             except Exception:
                 pass
         # Appointments this week (UTC-based)
