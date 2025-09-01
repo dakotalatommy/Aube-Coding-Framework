@@ -2239,6 +2239,62 @@ async def ai_chat_raw(
                     return "—"
             for r in rows:
                 data_notes.append(f"• {r.contact_id} — LTV ${(int(getattr(r,'lifetime_cents',0) or 0)/100):.2f}, Txns {int(getattr(r,'txn_count',0) or 0)}, Last {_fmt(getattr(r,'last_visit',0))}")
+        # Totals / revenue summary
+        if (("total" in user_q) and ("revenue" in user_q or "lifetime" in user_q or "spend" in user_q or "ltv" in user_q)):
+            try:
+                all_rows = (
+                    db.query(dbm.Contact)
+                    .filter(dbm.Contact.tenant_id == ctx.tenant_id)
+                    .all()
+                )
+                total_cents = sum(int(getattr(r, 'lifetime_cents', 0) or 0) for r in all_rows)
+                num_contacts = len(all_rows)
+                data_notes.append(f"• Total lifetime revenue: ${(total_cents/100.0):.2f}")
+                data_notes.append(f"• Contacts counted: {num_contacts}")
+            except Exception:
+                pass
+        # Recent visits
+        if (("recent" in user_q or "last" in user_q) and ("visit" in user_q or "visits" in user_q or "appointments" in user_q or "clients" in user_q)):
+            try:
+                import datetime as _dt
+                n = 5
+                rows = (
+                    db.query(dbm.Contact)
+                    .filter(dbm.Contact.tenant_id == ctx.tenant_id)
+                    .order_by(dbm.Contact.last_visit.desc())
+                    .limit(n)
+                    .all()
+                )
+                def _fmt2(ts: Optional[int]) -> str:
+                    try:
+                        if not ts:
+                            return "—"
+                        if ts < 10**12:
+                            ts = ts * 1000  # type: ignore
+                        return _dt.datetime.fromtimestamp(int(ts/1000)).strftime("%Y-%m-%d")
+                    except Exception:
+                        return "—"
+                for r in rows:
+                    data_notes.append(f"• {r.contact_id} — Last {_fmt2(getattr(r,'last_visit',0))}, Txns {int(getattr(r,'txn_count',0) or 0)}, LTV ${(int(getattr(r,'lifetime_cents',0) or 0)/100):.2f}")
+            except Exception:
+                pass
+        # Birthdays this month
+        if ("birthday" in user_q or "birthdays" in user_q):
+            try:
+                from datetime import datetime as _dt2
+                mon = f"-{_dt2.utcnow().month:02d}-"
+                rows = (
+                    db.query(dbm.Contact)
+                    .filter(dbm.Contact.tenant_id == ctx.tenant_id)
+                    .limit(100)
+                    .all()
+                )
+                for r in rows:
+                    b = str(getattr(r, 'birthday', '') or '')
+                    if mon in b:
+                        data_notes.append(f"• {r.contact_id} — Birthday {b}")
+            except Exception:
+                pass
         if data_notes:
             system_prompt = (
                 system_prompt
