@@ -909,69 +909,45 @@ def upsert_square_account(req: UpsertSquareRequest, db: Session = Depends(get_db
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"ok": False, "error": "forbidden"}
     try:
-        # Make RLS-friendly: set per-transaction GUCs when supported so policies allow the write
-        try:
-            CURRENT_TENANT_ID.set(req.tenant_id)
-            CURRENT_ROLE.set(ctx.role or "authenticated")
-            db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
-            db.execute(_sql_text("SET LOCAL app.role = :r"), {"r": (ctx.role or "authenticated")})
-        except Exception:
-            # If the DB doesn't recognize these custom GUCs, clear the failed tx and continue without them
-            try:
-                db.rollback()
-            except Exception:
-                pass
+        # Use a fresh connection-bound transaction to avoid inactive session state
         cols = _connected_accounts_columns(db)
         name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
         if not name_col:
             return {"ok": False, "error": "missing provider/platform column"}
-        # Respect tenant_id type (uuid vs text)
         tid_type = _connected_accounts_col_type(db, 'tenant_id')
-        tid_value = req.tenant_id
-        fields = ["tenant_id", name_col]
-        values = {"tenant_id": tid_value, name_col: "square"}
-        if 'status' in cols:
-            fields.append('status'); values['status'] = 'connected'
-        # Respect timestamp types
-        ts_now = _sql_func.now()
-        if 'connected_at' in cols:
-            fields.append('connected_at'); values['connected_at'] = ts_now
-        if 'created_at' in cols:
-            fields.append('created_at'); values['created_at'] = ts_now
-        # Emulate upsert without needing a unique index: try UPDATE first, then INSERT if no rows
-        where_tid = "tenant_id = CAST(:tenant_id AS uuid)" if 'uuid' in tid_type else "tenant_id = :tenant_id"
-        set_parts: List[str] = []
-        if 'status' in cols:
-            set_parts.append("status = 'connected'")
-        if 'connected_at' in cols:
-            set_parts.append("connected_at = NOW()")
-        if 'created_at' in cols:
-            set_parts.append("created_at = NOW()")
-        updated = False
-        if set_parts:
-            upd_sql = f"UPDATE connected_accounts SET {', '.join(set_parts)} WHERE {where_tid} AND {name_col} = :prov"
-            params = {"tenant_id": tid_value, "prov": "square"}
-            res = db.execute(_sql_text(upd_sql), params)
-            db.commit()
-            try:
-                updated = bool(res.rowcount and int(res.rowcount) > 0)
-            except Exception:
-                updated = False
-        if updated:
-            return {"ok": True, "updated": True}
-        # Build INSERT with proper casts/timestamps
-        ins_cols: List[str] = ["tenant_id", name_col]
-        placeholders: List[str] = ["CAST(:tenant_id AS uuid)" if 'uuid' in tid_type else ":tenant_id", ":prov"]
-        if 'status' in cols:
-            ins_cols.append('status'); placeholders.append("'connected'")
-        if 'connected_at' in cols:
-            ins_cols.append('connected_at'); placeholders.append('NOW()')
-        if 'created_at' in cols:
-            ins_cols.append('created_at'); placeholders.append('NOW()')
-        ins_sql = f"INSERT INTO connected_accounts ({', '.join(ins_cols)}) VALUES ({', '.join(placeholders)})"
-        db.execute(_sql_text(ins_sql), {"tenant_id": tid_value, "prov": "square"})
-        db.commit()
-        return {"ok": True, "inserted": True}
+        with engine.begin() as conn:
+            # UPDATE first
+            where_tid = "tenant_id = CAST(:tenant_id AS uuid)" if 'uuid' in tid_type else "tenant_id = :tenant_id"
+            set_parts: List[str] = []
+            if 'status' in cols:
+                set_parts.append("status = 'connected'")
+            if 'connected_at' in cols:
+                set_parts.append("connected_at = NOW()")
+            if 'created_at' in cols:
+                set_parts.append("created_at = NOW()")
+            updated = False
+            if set_parts:
+                upd_sql = f"UPDATE connected_accounts SET {', '.join(set_parts)} WHERE {where_tid} AND {name_col} = :prov"
+                params = {"tenant_id": req.tenant_id, "prov": "square"}
+                res = conn.exec_driver_sql(upd_sql, params)
+                try:
+                    updated = bool(getattr(res, 'rowcount', 0) and int(res.rowcount) > 0)
+                except Exception:
+                    updated = False
+            if updated:
+                return {"ok": True, "updated": True}
+            # INSERT minimal row
+            ins_cols: List[str] = ["tenant_id", name_col]
+            placeholders: List[str] = ["CAST(:tenant_id AS uuid)" if 'uuid' in tid_type else ":tenant_id", ":prov"]
+            if 'status' in cols:
+                ins_cols.append('status'); placeholders.append("'connected'")
+            if 'connected_at' in cols:
+                ins_cols.append('connected_at'); placeholders.append('NOW()')
+            if 'created_at' in cols:
+                ins_cols.append('created_at'); placeholders.append('NOW()')
+            ins_sql = f"INSERT INTO connected_accounts ({', '.join(ins_cols)}) VALUES ({', '.join(placeholders)})"
+            conn.exec_driver_sql(ins_sql, {"tenant_id": req.tenant_id, "prov": "square"})
+            return {"ok": True, "inserted": True}
     except Exception as e:
         try:
             db.rollback()
@@ -4220,7 +4196,7 @@ def hubspot_import(req: HubspotImportRequest, db: Session = Depends(get_db), ctx
 
 
 @app.post("/integrations/booking/square/sync-contacts", tags=["Integrations"])
-def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
+def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
     """Pull Square customers and upsert into contacts using the Square Customers API.
     Requires a connected Square account. Uses stored access token from connected_accounts.
     Always returns JSON (including on errors) to avoid CORS confusion in the browser.
