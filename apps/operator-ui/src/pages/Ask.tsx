@@ -151,13 +151,11 @@ export default function Ask(){
     // Prompt-first suggestions
     setContextActions(computeContext(prompt));
     try{
-      const r = await api.post('/ai/chat', {
+      const r = await api.post('/ai/chat/raw', {
         tenant_id: await getTenant(),
         messages: next,
-        allow_tools: true,
         session_id: sessionId,
-        mode: 'qa_detailed',
-      }, { timeoutMs: 20000 });
+      }, { timeoutMs: 60000 });
       if (r?.error) { setMessages(curr => [...curr, { role:'assistant', content: `Error: ${String(r.detail||r.error)}` }]); setLoading(false); return; }
       const text = String(r?.text || '');
       // Refine contextual actions with assistant text

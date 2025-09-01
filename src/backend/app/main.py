@@ -1959,6 +1959,12 @@ class ChatRequest(BaseModel):
     mode: Optional[str] = None  # e.g., 'sales_onboarding'
 
 
+class ChatRawRequest(BaseModel):
+    tenant_id: str
+    messages: List[ChatMessage]
+    session_id: Optional[str] = None
+
+
 @app.post("/ai/chat", tags=["AI"])
 async def ai_chat(
     req: ChatRequest,
@@ -2177,6 +2183,61 @@ async def ai_chat(
     )
     return {"text": content}
 
+
+@app.post("/ai/chat/raw", tags=["AI"])
+async def ai_chat_raw(
+    req: ChatRawRequest,
+    ctx: UserContext = Depends(get_user_context),
+    db: Session = Depends(get_db),
+) -> Dict[str, str]:
+    # Minimal pass-through: BrandVX voice only; no modes, no local caps/limits/fallbacks
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"text": "forbidden"}
+    # Pull brand profile
+    brand_profile_text = ""
+    try:
+        row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == ctx.tenant_id).first()
+        if row:
+            data = json.loads(row.data_json or '{}')
+            bp = data.get('brand_profile') or {}
+            if isinstance(bp, dict) and bp:
+                import json as _json
+                brand_profile_text = _json.dumps(bp, ensure_ascii=False)
+    except Exception:
+        brand_profile_text = ""
+    # Compose BrandVX voice system prompt only
+    system_prompt = BRAND_SYSTEM
+    if brand_profile_text:
+        system_prompt = system_prompt + "\n\nBrand profile (voice/tone):\n" + brand_profile_text
+    # Call provider directly
+    client = AIClient(model=os.getenv("OPENAI_MODEL", "gpt-5"))  # type: ignore
+    reply_max_tokens = int(os.getenv("AI_CHAT_MAX_TOKENS", "1600"))
+    try:
+        content = await client.generate(
+            system_prompt,
+            [
+                {"role": m.role, "content": m.content}
+                for m in req.messages
+            ],
+            max_tokens=reply_max_tokens,
+        )
+    except Exception as e:
+        from fastapi.responses import JSONResponse as _JR
+        return _JR({"error": "provider_error", "detail": str(e)[:400]}, status_code=502)
+    # Persist logs (best-effort)
+    try:
+        sid = req.session_id or "default"
+        if req.messages:
+            last = req.messages[-1]
+            db.add(dbm.ChatLog(tenant_id=ctx.tenant_id, session_id=sid, role=str(last.role), content=str(last.content)))
+        db.add(dbm.ChatLog(tenant_id=ctx.tenant_id, session_id=sid, role="assistant", content=content))
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    return {"text": content}
 
 @app.get("/ai/diag", tags=["AI"])
 def ai_diag():
