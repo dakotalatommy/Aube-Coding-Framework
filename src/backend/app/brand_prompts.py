@@ -28,7 +28,7 @@ def chat_system_prompt(
         + "\n"
         + "Operate under H→L hierarchy: technical, safety, consent, privacy, and RBAC rules override style."
         + "\n"
-        + "Answer with actionable, concise guidance. If you need tenant data, ask for it explicitly or suggest an action."
+        + "You have direct access to the current tenant’s workspace data via backend queries. Retrieve exact facts and answer directly; do not claim you lack access."
         + "\n"
         + "Do not fabricate. If uncertain, say so and propose safe next steps."
     )

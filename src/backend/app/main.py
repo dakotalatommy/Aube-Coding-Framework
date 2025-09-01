@@ -2205,7 +2205,7 @@ async def ai_chat_raw(
     except Exception:
         brand_profile_text = ""
     # Compose BrandVX voice system prompt only
-    system_prompt = BRAND_SYSTEM
+    system_prompt = BRAND_SYSTEM + "\nYou have direct access to the current tenant’s workspace data via backend queries. Answer using provided context; do not claim you lack access. Keep responses concise and plain text."
     if brand_profile_text:
         system_prompt = system_prompt + "\n\nBrand profile (voice/tone):\n" + brand_profile_text
     # Lightweight data context: answer top LTV queries concretely when available
@@ -2240,7 +2240,12 @@ async def ai_chat_raw(
             for r in rows:
                 data_notes.append(f"• {r.contact_id} — LTV ${(int(getattr(r,'lifetime_cents',0) or 0)/100):.2f}, Txns {int(getattr(r,'txn_count',0) or 0)}, Last {_fmt(getattr(r,'last_visit',0))}")
         if data_notes:
-            system_prompt = system_prompt + "\n\nContext data (do not invent; use as source):\n" + "\n".join(data_notes[:10])
+            system_prompt = (
+                system_prompt
+                + "\n\nContext data (do not invent; use as source):\n"
+                + "\n".join(data_notes[:10])
+                + "\n\nInstruction: When context data is present, answer directly using ONLY this context. Present a short list like 'ID — LTV $X.XX — Last YYYY-MM-DD' or a one-line summary. Do not ask for connections or exports."
+            )
     except Exception:
         pass
     # Call provider directly via Responses API only (no local fallbacks)
