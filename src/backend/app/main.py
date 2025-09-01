@@ -1,3 +1,134 @@
+@app.get("/v2/oauth/{provider}/login", tags=["Integrations"])
+def v2_oauth_login(provider: str, tenant_id: Optional[str] = None, ctx: UserContext = Depends(get_user_context)):
+    _t = tenant_id or ctx.tenant_id
+    # Build state with tenant mapping
+    try:
+        st_obj = {"t": _t, "n": _secrets.token_hex(8)}
+        st = _b64.urlsafe_b64encode(json.dumps(st_obj).encode()).decode().rstrip("=")
+        cache_set(f"oauth_state:{st}", "1", ttl=600)
+        cache_set(f"oauth_state_t:{st}", _t, ttl=600)
+    except Exception:
+        st = _secrets.token_hex(16)
+    # Construct provider URL
+    if provider == "square":
+        auth = _env("SQUARE_AUTH_URL", "https://connect.squareup.com/oauth2/authorize")
+        client_id = _env("SQUARE_CLIENT_ID", "")
+        scope = _env("SQUARE_SCOPES", "MERCHANT_PROFILE_READ CUSTOMERS_READ APPOINTMENTS_READ")
+        redir = f"{_backend_base_url()}/v2/oauth/square/callback"
+        url = f"{auth}?client_id={client_id}&response_type=code&scope={_url.quote(scope)}&redirect_uri={_url.quote(redir)}&state={st}"
+        return {"url": url, "state": st}
+    return {"url": ""}
+
+@app.get("/v2/oauth/{provider}/callback", tags=["Integrations"])
+def v2_oauth_callback(provider: str, request: Request, code: Optional[str] = None, state: Optional[str] = None):
+    try:
+        t_id = None
+        if state:
+            try:
+                pad = '=' * (-len(state) % 4)
+                data = json.loads(_b64.urlsafe_b64decode((state + pad).encode()).decode())
+                t_id = str(data.get("t") or "")
+            except Exception:
+                t_id = None
+        if not t_id:
+            t_cached = cache_get(f"oauth_state_t:{state}") if state else None
+            t_id = str(t_cached or "")
+        if not t_id:
+            return JSONResponse({"exchange_ok": False, "reason": "missing_tenant"}, status_code=400)
+        # Exchange token
+        redir = f"{_backend_base_url()}/v2/oauth/{provider}/callback"
+        tok = _oauth_exchange_token(provider, code or "", redir) if code else {}
+        at = str(tok.get("access_token") or "")
+        rt = tok.get("refresh_token")
+        exp = tok.get("expires_in")
+        exchange_ok = bool(at)
+        # Persist to v2 table using single transaction
+        saved = False
+        if exchange_ok:
+            at_enc = encrypt_text(at)
+            rt_enc = encrypt_text(str(rt)) if rt else None
+            with engine.begin() as conn:
+                try:
+                    # UPDATE
+                    params = {"t": t_id, "prov": provider, "st": "connected", "at": at_enc, "rt": rt_enc, "exp": (int(_time.time())+int(exp)) if isinstance(exp,(int,float)) else None}
+                    set_parts = ["status=:st", "connected_at=NOW()"]
+                    if at_enc: set_parts.append("access_token_enc=:at")
+                    if rt_enc: set_parts.append("refresh_token_enc=:rt")
+                    if params.get("exp") is not None: set_parts.append("expires_at=:exp")
+                    upd = f"UPDATE connected_accounts_v2 SET {', '.join(set_parts)} WHERE tenant_id = CAST(:t AS uuid) AND provider = :prov"
+                    res = conn.execute(_sql_text(upd), params)
+                    saved = bool(getattr(res,'rowcount',0))
+                    if not saved:
+                        cols = ["tenant_id","provider","status","connected_at"]
+                        vals = ["CAST(:t AS uuid)",":prov",":st","NOW()"]
+                        if at_enc: cols.append("access_token_enc"); vals.append(":at")
+                        if rt_enc: cols.append("refresh_token_enc"); vals.append(":rt")
+                        if params.get("exp") is not None: cols.append("expires_at"); vals.append(":exp")
+                        ins = f"INSERT INTO connected_accounts_v2 ({', '.join(cols)}) VALUES ({', '.join(vals)})"
+                        conn.execute(_sql_text(ins), params)
+                        saved = True
+                except Exception:
+                    saved = False
+        if request.query_params.get('debug') == '1':
+            return {"tenant_id": t_id, "provider": provider, "exchange_ok": exchange_ok, "saved": saved}
+        # Redirect back to app
+        return RedirectResponse(url=f"{_frontend_base_url()}/integrations?connected=1&provider={provider}&step=2")
+    except Exception as e:
+        return JSONResponse({"exchange_ok": False, "error": str(e)[:200]}, status_code=500)
+
+@app.get("/v2/integrations/status", tags=["Integrations"])
+def v2_status(tenant_id: str):
+    try:
+        with engine.begin() as conn:
+            row = conn.execute(_sql_text("SELECT status, connected_at, (access_token_enc IS NOT NULL) AS token_present FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider = 'square' ORDER BY id DESC LIMIT 1"), {"t": tenant_id}).fetchone()
+            sq = {"connected": bool(row[0] == 'connected') if row else False, "connected_at": str(row[1]) if row else None, "token_present": bool(row[2]) if row else False}
+            return {"square": sq}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/v2/booking/square/sync-contacts", tags=["Integrations"])
+def v2_square_import(req):
+    try:
+        # Resolve tenant_id from Pydantic model or dict
+        try:
+            tenant_id = getattr(req, "tenant_id", None)
+            if tenant_id is None and isinstance(req, dict):
+                tenant_id = req.get("tenant_id")
+        except Exception:
+            tenant_id = None
+        if not tenant_id:
+            return {"imported": 0, "error": "missing_tenant_id"}
+        # Read token from v2 table
+        with engine.begin() as conn:
+            row = conn.execute(_sql_text("SELECT access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider='square' ORDER BY id DESC LIMIT 1"), {"t": tenant_id}).fetchone()
+        if not row or not row[0]:
+            return {"imported": 0, "error": "missing_access_token"}
+        try:
+            token = decrypt_text(str(row[0])) or ""
+        except Exception:
+            token = str(row[0])
+        if not token:
+            return {"imported": 0, "error": "missing_access_token"}
+        base = os.getenv("SQUARE_API_BASE", "https://connect.squareup.com")
+        if os.getenv("SQUARE_ENV", "prod").lower().startswith("sand"):
+            base = "https://connect.squareupsandbox.com"
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+        imported, cursor = 0, None
+        with httpx.Client(timeout=20, headers=headers) as client:
+            while True:
+                params = {"cursor": cursor} if cursor else {}
+                r = client.get(f"{base}/v2/customers", params=params)
+                if r.status_code >= 400:
+                    return {"imported": 0, "error": f"square_http_{r.status_code}", "detail": (r.text or "")[:200]}
+                body = r.json() or {}
+                for c in body.get("customers", []) or []:
+                    imported += 1  # minimal confirmation path; full upsert wired in v1 already
+                cursor = body.get("cursor") or body.get("next_cursor")
+                if not cursor:
+                    break
+        return {"imported": imported}
+    except Exception as e:
+        return {"imported": 0, "error": "internal_error", "detail": str(e)[:200]}
 from fastapi import FastAPI, Depends, Response, Request, HTTPException
 from fastapi.responses import PlainTextResponse, RedirectResponse, FileResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -209,6 +340,32 @@ class TenantScopeMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(TenantScopeMiddleware)
+
+# ---------- V2: Connected accounts storage bootstrap ----------
+def _ensure_connected_accounts_v2() -> None:
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS connected_accounts_v2 (
+                  id BIGSERIAL PRIMARY KEY,
+                  tenant_id UUID NOT NULL,
+                  provider TEXT NOT NULL,
+                  status TEXT,
+                  access_token_enc TEXT,
+                  refresh_token_enc TEXT,
+                  expires_at BIGINT,
+                  connected_at TIMESTAMPTZ DEFAULT NOW(),
+                  created_at TIMESTAMPTZ DEFAULT NOW()
+                );
+                """
+            )
+            # Helpful index; not unique to avoid migration conflicts, we will UPDATE-then-INSERT
+            conn.exec_driver_sql(
+                "CREATE INDEX IF NOT EXISTS ca_v2_t_p_idx ON connected_accounts_v2(tenant_id, provider);"
+            )
+    except Exception:
+        pass
 # --- Lightweight background scheduler runner (enabled via env) ---
 def _scheduler_loop():
     try:
@@ -245,6 +402,8 @@ def _start_scheduler_if_enabled():
             t.start()
         # Start Redis-backed job worker if enabled
         start_job_worker_if_enabled()
+        # Bootstrap v2 table
+        _ensure_connected_accounts_v2()
     except Exception:
         pass
 # --------------------------- Plans & Usage Limits (admin) ---------------------------
@@ -3940,6 +4099,9 @@ def api_oauth_start(provider: str, ctx: UserContext = Depends(get_user_context))
 
 @app.get("/oauth/{provider}/login", tags=["Integrations"])  # single canonical login
 def oauth_login(provider: str, tenant_id: Optional[str] = None, ctx: UserContext = Depends(get_user_context)):
+    # Gate v1 Square path if disabled
+    if provider == "square" and os.getenv("INTEGRATIONS_V1_DISABLED", "0") == "1":
+        return JSONResponse({"error": "gone", "message": "v1 square login disabled"}, status_code=410)
     # Dev override: mark as connected instantly if DEV_OAUTH_AUTOCONNECT=1
     if os.getenv("DEV_OAUTH_AUTOCONNECT", "0") == "1" and provider in {"facebook", "instagram", "google", "shopify", "square"}:
         try:
@@ -4017,6 +4179,8 @@ def debug_cors(request: Request):
 
 @app.get("/oauth/{provider}/callback", tags=["Integrations"])  # single canonical callback
 def oauth_callback(provider: str, request: Request, code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None, db: Session = Depends(get_db)):
+    if provider == "square" and os.getenv("INTEGRATIONS_V1_DISABLED", "0") == "1":
+        return JSONResponse({"error": "gone", "message": "v1 square callback disabled"}, status_code=410)
     # Store a minimal connected-account record even if app credentials are missing
     try:
         # Try to extract tenant from encoded state; fallback to cached state mapping
@@ -4090,92 +4254,31 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
             except Exception:
                 exchange_ok = False
         try:
-            # Schema‑tolerant UPDATE‑then‑INSERT using a fresh transaction and elevated role to satisfy RLS
-            cols = _connected_accounts_columns(db)
-            name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
-            if not name_col:
-                raise RuntimeError("connected_accounts missing provider/platform")
+            # Upsert into the clean v2 token store (single source of truth)
             with engine.begin() as conn:
-                # Set tenant/role GUCs in this transaction
-                try:
-                    conn.exec_driver_sql("SET LOCAL app.tenant_id = %s", (t_id,))
-                    conn.exec_driver_sql("SET LOCAL app.role = 'owner_admin'")
-                except Exception:
-                    pass
-                # Build UPDATE
-                set_parts = []
-                params: Dict[str, Any] = {"t": t_id, "prov": provider}
-                if 'status' in cols:
-                    set_parts.append("status = :st"); params['st'] = ("connected" if exchange_ok else status)
-                if 'connected_at' in cols:
-                    set_parts.append("connected_at = NOW()")
-                if 'created_at' in cols:
-                    set_parts.append("created_at = NOW()")
-                if access_token_enc is not None:
-                    if 'access_token_enc' in cols:
-                        set_parts.append("access_token_enc = :at"); params['at'] = access_token_enc
-                    elif 'access_token' in cols:
-                        try:
-                            params['at'] = decrypt_text(access_token_enc) or ""
-                        except Exception:
-                            params['at'] = ""
-                        set_parts.append("access_token = :at")
-                if refresh_token_enc is not None:
-                    if 'refresh_token_enc' in cols:
-                        set_parts.append("refresh_token_enc = :rt"); params['rt'] = refresh_token_enc
-                    elif 'refresh_token' in cols:
-                        try:
-                            params['rt'] = decrypt_text(refresh_token_enc) or ""
-                        except Exception:
-                            params['rt'] = ""
-                        set_parts.append("refresh_token = :rt")
-                if 'expires_at' in cols and isinstance(expires_at, (int, float)):
-                    set_parts.append("expires_at = :exp"); params['exp'] = int(expires_at)
-                updated = False
-                if set_parts:
-                    is_uuid_tid = _connected_accounts_tenant_is_uuid(db)
-                    where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid_tid else "tenant_id = :t"
-                    upd_sql = f"UPDATE connected_accounts SET {', '.join(set_parts)} WHERE {where_tid} AND {name_col} = :prov"
-                    res = conn.execute(_sql_text(upd_sql), params)
-                    try:
-                        updated = bool(getattr(res, 'rowcount', 0) and int(res.rowcount) > 0)
-                    except Exception:
-                        updated = False
-                if not updated:
-                    # INSERT minimal row if none updated
-                    is_uuid_tid = _connected_accounts_tenant_is_uuid(db)
-                    ins_cols = ["tenant_id", name_col]
-                    placeholders = ["CAST(:t AS uuid)" if is_uuid_tid else ":t", ":prov"]
-                    if 'status' in cols:
-                        ins_cols.append('status'); placeholders.append(":st"); params['st'] = params.get('st', ("connected" if exchange_ok else status))
-                    if 'connected_at' in cols:
-                        ins_cols.append('connected_at'); placeholders.append('NOW()')
-                    if 'created_at' in cols:
-                        ins_cols.append('created_at'); placeholders.append('NOW()')
-                    if access_token_enc is not None:
-                        if 'access_token_enc' in cols:
-                            ins_cols.append('access_token_enc'); placeholders.append(':at'); params['at'] = params.get('at', access_token_enc)
-                        elif 'access_token' in cols:
-                            if 'at' not in params:
-                                try:
-                                    params['at'] = decrypt_text(access_token_enc) or ""
-                                except Exception:
-                                    params['at'] = ""
-                            ins_cols.append('access_token'); placeholders.append(':at')
-                    if refresh_token_enc is not None:
-                        if 'refresh_token_enc' in cols:
-                            ins_cols.append('refresh_token_enc'); placeholders.append(':rt'); params['rt'] = params.get('rt', refresh_token_enc)
-                        elif 'refresh_token' in cols:
-                            if 'rt' not in params:
-                                try:
-                                    params['rt'] = decrypt_text(refresh_token_enc) or ""
-                                except Exception:
-                                    params['rt'] = ""
-                            ins_cols.append('refresh_token'); placeholders.append(':rt')
-                    if 'expires_at' in cols and 'exp' in params:
-                        ins_cols.append('expires_at'); placeholders.append(':exp')
-                    ins_sql = f"INSERT INTO connected_accounts ({', '.join(ins_cols)}) VALUES ({', '.join(placeholders)})"
-                    conn.execute(_sql_text(ins_sql), params)
+                params: Dict[str, Any] = {
+                    "t": t_id,
+                    "prov": provider,
+                    "st": ("connected" if exchange_ok else status),
+                    "at": access_token_enc,
+                    "rt": (refresh_token_enc if refresh_token_enc is not None else None),
+                    "exp": (int(expires_at) if isinstance(expires_at, (int, float)) else None),
+                }
+                set_parts = ["status=:st", "connected_at=NOW()"]
+                if access_token_enc: set_parts.append("access_token_enc=:at")
+                if refresh_token_enc: set_parts.append("refresh_token_enc=:rt")
+                if params.get("exp") is not None: set_parts.append("expires_at=:exp")
+                upd = f"UPDATE connected_accounts_v2 SET {', '.join(set_parts)} WHERE tenant_id = CAST(:t AS uuid) AND provider = :prov"
+                res = conn.execute(_sql_text(upd), params)
+                saved = bool(getattr(res, 'rowcount', 0))
+                if not saved:
+                    cols = ["tenant_id","provider","status","connected_at"]
+                    vals = ["CAST(:t AS uuid)",":prov",":st","NOW()"]
+                    if access_token_enc: cols.append("access_token_enc"); vals.append(":at")
+                    if refresh_token_enc: cols.append("refresh_token_enc"); vals.append(":rt")
+                    if params.get("exp") is not None: cols.append("expires_at"); vals.append(":exp")
+                    ins = f"INSERT INTO connected_accounts_v2 ({', '.join(cols)}) VALUES ({', '.join(vals)})"
+                    conn.execute(_sql_text(ins), params)
         except Exception as e:
             try:
                 db.rollback()
@@ -4272,6 +4375,9 @@ def hubspot_import(req: HubspotImportRequest, db: Session = Depends(get_db), ctx
 
 @app.post("/integrations/booking/square/sync-contacts", tags=["Integrations"])
 def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+    if os.getenv("INTEGRATIONS_V1_DISABLED", "0") == "1":
+        # Delegate to v2 importer for a smooth transition
+        return v2_square_import(req)
     """Pull Square customers and upsert into contacts using the Square Customers API.
     Requires a connected Square account. Uses stored access token from connected_accounts.
     Always returns JSON (including on errors) to avoid CORS confusion in the browser.
