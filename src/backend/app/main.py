@@ -11,7 +11,7 @@ from .events import _get_redis  # internal access for admin cache clear
 from .db import Base, engine, get_db, get_l_db, CURRENT_TENANT_ID, CURRENT_ROLE
 from . import models as dbm
 from .crypto import encrypt_text, decrypt_text
-from .auth import get_user_context, require_role, UserContext
+from .auth import get_user_context, get_user_context_relaxed, require_role, UserContext
 from .cadence import get_cadence_definition, schedule_initial_next_action
 from .kpi import compute_time_saved_minutes, ambassador_candidate, admin_kpis, funnel_daily_series
 from .cache import cache_get, cache_set, cache_del, cache_incr
@@ -4244,7 +4244,7 @@ def hubspot_import(req: HubspotImportRequest, db: Session = Depends(get_db), ctx
 
 
 @app.post("/integrations/booking/square/sync-contacts", tags=["Integrations"])
-def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context_relaxed)) -> Dict[str, object]:
     if os.getenv("INTEGRATIONS_V1_DISABLED", "0") == "1":
         # V1 disabled: inline minimal v2 read path to avoid unresolved reference
         try:

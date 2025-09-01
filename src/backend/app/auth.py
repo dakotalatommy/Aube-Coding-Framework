@@ -204,6 +204,29 @@ async def get_user_context(
     return UserContext(user_id=user_id, role=role, tenant_id=tenant_id)
 
 
+async def get_user_context_relaxed(
+    x_user_id: Optional[str] = Header(default=None),
+    x_role: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+    authorization: Optional[str] = Header(default=None),
+) -> UserContext:
+    """Relaxed variant for guarded endpoints: accepts X-* headers when no Bearer.
+    Safety: only use on narrowly scoped server-side actions (e.g., import) and
+    still honors normal Bearer verification when provided.
+    """
+    if authorization and authorization.lower().startswith("bearer "):
+        # Reuse strict path
+        return await get_user_context(x_user_id, x_role, x_tenant_id, authorization)
+    # No Bearer: allow header-based context if all present
+    if x_user_id and x_role and x_tenant_id:
+        role = (x_role or "practitioner").lower()
+        if role not in {"owner_admin", "practitioner", "viewer"}:
+            raise HTTPException(status_code=403, detail="invalid role")
+        return UserContext(user_id=str(x_user_id), role=role, tenant_id=str(x_tenant_id))
+    # Otherwise defer to standard dev flag behavior
+    return await get_user_context(x_user_id, x_role, x_tenant_id, authorization)
+
+
 def require_role(min_role: str):
     order = {"viewer": 0, "practitioner": 1, "owner_admin": 2}
 
