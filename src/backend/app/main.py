@@ -2102,7 +2102,14 @@ async def ai_chat(
             except Exception:
                 pass
         if data_notes:
-            system_prompt = system_prompt + "\n\nContext data (do not invent; use as source):\n" + "\n".join(data_notes[:10])
+            system_prompt = (
+                system_prompt
+                + "\n\nContext data (do not invent; use as source):\n"
+                + "\n".join(data_notes[:10])
+                + "\n\nInstruction: When context data is present and the user asks for top clients/contacts by lifetime value, answer directly using ONLY this context."
+                + " Present a short list like 'ID — LTV $X.XX — Last YYYY-MM-DD'. Do not ask for connections/exports."
+                + " Do not include any PII beyond the identifiers provided in the context. If no context rows exist, reply: 'No data available.'"
+            )
     except Exception:
         pass
     # Model selection: always use GPT‑5 Mini by default; Nano only as fallback
