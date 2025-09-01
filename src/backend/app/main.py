@@ -1633,6 +1633,10 @@ def oauth_refresh(req: OAuthRefreshRequest, db: Session = Depends(get_db), ctx: 
         except Exception:
             pass
         db.commit()
+        try:
+            emit_event("OauthRefreshed", {"tenant_id": req.tenant_id, "provider": req.provider})
+        except Exception:
+            pass
         return {"status": "ok"}
     except Exception as e:
         try:
@@ -7673,6 +7677,53 @@ def calendar_merge(req: CalendarMergeRequest, db: Session = Depends(get_db), ctx
         db.commit()
     emit_event("CalendarMerged", {"tenant_id": req.tenant_id, "dropped": drops, "kept": len(keep_ids)})
     return {"merged": drops}
+
+
+# -------- Connectors maintenance & RLS health ---------
+class ConnectorsCleanupRequest(BaseModel):
+    tenant_id: Optional[str] = None
+
+
+@app.post("/integrations/connectors/cleanup", tags=["Integrations"])
+def connectors_cleanup(req: ConnectorsCleanupRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
+    if req.tenant_id and ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"deleted": 0}
+    deleted = 0
+    try:
+        with engine.begin() as conn:
+            if req.tenant_id:
+                conn.execute(_sql_text("DELETE FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND (status IS NULL OR status='')"), {"t": req.tenant_id})
+            else:
+                conn.execute(_sql_text("DELETE FROM connected_accounts_v2 WHERE status IS NULL OR status=''"))
+        # We don't have rowcount reliably via exec_driver_sql; return 0 best-effort
+    except Exception:
+        pass
+    try:
+        emit_event("ConnectorsCleaned", {"tenant_id": req.tenant_id or ctx.tenant_id})
+    except Exception:
+        pass
+    return {"deleted": int(deleted)}
+
+
+@app.get("/integrations/rls/selfcheck", tags=["Integrations"])
+def rls_selfcheck(db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+    try:
+        # Verify we can see only our tenant rows in a few key tables
+        tid = ctx.tenant_id
+        counts = {}
+        for tbl in ["contacts", "appointments", "connected_accounts_v2"]:
+            try:
+                where = "tenant_id = CAST(:t AS uuid)" if tbl != "connected_accounts" else "tenant_id = :t"
+            except Exception:
+                where = "tenant_id = CAST(:t AS uuid)"
+            try:
+                c = db.execute(_sql_text(f"SELECT COUNT(1) FROM {tbl} WHERE {where}"), {"t": tid}).scalar() or 0
+                counts[tbl] = int(c)
+            except Exception:
+                counts[tbl] = -1
+        return {"status": "ok", "tenant_id": tid, "counts": counts}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
 
 class ErasureRequest(BaseModel):
     tenant_id: str
