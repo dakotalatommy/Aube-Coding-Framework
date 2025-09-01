@@ -44,4 +44,10 @@ def sum_counter(counter: Any) -> int:
         return 0
 
 
+# AI request counters
+AI_CHAT_USED = Counter("ai_chat_used_total", "AI chat responses served", ["tenant_id"])  # type: ignore
+DB_QUERY_TOOL_USED = Counter("db_query_tool_used_total", "DB query tool used", ["tenant_id", "name"])  # type: ignore
+INSIGHTS_SERVED = Counter("insights_served_total", "Insights served to AskVX", ["tenant_id", "kind"])  # type: ignore
+
+
 

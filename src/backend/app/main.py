@@ -14,7 +14,7 @@ from .auth import get_user_context, get_user_context_relaxed, require_role, User
 from .cadence import get_cadence_definition, schedule_initial_next_action
 from .kpi import compute_time_saved_minutes, ambassador_candidate, admin_kpis, funnel_daily_series
 from .cache import cache_get, cache_set, cache_del, cache_incr
-from .metrics_counters import CACHE_HIT, CACHE_MISS
+from .metrics_counters import CACHE_HIT, CACHE_MISS, AI_CHAT_USED, INSIGHTS_SERVED
 from .messaging import send_message
 from .integrations import crm_hubspot, booking_acuity
 from .integrations import inventory_shopify as inv_shopify
@@ -242,6 +242,65 @@ def _ensure_connected_accounts_v2() -> None:
             conn.exec_driver_sql("ALTER TABLE connected_accounts_v2 ADD COLUMN IF NOT EXISTS last_error TEXT;")
     except Exception:
         pass
+
+# ---------- AI context tables bootstrap ----------
+def _ensure_ai_tables() -> None:
+    try:
+        with engine.begin() as conn:
+            # ai_memories (tenant-scoped)
+            conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS ai_memories (
+                  id BIGSERIAL PRIMARY KEY,
+                  tenant_id UUID NOT NULL,
+                  key TEXT NOT NULL,
+                  value TEXT,
+                  tags TEXT,
+                  updated_at TIMESTAMPTZ DEFAULT NOW()
+                );
+                """
+            )
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ai_memories_tenant_key_idx ON ai_memories(tenant_id, key);")
+            # Enable simple RLS: tenant can only access own rows
+            try:
+                conn.exec_driver_sql("ALTER TABLE ai_memories ENABLE ROW LEVEL SECURITY;")
+                conn.exec_driver_sql(
+                    "CREATE POLICY IF NOT EXISTS ai_memories_tenant_select ON ai_memories FOR SELECT USING (tenant_id = CAST(current_setting('app.tenant_id', true) AS uuid));"
+                )
+                conn.exec_driver_sql(
+                    "CREATE POLICY IF NOT EXISTS ai_memories_tenant_mod ON ai_memories FOR ALL USING (tenant_id = CAST(current_setting('app.tenant_id', true) AS uuid)) WITH CHECK (tenant_id = CAST(current_setting('app.tenant_id', true) AS uuid));"
+                )
+            except Exception:
+                pass
+            # ai_global_insights (global)
+            conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS ai_global_insights (
+                  id BIGSERIAL PRIMARY KEY,
+                  metric TEXT NOT NULL,
+                  scope TEXT,
+                  time_window TEXT,
+                  value TEXT,
+                  created_at TIMESTAMPTZ DEFAULT NOW()
+                );
+                """
+            )
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ai_global_insights_metric_idx ON ai_global_insights(metric);")
+            # ai_global_faq (global)
+            conn.exec_driver_sql(
+                """
+                CREATE TABLE IF NOT EXISTS ai_global_faq (
+                  id BIGSERIAL PRIMARY KEY,
+                  intent TEXT NOT NULL,
+                  answer TEXT NOT NULL,
+                  created_at TIMESTAMPTZ DEFAULT NOW(),
+                  updated_at TIMESTAMPTZ DEFAULT NOW()
+                );
+                """
+            )
+            conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ai_global_faq_intent_idx ON ai_global_faq(intent);")
+    except Exception:
+        pass
 # --- Lightweight background scheduler runner (enabled via env) ---
 def _scheduler_loop():
     try:
@@ -285,6 +344,8 @@ def _start_scheduler_if_enabled():
         start_job_worker_if_enabled()
         # Bootstrap v2 table
         _ensure_connected_accounts_v2()
+        # Bootstrap AI context tables
+        _ensure_ai_tables()
     except Exception:
         pass
 # --------------------------- Plans & Usage Limits (admin) ---------------------------
@@ -731,8 +792,6 @@ def _stripe_client():
         raise HTTPException(status_code=500, detail="stripe_not_configured")
     _stripe.api_key = secret
     return _stripe
-
-
 @app.post("/billing/create-customer", tags=["Integrations"])
 def create_customer(ctx: UserContext = Depends(get_user_context)):
     s = _stripe_client()
@@ -1501,8 +1560,6 @@ def _oauth_authorize_url(provider: str, tenant_id: Optional[str] = None) -> str:
         # Not configured yet
         return ""
     return ""
-
-
 def _oauth_exchange_token(provider: str, code: str, redirect_uri: str, code_verifier: Optional[str] = None) -> Dict[str, object]:
     """Exchange authorization code for tokens. Returns a dict possibly containing
     access_token, refresh_token, expires_in, scope, token_type. On failure, returns {}.
@@ -2299,8 +2356,6 @@ class ChatRawRequest(BaseModel):
     tenant_id: str
     messages: List[ChatMessage]
     session_id: Optional[str] = None
-
-
 @app.post("/ai/chat", tags=["AI"])
 async def ai_chat(
     req: ChatRequest,
@@ -2416,7 +2471,7 @@ async def ai_chat(
         user_q = (req.messages[-1].content if req.messages else "").lower()
         data_notes: List[str] = []
         # Direct cohort: gloss within 6 weeks of balayage, no rebook in 12 weeks (top 10 by LTV)
-        if ("gloss" in user_q and "balayage" in user_q and ("no rebook" in user_q or "haven't rebooked" in user_q or "haven’t rebooked" in user_q)):
+        if ("gloss" in user_q and "balayage" in user_q and ("no rebook" in user_q or "haven't rebooked" in user_q or "haven't rebooked" in user_q)):
             try:
                 with engine.begin() as conn:
                     rows = conn.execute(
@@ -3022,6 +3077,13 @@ async def ai_chat_raw(
     except Exception:
         try: db.rollback()
         except Exception: pass
+    try:
+        AI_CHAT_USED.labels(tenant_id=str(ctx.tenant_id)).inc()  # type: ignore
+        # Rough classification: if we added context snippets, count as insights served
+        if "Context data (do not invent; use as source):" in system_prompt:
+            INSIGHTS_SERVED.labels(tenant_id=str(ctx.tenant_id), kind="context_inline").inc()  # type: ignore
+    except Exception:
+        pass
     return {"text": content}
 
 @app.get("/ai/diag", tags=["AI"])
@@ -3091,8 +3153,6 @@ async def proxy_realtime_token(
     payload = {"tenant_id": req.tenant_id, **(req.payload or {})}
     out = await _call_edge_function("realtime-token", payload)
     return out
-
-
 @app.get("/ai/chat/logs", tags=["AI"])
 def ai_chat_logs(
     tenant_id: str,
@@ -3338,6 +3398,29 @@ async def ai_tool_execute(
         except Exception:
             pass
         return {"status": "error", "message": str(e)}
+
+
+@app.get("/reports/download/{token}", tags=["AI"])
+def report_download(token: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    try:
+        row = db.execute(
+            _sql_text("SELECT mime, filename, data_text, tenant_id::text FROM share_reports WHERE token = :tok ORDER BY id DESC LIMIT 1"),
+            {"tok": token},
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="not_found")
+        mime = str(row[0] or "text/csv")
+        filename = str(row[1] or "report.csv")
+        data_text = str(row[2] or "")
+        tenant_id = str(row[3] or "")
+        if ctx.role != "owner_admin" and str(ctx.tenant_id) != tenant_id:
+            raise HTTPException(status_code=403, detail="forbidden")
+        from fastapi.responses import Response as _Resp
+        return _Resp(content=data_text.encode("utf-8"), media_type=mime, headers={"Content-Disposition": f"attachment; filename={filename}"})
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=500, detail="error")
 
 
 class ImportMissingRequest(BaseModel):
@@ -4681,8 +4764,6 @@ def update_lead_status(
 class DLQReplayRequest(BaseModel):
     tenant_id: Optional[str] = None
     limit: int = 20
-
-
 @app.post("/dlq/replay", tags=["Cadences"])
 def dlq_replay(
     req: DLQReplayRequest,
@@ -5190,8 +5271,6 @@ def hubspot_import(req: HubspotImportRequest, db: Session = Depends(get_db), ctx
     db.commit()
     emit_event("CrmImportCompleted", {"tenant_id": req.tenant_id, "system": "hubspot", "imported": created})
     return {"imported": created}
-
-
 @app.post("/integrations/booking/square/sync-contacts", tags=["Integrations"])
 def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context_relaxed)) -> Dict[str, object]:
     if os.getenv("INTEGRATIONS_V1_DISABLED", "0") == "1":

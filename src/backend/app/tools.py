@@ -15,6 +15,9 @@ import csv
 import time
 import os
 import httpx
+import secrets as _secrets
+from .rate_limit import check_and_increment
+from .metrics_counters import DB_QUERY_TOOL_USED
 
 
 class ToolError(Exception):
@@ -672,21 +675,31 @@ async def _dispatch_extended(name: str, params: Dict[str, Any], db: Session, ctx
     if name == "square.backfill":
         return await tool_square_backfill(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)))
     if name == "db.query.sql":
-        return await tool_db_query_sql(
+        out = await tool_db_query_sql(
             db,
             ctx,
             tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
             sql=str(params.get("sql", "")),
             limit=int(params.get("limit", 100)),
         )
+        try:
+            DB_QUERY_TOOL_USED.labels(tenant_id=str(ctx.tenant_id), name="sql").inc()  # type: ignore
+        except Exception:
+            pass
+        return out
     if name == "db.query.named":
-        return await tool_db_query_named(
+        out = await tool_db_query_named(
             db,
             ctx,
             tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
             name=str(params.get("name", "")),
             params=params.get("params") if isinstance(params.get("params"), dict) else None,
         )
+        try:
+            DB_QUERY_TOOL_USED.labels(tenant_id=str(ctx.tenant_id), name=str(params.get("name",""))).inc()  # type: ignore
+        except Exception:
+            pass
+        return out
     return None
 
 
@@ -766,6 +779,12 @@ async def tool_db_query_sql(
     limit: int = 100,
 ) -> Dict[str, Any]:
     _require_tenant(ctx, tenant_id)
+    try:
+        ok, ttl = check_and_increment(str(ctx.tenant_id), "db.query.sql", max_per_minute=60, burst=30)
+        if not ok:
+            return {"status": "rate_limited", "retry_s": int(ttl)}
+    except Exception:
+        pass
     sql = sql.strip()
     if not _is_safe_select(sql):
         return {"status": "rejected", "reason": "unsafe_sql"}
@@ -793,6 +812,12 @@ async def tool_db_query_named(
     params: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     _require_tenant(ctx, tenant_id)
+    try:
+        ok, ttl = check_and_increment(str(ctx.tenant_id), "db.query.named", max_per_minute=120, burst=60)
+        if not ok:
+            return {"status": "rate_limited", "retry_s": int(ttl)}
+    except Exception:
+        pass
     n = (name or "").strip().lower()
     p = params or {}
     try:
@@ -997,7 +1022,38 @@ async def tool_report_generate_csv(
         if not isinstance(rows, list):
             return {"status": "error", "detail": "rows_not_list"}
         csv_text = _rows_to_csv(rows)
-        return {"status": "ok", "mime": "text/csv", "filename": f"report_{name.replace('.', '_')}.csv", "csv": csv_text}
+        # Persist a signed download token
+        token = _secrets.token_urlsafe(16)
+        filename = f"report_{name.replace('.', '_')}.csv"
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    _sql_text(
+                        """
+                        CREATE TABLE IF NOT EXISTS share_reports (
+                          id BIGSERIAL PRIMARY KEY,
+                          tenant_id UUID NOT NULL,
+                          token TEXT NOT NULL,
+                          mime TEXT NOT NULL,
+                          filename TEXT NOT NULL,
+                          data_text TEXT NOT NULL,
+                          created_at TIMESTAMPTZ DEFAULT NOW()
+                        );
+                        """
+                    )
+                )
+                conn.execute(
+                    _sql_text(
+                        "INSERT INTO share_reports (tenant_id, token, mime, filename, data_text) VALUES (CAST(:t AS uuid), :tok, :m, :fn, :dt)"
+                    ),
+                    {"t": tenant_id, "tok": token, "m": "text/csv", "fn": filename, "dt": csv_text},
+                )
+        except Exception:
+            # Fallback: return inline CSV if persistence failed
+            return {"status": "ok", "mime": "text/csv", "filename": filename, "csv": csv_text}
+        base_api = os.getenv("BACKEND_BASE_URL", "").rstrip("/")
+        url = f"{base_api}/reports/download/{token}" if base_api else f"/reports/download/{token}"
+        return {"status": "ok", "mime": "text/csv", "filename": filename, "csv": csv_text, "url": url}
     return {"status": "not_implemented"}
 # Extend registry with CRM tools
 REGISTRY.update(
