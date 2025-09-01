@@ -2694,6 +2694,8 @@ def ai_tools_schema_human() -> Dict[str, object]:
         {"id": "appointments.schedule_reminders", "label": "Schedule reminders", "gated": True, "category": "appointments"},
         {"id": "inventory.alerts.get", "label": "Low‑stock alerts", "gated": True, "category": "inventory"},
         {"id": "social.schedule.14days", "label": "Draft 14‑day social plan", "gated": True, "category": "social"},
+        {"id": "contacts.list.top_ltv", "label": "Top clients by lifetime spend", "gated": False, "category": "crm"},
+        {"id": "contacts.import.square", "label": "Import contacts from Square", "gated": False, "category": "crm"},
     ]
     return {"version": "v1", "tools": tools}
 
@@ -3428,6 +3430,8 @@ def ai_tools_schema() -> Dict[str, object]:
             {"name": "appointments.schedule_reminders", "public": False, "description": "Schedule appointment reminder messages."},
             {"name": "inventory.alerts.get", "public": False, "description": "List low-stock inventory items."},
             {"name": "social.schedule.14days", "public": False, "description": "Draft a 14-day posting plan (approval required)."},
+            {"name": "contacts.list.top_ltv", "public": True, "description": "List top clients by lifetime value."},
+            {"name": "contacts.import.square", "public": True, "description": "Import contacts from Square (read-only)."},
         ]
     }
 

@@ -12,6 +12,8 @@ import math
 import io
 import csv
 import time
+import os
+import httpx
 
 
 class ToolError(Exception):
@@ -588,6 +590,61 @@ async def _dispatch_extended(name: str, params: Dict[str, Any], db: Session, ctx
             threshold_days=int(params.get("threshold_days", 60)),
         )
     return None
+
+
+# ---------------------- CRM helpers ----------------------
+def tool_contacts_list_top_ltv(
+    db: Session,
+    ctx: UserContext,
+    tenant_id: str,
+    limit: int = 10,
+) -> Dict[str, Any]:
+    _require_tenant(ctx, tenant_id)
+    rows = (
+        db.query(dbm.Contact)
+        .filter(dbm.Contact.tenant_id == tenant_id, dbm.Contact.deleted == False)  # type: ignore
+        .order_by(dbm.Contact.lifetime_cents.desc())
+        .limit(max(1, min(int(limit or 10), 200)))
+        .all()
+    )
+    out = [
+        {
+            "contact_id": r.contact_id,
+            "txn_count": int(getattr(r, "txn_count", 0) or 0),
+            "lifetime_cents": int(getattr(r, "lifetime_cents", 0) or 0),
+            "last_visit": int(getattr(r, "last_visit", 0) or 0),
+        }
+        for r in rows
+    ]
+    return {"status": "ok", "items": out}
+
+
+async def tool_contacts_import_square(
+    db: Session,
+    ctx: UserContext,
+    tenant_id: str,
+) -> Dict[str, Any]:
+    _require_tenant(ctx, tenant_id)
+    base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.post(f"{base_api}/integrations/booking/square/sync-contacts", json={"tenant_id": tenant_id})
+            try:
+                body = r.json()
+            except Exception:
+                body = {"status": r.status_code, "detail": (r.text or "")[:200]}
+            return body if isinstance(body, dict) else {"status": "ok", **body}
+    except httpx.HTTPError as e:
+        return {"status": "error", "detail": str(e)}
+
+
+# Extend registry with CRM tools
+REGISTRY.update(
+    {
+        "contacts.list.top_ltv": tool_contacts_list_top_ltv,
+        "contacts.import.square": tool_contacts_import_square,  # async
+    }
+)
 
 
 

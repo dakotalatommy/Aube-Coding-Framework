@@ -686,7 +686,7 @@ export default function Ask(){
           {(loading || streaming) && (
             <div className="text-left" aria-live="assertive" aria-atomic="true">
               <span className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-slate-100 text-slate-900">
-                <span>BrandVX is typing</span>
+                <span>AskVX is typing</span>
                 <span className="inline-flex ml-1 items-end">
                   <motion.span className="w-1.5 h-1.5 bg-slate-600 rounded-full"
                     animate={{ y: [0, -3, 0], opacity: [0.5, 1, 0.6] }}
