@@ -2116,15 +2116,8 @@ async def ai_chat(
     # Allow configuring response length via env
     _max_tokens = int(os.getenv("AI_CHAT_MAX_TOKENS", "1200"))
     try:
-        # Enforce a safe output-token floor to avoid incomplete Responses
-        # For short prompts, allow a higher cap to avoid reasoning-only completions
-        reply_max_tokens = (_max_tokens if not short else min(800, _max_tokens))
-        try:
-            reply_floor = int(os.getenv("AI_MIN_OUTPUT_TOKENS", "600" if short else "256"))
-        except Exception:
-            reply_floor = (600 if short else 256)
-        if reply_max_tokens < reply_floor:
-            reply_max_tokens = reply_floor
+        # Preserve provider behavior; do not inject local fallbacks
+        reply_max_tokens = _max_tokens
         content = await client.generate(
             system_prompt,
             [
@@ -2133,42 +2126,10 @@ async def ai_chat(
             ],
             max_tokens=reply_max_tokens,
         )
-    except Exception:
-        # Fallback to the first configured fallback model
-        try:
-            client_fallback = AIClient(model=fallback_models[0])  # type: ignore
-            # Apply the same token floor on fallback path
-            try:
-                reply_floor_fb = int(os.getenv("AI_MIN_OUTPUT_TOKENS", "256"))
-            except Exception:
-                reply_floor_fb = 256
-            fb_max = min(800, _max_tokens)
-            if fb_max < reply_floor_fb:
-                fb_max = reply_floor_fb
-            content = await client_fallback.generate(
-                system_prompt,
-                [
-                    {"role": m.role, "content": m.content}
-                    for m in req.messages
-                ],
-                max_tokens=fb_max,
-            )
-        except Exception:
-            # Graceful local fallback per-mode to avoid dead-ends in demo/onboarding
-            if (req.mode or "") == "sales_onboarding":
-                last = (req.messages[-1].content if req.messages else "")
-                return {"text": f"Got it — {last.strip()[:80]} … What's the main goal you want BrandVX to help with this week?"}
-            return {"text": "AI is temporarily busy. Please try again in a moment."}
-    # Only fallback when the model returns an empty string; preserve model text otherwise
-    try:
-        _ct = (content or "").strip()
-        if not _ct:
-            if (req.mode or "") == "sales_onboarding":
-                content = "OK — noted. What's the main goal you want to hit in your first 30 days (e.g., automate follow‑ups, boost bookings, or clean up contacts)?"
-            else:
-                content = "How can I help right now? I can summarize your brand settings, list contacts, or suggest next steps."
-    except Exception:
-        pass
+    except Exception as e:
+        from fastapi.responses import JSONResponse as _JR
+        return _JR({"error": "provider_error", "detail": str(e)[:400]}, status_code=502)
+    # Return model content as-is (no local fallback messaging)
     # Persist chat logs (last user msg + assistant reply) and record usage
     try:
         with next(get_db()) as db:  # type: ignore

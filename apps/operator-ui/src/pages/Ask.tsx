@@ -158,6 +158,7 @@ export default function Ask(){
         session_id: sessionId,
         mode: 'qa_detailed',
       }, { timeoutMs: 20000 });
+      if (r?.error) { setMessages(curr => [...curr, { role:'assistant', content: `Error: ${String(r.detail||r.error)}` }]); setLoading(false); return; }
       const text = String(r?.text || '');
       // Refine contextual actions with assistant text
       setContextActions(computeContext(prompt, text));
