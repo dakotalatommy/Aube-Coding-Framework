@@ -52,6 +52,50 @@ async def tool_draft_message(
     return {"status": "ok", "draft": body, "channel": channel}
 
 
+# Quick connector actions
+async def tool_connectors_cleanup(db: Session, ctx: UserContext, tenant_id: str) -> Dict[str, Any]:
+    _require_tenant(ctx, tenant_id)
+    base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(f"{base_api}/integrations/connectors/cleanup", json={"tenant_id": tenant_id})
+        return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
+
+async def tool_connectors_normalize(db: Session, ctx: UserContext, tenant_id: str) -> Dict[str, Any]:
+    _require_tenant(ctx, tenant_id)
+    base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
+    async with httpx.AsyncClient(timeout=60) as client:
+        r = await client.post(f"{base_api}/integrations/connectors/normalize", json={"tenant_id": tenant_id, "migrate_legacy": True, "dedupe": True})
+        return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
+
+async def tool_calendar_sync(db: Session, ctx: UserContext, tenant_id: str, provider: Optional[str] = None) -> Dict[str, Any]:
+    _require_tenant(ctx, tenant_id)
+    base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(f"{base_api}/calendar/sync", json={"tenant_id": tenant_id, "provider": provider or "auto"})
+        return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
+
+async def tool_calendar_merge(db: Session, ctx: UserContext, tenant_id: str) -> Dict[str, Any]:
+    _require_tenant(ctx, tenant_id)
+    base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(f"{base_api}/calendar/merge", json={"tenant_id": tenant_id})
+        return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
+
+async def tool_oauth_refresh(db: Session, ctx: UserContext, tenant_id: str, provider: str) -> Dict[str, Any]:
+    _require_tenant(ctx, tenant_id)
+    base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(f"{base_api}/oauth/refresh", json={"tenant_id": tenant_id, "provider": provider})
+        return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
+
+async def tool_square_backfill(db: Session, ctx: UserContext, tenant_id: str) -> Dict[str, Any]:
+    _require_tenant(ctx, tenant_id)
+    base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
+    async with httpx.AsyncClient(timeout=60) as client:
+        r = await client.post(f"{base_api}/integrations/booking/square/backfill-metrics", json={"tenant_id": tenant_id})
+        return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
+
+
 def tool_propose_next_cadence_step(
     db: Session,
     ctx: UserContext,
@@ -549,6 +593,13 @@ REGISTRY.update(
         "link.hubspot.signup": lambda *a, **k: {"status": "ok", "url": "https://app.hubspot.com/signup"},
         "oauth.hubspot.connect": lambda *a, **k: {"status": "ok", "url": "/oauth/hubspot/login"},
         "crm.hubspot.import": lambda *a, **k: {"status": "ok", "endpoint": "/crm/hubspot/import"},
+        # New quick exec tools
+        "connectors.cleanup": tool_connectors_cleanup,
+        "connectors.normalize": tool_connectors_normalize,
+        "calendar.sync": tool_calendar_sync,
+        "calendar.merge": tool_calendar_merge,
+        "oauth.refresh": tool_oauth_refresh,
+        "square.backfill": tool_square_backfill,
     }
 )
 
@@ -603,6 +654,20 @@ async def _dispatch_extended(name: str, params: Dict[str, Any], db: Session, ctx
             tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
             threshold_days=int(params.get("threshold_days", 60)),
         )
+    if name == "connectors.cleanup":
+        return await tool_connectors_cleanup(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)))
+    if name == "connectors.normalize":
+        return await tool_connectors_normalize(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)))
+    if name == "calendar.sync":
+        return await tool_calendar_sync(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)), provider=params.get("provider"))
+    if name == "calendar.merge":
+        return await tool_calendar_merge(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)))
+    if name == "oauth.refresh":
+        return await tool_oauth_refresh(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)), provider=str(params.get("provider", "")))
+    if name == "contacts.import.square":
+        return await tool_contacts_import_square(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)))
+    if name == "square.backfill":
+        return await tool_square_backfill(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)))
     return None
 
 

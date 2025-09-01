@@ -781,7 +781,6 @@ def billing_config() -> Dict[str, object]:
         "price_97": _env("STRIPE_PRICE_97", ""),
         "trial_days": int(_env("STRIPE_TRIAL_DAYS", "7") or 7),
     }
-
 @app.post("/billing/webhook", tags=["Integrations"])
 async def stripe_webhook(request: Request):
     payload = await request.body()
@@ -2382,7 +2381,7 @@ async def ai_chat_raw(
     except Exception:
         brand_profile_text = ""
     # Compose BrandVX voice system prompt only
-    system_prompt = BRAND_SYSTEM + "\nYou have direct access to the current tenant’s workspace data via backend queries. Answer using provided context; do not claim you lack access. Keep responses concise and plain text."
+    system_prompt = BRAND_SYSTEM + "\nYou have direct access to the current tenant's workspace data via backend queries. Answer using provided context; do not claim you lack access. Keep responses concise and plain text."
     if brand_profile_text:
         system_prompt = system_prompt + "\n\nBrand profile (voice/tone):\n" + brand_profile_text
     # Lightweight data context: answer top LTV queries concretely when available
@@ -3953,24 +3952,16 @@ def ai_tools_schema() -> Dict[str, object]:
                     "cadence_id": "string"
                 }
             },
-            # Gated tools (require approvals)
-            {"name": "send_message", "public": False, "description": "Send a message (consent + rate limits enforced)."},
-            {"name": "start_cadence", "public": False, "description": "Start a cadence for a contact."},
-            {"name": "stop_cadence", "public": False, "description": "Stop a cadence for a contact."},
-            {"name": "notify_trigger_send", "public": False, "description": "Send waitlist pings to top candidates."},
-            {"name": "scheduler_tick", "public": False, "description": "Process scheduled actions."},
-            {"name": "lead_status.update", "public": False, "description": "Update lead status by intent."},
-            {"name": "appointments.create", "public": False, "description": "Create an appointment and schedule reminders."},
-            {"name": "marts.recompute", "public": False, "description": "Recompute analytics marts."},
-            {"name": "settings.update", "public": False, "description": "Update tenant settings (tone/services)."},
-            {"name": "export.contacts", "public": False, "description": "Export contacts as CSV."},
-            {"name": "contacts.dedupe", "public": False, "description": "Deduplicate contacts by email/phone hashes (keeps first)."},
-            {"name": "campaigns.dormant.start", "public": False, "description": "Start dormant campaign for inactive clients."},
-            {"name": "appointments.schedule_reminders", "public": False, "description": "Schedule appointment reminder messages."},
-            {"name": "inventory.alerts.get", "public": False, "description": "List low-stock inventory items."},
-            {"name": "social.schedule.14days", "public": False, "description": "Draft a 14-day posting plan (approval required)."},
-            {"name": "contacts.list.top_ltv", "public": True, "description": "List top clients by lifetime value."},
-            {"name": "contacts.import.square", "public": True, "description": "Import contacts from Square (read-only)."},
+            {"name": "contacts.dedupe", "public": True, "description": "Mark duplicate contacts as deleted by matching email/phone.", "params": {"tenant_id": "string"}},
+            {"name": "contacts.list.top_ltv", "public": True, "description": "List top contacts by lifetime value.", "params": {"tenant_id": "string", "limit": "number?"}},
+            {"name": "contacts.import.square", "public": True, "description": "Import contacts from Square.", "params": {"tenant_id": "string"}},
+            {"name": "square.backfill", "public": True, "description": "Backfill Square payments metrics to contacts.", "params": {"tenant_id": "string"}},
+            {"name": "crm.hubspot.import", "public": True, "description": "Import sample contacts from HubSpot.", "params": {"tenant_id": "string"}},
+            {"name": "oauth.refresh", "public": True, "description": "Refresh an OAuth provider token.", "params": {"tenant_id": "string", "provider": "string"}},
+            {"name": "connectors.cleanup", "public": True, "description": "Cleanup blank/invalid connector rows (v2).", "params": {"tenant_id": "string"}},
+            {"name": "connectors.normalize", "public": True, "description": "Migrate legacy connectors and dedupe v2.", "params": {"tenant_id": "string"}},
+            {"name": "calendar.sync", "public": True, "description": "Sync unified calendar (Google/Apple/bookings).", "params": {"tenant_id": "string", "provider": "string?"}},
+            {"name": "calendar.merge", "public": True, "description": "Merge duplicate calendar events by title/time.", "params": {"tenant_id": "string"}},
         ]
     }
 
@@ -4511,8 +4502,6 @@ class AssistInput(BaseModel):
     page: Optional[str] = None
     input: str
     history: Optional[List[Dict[str, Any]]] = None
-
-
 @app.post("/api/assist", tags=["AI"])  # stub/deterministic
 def api_assist(req: AssistInput, ctx: UserContext = Depends(get_user_context)):
     try:
@@ -5225,8 +5214,6 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
 
 class SquareBackfillMetricsRequest(BaseModel):
     tenant_id: str
-
-
 @app.post("/integrations/booking/square/backfill-metrics", tags=["Integrations"])
 def square_backfill_metrics(req: SquareBackfillMetricsRequest, ctx: UserContext = Depends(get_user_context_relaxed)) -> Dict[str, object]:
     try:
@@ -5999,22 +5986,16 @@ def ai_tools_schema() -> Dict[str, object]:
                     "cadence_id": "string"
                 }
             },
-            # Gated tools (require approvals)
-            {"name": "send_message", "public": False, "description": "Send a message (consent + rate limits enforced)."},
-            {"name": "start_cadence", "public": False, "description": "Start a cadence for a contact."},
-            {"name": "stop_cadence", "public": False, "description": "Stop a cadence for a contact."},
-            {"name": "notify_trigger_send", "public": False, "description": "Send waitlist pings to top candidates."},
-            {"name": "scheduler_tick", "public": False, "description": "Process scheduled actions."},
-            {"name": "lead_status.update", "public": False, "description": "Update lead status by intent."},
-            {"name": "appointments.create", "public": False, "description": "Create an appointment and schedule reminders."},
-            {"name": "marts.recompute", "public": False, "description": "Recompute analytics marts."},
-            {"name": "settings.update", "public": False, "description": "Update tenant settings (tone/services)."},
-            {"name": "export.contacts", "public": False, "description": "Export contacts as CSV."},
-            {"name": "contacts.dedupe", "public": False, "description": "Deduplicate contacts by email/phone hashes (keeps first)."},
-            {"name": "campaigns.dormant.start", "public": False, "description": "Start dormant campaign for inactive clients."},
-            {"name": "appointments.schedule_reminders", "public": False, "description": "Schedule appointment reminder messages."},
-            {"name": "inventory.alerts.get", "public": False, "description": "List low-stock inventory items."},
-            {"name": "social.schedule.14days", "public": False, "description": "Draft a 14-day posting plan (approval required)."},
+            {"name": "contacts.dedupe", "public": True, "description": "Mark duplicate contacts as deleted by matching email/phone.", "params": {"tenant_id": "string"}},
+            {"name": "contacts.list.top_ltv", "public": True, "description": "List top contacts by lifetime value.", "params": {"tenant_id": "string", "limit": "number?"}},
+            {"name": "contacts.import.square", "public": True, "description": "Import contacts from Square.", "params": {"tenant_id": "string"}},
+            {"name": "square.backfill", "public": True, "description": "Backfill Square payments metrics to contacts.", "params": {"tenant_id": "string"}},
+            {"name": "crm.hubspot.import", "public": True, "description": "Import sample contacts from HubSpot.", "params": {"tenant_id": "string"}},
+            {"name": "oauth.refresh", "public": True, "description": "Refresh an OAuth provider token.", "params": {"tenant_id": "string", "provider": "string"}},
+            {"name": "connectors.cleanup", "public": True, "description": "Cleanup blank/invalid connector rows (v2).", "params": {"tenant_id": "string"}},
+            {"name": "connectors.normalize", "public": True, "description": "Migrate legacy connectors and dedupe v2.", "params": {"tenant_id": "string"}},
+            {"name": "calendar.sync", "public": True, "description": "Sync unified calendar (Google/Apple/bookings).", "params": {"tenant_id": "string", "provider": "string?"}},
+            {"name": "calendar.merge", "public": True, "description": "Merge duplicate calendar events by title/time.", "params": {"tenant_id": "string"}},
         ]
     }
 
@@ -6022,8 +6003,6 @@ def ai_tools_schema() -> Dict[str, object]:
 class WorkflowPlanRequest(BaseModel):
     tenant_id: str
     name: str  # e.g., "crm_organization", "book_filling"
-
-
 @app.post("/ai/workflow/plan", tags=["AI"])
 def ai_workflow_plan(req: WorkflowPlanRequest, ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
@@ -7592,8 +7571,6 @@ def inventory_metrics(
 class SyncRequest(BaseModel):
     tenant_id: str
     provider: Optional[str] = None
-
-
 @app.post("/calendar/sync", tags=["Integrations"])
 def calendar_sync(req: SyncRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, str]:
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
