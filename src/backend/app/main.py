@@ -2295,6 +2295,94 @@ async def ai_chat_raw(
                         data_notes.append(f"• {r.contact_id} — Birthday {b}")
             except Exception:
                 pass
+        # Appointments this week (UTC-based)
+        if ("appointment" in user_q and "week" in user_q):
+            try:
+                import datetime as _dt
+                now = _dt.datetime.utcnow()
+                # ISO week start (Monday)
+                weekday = now.isoweekday()  # 1..7
+                start = _dt.datetime(now.year, now.month, now.day) - _dt.timedelta(days=weekday-1)
+                start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+                end = start + _dt.timedelta(days=7)
+                c = (
+                    db.query(dbm.Appointment)
+                    .filter(dbm.Appointment.tenant_id == ctx.tenant_id)
+                    .filter(dbm.Appointment.start_ts >= int(start.timestamp()))
+                    .filter(dbm.Appointment.start_ts < int(end.timestamp()))
+                    .count()
+                )
+                data_notes.append(f"• Appointments this week: {int(c)}")
+            except Exception:
+                pass
+        # Last week tax-free revenue (Square payments best-effort)
+        if ("revenue" in user_q or "sales" in user_q) and ("last week" in user_q or "previous week" in user_q or "past week" in user_q):
+            try:
+                # Read Square token
+                token = ""
+                try:
+                    with engine.begin() as conn:
+                        row_v2 = conn.execute(_sql_text("SELECT access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider='square' ORDER BY id DESC LIMIT 1"), {"t": str(ctx.tenant_id)}).fetchone()
+                    if row_v2 and row_v2[0]:
+                        try:
+                            token = decrypt_text(str(row_v2[0])) or ""
+                        except Exception:
+                            token = str(row_v2[0])
+                except Exception:
+                    token = ""
+                if token:
+                    import datetime as _dt
+                    today = _dt.datetime.utcnow().date()
+                    # Compute last ISO week [Mon..Mon)
+                    weekday = today.isoweekday()  # 1..7
+                    this_monday = today - _dt.timedelta(days=weekday-1)
+                    last_monday = this_monday - _dt.timedelta(days=7)
+                    next_monday = this_monday
+                    begin = _dt.datetime.combine(last_monday, _dt.time(0,0,0))
+                    end = _dt.datetime.combine(next_monday, _dt.time(0,0,0))
+                    def _rfc3339(dt: _dt.datetime) -> str:
+                        return dt.replace(microsecond=0).isoformat() + "Z"
+                    base = os.getenv("SQUARE_API_BASE", "https://connect.squareup.com")
+                    if os.getenv("SQUARE_ENV", "prod").lower().startswith("sand"):
+                        base = "https://connect.squareupsandbox.com"
+                    headers = {"Authorization": f"Bearer {token}", "Accept": "application/json", "Square-Version": os.getenv("SQUARE_VERSION", "2023-10-18")}
+                    total_cents = 0
+                    try:
+                        with httpx.Client(timeout=20, headers=headers) as client:
+                            cursor = None
+                            while True:
+                                params: Dict[str, str] = {
+                                    "limit": "100",
+                                    "begin_time": _rfc3339(begin),
+                                    "end_time": _rfc3339(end),
+                                }
+                                if cursor:
+                                    params["cursor"] = cursor
+                                r = client.get(f"{base}/v2/payments", params=params)
+                                if r.status_code >= 400:
+                                    break
+                                body = r.json() or {}
+                                payments = body.get("payments") or []
+                                for p in payments:
+                                    try:
+                                        status = str(p.get("status") or "").upper()
+                                        if status not in {"COMPLETED", "APPROVED", "CAPTURED"}:
+                                            continue
+                                        amt = int(((p.get("amount_money") or {}).get("amount") or 0))
+                                        tax = int(((p.get("tax_money") or {}).get("amount") or 0))
+                                        refunded = int(((p.get("refunded_money") or {}).get("amount") or 0))
+                                        net = max(0, amt - tax - refunded)
+                                        total_cents += net
+                                    except Exception:
+                                        continue
+                                cursor = body.get("cursor") or body.get("next_cursor")
+                                if not cursor:
+                                    break
+                    except Exception:
+                        pass
+                    data_notes.append(f"• Last week tax-free revenue: ${(total_cents/100.0):.2f}")
+            except Exception:
+                pass
         if data_notes:
             system_prompt = (
                 system_prompt
