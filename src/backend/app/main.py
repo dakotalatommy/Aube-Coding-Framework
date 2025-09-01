@@ -2698,7 +2698,7 @@ async def ai_chat_raw(
                 f"{k}(last_sync={v.get('last_sync',0)})" for k,v in pmap.items()
             ])
     except Exception:
-        pass
+        pmap = {}
     # Lightweight data context: answer top LTV queries concretely when available
     try:
         user_q = (req.messages[-1].content if req.messages else "").lower()

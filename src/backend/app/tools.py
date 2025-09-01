@@ -813,6 +813,152 @@ async def tool_db_query_named(
                 lim = max(1, min(int(p.get("limit", 25)), 100))
                 rows = conn.execute(q, {"t": tenant_id, "lim": lim}).fetchall()
                 return {"status": "ok", "rows": [dict(r._mapping) for r in rows]}
+            if n == "metric.rebook_rate_category_fri_after_4pm_90d":
+                # Rebook definition: next completed appointment within 30 days of index appointment
+                q = _sql_text(
+                    """
+                    WITH base AS (
+                      SELECT id, COALESCE(lower(service),'unknown') AS category, contact_id, start_ts
+                      FROM appointments
+                      WHERE tenant_id = CAST(:t AS uuid)
+                        AND status = 'completed'
+                        AND start_ts >= (EXTRACT(epoch FROM now())::bigint - 90*86400)
+                        AND EXTRACT(DOW FROM to_timestamp(start_ts)) = 5
+                        AND to_timestamp(start_ts)::time >= time '16:00'
+                    ),
+                    rebooked AS (
+                      SELECT a1.id AS id
+                      FROM appointments a1
+                      WHERE a1.tenant_id = CAST(:t AS uuid)
+                        AND a1.status = 'completed'
+                        AND a1.start_ts >= (EXTRACT(epoch FROM now())::bigint - 90*86400)
+                        AND EXTRACT(DOW FROM to_timestamp(a1.start_ts)) = 5
+                        AND to_timestamp(a1.start_ts)::time >= time '16:00'
+                        AND EXISTS (
+                          SELECT 1 FROM appointments a2
+                          WHERE a2.tenant_id = a1.tenant_id
+                            AND a2.contact_id = a1.contact_id
+                            AND a2.status = 'completed'
+                            AND a2.start_ts > a1.start_ts
+                            AND a2.start_ts <= a1.start_ts + 30*86400
+                        )
+                    )
+                    SELECT b.category,
+                           COUNT(*) AS total,
+                           COUNT(*) FILTER (WHERE b.id IN (SELECT id FROM rebooked)) AS rebooked,
+                           ROUND((COUNT(*) FILTER (WHERE b.id IN (SELECT id FROM rebooked))::numeric / NULLIF(COUNT(*),0)) * 100, 1) AS pct
+                    FROM base b
+                    GROUP BY b.category
+                    ORDER BY pct DESC, total DESC
+                    LIMIT :lim
+                    """
+                )
+                lim = max(1, min(int(p.get("limit", 50)), 200))
+                rows = conn.execute(q, {"t": tenant_id, "lim": lim}).fetchall()
+                return {"status": "ok", "rows": [dict(r._mapping) for r in rows]}
+            if n == "cohort.fragrance_sensitive_cancels_2x_24h_1y":
+                # Heuristic: use appointments marked canceled where created_at is within 24h prior to start_ts
+                q = _sql_text(
+                    """
+                    WITH canc AS (
+                      SELECT contact_id
+                      FROM appointments
+                      WHERE tenant_id = CAST(:t AS uuid)
+                        AND status ILIKE 'cancel%'
+                        AND start_ts >= (EXTRACT(epoch FROM now())::bigint - 365*86400)
+                        AND (start_ts - COALESCE(created_at, start_ts)) <= 86400
+                    ),
+                    cnt AS (
+                      SELECT contact_id, COUNT(*) AS cancels_24h
+                      FROM canc
+                      GROUP BY contact_id
+                    )
+                    SELECT ct.contact_id, ct.lifetime_cents, ct.last_visit
+                    FROM cnt
+                    JOIN contacts ct ON ct.tenant_id = CAST(:t AS uuid) AND ct.contact_id = cnt.contact_id
+                    WHERE cnt.cancels_24h >= 2
+                      AND EXISTS (
+                        SELECT 1 FROM lead_status ls
+                        WHERE ls.tenant_id = CAST(:t AS uuid)
+                          AND ls.contact_id = ct.contact_id
+                          AND ls.tag ILIKE '%fragrance%'
+                      )
+                    ORDER BY ct.lifetime_cents DESC
+                    LIMIT :lim
+                    """
+                )
+                lim = max(1, min(int(p.get("limit", 100)), 200))
+                rows = conn.execute(q, {"t": tenant_id, "lim": lim}).fetchall()
+                return {"status": "ok", "rows": [dict(r._mapping) for r in rows]}
+            if n == "cohort.ig_first_timers_500_in_60d":
+                # Approximation: creation_source/tag indicates Instagram; lifetime >= $500; last_visit within 60d of first_visit
+                q = _sql_text(
+                    """
+                    SELECT c.contact_id, c.lifetime_cents, c.first_visit, c.last_visit
+                    FROM contacts c
+                    WHERE c.tenant_id = CAST(:t AS uuid)
+                      AND c.lifetime_cents >= 50000
+                      AND (
+                        lower(COALESCE(c.creation_source,'')) LIKE '%insta%'
+                        OR EXISTS (
+                          SELECT 1 FROM lead_status ls
+                          WHERE ls.tenant_id = c.tenant_id AND ls.contact_id = c.contact_id AND ls.tag ILIKE '%insta%'
+                        )
+                      )
+                      AND c.first_visit IS NOT NULL AND c.last_visit IS NOT NULL
+                      AND c.last_visit <= c.first_visit + 60*86400
+                    ORDER BY c.lifetime_cents DESC
+                    LIMIT :lim
+                    """
+                )
+                lim = max(1, min(int(p.get("limit", 100)), 200))
+                rows = conn.execute(q, {"t": tenant_id, "lim": lim}).fetchall()
+                return {"status": "ok", "rows": [dict(r._mapping) for r in rows]}
+            if n == "cohort.gloss_after_balayage_no_rebook_12w":
+                q = _sql_text(
+                    """
+                    WITH balay AS (
+                      SELECT contact_id, start_ts AS balay_ts
+                      FROM appointments
+                      WHERE tenant_id = CAST(:t AS uuid)
+                        AND status = 'completed'
+                        AND lower(COALESCE(service,'')) LIKE '%balay%'
+                    ),
+                    gloss AS (
+                      SELECT contact_id, start_ts AS gloss_ts
+                      FROM appointments
+                      WHERE tenant_id = CAST(:t AS uuid)
+                        AND status = 'completed'
+                        AND lower(COALESCE(service,'')) LIKE '%gloss%'
+                    ),
+                    pairs AS (
+                      SELECT b.contact_id, b.balay_ts, g.gloss_ts
+                      FROM balay b
+                      JOIN gloss g ON g.contact_id = b.contact_id
+                      WHERE g.gloss_ts >= b.balay_ts AND g.gloss_ts <= b.balay_ts + 42*86400
+                    ),
+                    no_rebook12 AS (
+                      SELECT p.contact_id, p.gloss_ts
+                      FROM pairs p
+                      WHERE NOT EXISTS (
+                        SELECT 1 FROM appointments a3
+                        WHERE a3.tenant_id = CAST(:t AS uuid)
+                          AND a3.contact_id = p.contact_id
+                          AND a3.status = 'completed'
+                          AND a3.start_ts > p.gloss_ts
+                          AND a3.start_ts <= p.gloss_ts + 84*86400
+                      )
+                    )
+                    SELECT c.contact_id, c.lifetime_cents, c.last_visit
+                    FROM no_rebook12 nr
+                    JOIN contacts c ON c.tenant_id = CAST(:t AS uuid) AND c.contact_id = nr.contact_id
+                    ORDER BY c.lifetime_cents DESC
+                    LIMIT :lim
+                    """
+                )
+                lim = max(1, min(int(p.get("top", p.get("limit", 10))), 100))
+                rows = conn.execute(q, {"t": tenant_id, "lim": lim}).fetchall()
+                return {"status": "ok", "rows": [dict(r._mapping) for r in rows]}
             return {"status": "not_implemented", "name": n}
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
