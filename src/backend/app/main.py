@@ -2209,21 +2209,24 @@ async def ai_chat_raw(
     system_prompt = BRAND_SYSTEM
     if brand_profile_text:
         system_prompt = system_prompt + "\n\nBrand profile (voice/tone):\n" + brand_profile_text
-    # Call provider directly
+    # Call provider directly via Responses API only (no local fallbacks)
     client = AIClient(model=os.getenv("OPENAI_MODEL", "gpt-5"))  # type: ignore
     reply_max_tokens = int(os.getenv("AI_CHAT_MAX_TOKENS", "1600"))
     try:
-        content = await client.generate(
+        content = await client._generate_via_responses(  # type: ignore
             system_prompt,
             [
                 {"role": m.role, "content": m.content}
                 for m in req.messages
             ],
-            max_tokens=reply_max_tokens,
+            reply_max_tokens,
         )
     except Exception as e:
         from fastapi.responses import JSONResponse as _JR
         return _JR({"error": "provider_error", "detail": str(e)[:400]}, status_code=502)
+    if not content or not isinstance(content, str) or not content.strip():
+        from fastapi.responses import JSONResponse as _JR
+        return _JR({"error": "provider_error", "detail": "no_text_output"}, status_code=502)
     # Persist logs (best-effort)
     try:
         sid = req.session_id or "default"
