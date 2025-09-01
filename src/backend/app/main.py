@@ -4631,6 +4631,131 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
         return {"imported": 0, "error": "internal_error", "detail": str(e)[:200]}
 
 
+class SquareBackfillMetricsRequest(BaseModel):
+    tenant_id: str
+
+
+@app.post("/integrations/booking/square/backfill-metrics", tags=["Integrations"])
+def square_backfill_metrics(req: SquareBackfillMetricsRequest, ctx: UserContext = Depends(get_user_context_relaxed)) -> Dict[str, object]:
+    try:
+        if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+            return {"updated": 0, "error": "forbidden"}
+        # Get Square token
+        token = ""
+        try:
+            with engine.begin() as conn:
+                row_v2 = conn.execute(_sql_text("SELECT access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider='square' ORDER BY id DESC LIMIT 1"), {"t": req.tenant_id}).fetchone()
+            if row_v2 and row_v2[0]:
+                try:
+                    token = decrypt_text(str(row_v2[0])) or ""
+                except Exception:
+                    token = str(row_v2[0])
+        except Exception:
+            token = ""
+        if not token:
+            return {"updated": 0, "error": "missing_access_token"}
+        base = os.getenv("SQUARE_API_BASE", "https://connect.squareup.com")
+        if os.getenv("SQUARE_ENV", "prod").lower().startswith("sand"):
+            base = "https://connect.squareupsandbox.com"
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/json", "Square-Version": os.getenv("SQUARE_VERSION", "2023-10-18")}
+
+        # Aggregate payments per customer
+        per: Dict[str, Dict[str, object]] = {}
+        updated = 0
+        try:
+            with httpx.Client(timeout=20, headers=headers) as client:
+                cursor: Optional[str] = None
+                while True:
+                    params: Dict[str, str] = {"limit": "100"}
+                    if cursor:
+                        params["cursor"] = cursor
+                    r = client.get(f"{base}/v2/payments", params=params)
+                    if r.status_code >= 400:
+                        return {"updated": 0, "error": f"square_http_{r.status_code}", "detail": (r.text or "")[:200]}
+                    body = r.json() or {}
+                    payments = body.get("payments") or []
+                    for p in payments:
+                        try:
+                            cust = str(p.get("customer_id") or "").strip()
+                            if not cust:
+                                continue
+                            status = str(p.get("status") or "").upper()
+                            if status not in {"COMPLETED", "APPROVED", "CAPTURED"}:
+                                continue
+                            amt = 0
+                            try:
+                                amt = int(((p.get("amount_money") or {}).get("amount") or 0))
+                            except Exception:
+                                amt = 0
+                            ref = 0
+                            try:
+                                ref = int(((p.get("refunded_money") or {}).get("amount") or 0))
+                            except Exception:
+                                ref = 0
+                            created_at = str(p.get("created_at") or "")
+                            # Use created_at for first/last visit
+                            ts = 0
+                            try:
+                                # Parse RFC3339
+                                from datetime import datetime
+                                ts = int(datetime.fromisoformat(created_at.replace('Z','+00:00')).timestamp()) if created_at else 0
+                            except Exception:
+                                ts = 0
+                            entry = per.get(cust) or {"first": 0, "last": 0, "count": 0, "cents": 0}
+                            entry["count"] = int(entry.get("count", 0)) + 1
+                            entry["cents"] = int(entry.get("cents", 0)) + max(0, amt - ref)
+                            if ts:
+                                if not entry.get("first") or ts < int(entry.get("first", 0)):
+                                    entry["first"] = ts
+                                if ts > int(entry.get("last", 0)):
+                                    entry["last"] = ts
+                            per[cust] = entry
+                        except Exception:
+                            continue
+                    cursor = body.get("cursor") or body.get("next_cursor")
+                    if not cursor:
+                        break
+            # Write back to contacts by square_customer_id
+            with engine.begin() as conn:
+                # Set RLS GUCs
+                try:
+                    conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                    conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+                except Exception:
+                    pass
+                for sqid, m in per.items():
+                    try:
+                        conn.execute(
+                            _sql_text(
+                                """
+                                UPDATE contacts
+                                SET first_visit = GREATEST(first_visit, :first),
+                                    last_visit = GREATEST(last_visit, :last),
+                                    txn_count = txn_count + :cnt,
+                                    lifetime_cents = lifetime_cents + :cents,
+                                    updated_at = EXTRACT(epoch FROM now())::bigint
+                                WHERE tenant_id = CAST(:t AS uuid) AND square_customer_id = :sqid
+                                """
+                            ),
+                            {
+                                "t": req.tenant_id,
+                                "sqid": sqid,
+                                "first": int(m.get("first", 0)),
+                                "last": int(m.get("last", 0)),
+                                "cnt": int(m.get("count", 0)),
+                                "cents": int(m.get("cents", 0)),
+                            },
+                        )
+                        updated += 1
+                    except Exception:
+                        continue
+        except Exception as e:
+            return {"updated": 0, "error": "backfill_failed", "detail": str(e)[:200]}
+        return {"updated": updated, "customers": len(per)}
+    except Exception as e:
+        return {"updated": 0, "error": "internal_error", "detail": str(e)[:200]}
+
+
 @app.post("/integrations/booking/acuity/import", tags=["Integrations"])
 def booking_import(
     tenant_id: str,
