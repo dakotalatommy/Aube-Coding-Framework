@@ -221,9 +221,12 @@ def _ensure_connected_accounts_v2() -> None:
                   tenant_id UUID NOT NULL,
                   provider TEXT NOT NULL,
                   status TEXT,
+                  scopes TEXT,
                   access_token_enc TEXT,
                   refresh_token_enc TEXT,
                   expires_at BIGINT,
+                  last_sync BIGINT,
+                  last_error TEXT,
                   connected_at TIMESTAMPTZ DEFAULT NOW(),
                   created_at TIMESTAMPTZ DEFAULT NOW()
                 );
@@ -233,6 +236,10 @@ def _ensure_connected_accounts_v2() -> None:
             conn.exec_driver_sql(
                 "CREATE INDEX IF NOT EXISTS ca_v2_t_p_idx ON connected_accounts_v2(tenant_id, provider);"
             )
+            # Backfill columns if the table already existed without them
+            conn.exec_driver_sql("ALTER TABLE connected_accounts_v2 ADD COLUMN IF NOT EXISTS scopes TEXT;")
+            conn.exec_driver_sql("ALTER TABLE connected_accounts_v2 ADD COLUMN IF NOT EXISTS last_sync BIGINT;")
+            conn.exec_driver_sql("ALTER TABLE connected_accounts_v2 ADD COLUMN IF NOT EXISTS last_error TEXT;")
     except Exception:
         pass
 # --- Lightweight background scheduler runner (enabled via env) ---
@@ -1058,7 +1065,120 @@ def connected_accounts_list(
                 last = {"action": str(last_cb[0] or ""), "ts": 0, "payload": ""}
         return {"items": items, "last_callback": last}
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        return {"items": [], "error": str(e)[:200], "last_callback": None}
+
+@app.get("/integrations/status", tags=["Integrations"])
+def integrations_status(
+    tenant_id: str,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    try:
+        if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        providers = ["square", "acuity", "hubspot", "google", "instagram", "twilio", "sendgrid", "shopify"]
+        cols = _connected_accounts_columns(db)
+        name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
+        linked_map: Dict[str, bool] = {p: False for p in providers}
+        status_map: Dict[str, str] = {p: '' for p in providers}
+        expires_map: Dict[str, int] = {p: 0 for p in providers}
+        # Legacy table connected_accounts
+        if name_col:
+            is_uuid = _connected_accounts_tenant_is_uuid(db)
+            where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
+            select_cols = [name_col]
+            if 'status' in cols:
+                select_cols.append('status')
+            if 'expires_at' in cols:
+                select_cols.append('expires_at')
+            sql = f"SELECT {', '.join(select_cols)} FROM connected_accounts WHERE {where_tid}"
+            rows = db.execute(_sql_text(sql), {"t": tenant_id}).fetchall()
+            for r in rows or []:
+                try:
+                    p = str(r[0] or '').lower()
+                    if p in linked_map:
+                        linked_map[p] = True
+                        if len(select_cols) >= 2 and select_cols[1] == 'status':
+                            status_map[p] = str(r[1] or '')
+                        if len(select_cols) >= 3 and select_cols[2] == 'expires_at':
+                            try:
+                                expires_map[p] = int(r[2] or 0)
+                            except Exception:
+                                expires_map[p] = 0
+                except Exception:
+                    continue
+        # v2 table connected_accounts_v2 (preferred)
+        try:
+            rows_v2 = db.execute(_sql_text("SELECT provider, status, COALESCE(expires_at,0), COALESCE(last_sync,0) FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid)"), {"t": tenant_id}).fetchall()
+            for pv, st, ex, ls in rows_v2 or []:
+                try:
+                    p = str(pv or '').lower()
+                    if p in linked_map:
+                        linked_map[p] = True
+                        if st:
+                            status_map[p] = str(st)
+                        try:
+                            expires_map[p] = int(ex or 0)
+                        except Exception:
+                            pass
+                        try:
+                            if int(ls or 0) > 0 and int(ls) > int(last_sync.get(p, 0)):
+                                last_sync[p] = int(ls)
+                        except Exception:
+                            pass
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        # last oauth callback
+        a_cols = _audit_logs_columns(db)
+        sel_cols = ["action", "created_at"]
+        if "payload" in a_cols:
+            sel_cols.append("payload")
+        sql_cb = f"SELECT {', '.join(sel_cols)} FROM audit_logs WHERE tenant_id = :t AND action LIKE 'oauth.callback.%' ORDER BY id DESC LIMIT 1"
+        last_cb = db.execute(_sql_text(sql_cb), {"t": tenant_id}).fetchone()
+        last = None
+        if last_cb:
+            try:
+                if len(sel_cols) == 3:
+                    last = {"action": str(last_cb[0] or ''), "ts": int(last_cb[1] or 0), "payload": str(last_cb[2] or '')}
+                else:
+                    last = {"action": str(last_cb[0] or ''), "ts": int(last_cb[1] or 0)}
+            except Exception:
+                last = {"action": str(last_cb[0] or ''), "ts": 0}
+        # approximate last_sync per provider from events_ledger (sync/import/backfill events)
+        last_sync: Dict[str, int] = {p: 0 for p in providers}
+        try:
+            q = db.query(dbm.EventLedger).filter(dbm.EventLedger.tenant_id == tenant_id).order_by(dbm.EventLedger.id.desc()).limit(200)  # type: ignore
+            for ev in q.all():
+                try:
+                    name = str(ev.name or '')
+                    ts = int(ev.ts or 0)
+                    # name patterns: sync.calendar.google, sync.inventory.square, import.square.contacts, backfill.square.metrics
+                    parts = name.split('.')
+                    # find a provider token
+                    cand = None
+                    for token in parts:
+                        t = token.lower()
+                        if t in last_sync and ts > last_sync[t]:
+                            cand = t
+                    if cand:
+                        last_sync[cand] = ts
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        prov_out = {}
+        for p in providers:
+            prov_out[p] = {
+                "linked": bool(linked_map.get(p, False)),
+                "status": status_map.get(p, '') or ("connected" if linked_map.get(p, False) else ""),
+                "expires_at": int(expires_map.get(p, 0) or 0),
+                "last_sync": int(last_sync.get(p, 0) or 0),
+            }
+        return {"providers": prov_out, "connected": [p for p,v in linked_map.items() if v], "last_callback": last}
+    except Exception as e:
+        return {"error": "internal_error", "detail": str(e)[:200]}
 
 def _backend_base_url() -> str:
     return _env("BACKEND_BASE_URL", "http://localhost:8000")
@@ -1404,7 +1524,54 @@ def oauth_refresh(req: OAuthRefreshRequest, db: Session = Depends(get_db), ctx: 
         sql = f"SELECT {', '.join(select_cols)} FROM connected_accounts WHERE {where_tid} AND {name_col} = :p ORDER BY id DESC LIMIT 1"
         row = db.execute(_sql_text(sql), {"t": req.tenant_id, "p": req.provider}).fetchone()
         if not row:
-            return {"status": "not_found"}
+            # Fallback to v2 token store
+            try:
+                with engine.begin() as conn:
+                    row_v2 = conn.execute(
+                        _sql_text(
+                            "SELECT id, refresh_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider = :p ORDER BY id DESC LIMIT 1"
+                        ),
+                        {"t": req.tenant_id, "p": req.provider},
+                    ).fetchone()
+            except Exception:
+                row_v2 = None
+            if not row_v2:
+                return {"status": "not_found"}
+            # Extract RT and refresh
+            try:
+                rt_val_v2 = decrypt_text(str(row_v2[1] or "")) or ""
+            except Exception:
+                rt_val_v2 = str(row_v2[1] or "")
+            if not rt_val_v2:
+                return {"status": "no_refresh_token"}
+            token_v2 = _oauth_refresh_token(req.provider, rt_val_v2, _redirect_uri(req.provider)) or {}
+            if not token_v2:
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(
+                            _sql_text("UPDATE connected_accounts_v2 SET status='error', last_error=:e WHERE id=:id"),
+                            {"e": "refresh_failed", "id": row_v2[0]},
+                        )
+                except Exception:
+                    pass
+                return {"status": "error"}
+            new_at_v2 = str(token_v2.get("access_token") or "")
+            exp_v2 = token_v2.get("expires_in")
+            sc_v2 = token_v2.get("scope") or token_v2.get("scopes")
+            try:
+                with engine.begin() as conn:
+                    parts = ["status='connected'"]
+                    params: Dict[str, Any] = {"id": row_v2[0]}
+                    if new_at_v2:
+                        parts.append("access_token_enc=:at"); params["at"] = encrypt_text(new_at_v2)
+                    if isinstance(exp_v2, (int, float)):
+                        parts.append("expires_at=:exp"); params["exp"] = int(_time.time()) + int(exp_v2)
+                    if sc_v2:
+                        parts.append("scopes=:sc"); params["sc"] = (" ".join(sc_v2) if isinstance(sc_v2, list) else str(sc_v2))
+                    conn.execute(_sql_text(f"UPDATE connected_accounts_v2 SET {', '.join(parts)} WHERE id=:id"), params)
+            except Exception:
+                pass
+            return {"status": "ok"}
 
         # Extract refresh token
         rt_val = None
@@ -1431,6 +1598,7 @@ def oauth_refresh(req: OAuthRefreshRequest, db: Session = Depends(get_db), ctx: 
         new_at = str(token.get("access_token") or "")
         new_rt = token.get("refresh_token")
         exp = token.get("expires_in")
+        sc = token.get("scope") or token.get("scopes")
 
         # Build update
         sets: Dict[str, object] = {}
@@ -1446,6 +1614,11 @@ def oauth_refresh(req: OAuthRefreshRequest, db: Session = Depends(get_db), ctx: 
                 sets[rt_plain_col] = str(new_rt)
         if isinstance(exp, (int, float)) and exp_col:
             sets[exp_col] = int(_time.time()) + int(exp)
+        try:
+            if sc and 'scopes' in cols:
+                sets['scopes'] = (" ".join(sc) if isinstance(sc, list) else str(sc))
+        except Exception:
+            pass
         if status_col:
             sets[status_col] = 'connected'
 
@@ -4504,6 +4677,7 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
         access_token_enc = encrypt_text(code or "")
         refresh_token_enc = None
         expires_at = None
+        scopes_str = None
         exchange_ok = False
         exchange_detail: Dict[str, Any] = {}
         if code:
@@ -4526,6 +4700,7 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 at = str(token.get("access_token") or "")
                 rt = token.get("refresh_token")
                 exp = token.get("expires_in")
+                sc = token.get("scope") or token.get("scopes")
                 if at:
                     access_token_enc = encrypt_text(at)
                     exchange_ok = True
@@ -4535,6 +4710,14 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                     refresh_token_enc = encrypt_text(str(rt))
                 if isinstance(exp, (int, float)):
                     expires_at = int(_time.time()) + int(exp)
+                try:
+                    # Normalize scope(s) to space-delimited string
+                    if isinstance(sc, list):
+                        scopes_str = " ".join([str(x) for x in sc])
+                    elif isinstance(sc, str):
+                        scopes_str = sc
+                except Exception:
+                    scopes_str = None
             except Exception:
                 exchange_ok = False
         try:
@@ -4547,11 +4730,13 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                     "at": access_token_enc,
                     "rt": (refresh_token_enc if refresh_token_enc is not None else None),
                     "exp": (int(expires_at) if isinstance(expires_at, (int, float)) else None),
+                    "sc": scopes_str,
                 }
                 set_parts = ["status=:st", "connected_at=NOW()"]
                 if access_token_enc: set_parts.append("access_token_enc=:at")
                 if refresh_token_enc: set_parts.append("refresh_token_enc=:rt")
                 if params.get("exp") is not None: set_parts.append("expires_at=:exp")
+                if scopes_str: set_parts.append("scopes=:sc")
                 upd = f"UPDATE connected_accounts_v2 SET {', '.join(set_parts)} WHERE tenant_id = CAST(:t AS uuid) AND provider = :prov"
                 res = conn.execute(_sql_text(upd), params)
                 saved = bool(getattr(res, 'rowcount', 0))
@@ -4561,6 +4746,7 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                     if access_token_enc: cols.append("access_token_enc"); vals.append(":at")
                     if refresh_token_enc: cols.append("refresh_token_enc"); vals.append(":rt")
                     if params.get("exp") is not None: cols.append("expires_at"); vals.append(":exp")
+                    if scopes_str: cols.append("scopes"); vals.append(":sc")
                     ins = f"INSERT INTO connected_accounts_v2 ({', '.join(cols)}) VALUES ({', '.join(vals)})"
                     conn.execute(_sql_text(ins), params)
         except Exception as e:
@@ -5008,6 +5194,15 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
             return {"imported": 0, "error": "square_fetch_failed", "detail": str(e)[:200]}
 
         emit_event("ContactsSynced", {"tenant_id": req.tenant_id, "provider": "square", "imported": created_total})
+        # Update v2 connected account last_sync
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    _sql_text("UPDATE connected_accounts_v2 SET last_sync = EXTRACT(epoch FROM now())::bigint WHERE tenant_id = CAST(:t AS uuid) AND provider='square'"),
+                    {"t": req.tenant_id},
+                )
+        except Exception:
+            pass
         return {
             "imported": created_total,
             "meta": {
@@ -5144,6 +5339,19 @@ def square_backfill_metrics(req: SquareBackfillMetricsRequest, ctx: UserContext 
                         continue
         except Exception as e:
             return {"updated": 0, "error": "backfill_failed", "detail": str(e)[:200]}
+        try:
+            emit_event("SquareBackfillCompleted", {"tenant_id": req.tenant_id, "updated": int(updated), "customers": int(len(per))})
+        except Exception:
+            pass
+        # Update v2 connected account last_sync
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    _sql_text("UPDATE connected_accounts_v2 SET last_sync = EXTRACT(epoch FROM now())::bigint WHERE tenant_id = CAST(:t AS uuid) AND provider='square'"),
+                    {"t": req.tenant_id},
+                )
+        except Exception:
+            pass
         return {"updated": updated, "customers": len(per)}
     except Exception as e:
         return {"updated": 0, "error": "internal_error", "detail": str(e)[:200]}

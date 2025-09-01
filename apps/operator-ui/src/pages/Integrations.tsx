@@ -43,11 +43,21 @@ export default function Integrations(){
   const [twilioFrom, setTwilioFrom] = useState<string>('');
   const [connAccounts, setConnAccounts] = useState<Array<{provider:string,status?:string,ts?:number}>>([]);
   const [lastCallback, setLastCallback] = useState<any>(null);
+  const [linked, setLinked] = useState<Record<string, boolean>>({});
+  const [lastSync, setLastSync] = useState<Record<string, number>>({});
+  const [providerStatus, setProviderStatus] = useState<Record<string, { linked:boolean; status?:string; expires_at?:number; last_sync?:number }>>({});
+  const nowSec = Math.floor(Date.now()/1000);
+  const fmtTs = (ts?: number) => (ts && ts>0) ? new Date(Number(ts)*1000).toLocaleString() : '';
+  const expSoon = (p: string) => {
+    const ex = Number(providerStatus?.[p]?.expires_at||0);
+    return ex>0 && (ex - nowSec) < (7*24*3600);
+  };
 
   const isConnected = (provider: string): boolean => {
     try {
       const map = onboarding?.connectedMap || {};
       if (map && typeof map[provider] === 'string') return String(map[provider]) === 'connected';
+      if (linked && typeof linked[provider] === 'boolean') return !!linked[provider];
       if (Array.isArray(connAccounts)) return connAccounts.some(x => (x?.provider||'') === provider);
     } catch {}
     return false;
@@ -67,6 +77,22 @@ export default function Integrations(){
           const ca = await api.get(`/integrations/connected-accounts?tenant_id=${encodeURIComponent(tid)}`);
           setConnAccounts(Array.isArray(ca?.items)? ca.items: []);
           setLastCallback(ca?.last_callback || null);
+          // New status endpoint for per-provider linked badges
+          try {
+            const st = await api.get(`/integrations/status?tenant_id=${encodeURIComponent(tid)}`);
+            const provs = (st?.providers||{}) as Record<string, { linked:boolean; status?:string; expires_at?:number; last_sync?:number }>;
+            const nextLinked: Record<string, boolean> = {};
+            const nextSync: Record<string, number> = {};
+            Object.entries(provs).forEach(([k,v])=>{
+              nextLinked[k] = !!v?.linked;
+              const ls = Number(v?.last_sync||0);
+              if (ls>0) nextSync[k] = ls;
+            });
+            setLinked(nextLinked);
+            setLastSync(nextSync);
+            setProviderStatus(provs);
+            if (!lastCallback && st?.last_callback) setLastCallback(st.last_callback);
+          } catch {}
         }
       }catch{}
     } catch(e:any){ setStatus(String(e?.message||e)); }
@@ -395,6 +421,25 @@ export default function Integrations(){
           </div>
         </div>
       </div>
+      {/* Token expiry warnings */}
+      {(() => {
+        try {
+          const now = Math.floor(Date.now()/1000);
+          const soon: string[] = [];
+          Object.entries(providerStatus||{}).forEach(([k,v])=>{
+            const ex = Number(v?.expires_at||0);
+            if (ex>0 && (ex - now) < (7*24*3600)) soon.push(k);
+          });
+          if (soon.length>0) {
+            return (
+              <div className="rounded-md border bg-amber-50 border-amber-200 text-amber-900 text-xs px-2 py-1">
+                Tokens expiring soon: {soon.join(', ')}. Click Refresh to renew.
+              </div>
+            );
+          }
+        } catch {}
+        return null;
+      })()}
       {/* Simplified header; hide connected/last-callback troubleshooting details */}
       {isDemo && (
         <div className="rounded-md border bg-amber-50 border-amber-200 text-amber-900 text-xs px-2 py-1 inline-block">
@@ -431,6 +476,9 @@ export default function Integrations(){
           <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1">Some providers are pending app credentials; connect buttons will be disabled for those until configured.</div>
         )}
         <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Some actions may require approval when auto-approve is off. Review in <a className="underline" href="/workspace?pane=approvals">Approvals</a>.</div>
+        {lastCallback && (
+          <div className="text-[11px] text-slate-600">Last OAuth callback: {new Date(Number(lastCallback?.ts||0)*1000).toLocaleString()} · {String(lastCallback?.action||'')}</div>
+        )}
         <label className="flex items-center gap-2 text-sm"> Tone
           <Input value={settings.tone||''} onChange={e=>setSettings({...settings,tone:e.target.value})} />
         </label>
@@ -543,17 +591,21 @@ export default function Integrations(){
               <div className="text-sm text-slate-600">CRM sync (contacts + properties)</div>
             </div>
             <div className="flex items-center gap-2">
-              <span className={`px-2 py-1 rounded-full text-xs ${onboarding?.connectedMap?.hubspot==='connected' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{onboarding?.connectedMap?.hubspot==='connected' ? 'Connected' : (onboarding?.connectedMap?.hubspot||'Not linked')}</span>
+              <span className={`px-2 py-1 rounded-full text-xs ${isConnected('hubspot') ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{isConnected('hubspot') ? (providerStatus?.hubspot?.status||'Connected') : 'Not linked'}</span>
               <label className="inline-flex items-center gap-1 text-[11px]">
                 <span className={`${settings.providers_live?.hubspot ? 'text-emerald-700' : 'text-slate-600'}`}>{settings.providers_live?.hubspot ? 'Live' : 'Demo'}</span>
                 <input type="checkbox" checked={!!settings.providers_live?.hubspot} onChange={e=> setProviderLive('hubspot', e.target.checked)} />
               </label>
             </div>
           </div>
-          <div className="mt-3 flex gap-2">
+          <div className="mt-3 flex gap-2 items-center flex-wrap">
             <Button variant="outline" disabled={busy || connecting.hubspot || onboarding?.providers?.hubspot===false} onClick={()=> connect('hubspot')}>{connecting.hubspot ? 'Connecting…' : connectLabel('hubspot')}</Button>
             <Button variant="outline" disabled={busy || onboarding?.providers?.hubspot===false} onClick={hubspotUpsertSample}>Sync sample contact</Button>
             <Button variant="outline" disabled={busy} onClick={()=> refresh('hubspot')}>Refresh</Button>
+            {providerStatus?.hubspot?.last_sync && (
+              <span className="text-[11px] text-slate-600">Last sync: {fmtTs(providerStatus.hubspot.last_sync)}</span>
+            )}
+            {expSoon('hubspot') && <span className="text-[11px] text-amber-700">Token expiring soon</span>}
           </div>
           {onboarding?.providers?.hubspot===false && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure HubSpot OAuth to enable.</div>}
           <div className="mt-2 text-xs text-amber-700">Note: Contact syncs may require approval if auto-approve is disabled.</div>
@@ -613,7 +665,7 @@ export default function Integrations(){
           {focusedProvider==='square' && sp.get('connected')==='1' && (
             <div className="mb-2 text-xs rounded-md px-2 py-1 bg-emerald-50 border border-emerald-100 text-emerald-700">Square connected. You can import contacts now.</div>
           )}
-          <div className="mt-3 flex gap-2">
+          <div className="mt-3 flex gap-2 items-center flex-wrap">
             <Button variant="outline" disabled={busy || !squareLink || onboarding?.providers?.square===false} onClick={openSquare}>{squareLink ? 'Open Square booking' : 'No link set'}</Button>
             <Button variant="outline" disabled={busy || connecting.square || onboarding?.providers?.square===false} onClick={()=> connect('square')}>{connecting.square ? 'Connecting…' : connectLabel('square')}</Button>
             <Button variant="outline" disabled={busy || connecting.acuity || onboarding?.providers?.acuity===false} onClick={()=> connect('acuity')}>{connecting.acuity ? 'Connecting…' : connectLabel('acuity')}</Button>
@@ -632,9 +684,28 @@ export default function Integrations(){
                 } else {
                   setStatus('Import completed');
                 }
+                // Re-analyze status after import
+                try { await reanalyze(); } catch {}
               }catch(e:any){ setErrorMsg('Import failed. Verify Square is connected, then click Refresh and try again.'); }
               finally{ setBusy(false); }
             }}>Import contacts from Square</Button>
+            <Button variant="outline" disabled={busy} onClick={async()=>{
+              try{
+                setBusy(true);
+                const r = await api.post('/integrations/booking/square/backfill-metrics', { tenant_id: await getTenant() });
+                if (typeof r?.updated === 'number') {
+                  try { showToast({ title:'Backfill complete', description: `${Number(r.updated)} customers updated` }); } catch {}
+                  setStatus(`Backfill updated ${Number(r.updated)} customers`);
+                } else if (r?.error) {
+                  setErrorMsg(String(r?.error||'backfill_failed'));
+                }
+                try { await reanalyze(); } catch {}
+              }catch(e:any){ setErrorMsg(String(e?.message||e)); }
+              finally { setBusy(false); }
+            }}>Backfill metrics</Button>
+            {linked.square && lastSync.square && (
+              <span className="text-[11px] text-slate-600">Last sync: {new Date(Number(lastSync.square)*1000).toLocaleString()}</span>
+            )}
           </div>
           {(onboarding?.providers?.square===false || onboarding?.providers?.acuity===false) && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Square/Acuity OAuth to enable.</div>}
           <div className="mt-2 text-xs text-amber-700">Note: Imports and booking merges may queue approvals when auto-approve is off.</div>
@@ -670,17 +741,21 @@ export default function Integrations(){
               <div className="text-sm text-slate-600">Two-way calendar (merge bookings)</div>
             </div>
             <div className="flex items-center gap-2">
-              <span className={`px-2 py-1 rounded-full text-xs ${onboarding?.calendar_ready ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{onboarding?.calendar_ready? 'Ready' : 'Not linked'}</span>
+              <span className={`px-2 py-1 rounded-full text-xs ${isConnected('google') ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{isConnected('google')? (providerStatus?.google?.status||'Connected') : 'Not linked'}</span>
               <label className="inline-flex items-center gap-1 text-[11px]">
                 <span className={`${settings.providers_live?.google ? 'text-emerald-700' : 'text-slate-600'}`}>{settings.providers_live?.google ? 'Live' : 'Demo'}</span>
                 <input type="checkbox" checked={!!settings.providers_live?.google} onChange={e=> setProviderLive('google', e.target.checked)} />
               </label>
             </div>
           </div>
-          <div className="mt-3 flex gap-2">
+          <div className="mt-3 flex gap-2 items-center flex-wrap">
             <Button variant="outline" disabled={busy || connecting.google || onboarding?.providers?.google===false} onClick={()=> connect('google')}>{connecting.google ? 'Connecting…' : connectLabel('google')}</Button>
             <Button variant="outline" disabled={busy} onClick={()=> window.open('/workspace?pane=calendar','_self')}>{UI_STRINGS.ctas.secondary.openCalendar}</Button>
             <Button variant="outline" disabled={busy} onClick={()=> refresh('google')}>{UI_STRINGS.ctas.secondary.refresh}</Button>
+            {providerStatus?.google?.last_sync && (
+              <span className="text-[11px] text-slate-600">Last sync: {fmtTs(providerStatus.google.last_sync)}</span>
+            )}
+            {expSoon('google') && <span className="text-[11px] text-amber-700">Token expiring soon</span>}
           </div>
           {onboarding?.providers?.google===false && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Google OAuth to enable.</div>}
         </section>
@@ -693,17 +768,21 @@ export default function Integrations(){
                 <div className="text-sm text-slate-600">DMs & comments in Master Inbox</div>
               </div>
               <div className="flex items-center gap-2">
-                <span className={`px-2 py-1 rounded-full text-xs ${onboarding?.inbox_ready ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{onboarding?.inbox_ready? 'Ready' : 'Not linked'}</span>
+                <span className={`px-2 py-1 rounded-full text-xs ${isConnected('instagram') ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{isConnected('instagram')? (providerStatus?.instagram?.status||'Connected') : 'Not linked'}</span>
                 <label className="inline-flex items-center gap-1 text-[11px]">
                   <span className={`${settings.providers_live?.instagram ? 'text-emerald-700' : 'text-slate-600'}`}>{settings.providers_live?.instagram ? 'Live' : 'Demo'}</span>
                   <input type="checkbox" checked={!!settings.providers_live?.instagram} onChange={e=> setProviderLive('instagram', e.target.checked)} />
                 </label>
               </div>
             </div>
-            <div className="mt-3 flex gap-2">
+            <div className="mt-3 flex gap-2 items-center flex-wrap">
               <Button variant="outline" disabled={busy || connecting.instagram || onboarding?.providers?.instagram===false} onClick={()=> connect('instagram')}>{connecting.instagram ? 'Connecting…' : connectLabel('instagram')}</Button>
               <Button variant="outline" disabled={busy} onClick={()=> window.open('/workspace?pane=messages','_self')}>{UI_STRINGS.ctas.secondary.openInbox}</Button>
               <Button variant="outline" disabled={busy} onClick={()=> refresh('instagram')}>{UI_STRINGS.ctas.secondary.refresh}</Button>
+              {providerStatus?.instagram?.last_sync && (
+                <span className="text-[11px] text-slate-600">Last sync: {fmtTs(providerStatus.instagram.last_sync)}</span>
+              )}
+              {expSoon('instagram') && <span className="text-[11px] text-amber-700">Token expiring soon</span>}
             </div>
             {(onboarding?.providers?.instagram===false) && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Instagram OAuth to enable.</div>}
           </section>
@@ -728,17 +807,21 @@ export default function Integrations(){
               <div className="text-sm text-slate-600">Inventory & products</div>
             </div>
             <div className="flex items-center gap-2">
-              <span className={`px-2 py-1 rounded-full text-xs ${onboarding?.connectedMap?.shopify==='connected' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{onboarding?.connectedMap?.shopify==='connected' ? 'Connected' : (onboarding?.connectedMap?.shopify||'Not linked')}</span>
+              <span className={`px-2 py-1 rounded-full text-xs ${isConnected('shopify') ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{isConnected('shopify') ? (providerStatus?.shopify?.status||'Connected') : (onboarding?.connectedMap?.shopify||'Not linked')}</span>
               <label className="inline-flex items-center gap-1 text-[11px]">
                 <span className={`${settings.providers_live?.shopify ? 'text-emerald-700' : 'text-slate-600'}`}>{settings.providers_live?.shopify ? 'Live' : 'Demo'}</span>
                 <input type="checkbox" checked={!!settings.providers_live?.shopify} onChange={e=> setProviderLive('shopify', e.target.checked)} />
               </label>
             </div>
           </div>
-          <div className="mt-3 flex gap-2">
+          <div className="mt-3 flex gap-2 items-center flex-wrap">
             <Button variant="outline" disabled={busy || connecting.shopify || onboarding?.providers?.shopify===false} onClick={()=> connect('shopify')}>{connecting.shopify ? 'Connecting…' : connectLabel('shopify')}</Button>
             <Button variant="outline" disabled={busy} onClick={()=> window.open('/workspace?pane=inventory','_self')}>{UI_STRINGS.ctas.secondary.openInventory}</Button>
             <Button variant="outline" disabled={busy} onClick={()=> refresh('shopify')}>{UI_STRINGS.ctas.secondary.refresh}</Button>
+            {providerStatus?.shopify?.last_sync && (
+              <span className="text-[11px] text-slate-600">Last sync: {fmtTs(providerStatus.shopify.last_sync)}</span>
+            )}
+            {expSoon('shopify') && <span className="text-[11px] text-amber-700">Token expiring soon</span>}
           </div>
           {onboarding?.providers?.shopify===false && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Shopify OAuth to enable.</div>}
         </section>

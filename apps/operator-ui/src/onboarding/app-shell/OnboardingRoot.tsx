@@ -41,7 +41,9 @@ export default function OnboardingRoot(){
       if (error && provider) {
         // Stay in onboarding, surface error inline but do not navigate away
         try { track('oauth_error', { provider, error }) } catch {}
-        // Keep current step; toast will show in scene components
+        // Surface a toast so user gets immediate feedback
+        try { showToast({ title: `${provider} connection failed`, description: String(error) }) } catch {}
+        // Keep current step; scene components may also show additional context
       } else if (connected) {
         // Handle booking vs. social providers separately
         if (provider === 'instagram') {
@@ -56,6 +58,7 @@ export default function OnboardingRoot(){
           void saveStep('connections', payload)
           setState(s => ({ ...s, step: 'connections', data: { ...s.data, ...payload } }))
           try { track('oauth_linked', { provider }) } catch {}
+          try { showToast({ title: 'Connected', description: `${provider} linked. You can import and backfill now.` }) } catch {}
           setTimeout(()=>{ void next(payload) }, 0)
         }
       }
