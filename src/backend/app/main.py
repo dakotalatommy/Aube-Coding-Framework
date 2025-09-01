@@ -1612,13 +1612,34 @@ def import_contacts(
 ) -> Dict[str, int]:
     if ctx.tenant_id != req.tenant_id:
         return {"imported": 0}
+    # Ensure UUID-typed tenant_id for ORM writes when DB uses uuid columns
+    try:
+        import uuid as _uuid
+        tenant_uuid = _uuid.UUID(str(req.tenant_id))
+    except Exception:
+        tenant_uuid = req.tenant_id  # fallback for tolerant schemas
+    # Set RLS GUCs for this transaction when enabled
+    try:
+        if getattr(db.bind, "dialect", None) and db.bind.dialect.name == "postgresql" and os.getenv("ENABLE_PG_RLS", "0") == "1":
+            try:
+                CURRENT_TENANT_ID.set(str(req.tenant_id))
+                CURRENT_ROLE.set("owner_admin")
+            except Exception:
+                pass
+            try:
+                db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": str(req.tenant_id)})
+                db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+            except Exception:
+                pass
+    except Exception:
+        pass
     imported = 0
     try:
         for _ in req.contacts:
             imported += 1
             db.add(
                 dbm.Contact(
-                    tenant_id=req.tenant_id,
+                    tenant_id=tenant_uuid,
                     contact_id=_.contact_id,
                     email_hash=_.email_hash,
                     phone_hash=_.phone_hash,

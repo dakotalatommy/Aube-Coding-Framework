@@ -1,5 +1,7 @@
 from typing import Optional
 from sqlalchemy import String, Boolean, Integer, JSON, ForeignKey, Text
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+import uuid
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from .db import Base
 import time
@@ -8,7 +10,7 @@ import time
 class Contact(Base):
     __tablename__ = "contacts"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     contact_id: Mapped[str] = mapped_column(String(64), index=True)
     email_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     phone_hash: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)                           
@@ -21,7 +23,7 @@ class Contact(Base):
 class CadenceState(Base):
     __tablename__ = "cadence_states"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     contact_id: Mapped[str] = mapped_column(String(64), index=True)
     cadence_id: Mapped[str] = mapped_column(String(64))
     step_index: Mapped[int] = mapped_column(Integer, default=0)
@@ -32,7 +34,7 @@ class CadenceState(Base):
 class Metrics(Base):
     __tablename__ = "metrics"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     time_saved_minutes: Mapped[int] = mapped_column(Integer, default=0)
     messages_sent: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()))
@@ -41,7 +43,7 @@ class Metrics(Base):
 class ConsentLog(Base):
     __tablename__ = "consent_logs"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     contact_id: Mapped[str] = mapped_column(String(64), index=True)
     channel: Mapped[str] = mapped_column(String(16))
     consent: Mapped[str] = mapped_column(String(16))
@@ -52,7 +54,7 @@ class ConsentLog(Base):
 class NotifyListEntry(Base):
     __tablename__ = "notify_list"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     contact_id: Mapped[str] = mapped_column(String(64), index=True)
     preference: Mapped[str] = mapped_column(String(16))  # soonest|anytime
     created_at: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()))
@@ -61,7 +63,7 @@ class NotifyListEntry(Base):
 class SharePrompt(Base):
     __tablename__ = "share_prompts"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     kind: Mapped[str] = mapped_column(String(64))  # milestone type
     surfaced: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()))
@@ -70,7 +72,7 @@ class SharePrompt(Base):
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     actor_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     action: Mapped[str] = mapped_column(String(64))
     entity_ref: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
@@ -81,7 +83,7 @@ class AuditLog(Base):
 class DeadLetter(Base):
     __tablename__ = "dead_letters"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     provider: Mapped[str] = mapped_column(String(64))
     reason: Mapped[str] = mapped_column(String(128))
     attempts: Mapped[int] = mapped_column(Integer, default=0)
@@ -92,7 +94,7 @@ class DeadLetter(Base):
 class Approval(Base):
     __tablename__ = "approvals"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     tool_name: Mapped[str] = mapped_column(String(64))
     params_json: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(16), default="pending")  # pending|approved|rejected
@@ -103,7 +105,7 @@ class Approval(Base):
 class Embedding(Base):
     __tablename__ = "embeddings"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     doc_id: Mapped[str] = mapped_column(String(128), index=True)
     kind: Mapped[str] = mapped_column(String(32))
     text: Mapped[str] = mapped_column(Text)
@@ -114,7 +116,7 @@ class Embedding(Base):
 class IdempotencyKey(Base):
     __tablename__ = "idempotency_keys"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     key: Mapped[str] = mapped_column(String(128), index=True, unique=True)
     # simple created_at could be added later if needed
     created_at: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()))
@@ -123,7 +125,7 @@ class IdempotencyKey(Base):
 class Settings(Base):
     __tablename__ = "settings"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     data_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     created_at: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()))
 
@@ -131,7 +133,7 @@ class Settings(Base):
 class LeadStatus(Base):
     __tablename__ = "lead_status"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     contact_id: Mapped[str] = mapped_column(String(64), index=True)
     bucket: Mapped[int] = mapped_column(Integer)
     tag: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
@@ -143,7 +145,7 @@ class LeadStatus(Base):
 class Appointment(Base):
     __tablename__ = "appointments"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     contact_id: Mapped[str] = mapped_column(String(64), index=True)
     service: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     start_ts: Mapped[int] = mapped_column(Integer)
@@ -156,7 +158,7 @@ class Appointment(Base):
 class Message(Base):
     __tablename__ = "messages"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     contact_id: Mapped[str] = mapped_column(String(64), index=True)
     channel: Mapped[str] = mapped_column(String(16))
     direction: Mapped[str] = mapped_column(String(16))
@@ -171,7 +173,7 @@ class Message(Base):
 class InboxMessage(Base):
     __tablename__ = "inbox_messages"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     channel: Mapped[str] = mapped_column(String(32), index=True)
     from_addr: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     to_addr: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
@@ -184,7 +186,7 @@ class EventLedger(Base):
     __tablename__ = "events_ledger"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     ts: Mapped[int] = mapped_column(Integer)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     name: Mapped[str] = mapped_column(String(64))
     payload: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     created_at: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()))
@@ -193,7 +195,7 @@ class EventLedger(Base):
 class ChatLog(Base):
     __tablename__ = "chat_logs"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     session_id: Mapped[str] = mapped_column(String(128), index=True)
     role: Mapped[str] = mapped_column(String(16))  # user|assistant
     content: Mapped[str] = mapped_column(Text)
@@ -203,7 +205,7 @@ class ChatLog(Base):
 class ConnectedAccount(Base):
     __tablename__ = "connected_accounts"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     user_id: Mapped[str] = mapped_column(String(64), index=True)
     provider: Mapped[str] = mapped_column(String(32), index=True)
     scopes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -218,7 +220,7 @@ class ConnectedAccount(Base):
 class CurationDecision(Base):
     __tablename__ = "curation_decisions"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     client_id: Mapped[str] = mapped_column(String(64), index=True)
     decision: Mapped[str] = mapped_column(String(16))  # keep|discard
     reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -228,7 +230,7 @@ class CurationDecision(Base):
 class InventoryItem(Base):
     __tablename__ = "inventory_items"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     sku: Mapped[Optional[str]] = mapped_column(String(128), index=True, nullable=True)
     name: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     stock: Mapped[int] = mapped_column(Integer, default=0)
@@ -239,7 +241,7 @@ class InventoryItem(Base):
 class InventorySummary(Base):
     __tablename__ = "inventory_summary"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True, unique=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True, unique=True)
     products: Mapped[int] = mapped_column(Integer, default=0)
     low_stock: Mapped[int] = mapped_column(Integer, default=0)
     out_of_stock: Mapped[int] = mapped_column(Integer, default=0)
@@ -250,7 +252,7 @@ class InventorySummary(Base):
 class CalendarEvent(Base):
     __tablename__ = "calendar_events"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     event_id: Mapped[Optional[str]] = mapped_column(String(128), index=True, nullable=True)
     title: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     start_ts: Mapped[int] = mapped_column(Integer)
@@ -262,7 +264,7 @@ class CalendarEvent(Base):
 class ShareLink(Base):
     __tablename__ = "share_links"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     token: Mapped[str] = mapped_column(String(64), index=True, unique=True)
     title: Mapped[Optional[str]] = mapped_column(String(256), nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -288,7 +290,7 @@ class Plan(Base):
 class UsageLimit(Base):
     __tablename__ = "usage_limits"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[str] = mapped_column(String(64), index=True, unique=True)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True, unique=True)
     plan_code: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     ai_daily_cents_cap: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
