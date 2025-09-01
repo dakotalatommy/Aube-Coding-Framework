@@ -4067,7 +4067,14 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                         code_verifier = cache_get(f"pkce:{state}") or None
                 except Exception:
                     code_verifier = None
-                token = _oauth_exchange_token(provider, code, _redirect_uri(provider), code_verifier=code_verifier) or {}
+                # Use exact redirect_uri; include debug=1 if present to avoid redirect_uri mismatch
+                redir = _redirect_uri(provider)
+                try:
+                    if request.query_params.get('debug') == '1':
+                        redir = redir + ('?debug=1' if '?' not in redir else '&debug=1')
+                except Exception:
+                    pass
+                token = _oauth_exchange_token(provider, code, redir, code_verifier=code_verifier) or {}
                 at = str(token.get("access_token") or "")
                 rt = token.get("refresh_token")
                 exp = token.get("expires_in")
