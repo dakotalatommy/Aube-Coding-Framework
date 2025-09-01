@@ -926,28 +926,40 @@ def upsert_square_account(req: UpsertSquareRequest, db: Session = Depends(get_db
             fields.append('connected_at'); values['connected_at'] = ts_now
         if 'created_at' in cols:
             fields.append('created_at'); values['created_at'] = ts_now
-        cols_sql = ",".join(fields)
-        params_sql = ",".join([":"+k for k in fields])
-        conflict = f"(tenant_id, {name_col})"
-        sets = [f"{c}=EXCLUDED.{c}" for c in fields if c not in {"tenant_id", name_col}]
-        # Build a statement that coerces tenant_id properly for uuid/text
-        # Build placeholders list with correct order
-        placeholders = []
-        for c in fields:
-            if c == 'tenant_id' and 'uuid' in tid_type:
-                placeholders.append('CAST(:tenant_id AS uuid)')
-            elif c in ('connected_at','created_at'):
-                placeholders.append('NOW()')
-            else:
-                placeholders.append(f":{c}")
-        stmt = f"INSERT INTO connected_accounts ({cols_sql}) VALUES ({', '.join(placeholders)}) ON CONFLICT {conflict} DO UPDATE SET {', '.join(sets)}"
-        # Remove SQL func values from parameters since NOW() is inline
-        for k in ['connected_at','created_at']:
-            if k in values and isinstance(values[k], type(ts_now)):
-                values.pop(k, None)
-        db.execute(_sql_text(stmt), values)
+        # Emulate upsert without needing a unique index: try UPDATE first, then INSERT if no rows
+        where_tid = "tenant_id = CAST(:tenant_id AS uuid)" if 'uuid' in tid_type else "tenant_id = :tenant_id"
+        set_parts: List[str] = []
+        if 'status' in cols:
+            set_parts.append("status = 'connected'")
+        if 'connected_at' in cols:
+            set_parts.append("connected_at = NOW()")
+        if 'created_at' in cols:
+            set_parts.append("created_at = NOW()")
+        updated = False
+        if set_parts:
+            upd_sql = f"UPDATE connected_accounts SET {', '.join(set_parts)} WHERE {where_tid} AND {name_col} = :prov"
+            params = {"tenant_id": tid_value, "prov": "square"}
+            res = db.execute(_sql_text(upd_sql), params)
+            db.commit()
+            try:
+                updated = bool(res.rowcount and int(res.rowcount) > 0)
+            except Exception:
+                updated = False
+        if updated:
+            return {"ok": True, "updated": True}
+        # Build INSERT with proper casts/timestamps
+        ins_cols: List[str] = ["tenant_id", name_col]
+        placeholders: List[str] = ["CAST(:tenant_id AS uuid)" if 'uuid' in tid_type else ":tenant_id", ":prov"]
+        if 'status' in cols:
+            ins_cols.append('status'); placeholders.append("'connected'")
+        if 'connected_at' in cols:
+            ins_cols.append('connected_at'); placeholders.append('NOW()')
+        if 'created_at' in cols:
+            ins_cols.append('created_at'); placeholders.append('NOW()')
+        ins_sql = f"INSERT INTO connected_accounts ({', '.join(ins_cols)}) VALUES ({', '.join(placeholders)})"
+        db.execute(_sql_text(ins_sql), {"tenant_id": tid_value, "prov": "square"})
         db.commit()
-        return {"ok": True}
+        return {"ok": True, "inserted": True}
     except Exception as e:
         try:
             db.rollback()
