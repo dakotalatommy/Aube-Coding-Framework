@@ -3216,6 +3216,14 @@ def contacts_list(
             tid = _uuid.UUID(str(tenant_id))
         except Exception:
             tid = tenant_id
+        # Short‑TTL cache for rollups/list
+        try:
+            ckey = f"contacts:list:{tenant_id}:{int(limit)}"
+            cached = cache_get(ckey)
+            if cached is not None:
+                return {"items": cached}
+        except Exception:
+            pass
         q = db.query(dbm.Contact).filter(dbm.Contact.tenant_id == tid)  # type: ignore
         q = q.filter(dbm.Contact.deleted == False)  # type: ignore
         rows = (
@@ -3238,6 +3246,10 @@ def contacts_list(
                 "email_hash": getattr(r, "email_hash", None),
                 "phone_hash": getattr(r, "phone_hash", None),
             })
+        try:
+            cache_set(ckey, out, ttl=60)
+        except Exception:
+            pass
         return {"items": out}
     except Exception as e:
         from fastapi.responses import JSONResponse as _JR
@@ -5211,6 +5223,13 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
             return {"imported": 0, "error": "square_fetch_failed", "detail": str(e)[:200]}
 
         emit_event("ContactsSynced", {"tenant_id": req.tenant_id, "provider": "square", "imported": created_total})
+        # Invalidate rollup caches
+        try:
+            cache_del(f"contacts:list:{req.tenant_id}:100")
+            cache_del(f"contacts:list:{req.tenant_id}:200")
+            cache_del(f"contacts:list:{req.tenant_id}:500")
+        except Exception:
+            pass
         # Update v2 connected account last_sync
         try:
             with engine.begin() as conn:
@@ -5365,6 +5384,13 @@ def square_backfill_metrics(req: SquareBackfillMetricsRequest, ctx: UserContext 
                     _sql_text("UPDATE connected_accounts_v2 SET last_sync = EXTRACT(epoch FROM now())::bigint WHERE tenant_id = CAST(:t AS uuid) AND provider='square'"),
                     {"t": req.tenant_id},
                 )
+        except Exception:
+            pass
+        # Invalidate rollup caches
+        try:
+            cache_del(f"contacts:list:{req.tenant_id}:100")
+            cache_del(f"contacts:list:{req.tenant_id}:200")
+            cache_del(f"contacts:list:{req.tenant_id}:500")
         except Exception:
             pass
         return {"updated": updated, "customers": len(per)}
