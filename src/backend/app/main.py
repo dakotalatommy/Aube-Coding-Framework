@@ -4431,23 +4431,16 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                     phone = None
                 phone_norm = normalize_phone(phone) if phone else None
 
-                # Raw SQL upsert (tolerant of existing schema) to avoid ORM PK/type mismatches
-                try:
-                    row = db.execute(
+                # Raw SQL upsert using a connection-bound transaction to avoid session state issues
+                with engine.begin() as _conn:
+                    row = _conn.execute(
                         _sql_text(
                             "SELECT id FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid LIMIT 1"
                         ),
                         {"t": req.tenant_id, "cid": contact_id},
                     ).fetchone()
-                except Exception:
-                    try:
-                        db.rollback()
-                    except Exception:
-                        pass
-                    return
-                if not row:
-                    try:
-                        db.execute(
+                    if not row:
+                        _conn.execute(
                             _sql_text(
                                 """
                                 INSERT INTO contacts (tenant_id, contact_id, email_hash, phone_hash, consent_sms, consent_email)
@@ -4463,16 +4456,9 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                                 "cemail": bool(email),
                             },
                         )
-                    except Exception:
-                        try:
-                            db.rollback()
-                        except Exception:
-                            pass
-                        return
-                    created_total += 1
-                else:
-                    try:
-                        res = db.execute(
+                        created_total += 1
+                    else:
+                        res = _conn.execute(
                             _sql_text(
                                 """
                                 UPDATE contacts
@@ -4494,20 +4480,14 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                                 "cemail": bool(email),
                             },
                         )
-                    except Exception:
                         try:
-                            db.rollback()
+                            rc = int(getattr(res, "rowcount", 0) or 0)
                         except Exception:
-                            pass
-                        return
-                    try:
-                        rc = int(getattr(res, "rowcount", 0) or 0)
-                    except Exception:
-                        rc = 0
-                    if rc > 0:
-                        updated_total += 1
-                    else:
-                        existing_total += 1
+                            rc = 0
+                        if rc > 0:
+                            updated_total += 1
+                        else:
+                            existing_total += 1
             except Exception:
                 pass
 
@@ -4578,14 +4558,7 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                     cursor = body.get("cursor") or body.get("next_cursor")
                     if not cursor:
                         break
-            try:
-                db.commit()
-            except Exception as ce:
-                try:
-                    db.rollback()
-                except Exception:
-                    pass
-                return {"imported": 0, "error": "db_commit_failed", "detail": str(ce)[:200]}
+            # Connection-bound transactions commit per-contact; no session commit required here
         except Exception as e:
             try:
                 db.rollback()
