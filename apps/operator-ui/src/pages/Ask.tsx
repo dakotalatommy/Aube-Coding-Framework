@@ -1,36 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+// import { useNavigate } from 'react-router-dom';
 import { api, getTenant } from '../lib/api';
 import { useToast } from '../components/ui/Toast';
-import { startGuide, startWorkflowGuide } from '../lib/guide';
 import { track } from '../lib/analytics';
 import { motion } from 'framer-motion';
-import { UI_STRINGS } from '../lib/strings';
 
 type Msg = { role: 'user' | 'assistant'; content: string };
-type Action =
-  | 'open_integrations'
-  | 'connect_twilio'
-  | 'tour_all'
-  | 'open_inventory'
-  | 'check_lowstock'
-  | 'open_messages'
-  | 'open_contacts'
-  | 'import_contacts'
-  | 'open_calendar'
-  | 'open_approvals'
-  | 'open_workflows'
-  | 'open_cadences'
-  | 'open_inbox'
-  | 'open_onboarding'
-  | 'guide_dashboard'
-  | 'guide_integrations'
-  | 'guide_onboarding'
-  | 'guide_workflows'
-  | 'admin_clear_cache';
+// Removed Action type and contextual actions
 
 export default function Ask(){
-  const navigate = useNavigate();
+  // const navigate = useNavigate();
   const { showToast } = useToast();
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -61,27 +40,14 @@ export default function Ask(){
   }, [sessionId]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
-  const [sessions, setSessions] = useState<Array<{session_id:string; last_message_at:number}>>([]);
-  const [shareUrl, setShareUrl] = useState<string>("");
-  const [contextActions, setContextActions] = useState<Action[]>([]);
+  // removed sessions listing
   const lastAssistantText = String(messages.filter(m=>m.role==='assistant').slice(-1)[0]?.content||'');
-  // Plan builder state: fetch plan, show steps as radio, execute selected or all
-  const [planName, setPlanName] = useState<''|'crm_organization'|'book_filling'|'inventory_tracking'|'social_automation'>('');
-  const [planSteps, setPlanSteps] = useState<any[]>([]);
-  const [selectedStepIdx, setSelectedStepIdx] = useState<number>(0);
-  // Friendly error surface for unknown plans or planner errors
-  const [friendlyError, setFriendlyError] = useState<string>('');
-  // Human-readable tool labels
-  const [toolLabels, setToolLabels] = useState<Record<string,string>>({});
-  // AskVX trainer + session summary
+  // Removed plan state and tool labels
   const [trainerInput, setTrainerInput] = useState<string>('');
   const [trainerSaving, setTrainerSaving] = useState<boolean>(false);
   const [sessionSummary, setSessionSummary] = useState<string>('');
   const [summarizing, setSummarizing] = useState<boolean>(false);
-  const getToolLabel = (toolName: string): string => {
-    const name = String(toolName||'');
-    return toolLabels[name] || name;
-  };
+  // removed getToolLabel
   const loadHistory = async () => {
     try{
       const tid = await getTenant();
@@ -89,62 +55,9 @@ export default function Ask(){
       setHistory(r?.items||[]);
     } catch{}
   };
-  const loadSessions = async () => {
-    try{
-      const tid = await getTenant();
-      const r = await api.get(`/ai/chat/sessions?tenant_id=${encodeURIComponent(tid)}&limit=50`);
-      setSessions(Array.isArray(r?.items) ? r.items : []);
-    } catch{}
-  };
+  // Removed loadSessions
 
-  const computeContext = (promptText: string, assistText?: string): Action[] => {
-    try {
-      const p = (promptText||'').toLowerCase();
-      const t = (assistText||'').toLowerCase();
-      const matches = (re: RegExp) => re.test(p) || (!!t && re.test(t));
-      const acts: Action[] = [];
-      if (matches(/integrations?|connect\s+tools?|connect\s+(square|acuity|hubspot|google|facebook|instagram|shopify|sms|twilio)/)) {
-        acts.push('open_integrations');
-        if (/twilio|sms/.test(p)) acts.push('connect_twilio');
-        acts.push('guide_integrations');
-      }
-      if (matches(/inventory|stock|low\s*stock|out\s*of\s*stock|shopify\s*inventory|square\s*inventory/)) {
-        acts.push('open_inventory', 'check_lowstock');
-        acts.push('guide_workflows');
-      }
-      if (matches(/messages?|sms|email|send|inbox/)) {
-        acts.push('open_messages');
-        if (matches(/inbox/)) acts.push('open_inbox');
-      }
-      if (matches(/contacts?|clients?|import|dedupe|export/)) {
-        acts.push('open_contacts');
-        if (matches(/import|upload/)) acts.push('import_contacts');
-        acts.push('guide_workflows');
-      }
-      if (matches(/calendar|booking|schedule|appointments?/)) {
-        acts.push('open_calendar');
-      }
-      if (matches(/approvals?|review|pending/)) {
-        acts.push('open_approvals');
-      }
-      if (matches(/cadences?|automation|follow[- ]?ups?/)) {
-        acts.push('open_cadences');
-      }
-      if (matches(/workflows?|plan|automation/)) {
-        acts.push('open_workflows', 'guide_workflows');
-      }
-      if (matches(/onboarding|setup|get\s+started/)) {
-        acts.push('open_onboarding', 'guide_onboarding');
-      }
-      if (matches(/clear\s+cache|flush\s+cache|stale\s+data|refresh\s+(data|cache)/)) {
-        acts.push('admin_clear_cache');
-      }
-      if (matches(/tour|walkthrough|guide\s+me/)) {
-        acts.push('tour_all');
-      }
-      return acts;
-    } catch { return []; }
-  };
+  // Removed computeContext
 
   const send = async () => {
     const prompt = input.trim();
@@ -153,8 +66,6 @@ export default function Ask(){
     setMessages(next);
     setInput('');
     setLoading(true);
-    // Prompt-first suggestions
-    setContextActions(computeContext(prompt));
     try{
       const r = await api.post('/ai/chat/raw', {
         tenant_id: await getTenant(),
@@ -163,8 +74,6 @@ export default function Ask(){
       }, { timeoutMs: 60000 });
       if (r?.error) { setMessages(curr => [...curr, { role:'assistant', content: `Error: ${String(r.detail||r.error)}` }]); setLoading(false); return; }
       const text = String(r?.text || '');
-      // Refine contextual actions with assistant text
-      setContextActions(computeContext(prompt, text));
       if (!firstNoteShown) {
         setFirstNoteShown(true);
         localStorage.setItem('bvx_first_prompt_note', '1');
@@ -211,20 +120,6 @@ export default function Ask(){
   };
 
   const reset = () => { setMessages([]); setInput(''); };
-  const setShortcut = (text: string) => { setInput(text); };
-  const saveAssistantAsBrandFact = async () => {
-    try{
-      const text = lastAssistantText || messages.filter(m=>m.role==='assistant').slice(-1)[0]?.content || '';
-      if (!text) { showToast({ title:'Nothing to save', description:'AskVX has not replied yet.' }); return; }
-      const tid = await getTenant();
-      const r = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
-      const current = String(r?.data?.training_notes||'');
-      const next = (current ? current + '\n' : '') + `• ${text}`;
-      await api.post('/settings', { tenant_id: tid, training_notes: next });
-      showToast({ title:'Saved', description:'Added to brand training notes.' });
-      try { track('brand_fact_saved'); } catch {}
-    } catch(e:any){ showToast({ title:'Save error', description:String(e?.message||e) }); }
-  };
   const saveTrainerNotes = async () => {
     try{
       if (!trainerInput.trim()) { showToast({ title:'Nothing to save', description:'Add a note first.' }); return; }
@@ -257,362 +152,24 @@ export default function Ask(){
     } catch(e:any){ showToast({ title:'Summary error', description:String(e?.message||e) }); }
     finally { setSummarizing(false); }
   };
-  const updateBrandVoice = async () => {
-    try{
-      const tid = await getTenant();
-      const r = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
-      const bp = r?.data?.brand_profile || {};
-      const initial = String(bp?.voice||'');
-      // simple prompt UI; could be replaced with modal later
-      const v = window.prompt('Brand voice (e.g., Warm, Editorial crisp):', initial || '');
-      if (v === null) return;
-      const data = { ...(r?.data||{}), brand_profile: { ...(bp||{}), voice: v } };
-      await api.post('/settings', { tenant_id: tid, brand_profile: data.brand_profile });
-      showToast({ title:'Updated', description:'Brand voice updated.' });
-      try { track('brand_voice_updated'); } catch {}
-    } catch(e:any){ showToast({ title:'Update error', description:String(e?.message||e) }); }
-  };
-  const clearTenantCache = async () => {
-    try{
-      const tid = await getTenant();
-      const r = await api.post('/admin/cache/clear', { tenant_id: tid, scope: 'all' });
-      showToast({ title: 'Cache cleared', description: `Cleared ${Number(r?.cleared||0)} keys.` });
-    } catch(e:any) {
-      showToast({ title: 'Cache error', description: String(e?.message||e) });
-    }
-  };
-  const goto = (path: string) => {
-    try {
-      // Cache messages before navigating parent
-      try { localStorage.setItem(`bvx_chat_cache_${sessionId}`, JSON.stringify(messages)); } catch {}
-      // If Ask is embedded in the docked iframe, navigate the parent window
-      const isEmbedded = (typeof window !== 'undefined') && (window.self !== window.top);
-      if (isEmbedded && (window.parent && 'location' in window.parent)) {
-        (window.parent as any).location.href = path;
-        return;
-      }
-      navigate(path);
-    } catch {
-      window.location.href = path;
-    }
-  };
-  const guideTo = (page: 'dashboard'|'integrations'|'onboarding') => {
-    const map = { dashboard: '/workspace?pane=dashboard&tour=1', integrations: '/workspace?pane=integrations&tour=1', onboarding: '/onboarding?tour=1' } as const;
-    goto(map[page]);
-  };
+  // removed goto helper
 
   useEffect(() => {
     return () => { if (streamId.current) { window.clearInterval(streamId.current); streamId.current = null; } };
   }, []);
 
-  // Load human-readable tool labels for AskVX plan/toasts
-  useEffect(() => {
-    (async () => {
-      try{
-        const schema = await api.get('/ai/tools/schema_human');
-        // Accept either { tools: [{name,label|title}]} or { [name]: label }
-        const map: Record<string,string> = {};
-        if (schema && Array.isArray(schema.tools)) {
-          for (const t of schema.tools) {
-            const n = t?.name || t?.id || '';
-            const lbl = t?.label || t?.title || t?.description || '';
-            if (n && lbl) map[String(n)] = String(lbl);
-          }
-        } else if (schema && typeof schema === 'object') {
-          for (const k of Object.keys(schema)) {
-            const v = (schema as any)[k];
-            if (typeof v === 'string') map[k] = v;
-            else if (v && typeof v === 'object' && (v.label || v.title)) map[k] = String(v.label || v.title);
-          }
-        }
-        if (Object.keys(map).length > 0) setToolLabels(map);
-      } catch {}
-    })();
-  }, []);
+  // Auto-summarize last session once on mount
+  useEffect(()=>{ (async()=>{ try{ await summarizeSession(); } catch{} })(); },[]);
 
   const sp = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
   const embedded = sp.get('embed') === '1';
   const askIsDemo = sp.get('demo') === '1';
-  const BOOKING_URL = (import.meta as any).env?.VITE_BOOKING_URL || '';
   const initialPage = sp.get('page') === '2' ? 1 : 0;
   const [pageIdx, setPageIdx] = useState<number>(initialPage);
 
-  const [running, setRunning] = useState<string>('');
-  const [TENANT_ID, setTenantId] = useState<string>(localStorage.getItem('bvx_tenant') || 't1');
-  useEffect(()=>{ (async()=>{ try{ setTenantId(await getTenant()); } catch{} })(); },[]);
-  // Inject brand profile and goals from settings into system context via hidden first message
-  useEffect(()=>{
-    (async()=>{
-      try{
-        const tid = await getTenant();
-        const r = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
-        const bp = r?.data?.brand_profile || {};
-        const goals = r?.data?.goals || {};
-        const training = String(r?.data?.training_notes||'');
-        const seed = [] as Msg[];
-        if (Object.keys(bp).length || Object.keys(goals).length || training) {
-          const summary = `Context: brand_profile=${JSON.stringify(bp)}; goals=${JSON.stringify(goals)}; training=${training.slice(0,400)}`;
-          seed.push({ role: 'assistant', content: summary });
-          setMessages(m=> (m.length===0 ? seed : m));
-        }
-      } catch {}
-    })();
-  },[]);
-  const planKey = (name?: string) => `bvx_plan_queue_${TENANT_ID}${name?`_${name}`:''}`;
-  const getSavedQueue = () => {
-    try { const v = localStorage.getItem(planKey()); return v? JSON.parse(v): null; } catch { return null; }
-  };
-  const saveQueue = (name: string, stepsLeft: any[]) => {
-    try { localStorage.setItem(planKey(), JSON.stringify({ name, stepsLeft })); } catch {}
-  };
-  const clearQueue = () => { try { localStorage.removeItem(planKey()); } catch {} };
-  const runPlan = async (name: 'crm_organization'|'book_filling'|'inventory_tracking'|'social_automation') => {
-    if (running) return;
-    setRunning(name);
-    try{
-      // Optionally kick off a tour on the workflows page in parallel
-      try { startGuide('workflows'); } catch {}
-      const plan = await api.post('/ai/workflow/plan', { tenant_id: TENANT_ID, name });
-      try { track('ask_plan_start', { name }); } catch {}
-      const steps = Array.isArray(plan?.steps) ? plan.steps : [];
-      for (let i = 0; i < steps.length; i++) {
-        const step = steps[i];
-        const tool = step.tool as string;
-        const requires = Boolean(step.requiresApproval);
-        // Handle pseudo-tools for link/oauth/import/preview
-        if (tool === 'link.hubspot.signup') {
-          window.open('https://app.hubspot.com/signup', '_blank');
-          continue;
-        }
-        if (tool === 'oauth.hubspot.connect') {
-          try {
-            const j = await api.get(`/oauth/hubspot/login?tenant_id=${TENANT_ID}`);
-            if (j?.url) window.open(j.url, '_blank');
-            showToast({ title:'Connect HubSpot', description:'Opened HubSpot connect in a new tab.' });
-          } catch {}
-          continue;
-        }
-        if (tool === 'crm.hubspot.import') {
-          try {
-            const r = await api.post('/crm/hubspot/import', { tenant_id: TENANT_ID });
-            showToast({ title:'Imported', description:`${Number(r?.imported||0)} contacts imported from HubSpot.` });
-          } catch (e:any) { showToast({ title:'Import error', description:String(e?.message||e) }); }
-          continue;
-        }
-        if (tool === 'segment.dormant.preview' || tool === 'campaigns.dormant.preview') {
-          try {
-            const r = await api.get(`/campaigns/dormant/preview?tenant_id=${TENANT_ID}&threshold_days=60`);
-            showToast({ title:'Segment preview', description:`${Number(r?.count||0)} contacts dormant ≥60d.` });
-          } catch {}
-          continue;
-        }
-        const res = await api.post('/ai/tools/execute', {
-          tenant_id: TENANT_ID,
-          name: tool,
-          params: { tenant_id: TENANT_ID },
-          require_approval: requires,
-        });
-        if (res?.status === 'pending') {
-          try { track('ask_plan_step_pending', { name, tool }); } catch {}
-          showToast({ title: 'Approval required', description: `"${getToolLabel(tool)}" is pending. Review in Approvals.` });
-          // Save remaining steps (including current) to resume later
-          saveQueue(name, steps.slice(i));
-          // Stop execution and guide the user to Approvals
-          goto('/workspace?pane=approvals');
-          return;
-        }
-        if (res?.status === 'error') {
-          try { track('ask_plan_step_error', { name, tool }); } catch {}
-          showToast({ title: 'Step failed', description: String(res?.message || res?.detail || getToolLabel(tool)) });
-          return;
-        }
-        try { track('ask_plan_step_done', { name, tool }); } catch {}
-        showToast({ title: 'Step complete', description: `${getToolLabel(tool)} → ${res?.status||'ok'}` });
-      }
-      try { track('ask_plan_done', { name }); } catch {}
-      // Mark workflow as completed in settings progress map
-      try { await api.post('/settings', { tenant_id: TENANT_ID, wf_progress: { [name]: true } }); } catch {}
-      showToast({ title: 'Plan finished', description: 'All steps completed.' });
-      clearQueue();
-    } catch(e:any){
-      showToast({ title: 'Plan error', description: String(e?.message||e) });
-    } finally {
-      setRunning('');
-    }
-  };
-
-  const openPlan = async (name: 'crm_organization'|'book_filling'|'inventory_tracking'|'social_automation') => {
-    if (running) return;
-    try {
-      setPlanName(name);
-      const plan = await api.post('/ai/workflow/plan', { tenant_id: TENANT_ID, name });
-      const steps = Array.isArray(plan?.steps) ? plan.steps : [];
-      setPlanSteps(steps);
-      setSelectedStepIdx(0);
-      if (steps.length === 0) {
-        setFriendlyError('I couldn’t map that request to a known workflow. Try one of the preset plans below or ask me again in different words.');
-      } else {
-        setFriendlyError('');
-      }
-      try { track('ask_plan_builder_open', { name, steps: steps.length }); } catch {}
-    } catch (e:any) {
-      showToast({ title: 'Plan error', description: String(e?.message||e) });
-      setPlanName(''); setPlanSteps([]);
-      setFriendlyError('Something went wrong generating the plan. Please try again, or pick a preset below — we’ll guide you.');
-    }
-  };
-
-  const executeOneStep = async () => {
-    if (running || !planName || !Array.isArray(planSteps) || planSteps.length === 0) return;
-    const idx = Math.max(0, Math.min(selectedStepIdx || 0, planSteps.length - 1));
-    const step = planSteps[idx];
-    await executeStepInternal(planName, step, idx, true);
-  };
-
-  const executeAllSteps = async () => {
-    if (running || !planName || !Array.isArray(planSteps) || planSteps.length === 0) return;
-    setRunning(planName);
-    try {
-      for (let i = 0; i < planSteps.length; i++) {
-        const step = planSteps[i];
-        const cont = await executeStepInternal(planName, step, i, false);
-        if (!cont) return; // stopped due to approval or error
-      }
-      showToast({ title: 'Plan finished', description: 'All steps completed.' });
-      clearQueue();
-    } catch(e:any){
-      showToast({ title: 'Plan error', description: String(e?.message||e) });
-    } finally {
-      setRunning('');
-    }
-  };
-
-  const executeStepInternal = async (name: string, step: any, index: number, single: boolean): Promise<boolean> => {
-    const tool = String(step?.tool||'');
-    const requires = Boolean(step?.requiresApproval);
-    try {
-      // Same pseudo-tools handling as runPlan
-      if (tool === 'link.hubspot.signup') { window.open('https://app.hubspot.com/signup','_blank'); showToast({ title:'Open HubSpot', description:'Sign up in the new tab, then return.' }); return true; }
-      if (tool === 'oauth.hubspot.connect') {
-        try { const j = await api.get(`/oauth/hubspot/login?tenant_id=${TENANT_ID}`); if (j?.url) window.open(j.url,'_blank'); showToast({ title:'Connect HubSpot', description:'Opened HubSpot connect in a new tab.' }); } catch {}
-        return true;
-      }
-      if (tool === 'crm.hubspot.import') {
-        try { const r = await api.post('/crm/hubspot/import', { tenant_id: TENANT_ID }); showToast({ title:'Imported', description:`${Number(r?.imported||0)} contacts imported from HubSpot.` }); } catch(e:any){ showToast({ title:'Import error', description:String(e?.message||e) }); }
-        return true;
-      }
-      if (tool === 'segment.dormant.preview' || tool === 'campaigns.dormant.preview') {
-        try { const r = await api.get(`/campaigns/dormant/preview?tenant_id=${TENANT_ID}&threshold_days=60`); showToast({ title:'Segment preview', description:`${Number(r?.count||0)} contacts dormant ≥60d.` }); } catch {}
-        return true;
-      }
-      // Execute real tool
-      const res = await api.post('/ai/tools/execute', { tenant_id: TENANT_ID, name: tool, params: { tenant_id: TENANT_ID }, require_approval: requires });
-      if (res?.status === 'pending') {
-        showToast({ title: 'Approval required', description: `"${getToolLabel(tool)}" is pending. Review in Approvals.` });
-        saveQueue(name, single ? [step] : planSteps.slice(index));
-        goto('/workspace?pane=approvals');
-        return false;
-      }
-      if (res?.status === 'error') {
-        showToast({ title: 'Step failed', description: String(res?.message||res?.detail||getToolLabel(tool)) });
-        return false;
-      }
-      showToast({ title: 'Step complete', description: `${getToolLabel(tool)} → ${res?.status||'ok'}` });
-      return true;
-    } catch(e:any) {
-      showToast({ title: 'Step error', description: String(e?.message||e) });
-      return false;
-    }
-  };
-
-  const resumePlan = async () => {
-    if (running) return;
-    const saved = getSavedQueue();
-    if (!saved?.name || !Array.isArray(saved.stepsLeft) || saved.stepsLeft.length === 0) {
-      showToast({ title: 'Nothing to resume', description: 'No pending plan was found.' });
-      return;
-    }
-    const name = saved.name as 'crm_organization'|'book_filling'|'inventory_tracking'|'social_automation';
-    setRunning(name);
-    try {
-      for (let i = 0; i < saved.stepsLeft.length; i++) {
-        const step = saved.stepsLeft[i];
-        const tool = step.tool as string;
-        const requires = Boolean(step.requiresApproval);
-        if (tool === 'link.hubspot.signup') { window.open('https://app.hubspot.com/signup','_blank'); continue; }
-        if (tool === 'oauth.hubspot.connect') {
-          try { const j = await api.get(`/oauth/hubspot/login?tenant_id=${TENANT_ID}`); if (j?.url) window.open(j.url,'_blank'); showToast({ title:'Connect HubSpot', description:'Opened HubSpot connect in a new tab.' }); } catch {}
-          continue;
-        }
-        if (tool === 'crm.hubspot.import') { try { const r = await api.post('/crm/hubspot/import', { tenant_id: TENANT_ID }); showToast({ title:'Imported', description:`${Number(r?.imported||0)} contacts imported from HubSpot.` }); } catch(e:any){ showToast({ title:'Import error', description:String(e?.message||e) }); } continue; }
-        if (tool === 'segment.dormant.preview' || tool === 'campaigns.dormant.preview') { try { const r = await api.get(`/campaigns/dormant/preview?tenant_id=${TENANT_ID}&threshold_days=60`); showToast({ title:'Segment preview', description:`${Number(r?.count||0)} contacts dormant ≥60d.` }); } catch{} continue; }
-        const res = await api.post('/ai/tools/execute', {
-          tenant_id: TENANT_ID,
-          name: tool,
-          params: { tenant_id: TENANT_ID },
-          require_approval: requires,
-        });
-        if (res?.status === 'pending') {
-          saveQueue(name, saved.stepsLeft.slice(i));
-          showToast({ title: 'Still pending', description: `"${getToolLabel(tool)}" requires approval. Review in Approvals.` });
-          goto('/workspace?pane=approvals');
-          return;
-        }
-        if (res?.status === 'error') {
-          showToast({ title: 'Step failed', description: String(res?.message || res?.detail || getToolLabel(tool)) });
-          return;
-        }
-        showToast({ title: 'Step complete', description: `${getToolLabel(tool)} → ${res?.status||'ok'}` });
-      }
-      clearQueue();
-      showToast({ title: 'Plan finished', description: 'All steps completed.' });
-    } catch(e:any){
-      showToast({ title: 'Resume error', description: String(e?.message||e) });
-    } finally {
-      setRunning('');
-    }
-  };
-  const isDemo = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('demo') === '1';
-  const postUIAction = async (action: string, args?: any[]) => {
-    try {
-      const isEmbedded = (typeof window !== 'undefined') && (window.self !== window.top);
-      if (!isEmbedded) { return false; }
-      const requestId = 'req_' + Math.random().toString(36).slice(2,10);
-      window.parent?.postMessage({ type:'bvx:action', action, args: Array.isArray(args)? args: [], requestId }, '*');
-      return true;
-    } catch { return false; }
-  };
-  useEffect(() => {
-    const onResult = (e: MessageEvent) => {
-      try{
-        const d = e.data || {};
-        if (d.type !== 'bvx:action:result') return;
-        const res = d.result || {};
-        if (res?.status === 'recommend_only') {
-          showToast({ title: 'Recommend-only mode', description: 'Draft ready. Use Copy/Open to send from your phone or email.' });
-          return;
-        }
-        if (res?.status === 'rate_limited_daily') {
-          showToast({ title: 'Daily limit reached', description: 'Try again tomorrow or adjust limits in Settings.' });
-          return;
-        }
-        if (res?.error) {
-          showToast({ title: 'Action error', description: String(res.error) });
-        } else {
-          showToast({ title: 'Done', description: 'Action completed.' });
-        }
-      } catch {}
-    };
-    window.addEventListener('message', onResult);
-    return () => window.removeEventListener('message', onResult);
-  }, [showToast]);
-  // Simple two-page pager (0: Chat, 1: Train & Profile)
-  const goPrev = () => setPageIdx(p => Math.max(0, p-1));
-  const goNext = () => setPageIdx(p => Math.min(1, p+1));
-
   return (
     <div className={`h-full min-h-0 flex flex-col min-w-0 overflow-x-hidden`}>
-      {isDemo && (
+      {askIsDemo && (
         <div className="rounded-2xl p-3 border bg-amber-50/80 border-amber-200 text-amber-900">
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-sm">Demo mode — chat replies are simulated.</span>
@@ -630,81 +187,26 @@ export default function Ask(){
               <button className={`px-3 py-1 text-sm ${pageIdx===1? 'bg-slate-900 text-white':'text-slate-700'}`} onClick={()=> setPageIdx(1)}>Train & Profile</button>
             </div>
             <div className="hidden md:flex items-center gap-2">
-              <button className="px-2 py-1 text-xs border rounded-md bg-white" onClick={goPrev} disabled={pageIdx===0}>Prev</button>
-              <button className="px-2 py-1 text-xs border rounded-md bg-white" onClick={goNext} disabled={pageIdx===1}>Next</button>
+              <button className="px-2 py-1 text-xs border rounded-md bg-white" onClick={()=> setPageIdx(p=> Math.max(0, p-1))} disabled={pageIdx===0}>Prev</button>
+              <button className="px-2 py-1 text-xs border rounded-md bg-white" onClick={()=> setPageIdx(p=> Math.min(1, p+1))} disabled={pageIdx===1}>Next</button>
             </div>
-            {BOOKING_URL && <a href={BOOKING_URL} target="_blank" rel="noreferrer" className="inline-flex items-center px-3 py-2 rounded-full text-sm border bg-white">Book onboarding</a>}
-            <a href="/onboarding" className="inline-flex items-center px-3 py-2 rounded-full text-sm text-white shadow bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600">{UI_STRINGS.ctas.primary.getStarted}</a>
+            {/* Top-right onboarding/get started removed */}
           </div>
         </div>
       )}
-      {/* This week quick actions (hidden in embedded to avoid duplication with Dashboard nudges) */}
-      {!embedded && (
-        <div className="rounded-xl border bg-white p-2 text-xs text-slate-700">
-          <div className="font-medium mb-1">This week</div>
-          <div className="flex flex-wrap gap-2">
-            {["Approve 3 posts","Fill cancellations","Revive 2 dormant","Confirm Friday"].map((t)=> (
-              <button key={t} className="px-2 py-1 rounded-full border bg-white">{t}</button>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* "This week" section removed */}
       {pageIdx===0 && (
       <div className={`grid ${embedded ? 'grid-cols-3' : 'grid-cols-3'} items-center gap-2 text-sm`}>
         <div className="flex items-center gap-2">
           <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ setHistoryOpen(h=>!h); if (!historyOpen) void loadHistory(); }}>{historyOpen ? 'Hide history' : 'Show history'}</button>
           <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ const sid = 's_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('bvx_chat_session', sid); window.location.reload(); }}>New session</button>
-          {!embedded && <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ void loadSessions(); }}>Sessions</button>}
+          {/* Sessions button removed */}
         </div>
         <div className="flex items-center">
           <div className="font-semibold" style={{fontFamily:'var(--font-display)'}}>Ask VX</div>
         </div>
-        <div className="flex items-center justify-end">
-          <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{
-          try{
-            const sp = new URLSearchParams(window.location.search);
-            const isDemo = sp.get('demo')==='1';
-            if (isDemo) {
-              const url = `${window.location.origin}/brandvx`;
-              setShareUrl(url);
-              try { await navigator.clipboard.writeText(url); } catch {}
-              return;
-            }
-            // Hide share in live for now
-            showToast({ title:'Share is demo-only', description:'Open the demo to generate a share link.' });
-          } catch {}
-        }}>{UI_STRINGS.ctas.tertiary.shareDemo}</button>
-        </div>
+        <div className="flex items-center justify-end" />
       </div>
-      )}
-      {shareUrl && (
-        <div className="text-xs text-slate-600 mt-1">{UI_STRINGS.ctas.demoOnly.shareLandingCopied} <a className="underline" href={shareUrl} target="_blank" rel="noreferrer">{shareUrl}</a></div>
-      )}
-      {sessions.length > 0 && (
-        <div className="rounded-xl bg-white shadow-sm p-3 max-h-32 overflow-auto text-xs text-slate-700 mt-2 border">
-          <ul className="space-y-1">
-            {sessions.map(s => (
-              <li key={s.session_id}>
-                <button className="underline" onClick={() => { localStorage.setItem('bvx_chat_session', s.session_id); window.location.reload(); }}>
-                  {s.session_id}
-                </button>
-                <span className="text-slate-500 ml-2">{new Date((s.last_message_at<1e12? s.last_message_at*1000 : s.last_message_at)).toLocaleString()}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {!embedded && !askIsDemo && friendlyError && (
-        <div className="rounded-xl bg-amber-50 border border-amber-200 text-amber-900 p-3 text-sm">
-          <div className="font-medium">Let’s try a preset</div>
-          <div className="mt-1">{friendlyError}</div>
-          <div className="mt-2 flex flex-wrap gap-2 text-xs">
-            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>openPlan('crm_organization')}>CRM Organization</button>
-            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>openPlan('book_filling')}>Book‑Filling</button>
-            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>openPlan('inventory_tracking')}>Inventory Tracking</button>
-            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>openPlan('social_automation')}>Social (14‑day)</button>
-          </div>
-        </div>
       )}
       {pageIdx===0 && historyOpen && (
         <div className="rounded-xl bg-white shadow-sm p-3 max-h-40 overflow-auto text-xs text-slate-700 border">
@@ -751,94 +253,17 @@ export default function Ask(){
               </span>
             </div>
           )}
-          {/* Contextual actions directly under the assistant reply */}
-          {contextActions.length > 0 && (
-            <div className="pt-2 mt-1 border-t border-slate-100">
-              <div className="flex flex-wrap gap-2 text-xs">
-                {contextActions.includes('open_integrations') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={async()=>{ const ok = await postUIAction('nav.integrations'); if (!ok) goto('/workspace?pane=integrations'); }}>Open Integrations</button>
-                )}
-                {contextActions.includes('connect_twilio') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=integrations&tour=twilio') }>Connect SMS (Twilio)</button>
-                )}
-                {contextActions.includes('open_messages') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={async()=>{ const ok = await postUIAction('nav.messages'); if (!ok) goto('/workspace?pane=messages'); }}>Open Messages</button>
-                )}
-                {contextActions.includes('open_inbox') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={async()=>{ const ok = await postUIAction('nav.messages'); if (!ok) goto('/workspace?pane=messages'); }}>Open Inbox</button>
-                )}
-                {contextActions.includes('open_contacts') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={async()=>{ const ok = await postUIAction('nav.contacts'); if (!ok) goto('/workspace?pane=contacts'); }}>Open Contacts</button>
-                )}
-                {contextActions.includes('import_contacts') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=contacts&tour=1') }>Import contacts</button>
-                )}
-                {contextActions.includes('open_inventory') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={async()=>{ const ok = await postUIAction('nav.inventory'); if (!ok) goto('/workspace?pane=inventory'); }}>Open Inventory</button>
-                )}
-                {contextActions.includes('check_lowstock') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={async()=>{ const ok = await postUIAction('workflows.run.lowstock'); if (!ok) goto('/workspace?pane=inventory&tour=1'); }}>Check low stock</button>
-                )}
-                {contextActions.includes('open_calendar') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={async()=>{ const ok = await postUIAction('nav.calendar'); if (!ok) goto('/workspace?pane=calendar'); }}>Open Calendar</button>
-                )}
-                {contextActions.includes('open_approvals') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={async()=>{ const ok = await postUIAction('nav.approvals'); if (!ok) goto('/workspace?pane=approvals'); }}>Open Approvals</button>
-                )}
-                {contextActions.includes('open_cadences') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={async()=>{ const ok = await postUIAction('nav.cadences'); if (!ok) goto('/workspace?pane=cadences'); }}>Open Cadences</button>
-                )}
-                {contextActions.includes('open_workflows') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={async()=>{ const ok = await postUIAction('nav.styles'); if (!ok) goto('/workspace?pane=workflows'); }}>Open Work Styles</button>
-                )}
-                {contextActions.includes('open_onboarding') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/onboarding?tour=1') }>Open Onboarding</button>
-                )}
-                {contextActions.includes('guide_dashboard') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=dashboard&tour=1') }>Guide: Dashboard</button>
-                )}
-                {contextActions.includes('guide_integrations') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=integrations&tour=1') }>Guide: Integrations</button>
-                )}
-                {contextActions.includes('guide_onboarding') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/onboarding?tour=1') }>Guide: Onboarding</button>
-                )}
-                {contextActions.includes('guide_workflows') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workflows?tour=1') }>Guide: Workflows</button>
-                )}
-                {contextActions.includes('admin_clear_cache') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={clearTenantCache}>Clear tenant cache</button>
-                )}
-                {contextActions.includes('tour_all') && (
-                  <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=dashboard&demo=1&tour=all') }>Run full demo tour</button>
-                )}
-              </div>
-            </div>
-          )}
         </div>
       </div>
       )}
       {pageIdx===0 && !embedded && !askIsDemo && (
       <div className="flex flex-wrap gap-2 text-xs">
-        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('What can BrandVX do for me? Give me three wins I can see in 48 hours, then tell me exactly what to click next.')}>What can you do?</button>
-        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Explain pricing clearly: trial length, standard monthly, referral discounts (1 and 2 referrals), and the $97 Founding Member option. Then give me one clear way to start.')}>Pricing</button>
-        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('How do I start in 10 minutes? Outline: connect calendar, re‑analyze, send 15 confirmations, 10 dormant, 5 warm. Include the short scripts and one CTA.')}>How do I start?</button>
-        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('List supported integrations and which are required to begin. If something needs configuration, say so and give me the next action.')}>Integrations</button>
-        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>setShortcut('Give me the 48‑hour plan with exact messages for confirmations, dormant, and warm leads. Keep it short and add one CTA.')}>48‑hour plan</button>
+        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{ setInput('What can BrandVX do for me? Keep it concise and tailored to beauty pros.'); await Promise.resolve(); void send(); }}>What can BrandVX do?</button>
+        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{ setInput('How do I get started? Give me the first 3 actions and where to click.'); await Promise.resolve(); void send(); }}>How do I get started?</button>
+        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{ setInput('Create a 48‑hour plan to show quick wins. Ask me any intro questions you need first (services, avg ticket, schedule, audience, platform preference).'); await Promise.resolve(); void send(); }}>Create a 48‑hour plan</button>
       </div>
       )}
-      {pageIdx===0 && !embedded && !askIsDemo && (
-        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="rounded-xl bg-white shadow-sm p-3 border">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-semibold text-slate-900">Last session summary</div>
-              <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm text-xs" onClick={summarizeSession} disabled={summarizing}>{summarizing ? 'Summarizing…' : 'Summarize'}</button>
-            </div>
-            <div className="mt-2 text-sm text-slate-700 whitespace-pre-wrap min-h-[48px]">{sessionSummary || '—'}</div>
-          </div>
-          {/* Train VX moved to page 2 */}
-        </div>
-      )}
+      {/* Last session summary moved to bottom and auto-populated */}
       {pageIdx===0 && (
       <div className={`flex gap-2 items-start ${embedded ? 'shrink-0' : 'shrink-0'} pb-[max(env(safe-area-inset-bottom,0px),0px)]`}>
         <textarea
@@ -861,63 +286,7 @@ export default function Ask(){
       {!firstNoteShown && (
         <div className="text-xs text-slate-500 mt-1 shrink-0">(Responses may take a moment to ensure quality!)</div>
       )}
-      {pageIdx===0 && (!embedded && (messages.length > 0 && messages[messages.length - 1]?.role === 'assistant')) && (
-        <div className="mt-2">
-          <button onClick={()=> guideTo('onboarding')} className="inline-flex items-center gap-2">
-            <span className="px-3 py-2 border rounded-full bg-white hover:shadow-sm text-sm text-slate-800">{UI_STRINGS.ctas.primary.getStarted}</span>
-          </button>
-          <div className="mt-2 flex flex-wrap gap-2 text-xs">
-            {!!lastAssistantText && (
-              <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto(`/workspace?pane=messages&body=${encodeURIComponent(lastAssistantText)}`)}>{UI_STRINGS.ctas.tertiary.useInMessages}</button>
-            )}
-            {!!lastAssistantText && (
-              <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={saveAssistantAsBrandFact}>Save as brand fact</button>
-            )}
-            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={updateBrandVoice}>Update brand voice</button>
-            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('dashboard')}>{UI_STRINGS.ctas.tertiary.guideMe}: Dashboard</button>
-            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('integrations')}>{UI_STRINGS.ctas.tertiary.guideMe}: Settings/Connections</button>
-            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=>guideTo('onboarding')}>{UI_STRINGS.ctas.tertiary.guideMe}: Onboarding</button>
-            <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> goto('/workspace?pane=integrations&tour=twilio') }>{UI_STRINGS.ctas.tertiary.connectSmsTwilio}</button>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2 text-xs">
-            <button disabled={!!running} className="px-2 py-1 border rounded-md bg-white hover:shadow-sm disabled:opacity-50" onClick={()=>runPlan('crm_organization')}>{running==='crm_organization' ? 'Running…' : 'Run plan: CRM Organization'}</button>
-            <button disabled={!!running} className="px-2 py-1 border rounded-md bg-white hover:shadow-sm disabled:opacity-50" onClick={()=>runPlan('book_filling')}>{running==='book_filling' ? 'Running…' : 'Run plan: Book-Filling'}</button>
-            <button disabled={!!running} className="px-2 py-1 border rounded-md bg-white hover:shadow-sm disabled:opacity-50" onClick={()=>runPlan('social_automation')}>{running==='social_automation' ? 'Running…' : 'Run plan: Social (14‑day)'}</button>
-            {getSavedQueue() && (
-              <button disabled={!!running} className="px-2 py-1 border rounded-md bg-white hover:shadow-sm disabled:opacity-50" onClick={resumePlan}>{running ? 'Running…' : 'Resume last plan'}</button>
-            )}
-            {/* Plan Builder: select steps and execute without navigating */}
-            <button disabled={!!running} className="px-2 py-1 border rounded-md bg-white hover:shadow-sm disabled:opacity-50" onClick={()=>openPlan('crm_organization')}>Plan builder: CRM</button>
-            <button disabled={!!running} className="px-2 py-1 border rounded-md bg-white hover:shadow-sm disabled:opacity-50" onClick={()=>openPlan('book_filling')}>Plan builder: Book‑Filling</button>
-            <button disabled={!!running} className="px-2 py-1 border rounded-md bg-white hover:shadow-sm disabled:opacity-50" onClick={()=>openPlan('social_automation')}>Plan builder: Social</button>
-            {planName && (
-              <button className="px-2 py-1 border rounded-md bg-white hover:shadow-sm" onClick={()=> startWorkflowGuide(planName)}>Guide this plan</button>
-            )}
-          </div>
-          {planName && Array.isArray(planSteps) && planSteps.length > 0 && (
-            <div className="mt-3 rounded-xl border bg-white p-3">
-              <div className="text-sm font-medium text-slate-800">Plan steps ({planName})</div>
-              <ul className="mt-2 space-y-1 text-xs text-slate-700">
-                {planSteps.map((s, idx) => (
-                  <li key={idx} className="flex flex-col gap-1">
-                    <input id={`step_${idx}`} type="radio" name="plan_step" checked={selectedStepIdx===idx} onChange={()=>setSelectedStepIdx(idx)} />
-                    <label htmlFor={`step_${idx}`} className="cursor-pointer">
-                      {getToolLabel(String(s?.tool||''))}
-                    </label>
-                    {s?.params && (
-                      <pre className="ml-5 mt-0.5 rounded-md border bg-slate-50 p-2 text-[11px] text-slate-700 whitespace-pre-wrap">{JSON.stringify(s.params, null, 2)}</pre>
-                    )}
-                  </li>
-                ))}
-              </ul>
-              <div className="mt-2 flex gap-2">
-                <button disabled={!!running} className="px-2 py-1 border rounded-md bg-white hover:shadow-sm disabled:opacity-50" onClick={executeOneStep}>Run selected step</button>
-                <button disabled={!!running} className="px-2 py-1 border rounded-md bg-white hover:shadow-sm disabled:opacity-50" onClick={executeAllSteps}>Run all steps</button>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+      {false && lastAssistantText && (<div />)}
       {pageIdx===1 && (
         <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="rounded-xl bg-white shadow-sm p-3 border">
@@ -928,6 +297,13 @@ export default function Ask(){
             </div>
           </div>
           <ProfileEditor />
+        </div>
+      )}
+      {/* Bottom: Last session summary (auto) */}
+      {!embedded && !askIsDemo && (
+        <div className="mt-2 rounded-xl bg-white shadow-sm p-3 border">
+          <div className="text-sm font-semibold text-slate-900">Last session summary</div>
+          <div className="mt-2 text-sm text-slate-700 whitespace-pre-wrap min-h-[48px]">{sessionSummary || '—'}</div>
         </div>
       )}
     </div>
