@@ -363,7 +363,7 @@ export default function Integrations(){
   const connectorsCleanup = async () => {
     try{
       setBusy(true);
-      const r = await api.post('/integrations/connectors/cleanup', { tenant_id: await getTenant() });
+      const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'connectors.cleanup', params:{ tenant_id: await getTenant() }, require_approval: false, idempotency_key: `connectors_cleanup_${Date.now()}` });
       setStatus(`Connectors cleaned: ${Number(r?.deleted||0)} removed`);
       try { showToast({ title:'Connectors cleaned' }); } catch {}
     }catch(e:any){ setErrorMsg(String(e?.message||e)); }
@@ -766,7 +766,7 @@ export default function Integrations(){
             <Button variant="outline" disabled={busy} onClick={async()=>{
               try{
                 setBusy(true);
-                const r = await api.post('/integrations/booking/square/sync-contacts', { tenant_id: await getTenant() });
+                const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'contacts.import.square', params:{ tenant_id: await getTenant() }, require_approval: false, idempotency_key: `square_import_${Date.now()}` });
                 if (typeof r?.imported === 'number') {
                   setStatus(`Imported ${r?.imported||0} contacts from Square`);
                   try { showToast({ title:'Imported', description: `${Number(r?.imported||0)} contacts` }); } catch {}
@@ -776,7 +776,6 @@ export default function Integrations(){
                 } else {
                   setStatus('Import completed');
                 }
-                // Re-analyze status after import
                 try { await reanalyze(); } catch {}
               }catch(e:any){ setErrorMsg('Import failed. Verify Square is connected, then click Refresh and try again.'); }
               finally{ setBusy(false); }

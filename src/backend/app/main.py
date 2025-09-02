@@ -30,6 +30,7 @@ from .scheduler import run_tick
 from .ai import AIClient
 from .brand_prompts import BRAND_SYSTEM, cadence_intro_prompt, chat_system_prompt
 from .tools import execute_tool, tools_schema
+from .rate_limit import check_and_increment
 from .metrics_counters import TOOL_EXECUTED  # type: ignore
 from .marts import recompute_funnel_daily, recompute_time_saved
 from . import models as dbm
@@ -3473,6 +3474,7 @@ class ToolExecRequest(BaseModel):
     name: str
     params: Dict[str, object] = {}
     require_approval: bool = False
+    idempotency_key: Optional[str] = None
 
 
 class ToolQARequest(BaseModel):
@@ -3496,6 +3498,13 @@ async def ai_tool_execute(
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
     try:
+        # Lightweight throttle: per-tenant per-tool
+        try:
+            ok, ttl = check_and_increment(str(ctx.tenant_id), f"tools.exec.{req.name}", max_per_minute=120, burst=60)
+            if not ok:
+                return {"status": "rate_limited", "retry_s": int(ttl)}
+        except Exception:
+            pass
         # Ensure clean session state before work
         try:
             db.rollback()
@@ -3523,6 +3532,18 @@ async def ai_tool_execute(
             except Exception:
                 pass
             auto_approve = False
+        # Idempotency: if provided, reserve or short-circuit duplicate
+        if req.idempotency_key:
+            try:
+                # Attempt to reserve key; on unique hit we return duplicate
+                db.add(dbm.IdempotencyKey(tenant_id=ctx.tenant_id, key=str(req.idempotency_key)))
+                db.commit()
+            except Exception:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+                return {"status": "duplicate"}
         if req.require_approval and not auto_approve:
             db.add(
                 dbm.Approval(

@@ -98,6 +98,12 @@ async def tool_square_backfill(db: Session, ctx: UserContext, tenant_id: str) ->
     async with httpx.AsyncClient(timeout=60) as client:
         r = await client.post(f"{base_api}/integrations/booking/square/backfill-metrics", json={"tenant_id": tenant_id})
         return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
+async def tool_twilio_provision(db: Session, ctx: UserContext, tenant_id: str, area_code: str = "") -> Dict[str, Any]:
+    _require_tenant(ctx, tenant_id)
+    base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(f"{base_api}/integrations/twilio/provision", json={"tenant_id": tenant_id, "area_code": area_code})
+        return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
 
 
 def tool_propose_next_cadence_step(
@@ -614,6 +620,7 @@ REGISTRY.update(
         "calendar.merge": tool_calendar_merge,
         "oauth.refresh": tool_oauth_refresh,
         "square.backfill": tool_square_backfill,
+        "integrations.twilio.provision": tool_twilio_provision,
         # db.query.* registered below after definitions
         # registered after definition below
     }
@@ -684,6 +691,8 @@ async def _dispatch_extended(name: str, params: Dict[str, Any], db: Session, ctx
         return await tool_contacts_import_square(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)))
     if name == "square.backfill":
         return await tool_square_backfill(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)))
+    if name == "integrations.twilio.provision":
+        return await tool_twilio_provision(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)), area_code=str(params.get("area_code", "")))
     if name == "db.query.sql":
         out = await tool_db_query_sql(
             db,

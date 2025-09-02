@@ -23,14 +23,14 @@ export default function Calendar(){
   // Hide Apple calendar until ready (always off for now)
   useEffect(()=>{ try { setShowApple(false); } catch {} }, [lastSync, JSON.stringify(events)]);
   const syncNow = async (prov?: string) => {
-    const r = await api.post('/calendar/sync', { tenant_id: await getTenant(), provider: prov });
+    const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'calendar.sync', params:{ tenant_id: await getTenant(), provider: prov }, require_approval: false });
     setStatus(JSON.stringify(r));
     const l = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`);
     setEvents(l?.events||[]); setLastSync(l?.last_sync||{});
     try { showToast({ title:'Sync started', description: prov || 'all' }); } catch {}
   };
   const mergeDupes = async () => {
-    const r = await api.post('/calendar/merge', { tenant_id: await getTenant() });
+    const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'calendar.merge', params:{ tenant_id: await getTenant() }, require_approval: false });
     setMerged((r as any)?.merged ?? 0);
     const l = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`);
     setEvents(l?.events||[]);
