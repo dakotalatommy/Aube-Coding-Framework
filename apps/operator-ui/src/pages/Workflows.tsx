@@ -1,4 +1,5 @@
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
+import { setQueryParams, readNumberParam } from '../lib/url';
 import Button, { ButtonLink } from '../components/ui/Button';
 import { startGuide } from '../lib/guide';
 import ShareCard from '../components/ui/ShareCard';
@@ -22,16 +23,11 @@ const workflows: W[] = [
 ];
 
 export default function Workflows(){
-  const navigate = useNavigate();
   const location = useLocation();
-  const [step, setStep] = useState<number>(()=>{
-    try{ const sp = new URLSearchParams(window.location.search); const s = Number(sp.get('step')||'1'); return Math.max(1, Math.min(2, isFinite(s)? s : 1)) - 1; } catch { return 0; }
-  });
+  const [step, setStep] = useState<number>(()=> Math.max(1, Math.min(2, readNumberParam('step', 1))) - 1);
   // Actions first, Overview last
   // Sub-pages inside Actions: 1) Playbooks + progress, 2) Impact pack + quick actions
-  const [actionPage, setActionPage] = useState<number>(()=>{
-    try{ const sp = new URLSearchParams(window.location.search); const a = Number(sp.get('ap')||'1'); return Math.max(1, Math.min(2, isFinite(a)? a : 1)) - 1; } catch { return 0; }
-  });
+  const [actionPage, setActionPage] = useState<number>(()=> Math.max(1, Math.min(2, readNumberParam('ap', 1))) - 1);
   const recommendOnly = String((import.meta as any).env?.VITE_BETA_RECOMMEND_ONLY || localStorage.getItem('bvx_recommend_only') || '0') === '1';
   const { showToast } = useToast();
   const isDemo = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').get('demo') === '1';
@@ -99,21 +95,13 @@ export default function Workflows(){
   const gotoStep = (idx: number) => {
     const clamped = Math.max(0, Math.min(1, idx|0));
     setStep(clamped);
-    // Stay inside the workspace — map steps into querystring
-    const sp = new URLSearchParams(window.location.search);
-    sp.set('pane', 'workflows');
-    sp.set('step', String(clamped + 1));
-    navigate(`/workspace?${sp.toString()}`);
+    setQueryParams({ pane:'workflows', step: clamped + 1 }, { replace: false, pathname: '/workspace' });
   };
 
   const gotoActionPage = (idx: number) => {
     const clamped = Math.max(0, Math.min(1, idx|0));
     setActionPage(clamped);
-    const sp = new URLSearchParams(window.location.search);
-    sp.set('pane','workflows');
-    sp.set('step', String(step + 1));
-    sp.set('ap', String(clamped + 1));
-    navigate(`/workspace?${sp.toString()}`);
+    setQueryParams({ pane:'workflows', step: step + 1, ap: clamped + 1 }, { replace: false, pathname: '/workspace' });
   };
 
   const prev = () => gotoStep(step - 1);

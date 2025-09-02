@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
+import { readNumberParam, syncParamToState } from '../lib/url';
 import { api, getTenant } from '../lib/api';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
@@ -10,7 +11,6 @@ import { UI_STRINGS } from '../lib/strings';
 
 export default function Contacts(){
   const loc = useLocation();
-  const nav = useNavigate();
   const { showToast } = useToast();
   const isDemo = (()=>{ try{ return new URLSearchParams(window.location.search).get('demo')==='1'; } catch { return false; } })();
   const [status, setStatus] = useState('');
@@ -23,9 +23,7 @@ export default function Contacts(){
   const [items, setItems] = useState<Array<{ contact_id:string; display_name?:string; first_name?:string; last_name?:string; first_visit?:number; last_visit?:number; txn_count?:number; lifetime_cents?:number; birthday?:string; creation_source?:string }>>([]);
   const [total, setTotal] = useState<number>(0);
   const [listBusy, setListBusy] = useState(false);
-  const [page, setPage] = useState(()=>{
-    try{ const sp = new URLSearchParams(window.location.search); const p = parseInt(sp.get('page')||'1', 10); return Number.isFinite(p) && p>0 ? p : 1; } catch { return 1; }
-  });
+  const [page, setPage] = useState(()=> readNumberParam('page', 1));
   const PAGE_SIZE = 20;
   const [reach, setReach] = useState<Array<{contact_id:string; label:string}>>([]);
   const [expert, setExpert] = useState<{open:boolean; contact?:any}>({open:false});
@@ -68,16 +66,7 @@ export default function Contacts(){
   useEffect(()=>{ void loadList(); }, [isDemo, page]);
 
   // Sync page -> URL (replace to avoid history spam)
-  useEffect(()=>{
-    try{
-      const sp = new URLSearchParams(window.location.search);
-      const curr = parseInt(sp.get('page')||'1', 10);
-      if (!Number.isFinite(curr) || curr !== page) {
-        sp.set('page', String(page));
-        nav({ search: sp.toString() }, { replace: true });
-      }
-    } catch {}
-  }, [page, nav]);
+  useEffect(()=>{ try{ syncParamToState('page', String(page), true); } catch {} }, [page]);
 
   // Sync URL -> page (for back/forward buttons)
   useEffect(()=>{

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, getTenant, API_BASE } from '../lib/api';
+import { setQueryParams } from '../lib/url';
 import { track } from '../lib/analytics';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
@@ -21,12 +22,7 @@ export default function Integrations(){
   const go = (n: number) => {
     const clamped = Math.min(Math.max(n,1), PAGE_MAX);
     setPage(clamped);
-    try {
-      const p = new URLSearchParams(window.location.search);
-      p.set('pane','integrations');
-      p.set('step', String(clamped));
-      window.history.replaceState({}, '', `/workspace?${p.toString()}`);
-    } catch {}
+    setQueryParams({ pane:'integrations', step: clamped }, { replace: true, pathname: '/workspace' });
   };
   const SOCIAL_ON = (import.meta as any).env?.VITE_FEATURE_SOCIAL === '1';
   const SHOW_REDIRECT_URIS = ((import.meta as any).env?.VITE_SHOW_REDIRECT_URIS === '1') || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('dev'));

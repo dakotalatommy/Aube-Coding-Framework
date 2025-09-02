@@ -1,6 +1,7 @@
 import React, { Suspense, lazy, useMemo, useRef, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { setQueryParams } from '../lib/url';
 import { Home, MessageSquare, Users, Calendar, Layers, Package2, Plug, CheckCircle2, MessageCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { api } from '../lib/api';
@@ -105,16 +106,14 @@ export default function WorkspaceShell(){
   }, [demo]);
 
   const setPane = (key: PaneKey) => {
-    const next = new URLSearchParams(loc.search);
-    next.set('pane', key);
-    nav(`/workspace?${next.toString()}`);
+    setQueryParams({ pane: key }, { replace: false, pathname: '/workspace' });
   };
 
   const toggleDemo = () => {
-    const next = new URLSearchParams(loc.search);
-    if (demo) next.delete('demo'); else next.set('demo','1');
-    if (!next.get('pane')) next.set('pane','dashboard');
-    nav(`/workspace?${next.toString()}`);
+    const shouldOn = !demo;
+    const baseParams: Record<string,string|number|boolean> = { pane: (pane||'dashboard') };
+    if (shouldOn) baseParams.demo = 1; else baseParams.demo = '' as any;
+    setQueryParams(baseParams, { replace: false, pathname: '/workspace' });
   };
 
   const PaneView = (() => {
