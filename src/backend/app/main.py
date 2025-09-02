@@ -187,6 +187,31 @@ class CacheHeadersMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(CacheHeadersMiddleware)
 
+# Centralized cache invalidation helpers
+def invalidate_contacts_cache(tenant_id: str) -> None:
+    try:
+        for lim in (100, 200, 500, 1000):
+            try:
+                cache_del(f"contacts:list:{tenant_id}:{lim}")
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+
+def invalidate_calendar_cache(tenant_id: str) -> None:
+    try:
+        cache_del(f"cal:{tenant_id}:0:0")
+    except Exception:
+        pass
+
+
+def invalidate_inventory_cache(tenant_id: str) -> None:
+    try:
+        cache_del(f"inv:{tenant_id}")
+    except Exception:
+        pass
+
 # Global exception handler to normalize error mapping (401/403/404 vs 500)
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -5567,6 +5592,10 @@ def hubspot_import(req: HubspotImportRequest, db: Session = Depends(get_db), ctx
             created += 1
     db.commit()
     emit_event("CrmImportCompleted", {"tenant_id": req.tenant_id, "system": "hubspot", "imported": created})
+    try:
+        invalidate_contacts_cache(req.tenant_id)
+    except Exception:
+        pass
     return {"imported": created}
 @app.post("/integrations/booking/square/sync-contacts", tags=["Integrations"])
 def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context_relaxed)) -> Dict[str, object]:
@@ -5974,9 +6003,7 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
         emit_event("ContactsSynced", {"tenant_id": req.tenant_id, "provider": "square", "imported": created_total})
         # Invalidate rollup caches
         try:
-            cache_del(f"contacts:list:{req.tenant_id}:100")
-            cache_del(f"contacts:list:{req.tenant_id}:200")
-            cache_del(f"contacts:list:{req.tenant_id}:500")
+            invalidate_contacts_cache(req.tenant_id)
         except Exception:
             pass
         # Update v2 connected account last_sync
@@ -8529,7 +8556,7 @@ def calendar_sync(req: SyncRequest, db: Session = Depends(get_db), ctx: UserCont
             pass
     db.commit()
     try:
-        cache_del(f"cal:{req.tenant_id}:0:0")
+        invalidate_calendar_cache(req.tenant_id)
     except Exception:
         pass
     try:
@@ -8613,7 +8640,7 @@ def inventory_merge(req: InventoryMergeRequest, db: Session = Depends(get_db), c
             keep_by_key[key] = r
     db.commit()
     try:
-        cache_del(f"inv:{req.tenant_id}")
+        invalidate_inventory_cache(req.tenant_id)
     except Exception:
         pass
     emit_event("InventoryMerged", {"tenant_id": req.tenant_id, "merged": merged})
