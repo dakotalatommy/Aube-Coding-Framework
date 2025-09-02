@@ -108,7 +108,10 @@ export default function Calendar(){
       </div>
       <div className="rounded-xl border bg-white p-3 shadow-sm" data-guide="list">
         {events.length === 0 ? (
-          <div className="text-sm text-slate-600">{UI_STRINGS.emptyStates.calendar.title}. {UI_STRINGS.emptyStates.calendar.body}</div>
+          <EmptyState title={UI_STRINGS.emptyStates.calendar.title} description={UI_STRINGS.emptyStates.calendar.body}>
+            <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>syncNow('google')}>{UI_STRINGS.ctas.secondary.syncNowGoogle}</button>
+            <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>mergeDupes()}>{UI_STRINGS.ctas.secondary.deduplicate}</button>
+          </EmptyState>
         ) : (
           <ul className="list-disc ml-5 text-sm text-slate-700">
             {events.filter(e=> provider==='all' ? true : (e.provider||'')===provider).map((e,i)=> {

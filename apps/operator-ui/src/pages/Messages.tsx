@@ -250,7 +250,10 @@ export default function Messages(){
 
           <pre className="whitespace-pre-wrap text-sm text-slate-700" data-guide="status" aria-live="polite">{status}</pre>
           {items.length === 0 ? (
-            <EmptyState title={UI_STRINGS.emptyStates.messages.title} description={UI_STRINGS.emptyStates.messages.body} />
+            <EmptyState title={UI_STRINGS.emptyStates.messages.title} description={UI_STRINGS.emptyStates.messages.body}>
+              <Button variant="outline" size="sm" onClick={()=> setSend(s=> ({ ...s, body: 'Hi! Just checking in — would you like to book your next visit?' }))}>Use a template</Button>
+              <Button variant="outline" size="sm" onClick={()=> startGuide('messages')}>{UI_STRINGS.ctas.tertiary.guideMe}</Button>
+            </EmptyState>
           ) : (
             <Table data-guide="list">
               <THead>

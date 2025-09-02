@@ -205,7 +205,12 @@ export default function Contacts(){
                   </tr>
                 ))}
                 {items.length===0 && (
-                  <tr><td className="px-2 py-2 text-slate-500" colSpan={7}>{listBusy? 'Loading…' : 'No clients yet.'}</td></tr>
+                  <tr><td className="px-2 py-2" colSpan={7}>
+                    <div className="max-w-md"><EmptyState title="No clients yet" description="Import from booking or CRM to see clients here.">
+                      <Button variant="outline" size="sm" onClick={()=>{ if (isDemo){ setStatus('Demo: import disabled'); return; } void run(async()=> api.post('/calendar/sync',{ tenant_id: await getTenant(), provider: 'auto' })); }}>Import from booking</Button>
+                      <Button variant="outline" size="sm" onClick={()=> startGuide('contacts')}>{UI_STRINGS.ctas.tertiary.guideMe}</Button>
+                    </EmptyState></div>
+                  </td></tr>
                 )}
               </tbody>
             </table>
