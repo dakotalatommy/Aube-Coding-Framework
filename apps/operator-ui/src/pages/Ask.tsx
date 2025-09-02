@@ -185,6 +185,23 @@ export default function Ask(){
     } catch(e:any){ showToast({ title:'Save error', description:String(e?.message||e) }); }
     finally { setTrainerSaving(false); }
   };
+  const auditPII = async () => {
+    try{
+      if (!lastAssistantText) { showToast({ title:'Nothing to audit', description:'Ask a question first.' }); return; }
+      const r = await api.post('/ai/tools/execute', {
+        tenant_id: await getTenant(),
+        name: 'pii.audit',
+        params: { tenant_id: await getTenant(), text: lastAssistantText },
+        require_approval: false,
+      });
+      if (r?.review) {
+        showToast({ title:'PII/Compliance review', description:'Suggestions below.' });
+        setMessages(curr => [...curr, { role:'assistant', content: String(r.review) }]);
+      } else {
+        showToast({ title:'Audit complete', description: 'No issues found or no review text.' });
+      }
+    } catch(e:any){ showToast({ title:'Audit error', description:String(e?.message||e) }); }
+  };
   const summarizeSession = async () => {
     try{
       if (summarizing) return;
@@ -305,6 +322,11 @@ export default function Ask(){
           )}
         </div>
       </div>
+      )}
+      {pageIdx===0 && (
+        <div className="mt-2 text-right">
+          <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm text-xs" onClick={auditPII}>Audit PII</button>
+        </div>
       )}
       {pageIdx===0 && smartAction && (
         <div className="mt-2">
