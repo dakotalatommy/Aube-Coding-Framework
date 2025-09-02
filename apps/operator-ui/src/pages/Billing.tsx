@@ -50,6 +50,11 @@ export default function Billing(){
 
   return (
     <div className="max-w-lg mx-auto">
+      <div className="mb-3">
+        <button onClick={()=> navigate('/workspace?pane=dashboard')} className="text-sm text-slate-700 hover:text-slate-900 inline-flex items-center gap-1">
+          <span aria-hidden>←</span> Return to workspace
+        </button>
+      </div>
       <div className="rounded-2xl border bg-white/80 backdrop-blur p-5 shadow-sm">
         <h1 className="text-2xl font-semibold text-slate-900">Add payment method</h1>
         <p className="text-slate-600 mt-1">Free trial starts now. Add a card to avoid interruptions later — optional today.</p>

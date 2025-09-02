@@ -150,22 +150,15 @@ export default function Dashboard(){
   const [trialDaysLeft, setTrialDaysLeft] = useState<number>(0);
   // wfProgress removed from Quick Start compact view
   const [foundingMember, setFoundingMember] = useState<boolean>(false);
-  const [shareUrl, setShareUrl] = useState<string>('');
+  const [shareUrl] = useState<string>('');
   // removed copied state in streamlined share flow
   const [shareOpen, setShareOpen] = useState<boolean>(false);
-  const [shareCaption, setShareCaption] = useState<string>('BrandVX — early wins worth sharing');
+  const shareCaption = 'BrandVX — early wins worth sharing';
   // Post-onboarding banner removed; keep state out to avoid unused var
   // Single page dashboard (pager removed)
   const [onboarding, setOnboarding] = useState<any>(null);
 
-  const onReanalyze = async()=>{
-    try{
-      const tid = await getTenant();
-      await api.post('/onboarding/analyze', { tenant_id: tid });
-      track('reanalyze_clicked');
-      showToast({ title: 'Analyzing', description: 'We’re updating your setup insights…' });
-    } catch {}
-  };
+  // Reanalyze action removed with micro-wins trim
 
   // Live Time Saved ticker (gentle optimistic counter)
   const [timeSavedLive, setTimeSavedLive] = useState<number>(0);
@@ -243,19 +236,7 @@ export default function Dashboard(){
     } catch {}
   }, []);
 
-  const handleCreateShare = async (caption?: string) => {
-    try {
-      const tid = await getTenant();
-      const title = 'BrandVX Results';
-      const description = 'Automation results powered by BrandVX';
-      const res = await api.post('/share/create', { tenant_id: tid, title, description });
-      const url = String(res?.url || `${window.location.origin}/s/${res?.token || ''}`);
-      setShareUrl(url);
-      if (caption) setShareCaption(caption);
-      setShareOpen(true);
-      try { await navigator.clipboard.writeText(url); } catch {}
-    } catch {}
-  };
+  // Share action kept via ShareCard component; direct handler removed from quick wins trim
 
   if (loading) return (
     <div className="space-y-4">
@@ -318,7 +299,7 @@ export default function Dashboard(){
         </section>
       )}
       {/* Top utility row removed; we'll render referral & trial in bottom stack */}
-      {showBillingNudge && (
+      {false && showBillingNudge && (
         <section className="rounded-2xl p-3 backdrop-blur bg-amber-50/70 border border-amber-200 shadow-sm">
           <div className="flex flex-wrap items-center gap-3 text-amber-900 justify-center">
             <div className="text-sm">Free trial running — add a payment method anytime to avoid interruptions later.</div>
@@ -413,57 +394,16 @@ export default function Dashboard(){
         </div>
       </section>
       
-      {/* Micro-wins directly under KPI tiles */}
-      <section className="max-w-xl mx-auto rounded-2xl p-3 bg-white border border-slate-200/70 shadow-sm text-center">
-        <h4 className="text-base md:text-[17px] font-semibold text-slate-900">This week’s micro‑wins</h4>
-        <ul className="mt-2 text-sm text-slate-700 list-disc list-inside inline-block text-left">
-          <DynamicMicroWins />
-        </ul>
-        <div className="mt-2 flex items-center justify-center gap-2">
-          <Button variant="outline" size="sm" onClick={()=>{ onReanalyze(); try{ track('reanalyze_clicked'); }catch{} }}>Re‑analyze</Button>
-          <Button variant="outline" size="sm" onClick={()=> handleCreateShare('First wins with BrandVX — gentle reminders and filled slots')}>Share</Button>
-        </div>
-      </section>
-      {/* Quick win CTAs */}
-      <section className="max-w-3xl mx-auto rounded-2xl p-3 bg-white border border-slate-200/70 shadow-sm">
-        <div className="text-sm font-semibold text-slate-900 mb-2 text-center">Quick wins</div>
-        <div className="flex flex-wrap gap-2 justify-center">
-          <Button size="sm" variant="outline" onClick={async()=>{
-            try{
-              const tid = await getTenant();
-              const r = await api.post('/ai/tools/execute', { tenant_id: tid, name: 'campaigns.dormant.preview', params:{ tenant_id: tid, threshold_days: 90 }, require_approval: false });
-              showToast({ title:'Dormant preview', description: `~${Number(r?.count||0)} clients to re‑engage` });
-            }catch(e:any){ setError(String(e?.message||e)); }
-          }}>Dormant 90d</Button>
-          <Button size="sm" variant="outline" onClick={async()=>{
-            try{
-              const tid = await getTenant();
-              await api.post('/ai/tools/execute', { tenant_id: tid, name: 'appointments.schedule_reminders', params:{ tenant_id: tid }, require_approval: false });
-              showToast({ title:'Rebook reminders queued', description:'We’ll schedule reminders for upcoming bookings.' });
-            }catch(e:any){ setError(String(e?.message||e)); }
-          }}>Rebook now</Button>
-          <Button size="sm" variant="outline" onClick={async()=>{
-            try{
-              const tid = await getTenant();
-              const ask = await api.post('/ai/chat/raw', { tenant_id: tid, allow_tools: true, messages:[{ role:'user', content:'What was my last week tax‑free revenue?' }] });
-              const txt = String(ask?.text||'');
-              showToast({ title:'Weekly revenue', description: txt.slice(0,80) });
-            }catch(e:any){ setError(String(e?.message||e)); }
-          }}>Weekly revenue</Button>
-          <Button size="sm" className="rounded-full" onClick={()=> nav('/workflows?tour=1')}>10‑Minute Glow Up</Button>
-        </div>
-      </section>
-      {/* Quick Start 3 workflows */}
-      {(
+      {/* Micro-wins and quick wins CTAs removed per UI trim */}
+      {/* Quick Start 3 workflows (stacked vertically) */}
       <section className="rounded-2xl p-2 bg-white border border-white/60 shadow-sm">
         <h4 className="text-base md:text-[17px] font-semibold text-slate-900 text-center">Quick Start · 3 workflows</h4>
-        <div className="mt-2 flex justify-center gap-2">
-          <Button size="sm" variant="outline" onClick={()=> runUIAction('workflows.run.social_plan')}>Run 14‑day Social</Button>
-          <Button size="sm" variant="outline" onClick={()=> runUIAction('workflows.run.wow10')}>Run 10‑Minute Wow</Button>
-          <Button size="sm" variant="outline" onClick={()=> window.location.assign('/workspace?pane=workflows')}>Open Work Styles</Button>
+        <div className="mt-2 max-w-sm mx-auto grid gap-2">
+          <Button size="sm" variant="outline" className="w-full" onClick={()=> runUIAction('workflows.run.social_plan')}>Run 14‑day Social</Button>
+          <Button size="sm" variant="outline" className="w-full" onClick={()=> runUIAction('workflows.run.wow10')}>Run 10‑Minute Wow</Button>
+          <Button size="sm" variant="outline" className="w-full" onClick={()=> window.location.assign('/workspace?pane=workflows')}>Open Work Styles</Button>
         </div>
       </section>
-      )}
       {/* Bottom stack removed (trial/referral now at top) */}
       {/* chart removed */}
       <ShareCard
@@ -477,7 +417,7 @@ export default function Dashboard(){
         hoursRect={{ x: 170, y: 1030, maxW: 430 }}
         hoursValue={Number(metrics?.time_saved_minutes||0)}
       />
-      {/* Micro-wins shown above; no duplicate here */}
+      {/* Micro-wins removed */}
       {/* Cadence Queue moved to Cadences page */}
     </div>
   );
@@ -555,40 +495,4 @@ function TimeSavedAnimated({ title, minutes }:{ title:string; minutes:number }){
   );
 }
 
-function DynamicMicroWins(){
-  const [items, setItems] = useState<string[]>([]);
-  useEffect(()=>{
-    (async()=>{
-      try{
-        const tid = await getTenant();
-        const logs = await api.get(`/ai/chat/logs?tenant_id=${encodeURIComponent(tid)}&limit=120`);
-        const texts = Array.isArray(logs?.items) ? logs.items.map((x:any)=> String(x?.content||'')) : [];
-        const pool = [
-          'Confirm Friday appointments',
-          'Revive 2 dormant clients',
-          'Schedule 15 confirmations',
-          'Draft 3 IG posts',
-          'Invite 1 friend for $97/mo',
-          'Backfill Square metrics',
-        ];
-        const picks: string[] = [];
-        const pushIf = (label:string, re:RegExp)=>{ if (texts.some((t: string)=> re.test(t))) picks.push(label); };
-        pushIf('Revive 2 dormant clients', /(dormant|inactive|90d)/i);
-        pushIf('Confirm Friday appointments', /(confirm|remind|appointments?)/i);
-        pushIf('Draft 3 IG posts', /(instagram|ig|post|content)/i);
-        while (picks.length < 3 && pool.length) {
-          const n = Math.floor(Math.random()*pool.length);
-          const [x] = pool.splice(n,1);
-          if (x) picks.push(x);
-        }
-        setItems(picks.slice(0,3));
-      } catch {}
-    })();
-  },[]);
-  if (!items.length) return (<>
-    <li>First cancellation filled</li>
-    <li>2 dormant clients rebooked</li>
-    <li>14‑day social plan drafted</li>
-  </>);
-  return (<>{items.map((t,i)=> (<li key={i}>{t}</li>))}</>);
-}
+// DynamicMicroWins removed per UI trim

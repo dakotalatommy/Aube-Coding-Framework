@@ -47,7 +47,7 @@ function IntegrationsRedirect() {
 function RouteContent() {
   const loc = useLocation();
   const embed = new URLSearchParams(loc.search).get('embed') === '1';
-  const hideCrumbs = loc.pathname === '/workspace' || loc.pathname === '/login' || loc.pathname === '/signup';
+  const hideCrumbs = loc.pathname === '/workspace' || loc.pathname === '/login' || loc.pathname === '/signup' || loc.pathname === '/billing';
   initAnalytics();
   try { trackPage(loc.pathname + loc.search); } catch {}
   if (loc.pathname === '/landing-v2') {
@@ -120,6 +120,7 @@ function Shell() {
   const qs = new URLSearchParams(loc.search);
   const onLanding = loc.pathname === '/brandvx';
   const onAskPage = loc.pathname.startsWith('/ask');
+  const onBilling = loc.pathname === '/billing';
   const onDemo = loc.pathname.startsWith('/demo') || loc.pathname.startsWith('/ask-vx-demo');
 
   // Clear Ask VX persisted state on pure landing to avoid stray artifacts
@@ -150,8 +151,8 @@ function Shell() {
             </Suspense>
           </main>
           {/* Command Mode: dockless AskVX (hide on landing and demos) */}
-          {!embed && !onAskPage && !onDemo && !onLanding && <CommandBar />}
-          {!embed && !onAskPage && !onDemo && !onLanding && <ActionDrawer />}
+          {!embed && !onAskPage && !onDemo && !onLanding && !onBilling && <CommandBar />}
+          {!embed && !onAskPage && !onDemo && !onLanding && !onBilling && <ActionDrawer />}
         </div>
       </div>
     </>
