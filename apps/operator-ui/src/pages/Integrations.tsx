@@ -4,8 +4,15 @@ import { setQueryParams } from '../lib/url';
 import { track, trackEvent } from '../lib/analytics';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
-import { driver } from 'driver.js';
-import 'driver.js/dist/driver.css';
+// Lazy-load driver.js only when needed to reduce bundle size
+let _driver: any; let _driverCssLoaded = false;
+async function getDriver(){
+  if (_driver) return _driver;
+  const mod = await import('driver.js');
+  if (!_driverCssLoaded) { try { await import('driver.js/dist/driver.css'); _driverCssLoaded = true; } catch {} }
+  _driver = (mod as any).driver || (mod as any).default?.driver || (mod as any).default;
+  return _driver;
+}
 import { UI_STRINGS } from '../lib/strings';
 import { useToast } from '../components/ui/Toast';
 import StatusBadge from '../components/ui/StatusBadge';
@@ -206,7 +213,8 @@ export default function Integrations(){
     try{
       const sp = new URLSearchParams(window.location.search);
       if (sp.get('tour') === 'twilio') {
-        const d = driver({
+        const drv = await getDriver();
+        const d = drv({
           showProgress: true,
           steps: [
             { popover: { title: 'SMS via Twilio', description: 'Use a dedicated business number. Personal numbers are not supported yet.' } },
@@ -222,7 +230,8 @@ export default function Integrations(){
     try{
       const sp = new URLSearchParams(window.location.search);
       if (sp.get('tour') === '1') {
-        const d = driver({
+        const drv = await getDriver();
+        const d = drv({
           showProgress: true,
           steps: [
             { popover: { title: 'Integrations', description: 'Connect booking, CRM, messaging, and inventory.' } },

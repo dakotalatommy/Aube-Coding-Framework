@@ -52,6 +52,19 @@ try {
         return event
       },
     })
+    // Defer user identification until Supabase session is ready
+    try {
+      import('./lib/supabase').then(async (m) => {
+        try {
+          const s = await m.supabase.auth.getSession();
+          const uid = s?.data?.session?.user?.id;
+          if (uid) {
+            (window as any).__bvx_uid = uid;
+            Sentry.setUser({ id: uid });
+          }
+        } catch {}
+      });
+    } catch {}
   }
 } catch {}
 
