@@ -3744,7 +3744,7 @@ def contacts_list(
     limit: int = 100,
     offset: int = 0,
     db: Session = Depends(get_db),
-    ctx: UserContext = Depends(get_user_context),
+    ctx: UserContext = Depends(get_user_context_relaxed),
 ):
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"items": []}
@@ -3822,7 +3822,11 @@ def contacts_list(
         return {"items": out, "total": total}
     except Exception as e:
         from fastapi.responses import JSONResponse as _JR
-        return _JR({"error": "internal_error", "detail": str(e)[:200]}, status_code=500)
+        msg = str(e)[:200]
+        # Map auth errors more precisely when bubbled
+        if "invalid token" in msg or "invalid_token" in msg:
+            return _JR({"error": "unauthorized", "detail": msg}, status_code=401)
+        return _JR({"error": "internal_error", "detail": msg}, status_code=500)
 
 
 # --- Human-friendly tool schema for AskVX palette ---
