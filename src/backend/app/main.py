@@ -3602,6 +3602,12 @@ async def ai_tool_execute(
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
     try:
+        # Breadcrumb for observability
+        try:
+            import sentry_sdk as _sentry  # type: ignore
+            _sentry.add_breadcrumb(category="tool", message=f"execute {req.name}", level="info", data={"tenant_id": str(ctx.tenant_id)})
+        except Exception:
+            pass
         # Lightweight throttle: per-tenant per-tool
         try:
             ok, ttl = check_and_increment(str(ctx.tenant_id), f"tools.exec.{req.name}", max_per_minute=120, burst=60)
@@ -3660,6 +3666,14 @@ async def ai_tool_execute(
             db.commit()
             emit_event("AIToolExecuted", {"tenant_id": req.tenant_id, "tool": req.name, "status": "pending"})
             return {"status": "pending"}
+        # Minimal permission guard: restrict non-public tools if needed
+        try:
+            from .tools import TOOL_META  # type: ignore
+            meta = TOOL_META.get(req.name, {"public": True})
+            if not bool(meta.get("public", True)) and ctx.role != "owner_admin":
+                return {"status": "forbidden"}
+        except Exception:
+            pass
         result = await execute_tool(req.name, dict(req.params or {}), db, ctx)
         # Normalize return shape minimally
         if not isinstance(result, dict) or "status" not in result:
@@ -3671,6 +3685,11 @@ async def ai_tool_execute(
             pass
         return result
     except Exception as e:
+        try:
+            import sentry_sdk as _sentry  # type: ignore
+            _sentry.capture_exception(e)
+        except Exception:
+            pass
         try:
             db.rollback()
         except Exception:
