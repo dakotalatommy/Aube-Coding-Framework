@@ -100,7 +100,7 @@ export default function Contacts(){
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center">
+      <div className="flex items-center sticky top-[var(--sticky-offset,64px)] z-10 bg-white/70 backdrop-blur rounded-md px-1 py-1">
         <h3 className="text-lg font-semibold">Contacts</h3>
         {!!lastUpdated && (
           <span className="ml-2 text-[11px] text-slate-500">Updated {new Date(lastUpdated).toLocaleTimeString()}</span>
