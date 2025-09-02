@@ -186,6 +186,25 @@ class CacheHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 app.add_middleware(CacheHeadersMiddleware)
+
+# Global exception handler to normalize error mapping (401/403/404 vs 500)
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    try:
+        msg = str(getattr(exc, "detail", None) or getattr(exc, "message", None) or str(exc))[:400]
+        if isinstance(exc, HTTPException):
+            code = int(getattr(exc, "status_code", 500) or 500)
+            if code == 401:
+                return JSONResponse({"error": "unauthorized", "detail": msg}, status_code=401)
+            if code == 403:
+                return JSONResponse({"error": "forbidden", "detail": msg}, status_code=403)
+            if code == 404:
+                return JSONResponse({"error": "not_found", "detail": msg}, status_code=404)
+            return JSONResponse({"error": "client_error" if 400 <= code < 500 else "internal_error", "detail": msg}, status_code=code)
+        return JSONResponse({"error": "internal_error", "detail": msg}, status_code=500)
+    except Exception:
+        return JSONResponse({"error": "internal_error"}, status_code=500)
+
 # --- Auth configuration helper ---
 @app.get("/auth/config_check", tags=["Health"])
 def auth_config_check(request: Request):
@@ -776,7 +795,6 @@ def _has_connected_account(db: Session, tenant_id: str, provider: str) -> bool:
         return bool(row)
     except Exception:
         return False
-
 def _audit_logs_columns(db: Session) -> set:
     try:
         rows = db.execute(_sql_text("""
@@ -5374,8 +5392,10 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
             db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": t_id})
             db.execute(_sql_text("SET LOCAL app.role = 'authenticated'"))
         except Exception:
-            try: db.rollback()
-            except Exception: pass
+            try:
+                db.rollback()
+            except Exception:
+                pass
         # Attempt token exchange when code present
         access_token_enc = encrypt_text(code or "")
         refresh_token_enc = None
@@ -5462,8 +5482,10 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 db.add(dbm.AuditLog(tenant_id=t_id, actor_id="system", action=f"oauth.connect_failed.{provider}", entity_ref="oauth", payload=str({"db_error": str(e)[:300], "tenant": t_id})))
                 db.commit()
             except Exception:
-                try: db.rollback()
-                except Exception: pass
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
         try:
             cid = request.query_params.get('cid') or ''
             payload = {"code": bool(code), "error": error or "", "exchange_ok": exchange_ok, **({} if not exchange_detail else exchange_detail)}
@@ -5472,8 +5494,10 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
             db.add(dbm.AuditLog(tenant_id=t_id, actor_id="system", action=f"oauth.callback.{provider}", entity_ref="oauth", payload=str(payload)))
             db.commit()
         except Exception:
-            try: db.rollback()
-            except Exception: pass
+            try:
+                db.rollback()
+            except Exception:
+                pass
         # Emit event for callback
         try:
             emit_event("OauthCallback", {"tenant_id": t_id, "provider": provider, "code_present": bool(code), "error": error or ""})
@@ -6342,8 +6366,6 @@ def scheduler_tick(tenant_id: Optional[str] = None, db: Session = Depends(get_db
     if tenant_id and ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"processed": 0}
     return {"processed": run_tick(db, tenant_id)}
-
-
 class RecomputeRequest(BaseModel):
     tenant_id: str
 
@@ -7729,26 +7751,6 @@ async def webhook_sendgrid(
     return {"status": "ok"}
 
 
-@app.get("/admin/rls/audit", tags=["Admin"])
-def rls_audit(ctx: UserContext = Depends(require_role("owner_admin"))):
-    """Report RLS enabled status for public tables (Supabase). Non-invasive check.
-    """
-    try:
-        with next(get_db()) as db:  # type: ignore
-            rows = db.execute(_sql_text("""
-                select c.relname as table, pol.polname is not null as has_policy
-                from pg_class c
-                join pg_namespace n on n.oid=c.relnamespace
-                left join pg_policies pol on pol.schemaname=n.nspname and pol.tablename=c.relname
-                where n.nspname='public' and c.relkind='r'
-                group by c.relname, has_policy
-                order by c.relname
-            """)).fetchall()
-            out = [{"table": r[0], "has_policy": bool(r[1])} for r in rows]
-            return {"tables": out}
-    except Exception:
-        return {"tables": []}
-
 @app.post("/webhooks/acuity", tags=["Integrations"])
 async def webhook_acuity(
     req: ProviderWebhook,
@@ -8664,8 +8666,6 @@ def inventory_map(req: InventoryMapRequest, db: Session = Depends(get_db), ctx: 
 # -------- Connectors maintenance & RLS health ---------
 class ConnectorsCleanupRequest(BaseModel):
     tenant_id: Optional[str] = None
-
-
 @app.post("/integrations/connectors/cleanup", tags=["Integrations"])
 def connectors_cleanup(req: ConnectorsCleanupRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
     if req.tenant_id and ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
@@ -8712,8 +8712,6 @@ class ConnectorsNormalizeRequest(BaseModel):
     tenant_id: Optional[str] = None
     migrate_legacy: bool = True
     dedupe: bool = True
-
-
 @app.post("/integrations/connectors/normalize", tags=["Integrations"])
 def connectors_normalize(req: ConnectorsNormalizeRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
     # Owner scope or same tenant
