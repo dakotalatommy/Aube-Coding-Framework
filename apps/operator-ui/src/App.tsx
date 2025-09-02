@@ -122,6 +122,7 @@ function Shell() {
   const onAskPage = loc.pathname.startsWith('/ask');
   const onBilling = loc.pathname === '/billing';
   const onDemo = loc.pathname.startsWith('/demo') || loc.pathname.startsWith('/ask-vx-demo');
+  const onAuthRoute = loc.pathname === '/login' || loc.pathname === '/signup' || loc.pathname === '/auth/callback';
 
   // Clear Ask VX persisted state on pure landing to avoid stray artifacts
   useEffect(()=>{
@@ -150,9 +151,9 @@ function Shell() {
               <RouteContent />
             </Suspense>
           </main>
-          {/* Command Mode: dockless AskVX (hide on landing and demos) */}
-          {!embed && !onAskPage && !onDemo && !onLanding && !onBilling && <CommandBar />}
-          {!embed && !onAskPage && !onDemo && !onLanding && !onBilling && <ActionDrawer />}
+          {/* Command Mode: dockless AskVX (hide on landing, demos, billing, and auth routes) */}
+          {!embed && !onAskPage && !onDemo && !onLanding && !onBilling && !onAuthRoute && <CommandBar />}
+          {!embed && !onAskPage && !onDemo && !onLanding && !onBilling && !onAuthRoute && <ActionDrawer />}
         </div>
       </div>
     </>
