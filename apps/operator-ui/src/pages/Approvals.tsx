@@ -85,6 +85,22 @@ export default function Approvals(){
   const ItemDetails = ({ row }: { row:any }) => {
     const tool = humanTool(row);
     const params = parseParams(row);
+    const result = (()=>{ try{ return typeof row.result === 'string' ? JSON.parse(row.result) : (row.result||{});}catch{ return row.result||{} }})();
+    const diff = (()=>{
+      try{
+        const before = params?.before || params?.old || null;
+        const after = params?.after || params?.new || null;
+        if (!before || !after) return null;
+        const out: Array<{key:string; from:any; to:any}> = [];
+        const keys = Array.from(new Set([...Object.keys(before), ...Object.keys(after)]));
+        for (const k of keys){
+          const a = (before as any)[k];
+          const b = (after as any)[k];
+          if (JSON.stringify(a) !== JSON.stringify(b)) out.push({ key: k, from: a, to: b });
+        }
+        return out;
+      } catch { return null; }
+    })();
     return (
       <div className="rounded-2xl p-4 bg-white/70 backdrop-blur border border-white/70 shadow-sm">
         <div className="flex items-start justify-between gap-3">
@@ -98,6 +114,20 @@ export default function Approvals(){
           </div>
         </div>
         <div className="mt-3 grid sm:grid-cols-2 gap-3">
+          {diff && diff.length>0 && (
+            <div className="rounded-xl border bg-white p-3 sm:col-span-2">
+              <div className="font-medium text-slate-800 text-sm">Preview changes</div>
+              <div className="mt-2 text-xs text-slate-700">
+                {diff.map((d,i)=> (
+                  <div key={i} className="grid grid-cols-3 gap-2 items-start border-t first:border-t-0 py-1">
+                    <div className="text-slate-600">{d.key}</div>
+                    <pre className="col-span-1 whitespace-pre-wrap bg-rose-50/60 border border-rose-100 rounded px-2 py-1">{JSON.stringify(d.from, null, 2)}</pre>
+                    <pre className="col-span-1 whitespace-pre-wrap bg-emerald-50/60 border border-emerald-100 rounded px-2 py-1">{JSON.stringify(d.to, null, 2)}</pre>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {row.explain && (
             <div className="rounded-xl border bg-white p-3 sm:col-span-2">
               <div className="font-medium text-slate-800 text-sm">Explanation</div>
@@ -127,6 +157,12 @@ export default function Approvals(){
             <div className="font-medium text-slate-800 text-sm">Params</div>
             <pre className="text-xs text-slate-700 mt-1 whitespace-pre-wrap">{JSON.stringify(params, null, 2)}</pre>
           </div>
+          {result && Object.keys(result||{}).length>0 && (
+            <div className="rounded-xl border bg-white p-3">
+              <div className="font-medium text-slate-800 text-sm">Result (last run)</div>
+              <pre className="text-xs text-slate-700 mt-1 whitespace-pre-wrap">{JSON.stringify(result, null, 2)}</pre>
+            </div>
+          )}
           {/* Milestone share slot */}
           <div className="rounded-xl border bg-white p-3 sm:col-span-2">
             <div className="font-medium text-slate-800 text-sm">Shareable milestone</div>
