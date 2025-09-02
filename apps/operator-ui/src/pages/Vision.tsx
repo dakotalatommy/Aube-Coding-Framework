@@ -9,6 +9,7 @@ export default function Vision(){
   const [prompt, setPrompt] = useState<string>('Give concise, actionable feedback on lighting, framing, and clarity for beauty portfolio quality.');
   const [output, setOutput] = useState<string>('');
   const [loading, setLoading] = useState(false);
+  const [mime, setMime] = useState<string>('image/jpeg');
   const [socialUrl, setSocialUrl] = useState<string>('');
   const [social, setSocial] = useState<{profile?:any; posts?:string[]}>({});
   const [editPrompt, setEditPrompt] = useState<string>('Reduce specular highlights on T-zone; keep texture; neutralize warm cast.');
@@ -32,6 +33,7 @@ export default function Vision(){
       setPreview(dataUrl);
       const idx = dataUrl.indexOf(',');
       setB64(idx >= 0 ? dataUrl.slice(idx+1) : dataUrl);
+      try{ const m = dataUrl.slice(5, dataUrl.indexOf(';')); if (m) setMime(m); }catch{}
     };
     reader.readAsDataURL(f);
   };
@@ -44,7 +46,7 @@ export default function Vision(){
       const r = await api.post('/ai/tools/execute', {
         tenant_id: await getTenant(),
         name: 'vision.inspect',
-        params: { tenant_id: await getTenant(), inputImageBase64: b64, return: ['faces','lighting','colors','qualityFlags','safeSearch'] },
+        params: { tenant_id: await getTenant(), inputImageBase64: b64, inputMime: mime, return: ['faces','lighting','colors','qualityFlags','safeSearch'] },
         require_approval: false,
       });
       const brief = String(r?.brief || '');
@@ -69,7 +71,7 @@ export default function Vision(){
       const r = await api.post('/ai/tools/execute', {
         tenant_id: await getTenant(),
         name: 'image.edit',
-        params: { tenant_id: await getTenant(), mode: 'edit', prompt: p, inputImageBase64: b64, outputFormat: 'png' },
+        params: { tenant_id: await getTenant(), mode: 'edit', prompt: p, inputImageBase64: b64, inputMime: mime, outputFormat: 'png' },
         require_approval: false,
       });
       if (r?.preview_url) {

@@ -75,6 +75,8 @@ tags_metadata = [
     {"name": "Sharing", "description": "Public share links."},
     {"name": "Billing", "description": "Stripe billing and referrals."},
 ]
+# Initialize FastAPI before any route decorators
+app = FastAPI(title="BrandVX Backend", version="0.2.0", openapi_tags=tags_metadata)
 @app.get("/limits/status", tags=["Health"])
 def limits_status(tenant_id: str, keys: str = "msg:sms,msg:email,ai.chat,db.query.named"):
     try:
@@ -136,7 +138,7 @@ def ai_digest(tenant_id: str, since: Optional[int] = None, db: Session = Depends
         return _JR({"error": "internal_error", "detail": str(e)[:200]}, status_code=500)
 
 
-app = FastAPI(title="BrandVX Backend", version="0.2.0", openapi_tags=tags_metadata)
+# app already initialized above
 # Optional Sentry capture (dsn via SENTRY_DSN)
 try:
     import sentry_sdk as _sentry
