@@ -2,6 +2,19 @@ import posthog from 'posthog-js';
 
 let initialized = false;
 
+// Standardized analytics events used across the app
+export type AnalyticsEvent =
+  | 'integrations.connect.click'
+  | 'integrations.connect.retry'
+  | 'integrations.reanalyze.click'
+  | 'integrations.guide.open'
+  | 'approvals.approve'
+  | 'approvals.reject'
+  | 'ask.smart_action.run'
+  | 'billing.success'
+  | 'billing.modal.open'
+  | 'referral.copy';
+
 export function initAnalytics() {
   if (initialized) return;
   const key = import.meta.env.VITE_POSTHOG_KEY;
@@ -23,6 +36,11 @@ export function track(event: string, props?: Record<string, any>) {
   try {
     posthog.capture(event, props || {});
   } catch {}
+}
+
+export function trackEvent(event: AnalyticsEvent, props?: Record<string, any>) {
+  // Ensure consistent dot-case naming already enforced by union type
+  track(event, props);
 }
 
 export function identify(userId?: string, props?: Record<string, any>) {

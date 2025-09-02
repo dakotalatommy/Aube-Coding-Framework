@@ -41,6 +41,16 @@ try {
       tracesSampleRate: 0.1,
       replaysSessionSampleRate: 0.0,
       replaysOnErrorSampleRate: 1.0,
+      integrations: [Sentry.browserTracingIntegration?.(), Sentry.replayIntegration?.()].filter(Boolean) as any,
+      beforeSend: (event) => {
+        try {
+          const tid = localStorage.getItem('bvx_tenant') || undefined
+          const uid = (window as any)?.__bvx_uid || undefined
+          if (tid) event.tags = { ...(event.tags||{}), tenant_id: tid }
+          if (uid) event.user = { ...(event.user||{}), id: uid }
+        } catch {}
+        return event
+      },
     })
   }
 } catch {}

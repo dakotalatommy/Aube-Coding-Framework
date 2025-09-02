@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, getTenant } from '../lib/api';
+import { trackEvent } from '../lib/analytics';
 import Button from '../components/ui/Button';
 import { startGuide } from '../lib/guide';
 import { Table, THead, TR, TH, TD } from '../components/ui/Table';
@@ -44,6 +45,7 @@ export default function Approvals(){
     try{
       const r = await api.post('/approvals/action',{ tenant_id: await getTenant(), approval_id: Number(id), action: decision });
       setStatus(JSON.stringify(r));
+      try { trackEvent(decision==='approve' ? 'approvals.approve' : 'approvals.reject', { id: Number(id) }); } catch {}
       await load();
     } catch(e:any){ setStatus(String(e?.message||e)); }
   };

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, getTenant, API_BASE } from '../lib/api';
 import { setQueryParams } from '../lib/url';
-import { track } from '../lib/analytics';
+import { track, trackEvent } from '../lib/analytics';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import { driver } from 'driver.js';
@@ -386,7 +386,7 @@ export default function Integrations(){
     try{
       setConnecting((m)=> ({ ...m, [provider]: true }));
       setErrorMsg('');
-      try { track('oauth_login_click', { provider }); } catch {}
+      try { trackEvent('integrations.connect.click', { provider }); } catch {}
       // Feature flag and config guards for social providers
       if ((provider === 'facebook' || provider === 'instagram')) {
         if (!SOCIAL_ON) {
@@ -410,7 +410,7 @@ export default function Integrations(){
         // Retry once after a short delay with a longer window
         setTimeout(async()=>{
           try{
-            try { track('oauth_login_retry', { provider }); } catch {}
+            try { trackEvent('integrations.connect.retry', { provider }); } catch {}
             const r2 = await api.get(`/oauth/${provider}/login?tenant_id=${encodeURIComponent(await getTenant())}&return=workspace`, { timeoutMs: 20000 });
             if (r2?.url) {
               try { window.location.href = r2.url; } catch { window.location.assign(r2.url); }
@@ -487,9 +487,9 @@ export default function Integrations(){
           <span className="text-xs text-slate-600 px-2 py-1 rounded-md border bg-white/70">
             TZ: {Intl.DateTimeFormat().resolvedOptions().timeZone} (UTC{computeOffsetHours()>=0?'+':''}{computeOffsetHours()})
           </span>
-          <Button variant="outline" size="sm" onClick={()=>{ reanalyze(); try{ track('reanalyze_clicked', { area:'integrations' }); }catch{} }} aria-label="Re-analyze connections" data-guide="reanalyze">{UI_STRINGS.ctas.secondary.reanalyze}</Button>
+          <Button variant="outline" size="sm" onClick={()=>{ reanalyze(); try{ trackEvent('integrations.reanalyze.click', { area:'integrations' }); }catch{} }} aria-label="Re-analyze connections" data-guide="reanalyze">{UI_STRINGS.ctas.secondary.reanalyze}</Button>
           <Button variant="outline" size="sm" aria-label="Open integrations guide" onClick={()=>{
-            try { track('guide_open', { area: 'integrations' }); } catch {}
+            try { trackEvent('integrations.guide.open', { area: 'integrations' }); } catch {}
             const d = driver({ showProgress: true, steps: [
               { popover: { title: 'Integrations', description: 'Connect booking, CRM, messaging, and inventory.' } },
               { element: '[data-guide="providers"]', popover: { title: 'What each does', description: 'Booking (Square/Acuity), Calendar (Google/Apple), CRM (HubSpot), Messaging (Twilio/SendGrid), Commerce (Shopify).' } },
@@ -531,7 +531,7 @@ export default function Integrations(){
       )}
       {onboarding?.providers && (
         <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-700 bg-white/70 border border-white/70 rounded-md px-2 py-1 inline-block">
+          <span className="text-xs text-slate-700 bg-white/70 border border-white/70 rounded-md px-2 py-1 inline-block" aria-live="polite">
             {(() => {
               const entries = Object.entries(onboarding.providers as Record<string, boolean>);
               const total = entries.length;

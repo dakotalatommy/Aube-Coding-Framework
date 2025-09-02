@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import Button, { ButtonLink } from '../components/ui/Button';
 import { api, getTenant } from '../lib/api';
 import { runUIAction } from '../lib/actions';
-import { track } from '../lib/analytics';
+import { track, trackEvent } from '../lib/analytics';
 import { motion } from 'framer-motion';
 import { useToast } from '../components/ui/Toast';
 import { startGuide } from '../lib/guide';
@@ -316,7 +316,7 @@ export default function Dashboard(){
             <div className="text-[11px] text-slate-700 mb-1 text-center">Your referral link</div>
             <div className="flex items-center gap-2">
               <input readOnly value={refLink} className="h-9 text-sm flex-1 border rounded-lg px-2 py-1 bg-white text-slate-800" onFocus={(e)=>e.currentTarget.select()} />
-              <Button size="sm" className="rounded-full px-3" onClick={async()=>{ try{ await navigator.clipboard.writeText(refLink); track('referral_copy'); }catch{} }}>Copy</Button>
+              <Button size="sm" className="rounded-full px-3" onClick={async()=>{ try{ await navigator.clipboard.writeText(refLink); trackEvent('referral.copy'); }catch{} }}>Copy</Button>
             </div>
             <div className="mt-1 text-[11px] text-slate-500 text-center">Referrals (30d): <span className="font-medium text-slate-700">{Number(metrics?.referrals_30d||0)}</span></div>
             <div className="mt-1 text-[11px] text-slate-600 text-center">

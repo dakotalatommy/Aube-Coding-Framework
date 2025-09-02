@@ -16,6 +16,7 @@ function resolveApiBase(): string {
 export const API_BASE = resolveApiBase();
 import { supabase } from './supabase';
 import { track } from './analytics';
+import * as Sentry from '@sentry/react';
 
 // Resolve and cache tenant id via /me; fallback to localStorage if available
 let _cachedTenantId: string | null = null;
@@ -129,6 +130,7 @@ async function request(path: string, options: RequestInit = {}) {
     const res = await fetch(`${base}${path}`, { ...options, headers, signal: compositeSignal });
     if (!res.ok) {
       try { track('api_error', { path, status: res.status, statusText: res.statusText, base }); } catch {}
+      try { Sentry.addBreadcrumb({ category: 'api', level: 'error', message: `HTTP ${res.status} ${res.statusText}`, data: { path, base } }); } catch {}
       // Handle unauthorized centrally (skip in demo contexts)
       if (res.status === 401 && typeof window !== 'undefined') {
         // Retry once after refreshing the session
@@ -173,10 +175,12 @@ async function request(path: string, options: RequestInit = {}) {
     if (isNetwork && API_BASE.includes('localhost')) {
       try {
         try { track('api_retry_prod', { path, reason: msg }); } catch {}
+        try { Sentry.addBreadcrumb({ category: 'api', level: 'warning', message: 'Retrying API against prod', data: { path, reason: msg } }); } catch {}
         return await doFetch('https://api.brandvx.io');
       } catch {}
     }
     try { track('api_request_failed', { path, message: msg }); } catch {}
+    try { Sentry.captureException(e); } catch {}
     throw e;
   }
 }

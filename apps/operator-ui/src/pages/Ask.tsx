@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 // import { useNavigate } from 'react-router-dom';
 import { api, getTenant } from '../lib/api';
 import { useToast } from '../components/ui/Toast';
-import { track } from '../lib/analytics';
+import { track, trackEvent } from '../lib/analytics';
 import { motion } from 'framer-motion';
 
 type Msg = { role: 'user' | 'assistant'; content: string };
@@ -147,6 +147,7 @@ export default function Ask(){
       });
       setToolResult(r || { status: 'ok' });
       try { showToast({ title: 'Action executed', description: smartAction.label }); } catch {}
+      try { trackEvent('ask.smart_action.run', { tool: smartAction.tool }); } catch {}
     } catch(e:any){
       setToolResult({ status: 'error', detail: String(e?.message||e) });
       try { showToast({ title: 'Action failed', description: String(e?.message||e) }); } catch {}
