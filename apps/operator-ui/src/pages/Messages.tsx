@@ -179,7 +179,7 @@ export default function Messages(){
       )}
       {!loading && (
         <>
-          <div className="flex flex-wrap gap-2 items-center" data-guide="toolbar">
+          <div className="flex flex-wrap gap-2 items-center sticky top-[var(--sticky-offset,64px)] z-10 bg-white/70 backdrop-blur rounded-md px-1 py-1" data-guide="toolbar" role="region" aria-label="Messages toolbar">
             <Input placeholder="Filter by client" value={filterContact} onChange={e=>setFilterContact(e.target.value)} />
             <Button variant="outline" onClick={load} aria-label={UI_STRINGS.a11y.buttons.refresh}>{UI_STRINGS.ctas.secondary.refresh}</Button>
             {isDemo && (
@@ -280,7 +280,7 @@ export default function Messages(){
             </Table>
           )}
           {items.length>0 && (
-            <div className="flex items-center justify-end gap-2 text-xs mt-2">
+            <div className="flex items-center justify-end gap-2 text-xs mt-2 sticky bottom-[calc(var(--bvx-commandbar-height,64px)+env(safe-area-inset-bottom,0px)+8px)] bg-white/70 backdrop-blur rounded-md px-2 py-1">
               <button className="px-2 py-1 rounded-md border bg-white disabled:opacity-50" onClick={()=> setPage(p=> Math.max(0, p-1))} disabled={page<=0}>&larr; Prev</button>
               <button className="px-2 py-1 rounded-md border bg-white disabled:opacity-50" onClick={()=> setPage(p=> p+1)} disabled={(page+1)*pageSize >= items.length}>Next &rarr;</button>
             </div>
