@@ -19,6 +19,272 @@ import httpx
 import secrets as _secrets
 from .rate_limit import check_and_increment
 from .metrics_counters import DB_QUERY_TOOL_USED
+import base64 as _b64
+import json as _json
+
+
+# ---------------------- Gemini Adapter (no extra deps) ----------------------
+
+def _gemini_base() -> str:
+    return os.getenv("GEMINI_API_BASE", "https://generativelanguage.googleapis.com").rstrip("/")
+
+
+def _gemini_model() -> str:
+    return os.getenv("GEMINI_IMAGE_MODEL", "gemini-2.5-flash")
+
+
+def _gemini_key() -> str:
+    return os.getenv("GEMINI_API_KEY", "")
+
+
+async def _gemini_generate(parts: list[dict], temperature: float = 0.2, timeout_s: int = 45) -> dict:
+    key = _gemini_key()
+    if not key:
+        return {"status": "error", "detail": "missing_gemini_key"}
+    url = f"{_gemini_base()}/v1beta/models/{_gemini_model()}:generateContent?key={key}"
+    payload = {"contents": [{"role": "user", "parts": parts}], "generationConfig": {"temperature": float(temperature)}}
+    try:
+        async with httpx.AsyncClient(timeout=timeout_s) as client:
+            r = await client.post(url, json=payload)
+            if r.status_code >= 400:
+                return {"status": "error", "detail": f"gemini_http_{r.status_code}", "body": r.text[:200]}
+            return r.json()
+    except httpx.HTTPError as e:
+        return {"status": "error", "detail": str(e)}
+
+
+def _allowed_image_mime(mime: str) -> bool:
+    try:
+        allowed = (os.getenv("VISION_ALLOWED_MIME", "jpeg,png,dng") or "").lower().split(",")
+        mime = (mime or "").lower()
+        if mime.startswith("image/"):
+            short = mime.split("/", 1)[1]
+        else:
+            short = mime
+        return short in {s.strip() for s in allowed}
+    except Exception:
+        return True
+
+
+async def _load_image_as_inline(image_url: str | None, input_b64: str | None) -> dict | None:
+    max_mb = float(os.getenv("VISION_MAX_IMAGE_MB", "10") or "10")
+    if input_b64:
+        # Assume JPEG by default; client should send proper mime when possible
+        return {"inlineData": {"mimeType": "image/jpeg", "data": input_b64}}
+    if image_url:
+        try:
+            async with httpx.AsyncClient(timeout=20) as client:
+                r = await client.get(image_url)
+                if r.status_code >= 400:
+                    return None
+                data = r.content or b""
+                if len(data) > max_mb * 1024 * 1024:
+                    return None
+                mime = r.headers.get("content-type", "image/jpeg")
+                if not _allowed_image_mime(mime):
+                    return None
+                b64 = _b64.b64encode(data).decode("ascii")
+                return {"inlineData": {"mimeType": mime, "data": b64}}
+        except Exception:
+            return None
+    return None
+
+
+# ---------------------- Vision + Edit Tools ----------------------
+
+async def tool_vision_inspect(
+    db: Session,
+    ctx: UserContext,
+    tenant_id: str,
+    image_url: str | None = None,
+    inputImageBase64: str | None = None,
+    ret: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    _require_tenant(ctx, tenant_id)
+    try:
+        ok, ttl = check_and_increment(str(ctx.tenant_id), "vision.inspect", max_per_minute=30, burst=15)
+        if not ok:
+            return {"status": "rate_limited", "retry_s": int(ttl)}
+    except Exception:
+        pass
+    img = await _load_image_as_inline(image_url, inputImageBase64)
+    if not img:
+        return {"status": "error", "detail": "invalid_image"}
+    prompt = (
+        "Analyze this beauty image. Return concise JSON with keys: brief (<=80 words), "
+        "faces (count), lighting (type/quality), colors (dominant, undertone guess), "
+        "makeup (key cues), accessories, background, qualityFlags (blur, hotspots, casts), safeSearch (yes/no)."
+    )
+    parts = [img, {"text": prompt}]
+    res = await _gemini_generate(parts, temperature=0.2)
+    if res.get("status") == "error":
+        return res
+    # Try to parse JSON from text parts
+    brief = ""
+    details: Dict[str, Any] = {}
+    try:
+        text = "".join(
+            [p.get("text", "") for p in (res.get("candidates") or [{}])[0].get("content", {}).get("parts", [])]
+        )
+        if text:
+            try:
+                details = _json.loads(text)
+            except Exception:
+                brief = text[:400]
+    except Exception:
+        pass
+    if not brief:
+        brief = str(details.get("brief") or "Analysis ready.")
+    return {"status": "ok", "brief": brief, "details": details}
+
+
+async def tool_image_edit(
+    db: Session,
+    ctx: UserContext,
+    tenant_id: str,
+    mode: str,
+    prompt: str,
+    inputImageBase64: str,
+    outputFormat: str | None = None,
+) -> Dict[str, Any]:
+    _require_tenant(ctx, tenant_id)
+    try:
+        ok, ttl = check_and_increment(str(ctx.tenant_id), "image.edit", max_per_minute=20, burst=10)
+        if not ok:
+            return {"status": "rate_limited", "retry_s": int(ttl)}
+    except Exception:
+        pass
+    if not inputImageBase64:
+        return {"status": "error", "detail": "missing_image"}
+    parts = [
+        {"inlineData": {"mimeType": "image/jpeg", "data": inputImageBase64}},
+        {"text": f"Edit instruction: {prompt}. Keep skin texture; no body morphing; match undertone."},
+    ]
+    res = await _gemini_generate(parts, temperature=0.2)
+    if res.get("status") == "error":
+        # Retry once on server errors
+        if "http_5" in str(res.get("detail", "")):
+            res = await _gemini_generate(parts, temperature=0.2)
+            if res.get("status") == "error":
+                return res
+        else:
+            return res
+    # Locate inline image data in candidates
+    data_b64 = ""
+    mime = "image/png"
+    try:
+        cand = (res.get("candidates") or [{}])[0]
+        for p in cand.get("content", {}).get("parts", []):
+            if "inlineData" in p and p["inlineData"].get("data"):
+                data_b64 = p["inlineData"]["data"]
+                mime = p["inlineData"].get("mimeType", mime)
+                break
+    except Exception:
+        data_b64 = ""
+    if not data_b64:
+        return {"status": "error", "detail": "no_image_returned"}
+    # Persist to share_reports and return a signed-like URL path
+    token = _secrets.token_urlsafe(16)
+    filename = f"brandvx_edit.{ 'png' if 'png' in mime else ('jpg' if 'jpeg' in mime else 'img')}"
+    data_url = f"data:{mime};base64,{data_b64}"
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                _sql_text(
+                    "INSERT INTO share_reports (tenant_id, token, mime, filename, data_text) VALUES (CAST(:t AS uuid), :tok, :m, :fn, :dt)"
+                ),
+                {"t": tenant_id, "tok": token, "m": mime, "fn": filename, "dt": data_url},
+            )
+    except Exception as e:
+        return {"status": "error", "detail": f"persist_failed: {str(e)[:120]}"}
+    base_api = os.getenv("BACKEND_BASE_URL", "").rstrip("/")
+    url = f"{base_api}/reports/download/{token}" if base_api else f"/reports/download/{token}"
+    return {"status": "ok", "preview_url": url, "mime": mime}
+
+
+# ---------------------- Social scraping (public metadata only) ----------------------
+
+async def tool_social_fetch_profile(
+    db: Session,
+    ctx: UserContext,
+    tenant_id: str,
+    url: str,
+) -> Dict[str, Any]:
+    _require_tenant(ctx, tenant_id)
+    if os.getenv("SOCIAL_SCRAPER_ENABLED", "0") != "1":
+        return {"status": "disabled"}
+    try:
+        ok, ttl = check_and_increment(str(ctx.tenant_id), "social.fetch_profile", max_per_minute=12, burst=6)
+        if not ok:
+            return {"status": "rate_limited", "retry_s": int(ttl)}
+    except Exception:
+        pass
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(url)
+            if r.status_code >= 400:
+                return {"status": "error", "detail": f"http_{r.status_code}"}
+            html = r.text or ""
+            # Heuristic extraction
+            def _find(tag: str) -> str:
+                idx = html.lower().find(tag.lower())
+                if idx < 0:
+                    return ""
+                cut = html[idx: idx+300]
+                for sep in ['content="', 'content=\"', '"content":"']:
+                    j = cut.find(sep)
+                    if j >= 0:
+                        val = cut[j+len(sep):]
+                        return val.split('"', 1)[0]
+                return ""
+            bio = _find('property="og:description"') or _find('name="description"')
+            title = _find('property="og:title"')
+            image = _find('property="og:image"')
+            return {"status": "ok", "profile": {"title": title, "bio": bio, "image": image}}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:120]}
+
+
+async def tool_social_scrape_posts(
+    db: Session,
+    ctx: UserContext,
+    tenant_id: str,
+    url: str,
+    limit: int = 12,
+) -> Dict[str, Any]:
+    _require_tenant(ctx, tenant_id)
+    if os.getenv("SOCIAL_SCRAPER_ENABLED", "0") != "1":
+        return {"status": "disabled"}
+    try:
+        ok, ttl = check_and_increment(str(ctx.tenant_id), "social.scrape_posts", max_per_minute=12, burst=6)
+        if not ok:
+            return {"status": "rate_limited", "retry_s": int(ttl)}
+    except Exception:
+        pass
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            r = await client.get(url)
+            if r.status_code >= 400:
+                return {"status": "error", "detail": f"http_{r.status_code}"}
+            html = r.text or ""
+            thumbs: list[str] = []
+            # Naive parse for image URLs
+            for marker in ["display_url", "thumbnail_src", "og:image"]:
+                i = 0
+                while True:
+                    j = html.find(marker, i)
+                    if j < 0 or len(thumbs) >= int(limit or 12):
+                        break
+                    cut = html[j: j+500]
+                    k = cut.find("https://")
+                    if k >= 0:
+                        val = cut[k:].split('"', 1)[0]
+                        if val and val not in thumbs:
+                            thumbs.append(val)
+                    i = j + len(marker)
+            return {"status": "ok", "items": thumbs[: int(limit or 12)]}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:120]}
 
 
 class ToolError(Exception):
@@ -622,6 +888,11 @@ REGISTRY.update(
         "oauth.refresh": tool_oauth_refresh,
         "square.backfill": tool_square_backfill,
         "integrations.twilio.provision": tool_twilio_provision,
+        # Vision + Edit + Social
+        "vision.inspect": tool_vision_inspect,
+        "image.edit": tool_image_edit,
+        "social.fetch_profile": tool_social_fetch_profile,
+        "social.scrape_posts": tool_social_scrape_posts,
         # db.query.* registered below after definitions
         # registered after definition below
     }
@@ -694,6 +965,40 @@ async def _dispatch_extended(name: str, params: Dict[str, Any], db: Session, ctx
         return await tool_square_backfill(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)))
     if name == "integrations.twilio.provision":
         return await tool_twilio_provision(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)), area_code=str(params.get("area_code", "")))
+    if name == "vision.inspect":
+        return await tool_vision_inspect(
+            db,
+            ctx,
+            tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
+            image_url=params.get("imageUrl"),
+            inputImageBase64=params.get("inputImageBase64"),
+            ret=params.get("return"),
+        )
+    if name == "image.edit":
+        return await tool_image_edit(
+            db,
+            ctx,
+            tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
+            mode=str(params.get("mode", "edit")),
+            prompt=str(params.get("prompt", "")),
+            inputImageBase64=str(params.get("inputImageBase64", "")),
+            outputFormat=params.get("outputFormat"),
+        )
+    if name == "social.fetch_profile":
+        return await tool_social_fetch_profile(
+            db,
+            ctx,
+            tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
+            url=str(params.get("url", "")),
+        )
+    if name == "social.scrape_posts":
+        return await tool_social_scrape_posts(
+            db,
+            ctx,
+            tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
+            url=str(params.get("url", "")),
+            limit=int(params.get("limit", 12)),
+        )
     if name == "db.query.sql":
         out = await tool_db_query_sql(
             db,
@@ -1241,6 +1546,10 @@ TOOL_META: Dict[str, Dict[str, Any]] = {
     "db.query.named": {"public": True, "description": "Run a named, read-only query.", "params": {"tenant_id": "string", "name": "string", "params": "object?"}},
     "report.generate.csv": {"public": True, "description": "Generate a CSV for a supported source (named query).", "params": {"tenant_id": "string", "source": "string", "params": "object?"}},
     "pii.audit": {"public": True, "description": "Audit text for PII/compliance issues and suggest safe rewrites.", "params": {"tenant_id": "string", "text": "string"}},
+    "vision.inspect": {"public": True, "description": "Analyze image for lighting, colors, quality, and cues.", "params": {"tenant_id": "string", "imageUrl": "string?", "inputImageBase64": "string?", "return": "array?"}},
+    "image.edit": {"public": True, "description": "Gemini edit (Nano Banana-like) with texture-safe prompts.", "params": {"tenant_id": "string", "mode": {"enum": ["edit"]}, "prompt": "string", "inputImageBase64": "string", "outputFormat": "string?"}},
+    "social.fetch_profile": {"public": True, "description": "Fetch public profile metadata.", "params": {"tenant_id": "string", "url": "string"}},
+    "social.scrape_posts": {"public": True, "description": "Scrape recent public post thumbnails (best-effort).", "params": {"tenant_id": "string", "url": "string", "limit": "number?"}},
 }
 
 

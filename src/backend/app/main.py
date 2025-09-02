@@ -3720,7 +3720,7 @@ async def ai_tools_qa(
 def report_download(token: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
     try:
         row = db.execute(
-            _sql_text("SELECT mime, filename, data_text, tenant_id::text FROM share_reports WHERE token = :tok ORDER BY id DESC LIMIT 1"),
+            _sql_text("SELECT mime, filename, data_text, tenant_id::text, EXTRACT(EPOCH FROM (NOW() - created_at))::bigint AS age_s FROM share_reports WHERE token = :tok ORDER BY id DESC LIMIT 1"),
             {"tok": token},
         ).fetchone()
         if not row:
@@ -3729,9 +3729,26 @@ def report_download(token: str, db: Session = Depends(get_db), ctx: UserContext 
         filename = str(row[1] or "report.csv")
         data_text = str(row[2] or "")
         tenant_id = str(row[3] or "")
+        age_s = int(row[4] or 0)
+        # TTL enforcement for vision previews
+        try:
+            ttl_days = int(os.getenv("VISION_PREVIEW_TTL_DAYS", "0") or "0")
+            if ttl_days > 0 and age_s > ttl_days * 86400:
+                raise HTTPException(status_code=404, detail="expired")
+        except Exception:
+            pass
         if ctx.role != "owner_admin" and str(ctx.tenant_id) != tenant_id:
             raise HTTPException(status_code=403, detail="forbidden")
         from fastapi.responses import Response as _Resp
+        # If stored as data URL, decode base64 payload
+        try:
+            if data_text.startswith("data:") and ";base64," in data_text:
+                import base64 as _b64
+                b64 = data_text.split(",", 1)[1]
+                raw = _b64.b64decode(b64)
+                return _Resp(content=raw, media_type=mime, headers={"Content-Disposition": f"attachment; filename={filename}"})
+        except Exception:
+            pass
         return _Resp(content=data_text.encode("utf-8"), media_type=mime, headers={"Content-Disposition": f"attachment; filename={filename}"})
     except HTTPException:
         raise
