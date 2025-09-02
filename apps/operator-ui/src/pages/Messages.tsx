@@ -111,7 +111,11 @@ export default function Messages(){
       if (recommendOnly) { setStatus('Beta: recommend-only mode is enabled. Use Copy to send via your channel.'); return; }
       if (send.channel === 'sms' && !twilioConnected) { setStatus('Connect Twilio to send SMS.'); return; }
       const r = await api.post('/messages/send', { tenant_id: await getTenant(), contact_id: send.contact_id, channel: send.channel, subject: send.subject || undefined, body: send.body || undefined });
-      setStatus(JSON.stringify(r));
+      const dev = new URLSearchParams(window.location.search).has('dev');
+      setStatus(dev ? JSON.stringify(r) : '');
+      if (String(r?.status||'').includes('rate_limited')) {
+        showToast({ title: 'Rate limited', description: 'Try again shortly.' });
+      }
       await load();
       try { showToast({ title: 'Message sent', description: send.channel.toUpperCase() }); } catch {}
     } catch(e:any){ setStatus(String(e?.message||e)); }
