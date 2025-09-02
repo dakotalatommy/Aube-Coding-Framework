@@ -265,12 +265,12 @@ export default function Integrations(){
     } catch { return 0; }
   };
   const sendTestSms = async () => {
-    try{ setBusy(true); const r = await api.post('/messages/send',{ tenant_id: await getTenant(), contact_id:'c_demo', channel:'sms', body:'Test SMS from BrandVX (reply STOP/HELP to opt out)' }); setStatus(JSON.stringify(r)); try { showToast({ title:'Test SMS sent', description:'Test SMS sent successfully' }); } catch {} }
+    try{ setBusy(true); const r = await api.post('/ai/tools/execute',{ tenant_id: await getTenant(), name: 'messages.send', params: { tenant_id: await getTenant(), contact_id:'c_demo', channel:'sms', body:'Test SMS from BrandVX (reply STOP/HELP to opt out)' }, require_approval: false }); setStatus(JSON.stringify(r)); try { showToast({ title:'Test SMS sent', description:'Test SMS sent successfully' }); } catch {} }
     catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
   };
   const sendTestEmail = async () => {
-    try{ setBusy(true); const r = await api.post('/messages/send',{ tenant_id: await getTenant(), contact_id:'c_demo', channel:'email', subject:'BrandVX Test', body:'<p>Hello from BrandVX</p>' }); setStatus(JSON.stringify(r)); try { showToast({ title:'Test email sent', description:'Test email sent successfully' }); } catch {} }
+    try{ setBusy(true); const r = await api.post('/ai/tools/execute',{ tenant_id: await getTenant(), name: 'messages.send', params: { tenant_id: await getTenant(), contact_id:'c_demo', channel:'email', subject:'BrandVX Test', body:'<p>Hello from BrandVX</p>' }, require_approval: false }); setStatus(JSON.stringify(r)); try { showToast({ title:'Test email sent', description:'Test email sent successfully' }); } catch {} }
     catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
   };
