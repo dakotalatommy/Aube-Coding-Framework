@@ -83,15 +83,6 @@ export default function Billing(){
           )}
         </div>
         <div className="mt-4 flex items-center gap-2 flex-wrap">
-          <Button variant="outline" onClick={async()=>{
-            try { track('billing_portal_click'); } catch {}
-            try {
-              const r = await api.post('/billing/portal', {});
-              if (r?.url) window.location.href = r.url;
-            } catch (e) {
-              setError('Failed to open billing portal.');
-            }
-          }}>Manage billing</Button>
           <Button onClick={async()=>{
             try { track('billing_start_subscription', { plan: '147_monthly' }); } catch {}
             try {

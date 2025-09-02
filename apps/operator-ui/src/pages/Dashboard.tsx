@@ -312,7 +312,7 @@ export default function Dashboard(){
         <section className="rounded-2xl p-3 backdrop-blur bg-white/80 border border-white/70 shadow-sm">
           <div className="flex flex-wrap items-center gap-3 justify-center text-slate-800">
             <div className="text-sm">Free trial · {trialDaysLeft} day{trialDaysLeft===1?'':'s'} left</div>
-            <ButtonLink href="/billing" size="sm" className="rounded-full px-3 py-1.5">Add payment</ButtonLink>
+            {/* Removed Add payment button; Lock $97/mo remains */}
             <Button size="sm" variant="outline" onClick={()=> nav('/billing') } className="rounded-full px-3 py-1.5">Lock $97/mo</Button>
           </div>
         </section>
