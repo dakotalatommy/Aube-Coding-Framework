@@ -1,6 +1,6 @@
 import React, { Suspense, lazy, useMemo, useRef, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { Home, MessageSquare, Users, Calendar, Layers, Package2, Plug, CheckCircle2, MessageCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { api } from '../lib/api';
@@ -311,10 +311,10 @@ export default function WorkspaceShell(){
             {items.map((p, i) => {
               const active = pane===p.key;
               return (
-                <button
+                <Link
                   key={p.key}
-                  ref={el=>{ if (el) refs.current[i]=el; }}
-                  onClick={()=>setPane(p.key)}
+                  ref={el=>{ if (el) refs.current[i]=el as any; }}
+                  to={`/workspace?pane=${encodeURIComponent(p.key)}${demo?'&demo=1':''}`}
                   role="tab"
                   aria-selected={active}
                   aria-current={active ? 'page' : undefined}
@@ -329,7 +329,7 @@ export default function WorkspaceShell(){
                     <span aria-label={`${approvalsCount} pending`} className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] text-[10px] px-1 rounded-full bg-amber-100 text-amber-900 border border-amber-200">{approvalsCount}</span>
                   )}
                   <span className="ml-auto text-[10px] text-slate-400">{i+1}</span>
-                </button>
+                </Link>
               );
             })}
           </nav>
