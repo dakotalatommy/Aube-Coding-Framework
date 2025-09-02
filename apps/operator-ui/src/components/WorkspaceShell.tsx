@@ -1,7 +1,6 @@
 import React, { Suspense, lazy, useMemo, useRef, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { setQueryParams } from '../lib/url';
 import { Home, MessageSquare, Users, Calendar, Layers, Package2, Plug, CheckCircle2, MessageCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { api } from '../lib/api';
@@ -79,21 +78,28 @@ export default function WorkspaceShell(){
         const status = String(r?.data?.subscription_status || '');
         setBillingStatus(status);
         const covered = status === 'active' || status === 'trialing';
-        if (!covered && !dismissed) { setBillingOpen(true); try { track('billing_modal_open'); } catch {} }
+        // Only open billing modal when explicitly requested via query param
+        const billingParam = sp.get('billing');
+        if (billingParam === 'prompt' && !covered && !dismissed) {
+          setBillingOpen(true); try { track('billing_modal_open'); } catch {}
+        } else {
+          setBillingOpen(false);
+        }
         try {
           const doneServer = Boolean(r?.data?.onboarding_done);
           if (doneServer) { try { localStorage.setItem('bvx_onboarding_done','1'); } catch {} }
         } catch {}
 
-        // Show welcome if onboarding not completed (suppress in demo)
+        // Show welcome only once after onboarding_done=true
         try {
           const doneLocal = localStorage.getItem('bvx_onboarding_done') === '1';
           const seenSession = sessionStorage.getItem('bvx_welcome_seen') === '1';
-          const introFlag2 = localStorage.getItem('bvx_intro_pending') === '1';
-          if (introFlag2) { try{ localStorage.removeItem('bvx_intro_pending'); }catch{} }
-          if (!demo && (forceWelcome || introFlag2 || (!doneLocal && !seenSession))) {
+          // Only show when onboarding completed and never seen before
+          if (!demo && (forceWelcome || (doneLocal && !seenSession))) {
             setTimeout(()=> setShowWelcome(true), 200);
           }
+          // Do not auto-open demo welcome unless demo mode is on
+          if (demo) setShowDemoWelcome(false);
         } catch {}
       } catch {}
     })();
@@ -106,14 +112,27 @@ export default function WorkspaceShell(){
   }, [demo]);
 
   const setPane = (key: PaneKey) => {
-    setQueryParams({ pane: key }, { replace: false, pathname: '/workspace' });
+    try {
+      const sp = new URLSearchParams(loc.search);
+      sp.set('pane', key);
+      nav({ pathname: '/workspace', search: `?${sp.toString()}` }, { replace: false });
+    } catch {
+      // Fallback
+      window.location.href = `/workspace?pane=${encodeURIComponent(key)}`;
+    }
   };
 
   const toggleDemo = () => {
-    const shouldOn = !demo;
-    const baseParams: Record<string,string|number|boolean> = { pane: (pane||'dashboard') };
-    if (shouldOn) baseParams.demo = 1; else baseParams.demo = '' as any;
-    setQueryParams(baseParams, { replace: false, pathname: '/workspace' });
+    try {
+      const shouldOn = !demo;
+      const sp = new URLSearchParams(loc.search);
+      sp.set('pane', (pane || 'dashboard'));
+      if (shouldOn) sp.set('demo', '1'); else sp.delete('demo');
+      nav({ pathname: '/workspace', search: `?${sp.toString()}` }, { replace: false });
+    } catch {
+      const qs = shouldOn ? `?pane=${encodeURIComponent(pane||'dashboard')}&demo=1` : `?pane=${encodeURIComponent(pane||'dashboard')}`;
+      window.location.href = `/workspace${qs}`;
+    }
   };
 
   const PaneView = (() => {
@@ -358,8 +377,8 @@ export default function WorkspaceShell(){
               {PaneView}
             </Suspense>
           </div>
-          {/* Bottom hard separator just above Command Bar */}
-          <div aria-hidden className="sticky left-0 right-0" style={{ bottom: 'calc(var(--bvx-commandbar-height,64px) + env(safe-area-inset-bottom,0px))', top: 'var(--sticky-offset)' }}>
+          {/* Bottom hard separator just above Command Bar (non-interactive) */}
+          <div aria-hidden className="pointer-events-none absolute left-0 right-0" style={{ bottom: 'calc(var(--bvx-commandbar-height,64px) + env(safe-area-inset-bottom,0px))' }}>
             <div className="h-0.5 w-full bg-slate-800/70" />
           </div>
         </main>
@@ -403,7 +422,7 @@ export default function WorkspaceShell(){
           <div aria-hidden className="absolute inset-0 bg-black/30" onClick={()=> setShowOnboardingPrompt(false)} />
           <div className="relative w-full max-w-md rounded-2xl border bg-white p-6 shadow-xl text-center">
             <div className="text-lg font-semibold text-slate-900">Let’s set up your Priority Work Styles</div>
-            <div className="text-slate-700 text-sm mt-1">Full walkthrough will walk the visible sections and show them to click.</div>
+            <div className="text-slate-700 text-sm mt-1">Full walkthrough will walk the visible sections and show them where to click.</div>
             <div className="mt-4 grid gap-2">
               <a className="rounded-full px-5 py-2 text-white bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600" href="/workspace?pane=workflows">Open Work Styles</a>
               <button className="rounded-full px-5 py-2 border" onClick={()=> setShowOnboardingPrompt(false)}>Later</button>
