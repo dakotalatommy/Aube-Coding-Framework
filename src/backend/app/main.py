@@ -22,6 +22,9 @@ class EmailOwnerRequest(BaseModel):
     source: Optional[str] = "demo"
 
 
+# Initialize FastAPI early so route decorators below have a defined app
+app = FastAPI(title="BrandVX Backend", version="0.2.0")
+
 @app.post("/onboarding/email-owner", tags=["Onboarding"])
 def onboarding_email_owner(req: EmailOwnerRequest, ctx: UserContext = Depends(get_user_context)) -> Dict[str, str]:
     # Send demo intake to internal owner email rather than client
@@ -92,8 +95,11 @@ tags_metadata = [
     {"name": "Sharing", "description": "Public share links."},
     {"name": "Billing", "description": "Stripe billing and referrals."},
 ]
-# Initialize FastAPI before any route decorators
-app = FastAPI(title="BrandVX Backend", version="0.2.0", openapi_tags=tags_metadata)
+# Attach tags to app now that it's initialized
+try:
+    app.openapi_tags = tags_metadata  # type: ignore[attr-defined]
+except Exception:
+    pass
 @app.get("/limits/status", tags=["Health"])
 def limits_status(tenant_id: str, keys: str = "msg:sms,msg:email,ai.chat,db.query.named"):
     try:
