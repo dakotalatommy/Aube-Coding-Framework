@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 from sqlalchemy.orm import Session
 from .auth import UserContext
 from . import models as dbm
@@ -1067,5 +1067,42 @@ REGISTRY.update(
 )
 
 
+# ---------------------- Tool Registry Metadata & Schema ----------------------
+
+TOOL_META: Dict[str, Dict[str, Any]] = {
+    "draft_message": {"public": True, "description": "Draft a first outreach message respecting consent and tone.", "params": {"tenant_id": "string", "contact_id": "string", "channel": {"enum": ["sms", "email"]}, "service": "string?"}},
+    "pricing_model": {"public": True, "description": "Compute effective hourly and margin from inputs.", "params": {"tenant_id": "string", "price": "number", "product_cost": "number", "service_time_minutes": "number"}},
+    "safety_check": {"public": True, "description": "Review text for compliance/PII and suggest safe rewrites.", "params": {"tenant_id": "string", "text": "string"}},
+    "propose_next_cadence_step": {"public": True, "description": "Propose the next cadence step for a contact.", "params": {"tenant_id": "string", "contact_id": "string", "cadence_id": "string"}},
+    "contacts.dedupe": {"public": True, "description": "Mark duplicate contacts as deleted by matching email/phone.", "params": {"tenant_id": "string"}},
+    "contacts.list.top_ltv": {"public": True, "description": "List top contacts by lifetime value.", "params": {"tenant_id": "string", "limit": "number?"}},
+    "contacts.import.square": {"public": True, "description": "Import contacts from Square.", "params": {"tenant_id": "string"}},
+    "square.backfill": {"public": True, "description": "Backfill Square payments metrics to contacts.", "params": {"tenant_id": "string"}},
+    "crm.hubspot.import": {"public": True, "description": "Import sample contacts from HubSpot.", "params": {"tenant_id": "string"}},
+    "oauth.refresh": {"public": True, "description": "Refresh an OAuth provider token.", "params": {"tenant_id": "string", "provider": "string"}},
+    "connectors.cleanup": {"public": True, "description": "Cleanup blank/invalid connector rows (v2).", "params": {"tenant_id": "string"}},
+    "connectors.normalize": {"public": True, "description": "Migrate legacy connectors and dedupe v2.", "params": {"tenant_id": "string"}},
+    "calendar.sync": {"public": True, "description": "Sync unified calendar (Google/Apple/bookings).", "params": {"tenant_id": "string", "provider": "string?"}},
+    "calendar.merge": {"public": True, "description": "Merge duplicate calendar events by title/time.", "params": {"tenant_id": "string"}},
+    "campaigns.dormant.preview": {"public": True, "description": "Preview dormant segment size by threshold.", "params": {"tenant_id": "string", "threshold_days": "number?"}},
+    "campaigns.dormant.start": {"public": True, "description": "Start dormant outreach cadence for candidates.", "params": {"tenant_id": "string", "threshold_days": "number?"}},
+    "appointments.schedule_reminders": {"public": True, "description": "Schedule reminder triggers (7d/3d/1d/0).", "params": {"tenant_id": "string"}},
+    "inventory.alerts.get": {"public": True, "description": "Fetch low-stock items.", "params": {"tenant_id": "string", "low_stock_threshold": "number?"}},
+    "export.contacts": {"public": True, "description": "Export contacts CSV.", "params": {"tenant_id": "string"}},
+    "social.schedule.14days": {"public": True, "description": "Draft social content plan for 14 days.", "params": {"tenant_id": "string"}},
+    "db.query.sql": {"public": True, "description": "Run a read-only SQL select against allow-listed tables.", "params": {"tenant_id": "string", "sql": "string", "limit": "number?"}},
+    "db.query.named": {"public": True, "description": "Run a named, read-only query.", "params": {"tenant_id": "string", "name": "string", "params": "object?"}},
+    "report.generate.csv": {"public": True, "description": "Generate a CSV for a supported source (named query).", "params": {"tenant_id": "string", "source": "string", "params": "object?"}},
+}
 
 
+def tools_schema() -> Dict[str, Any]:
+    out: List[Dict[str, Any]] = []
+    for name, meta in TOOL_META.items():
+        out.append({
+            "name": name,
+            "public": bool(meta.get("public", True)),
+            "description": meta.get("description", ""),
+            "params": meta.get("params", {}),
+        })
+    return {"version": "v1", "tools": out}

@@ -29,7 +29,7 @@ from .rate_limit import check_and_increment
 from .scheduler import run_tick
 from .ai import AIClient
 from .brand_prompts import BRAND_SYSTEM, cadence_intro_prompt, chat_system_prompt
-from .tools import execute_tool
+from .tools import execute_tool, tools_schema
 from .metrics_counters import TOOL_EXECUTED  # type: ignore
 from .marts import recompute_funnel_daily, recompute_time_saved
 from . import models as dbm
@@ -4589,65 +4589,7 @@ def ai_tools_schema() -> Dict[str, object]:
     """Return tool registry with public/gated flags and basic param hints.
     This enables a visible agentic system without external Agents.
     """
-    return {
-        "version": "v1",
-        "tools": [
-            {
-                "name": "draft_message",
-                "public": True,
-                "description": "Draft a first outreach message respecting consent and tone.",
-                "params": {
-                    "tenant_id": "string",
-                    "contact_id": "string",
-                    "channel": {"enum": ["sms", "email"]},
-                    "service": "string?"
-                }
-            },
-            {
-                "name": "pricing_model",
-                "public": True,
-                "description": "Compute effective hourly and margin from inputs.",
-                "params": {
-                    "tenant_id": "string",
-                    "price": "number",
-                    "product_cost": "number",
-                    "service_time_minutes": "number"
-                }
-            },
-            {
-                "name": "safety_check",
-                "public": True,
-                "description": "Review text for compliance/PII and suggest safe rewrites.",
-                "params": {"tenant_id": "string", "text": "string"}
-            },
-            {
-                "name": "vision_analyze",
-                "public": True,
-                "description": "Analyze an uploaded image and return actionable feedback.",
-                "params": {"tenant_id": "string", "image_b64": "string", "prompt": "string?"}
-            },
-            {
-                "name": "propose_next_cadence_step",
-                "public": True,
-                "description": "Propose the next cadence step for a contact.",
-                "params": {
-                    "tenant_id": "string",
-                    "contact_id": "string",
-                    "cadence_id": "string"
-                }
-            },
-            {"name": "contacts.dedupe", "public": True, "description": "Mark duplicate contacts as deleted by matching email/phone.", "params": {"tenant_id": "string"}},
-            {"name": "contacts.list.top_ltv", "public": True, "description": "List top contacts by lifetime value.", "params": {"tenant_id": "string", "limit": "number?"}},
-            {"name": "contacts.import.square", "public": True, "description": "Import contacts from Square.", "params": {"tenant_id": "string"}},
-            {"name": "square.backfill", "public": True, "description": "Backfill Square payments metrics to contacts.", "params": {"tenant_id": "string"}},
-            {"name": "crm.hubspot.import", "public": True, "description": "Import sample contacts from HubSpot.", "params": {"tenant_id": "string"}},
-            {"name": "oauth.refresh", "public": True, "description": "Refresh an OAuth provider token.", "params": {"tenant_id": "string", "provider": "string"}},
-            {"name": "connectors.cleanup", "public": True, "description": "Cleanup blank/invalid connector rows (v2).", "params": {"tenant_id": "string"}},
-            {"name": "connectors.normalize", "public": True, "description": "Migrate legacy connectors and dedupe v2.", "params": {"tenant_id": "string"}},
-            {"name": "calendar.sync", "public": True, "description": "Sync unified calendar (Google/Apple/bookings).", "params": {"tenant_id": "string", "provider": "string?"}},
-            {"name": "calendar.merge", "public": True, "description": "Merge duplicate calendar events by title/time.", "params": {"tenant_id": "string"}},
-        ]
-    }
+    return tools_schema()
 
 
 @app.get("/ai/schema/map", tags=["AI"])
