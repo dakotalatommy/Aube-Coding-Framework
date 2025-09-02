@@ -863,7 +863,7 @@ def create_customer(ctx: UserContext = Depends(get_user_context)):
 
 
 @app.post("/billing/create-setup-intent", tags=["Integrations"])
-def create_setup_intent(ctx: UserContext = Depends(get_user_context)):
+def create_setup_intent(ctx: UserContext = Depends(get_user_context_relaxed)):
     s = _stripe_client()
     # Ensure a customer first
     cust = create_customer(ctx)
@@ -872,7 +872,7 @@ def create_setup_intent(ctx: UserContext = Depends(get_user_context)):
 
 
 @app.post("/billing/create-checkout-session", tags=["Integrations"])
-def create_checkout_session(req: dict, ctx: UserContext = Depends(get_user_context)):
+def create_checkout_session(req: dict, ctx: UserContext = Depends(get_user_context_relaxed)):
     s = _stripe_client()
     price_id = str(req.get("price_id", "")).strip()
     price_cents = int(req.get("price_cents", 0) or 0)
@@ -913,7 +913,7 @@ def create_checkout_session(req: dict, ctx: UserContext = Depends(get_user_conte
 
 
 @app.post("/billing/portal", tags=["Integrations"])
-def billing_portal(ctx: UserContext = Depends(get_user_context)):
+def billing_portal(ctx: UserContext = Depends(get_user_context_relaxed)):
     s = _stripe_client()
     cust = create_customer(ctx)
     origin = _env("APP_ORIGIN", _env("FRONTEND_BASE_URL", "https://app.brandvx.io"))
