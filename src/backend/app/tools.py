@@ -1208,6 +1208,8 @@ REGISTRY.update(
         "db.query.sql": tool_db_query_sql,
         "db.query.named": tool_db_query_named,
         "report.generate.csv": tool_report_generate_csv,
+        # PII audit tool (lightweight)
+        "pii.audit": tool_safety_check,
     }
 )
 
@@ -1238,6 +1240,7 @@ TOOL_META: Dict[str, Dict[str, Any]] = {
     "db.query.sql": {"public": True, "description": "Run a read-only SQL select against allow-listed tables.", "params": {"tenant_id": "string", "sql": "string", "limit": "number?"}},
     "db.query.named": {"public": True, "description": "Run a named, read-only query.", "params": {"tenant_id": "string", "name": "string", "params": "object?"}},
     "report.generate.csv": {"public": True, "description": "Generate a CSV for a supported source (named query).", "params": {"tenant_id": "string", "source": "string", "params": "object?"}},
+    "pii.audit": {"public": True, "description": "Audit text for PII/compliance issues and suggest safe rewrites.", "params": {"tenant_id": "string", "text": "string"}},
 }
 
 
