@@ -17,6 +17,23 @@ from .cache import cache_get, cache_set, cache_del, cache_incr
 from .metrics_counters import CACHE_HIT, CACHE_MISS, AI_CHAT_USED, INSIGHTS_SERVED
 from .messaging import send_message
 from .integrations import crm_hubspot, booking_acuity
+class EmailOwnerRequest(BaseModel):
+    profile: Dict[str, Any]
+    source: Optional[str] = "demo"
+
+
+@app.post("/onboarding/email-owner", tags=["Onboarding"])
+def onboarding_email_owner(req: EmailOwnerRequest, ctx: UserContext = Depends(get_user_context)) -> Dict[str, str]:
+    # Send demo intake to internal owner email rather than client
+    try:
+        to = os.getenv("OWNER_INTAKE_EMAIL", "latommy@aubecreativelabs.com")
+        from .integrations.email_sendgrid import sendgrid_send_email  # lazy import
+        rows = [f"<div><strong>{k}</strong>: {str(v)}</div>" for k,v in (req.profile or {}).items()]
+        body = f"<h3>BrandVX demo intake</h3><div>Source: {req.source or 'demo'}</div>" + "".join(rows)
+        res = sendgrid_send_email(to, "BrandVX Demo Intake", body)
+        return {"status": str(res.get("status", "queued"))}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
 from .integrations import inventory_shopify as inv_shopify
 from .integrations import inventory_square as inv_square
 from .integrations import calendar_google as cal_google
@@ -947,13 +964,15 @@ def create_customer(ctx: UserContext = Depends(get_user_context)):
     try:
         with next(get_db()) as db:  # type: ignore
             row = db.execute(
-                _sql_text("SELECT data_json FROM settings WHERE tenant_id = :tid ORDER BY id DESC LIMIT 1"),
+                _sql_text("SELECT id, data_json FROM settings WHERE tenant_id = CAST(:tid AS uuid) ORDER BY id DESC LIMIT 1"),
                 {"tid": ctx.tenant_id},
             ).fetchone()
             data = {}
-            if row and row[0]:
+            row_id = None
+            if row:
                 try:
-                    data = _json.loads(row[0])
+                    row_id = row[0]
+                    data = _json.loads(row[1] or "{}")
                 except Exception:
                     data = {}
             cust_id = data.get("stripe_customer_id")
@@ -961,8 +980,17 @@ def create_customer(ctx: UserContext = Depends(get_user_context)):
                 customer = s.Customer.create(metadata={"tenant_id": ctx.tenant_id})
                 cust_id = customer["id"]
                 data["stripe_customer_id"] = cust_id
-                payload = {"tenant_id": ctx.tenant_id, "data_json": _json.dumps(data)}
-                db.execute(_sql_text("INSERT INTO settings(tenant_id, data_json) VALUES (:tenant_id, :data_json)"), payload)
+                if row_id:
+                    db.execute(
+                        _sql_text("UPDATE settings SET data_json = :dj WHERE id = :sid"),
+                        {"dj": _json.dumps(data), "sid": row_id},
+                    )
+                else:
+                    payload = {"tenant_id": ctx.tenant_id, "data_json": _json.dumps(data)}
+                    db.execute(
+                        _sql_text("INSERT INTO settings(tenant_id, data_json) VALUES (:tenant_id, :data_json)"),
+                        payload,
+                    )
                 db.commit()
             return {"customer_id": cust_id}
     except Exception:
@@ -1080,25 +1108,56 @@ async def stripe_webhook(request: Request):
         t_update = {"last_invoice_paid": int(_time.time())}
     else:
         return JSONResponse({"status": "ignored"})
-    # Persist to settings for the tenant owning this customer (lookup by metadata if available)
+    # Persist to settings for the tenant owning this customer (prefer exact tenant via Stripe metadata)
     try:
-        # Note: for a full system, map customer->tenant using a dedicated table; here we scan latest settings rows
+        # Attempt to resolve tenant_id using Stripe Customer metadata
+        resolved_tenant: str = ""
+        try:
+            if cust_id:
+                cust_obj = s.Customer.retrieve(cust_id)  # type: ignore
+                resolved_tenant = str(cust_obj.get("metadata", {}).get("tenant_id") or "")
+        except Exception:
+            resolved_tenant = ""
         with next(get_db()) as db:  # type: ignore
-            rows = db.execute(_sql_text("SELECT tenant_id, data_json, id FROM settings ORDER BY id DESC LIMIT 200")).fetchall()
-            for tenant_id, data_json, sid in rows:
-                try:
-                    d = _json.loads(data_json or "{}")
-                except Exception:
-                    d = {}
-                if d.get("stripe_customer_id") == cust_id:
+            if resolved_tenant:
+                # Update latest row for this tenant directly
+                row = db.execute(_sql_text("SELECT id, data_json FROM settings WHERE tenant_id = CAST(:tid AS uuid) ORDER BY id DESC LIMIT 1"), {"tid": resolved_tenant}).fetchone()
+                if row:
+                    sid = row[0]
+                    try:
+                        d = _json.loads(row[1] or "{}")
+                    except Exception:
+                        d = {}
                     d.update(t_update)
                     db.execute(_sql_text("UPDATE settings SET data_json = :dj WHERE id = :sid"), {"dj": _json.dumps(d), "sid": sid})
                     db.commit()
                     try:
-                        emit_event("BillingUpdated", {"tenant_id": tenant_id, "status": d.get("subscription_status", "unknown")})
+                        emit_event("BillingUpdated", {"tenant_id": resolved_tenant, "status": d.get("subscription_status", "unknown")})
                     except Exception:
                         pass
-                    break
+                else:
+                    # Create a minimal row if none exists (rare)
+                    d = dict(t_update)
+                    d["stripe_customer_id"] = cust_id
+                    db.execute(_sql_text("INSERT INTO settings(tenant_id, data_json) VALUES (:tid, :dj)"), {"tid": resolved_tenant, "dj": _json.dumps(d)})
+                    db.commit()
+            else:
+                # Fallback: scan a limited window to match by customer id
+                rows = db.execute(_sql_text("SELECT tenant_id, data_json, id FROM settings ORDER BY id DESC LIMIT 200")).fetchall()
+                for tenant_id, data_json, sid in rows:
+                    try:
+                        d = _json.loads(data_json or "{}")
+                    except Exception:
+                        d = {}
+                    if d.get("stripe_customer_id") == cust_id:
+                        d.update(t_update)
+                        db.execute(_sql_text("UPDATE settings SET data_json = :dj WHERE id = :sid"), {"dj": _json.dumps(d), "sid": sid})
+                        db.commit()
+                        try:
+                            emit_event("BillingUpdated", {"tenant_id": tenant_id, "status": d.get("subscription_status", "unknown")})
+                        except Exception:
+                            pass
+                        break
     except Exception:
         pass
     return JSONResponse({"status": "ok"})
@@ -4424,11 +4483,14 @@ def update_settings(
 ):
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
-    row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == req.tenant_id).first()
+    # Use latest row for deterministic updates
+    _row = db.execute(_sql_text("SELECT id, data_json FROM settings WHERE tenant_id = :tid ORDER BY id DESC LIMIT 1"), {"tid": req.tenant_id}).fetchone()
     data = {}
-    if row:
+    row_id = None
+    if _row:
         try:
-            data = json.loads(row.data_json)
+            row_id = _row[0]
+            data = json.loads(_row[1] or "{}")
         except Exception:
             data = {}
     if req.tone is not None:
@@ -4476,11 +4538,10 @@ def update_settings(
         ai_cfg = dict(data.get("ai") or {})
         ai_cfg["share_insights"] = bool(req.ai_share_insights)
         data["ai"] = ai_cfg
-    if not row:
-        row = dbm.Settings(tenant_id=req.tenant_id, data_json=json.dumps(data))
-        db.add(row)
+    if not row_id:
+        db.execute(_sql_text("INSERT INTO settings(tenant_id, data_json) VALUES (:tid, :dj)"), {"tid": req.tenant_id, "dj": json.dumps(data)})
     else:
-        row.data_json = json.dumps(data)
+        db.execute(_sql_text("UPDATE settings SET data_json = :dj WHERE id = :sid"), {"dj": json.dumps(data), "sid": row_id})
     db.commit()
     emit_event("SettingsUpdated", {"tenant_id": req.tenant_id, "keys": list(data.keys())})
     return {"status": "ok"}
@@ -6623,11 +6684,15 @@ def get_settings(
     try:
         if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
             return {"data": {}}
-        row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == tenant_id).first()
-        if not row or not (row.data_json or "").strip():
+        # Deterministic selection: latest row per tenant
+        row = db.execute(
+            _sql_text("SELECT data_json FROM settings WHERE tenant_id = CAST(:tid AS uuid) ORDER BY id DESC LIMIT 1"),
+            {"tid": tenant_id},
+        ).fetchone()
+        if not row or not (row[0] or "").strip():
             return {"data": {}}
         try:
-            return {"data": json.loads(row.data_json)}
+            return {"data": json.loads(row[0])}
         except Exception:
             # Malformed JSON from earlier versions — return empty and avoid 500s
             return {"data": {}}
@@ -8666,6 +8731,134 @@ def calendar_sync(req: SyncRequest, db: Session = Depends(get_db), ctx: UserCont
         pass
     return {"status": "completed", "provider": prov}
 
+
+class ApptRescheduleRequest(BaseModel):
+    tenant_id: str
+    external_ref: str | None = None
+    provider: str | None = None
+    provider_event_id: str | None = None
+    start_ts: int
+    end_ts: Optional[int] = None
+
+
+@app.post("/calendar/reschedule", tags=["Integrations"])
+def calendar_reschedule(req: ApptRescheduleRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    # Find by external_ref or provider_event_id
+    q = db.query(dbm.Appointment).filter(dbm.Appointment.tenant_id == req.tenant_id)
+    if req.external_ref:
+        q = q.filter(dbm.Appointment.external_ref == req.external_ref)
+    elif req.provider and req.provider_event_id:
+        q = q.filter(dbm.Appointment.provider == req.provider, dbm.Appointment.provider_event_id == req.provider_event_id)
+    row = q.first()
+    if not row:
+        return {"status": "not_found"}
+    row.start_ts = int(req.start_ts)
+    row.end_ts = int(req.end_ts or 0) or None  # type: ignore
+    row.status = row.status or "booked"  # type: ignore
+    try:
+        db.commit()
+    except Exception:
+        try: db.rollback()  # noqa: E701
+        except Exception: pass
+        return {"status": "error"}
+    try:
+        invalidate_calendar_cache(req.tenant_id)
+    except Exception:
+        pass
+    emit_event("AppointmentRescheduled", {"tenant_id": req.tenant_id, "ref": req.external_ref or req.provider_event_id or row.external_ref})
+    return {"status": "ok"}
+
+
+class ApptCancelRequest(BaseModel):
+    tenant_id: str
+    external_ref: str | None = None
+    provider: str | None = None
+    provider_event_id: str | None = None
+
+
+@app.post("/calendar/cancel", tags=["Integrations"])
+def calendar_cancel(req: ApptCancelRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    q = db.query(dbm.Appointment).filter(dbm.Appointment.tenant_id == req.tenant_id)
+    if req.external_ref:
+        q = q.filter(dbm.Appointment.external_ref == req.external_ref)
+    elif req.provider and req.provider_event_id:
+        q = q.filter(dbm.Appointment.provider == req.provider, dbm.Appointment.provider_event_id == req.provider_event_id)
+    row = q.first()
+    if not row:
+        return {"status": "not_found"}
+    row.status = "canceled"
+    try:
+        db.commit()
+    except Exception:
+        try: db.rollback()  # noqa: E701
+        except Exception: pass
+        return {"status": "error"}
+    try:
+        invalidate_calendar_cache(req.tenant_id)
+    except Exception:
+        pass
+    emit_event("AppointmentCanceled", {"tenant_id": req.tenant_id, "ref": req.external_ref or req.provider_event_id or row.external_ref})
+    return {"status": "ok"}
+
+
+# -------- Client Images (per-contact gallery) ---------
+class SaveClientImageRequest(BaseModel):
+    tenant_id: str
+    contact_id: str
+    url: str
+    kind: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@app.post("/client-images/save", tags=["Data"])
+def client_images_save(req: SaveClientImageRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    try:
+        db.execute(
+            _sql_text(
+                """
+                INSERT INTO client_images(tenant_id, contact_id, kind, url, notes, created_at)
+                VALUES (CAST(:t AS uuid), :c, :k, :u, :n, EXTRACT(EPOCH FROM NOW())::int)
+                """
+            ),
+            {"t": req.tenant_id, "c": req.contact_id, "k": (req.kind or None), "u": req.url, "n": (req.notes or None)},
+        )
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return {"status": "error"}
+    emit_event("ClientImageSaved", {"tenant_id": req.tenant_id, "contact_id": req.contact_id})
+    return {"status": "ok"}
+
+
+@app.get("/client-images/list", tags=["Data"])
+def client_images_list(tenant_id: str, contact_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"items": []}
+    rows = db.execute(
+        _sql_text(
+            """
+            SELECT id, contact_id, kind, url, notes, created_at
+            FROM client_images
+            WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :c
+            ORDER BY id DESC
+            LIMIT 200
+            """
+        ),
+        {"t": tenant_id, "c": contact_id},
+    ).fetchall()
+    items = [
+        {"id": int(r[0]), "contact_id": r[1], "kind": r[2], "url": r[3], "notes": r[4], "created_at": int(r[5] or 0)} for r in rows
+    ]
+    return {"items": items}
 
 class CalendarMergeRequest(BaseModel):
     tenant_id: str

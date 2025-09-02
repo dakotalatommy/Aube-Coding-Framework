@@ -93,12 +93,12 @@ export default function Billing(){
             }
           }}>Start subscription — $147/mo</Button>
           <Button variant="outline" onClick={async()=>{
-            try { track('billing_start_lifetime', { plan: 'lifetime_97' }); } catch {}
+            try { track('billing_start_founder', { plan: 'founder_97_monthly' }); } catch {}
             try {
-              const r = await api.post('/billing/create-checkout-session', { price_id: (import.meta as any).env?.VITE_STRIPE_PRICE_97 || '', mode: 'subscription' });
+              const r = await api.post('/billing/create-checkout-session', { price_id: (import.meta as any).env?.VITE_STRIPE_PRICE_97 || '', mode: 'subscription', trial_days: Number((import.meta as any).env?.VITE_STRIPE_TRIAL_DAYS || '7') });
               if (r?.url) window.location.href = r.url;
             } catch (e) {
-              setError('Failed to start lifetime checkout.');
+              setError('Failed to start $97/mo checkout.');
             }
           }}>Lock $97/mo (Founding Member)</Button>
           <Button variant="ghost" onClick={()=>{ try { track('billing_skip'); } catch {}; navigate('/workspace?pane=dashboard'); }}>Skip for now</Button>
