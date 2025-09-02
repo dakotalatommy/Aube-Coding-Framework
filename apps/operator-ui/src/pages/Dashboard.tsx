@@ -132,10 +132,7 @@ export default function Dashboard(){
       }
       if (sp.get('tour') === '1' && !seen && !signedOut && !postVerify) {
         startGuide('dashboard');
-        const t = window.setTimeout(()=>{
-          setShowSignupModal(true);
-        }, 4000);
-        return () => window.clearTimeout(t);
+        return;
       }
     } catch {}
   },[]);
@@ -143,7 +140,7 @@ export default function Dashboard(){
   // const chartData = (funnel.series||[]).map((p:any)=>({ day:p.day || p.date || '', value:p.count || 0 }));
 
   // const startTour = () => startGuide('dashboard');
-  const [showSignupModal, setShowSignupModal] = useState(false);
+  // Signup callout auto-pop removed; user-driven routes/buttons only
   const [refLink, setRefLink] = useState<string>('');
   const [showBillingNudge, setShowBillingNudge] = useState(false);
   const [billingAdded, setBillingAdded] = useState(false);
@@ -289,14 +286,8 @@ export default function Dashboard(){
           </div>
         </section>
       )}
-      {showSignupModal && (
-        <section className="rounded-2xl p-4 backdrop-blur bg-white/80 border border-white/70 shadow-lg">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="text-sm text-slate-800">Enjoying the tour? Create your BrandVX to continue — free trial, optional payment now.</div>
-            <Button onClick={()=>{ setShowSignupModal(false); nav('/signup?from=tour'); }} className="rounded-full px-4 py-2">Create account</Button>
-            <Button variant="outline" onClick={()=>{ setShowSignupModal(false); nav('/billing'); }} className="rounded-full px-4 py-2">Add payment (optional)</Button>
-          </div>
-        </section>
+      {false && (
+        <section />
       )}
       {/* Top utility row removed; we'll render referral & trial in bottom stack */}
       {false && showBillingNudge && (
