@@ -10,6 +10,7 @@ export default function Inventory(){
   const [status, setStatus] = useState('');
   const [items, setItems] = useState<any[]>([]);
   const [lastAnalyzed, setLastAnalyzed] = useState<number|undefined>(undefined);
+  const [lastUpdated, setLastUpdated] = useState<number>(0);
   const [page, setPage] = useState(0);
   const pageSize = 8;
   const [lowThreshold, setLowThreshold] = useState<number>(()=>{
@@ -17,7 +18,7 @@ export default function Inventory(){
   });
   useEffect(()=>{
     (async()=>{
-      try{ const r = await api.get(`/inventory/metrics?tenant_id=${encodeURIComponent(await getTenant())}`); setSummary(r?.summary||{}); setLastSync(r?.last_sync||{}); setItems(r?.items||[]); } finally{ setLoading(false); }
+      try{ const r = await api.get(`/inventory/metrics?tenant_id=${encodeURIComponent(await getTenant())}`); setSummary(r?.summary||{}); setLastSync(r?.last_sync||{}); setItems(r?.items||[]); setLastUpdated(Date.now()); } finally{ setLoading(false); }
     })();
   },[]);
   useEffect(()=>{
@@ -29,29 +30,32 @@ export default function Inventory(){
   useEffect(()=>{ (async()=>{ try{ const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() }); if (a?.summary?.ts) setLastAnalyzed(Number(a.summary.ts)); } catch{} })(); },[]);
   const syncNow = async (provider?: string) => {
     const r = await api.post('/inventory/sync', { tenant_id: await getTenant(), provider });
-    setStatus(JSON.stringify(r));
+    setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })());
     // Refresh metrics/items
     const m = await api.get(`/inventory/metrics?tenant_id=${encodeURIComponent(await getTenant())}`);
-    setSummary(m?.summary||{}); setLastSync(m?.last_sync||{}); setItems(m?.items||[]);
+    setSummary(m?.summary||{}); setLastSync(m?.last_sync||{}); setItems(m?.items||[]); setLastUpdated(Date.now());
   };
   const mergeNow = async () => {
     const r = await api.post('/inventory/merge', { tenant_id: await getTenant(), strategy: 'sku_then_name' });
-    setStatus(JSON.stringify(r));
+    setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })());
     const m = await api.get(`/inventory/metrics?tenant_id=${encodeURIComponent(await getTenant())}`);
-    setSummary(m?.summary||{}); setLastSync(m?.last_sync||{}); setItems(m?.items||[]);
+    setSummary(m?.summary||{}); setLastSync(m?.last_sync||{}); setItems(m?.items||[]); setLastUpdated(Date.now());
   };
   const mapNow = async () => {
     const example = { sku_map: { 'SKU-PLACEHOLDER': 'SKU-CANONICAL' } };
     const r = await api.post('/inventory/map', { tenant_id: await getTenant(), ...example });
-    setStatus(JSON.stringify(r));
+    setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })());
     const m = await api.get(`/inventory/metrics?tenant_id=${encodeURIComponent(await getTenant())}`);
-    setSummary(m?.summary||{}); setLastSync(m?.last_sync||{}); setItems(m?.items||[]);
+    setSummary(m?.summary||{}); setLastSync(m?.last_sync||{}); setItems(m?.items||[]); setLastUpdated(Date.now());
   };
   if (loading) return <div>Loading…</div>;
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">Inventory</h3>
+        {!!lastUpdated && (
+          <span className="ml-2 text-[11px] text-slate-500">Updated {new Date(lastUpdated).toLocaleTimeString()}</span>
+        )}
         <button className="text-sm text-slate-600 hover:underline" aria-label="Open inventory guide" onClick={()=> startGuide('inventory')}>Guide me</button>
       </div>
       <div className="flex items-center gap-3 text-sm">
@@ -120,7 +124,7 @@ export default function Inventory(){
           <button className="px-2 py-1 rounded-md border bg-white disabled:opacity-50" onClick={()=> setPage(p=> p+1)} disabled={(page+1)*pageSize >= items.length}>Next &rarr;</button>
         </div>
       )}
-      {status && <pre className="text-xs text-slate-700 whitespace-pre-wrap">{status}</pre>}
+      {status && new URLSearchParams(window.location.search).has('dev') && <pre className="text-xs text-slate-700 whitespace-pre-wrap">{status}</pre>}
     </div>
   );
 }

@@ -395,6 +395,17 @@ export default function Dashboard(){
           <Button size="sm" variant="outline" className="w-full" onClick={()=> window.location.assign('/workspace?pane=workflows')}>Open Work Styles</Button>
         </div>
       </section>
+      {/* Today strip: one primary CTA */}
+      <section className="rounded-2xl p-3 bg-white border border-white/60 shadow-sm">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-semibold text-slate-900">Today</div>
+          <div className="text-[11px] text-slate-500">{new Date().toLocaleDateString()}</div>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <div className="text-sm text-slate-700">Primary action:</div>
+          <Button size="sm" onClick={()=> runUIAction('appointments.confirm_friday')}>Confirm Friday appointments</Button>
+        </div>
+      </section>
       {/* Bottom stack removed (trial/referral now at top) */}
       {/* chart removed */}
       <ShareCard

@@ -51,6 +51,8 @@ export default function Ask(){
   const [sessionSummary, setSessionSummary] = useState<string>('');
   const [summarizing, setSummarizing] = useState<boolean>(false);
   // removed getToolLabel
+  const inputRef = useRef<HTMLTextAreaElement|null>(null);
+  useEffect(()=>{ try{ inputRef.current?.focus(); } catch{} },[]);
   const loadHistory = async () => {
     try{
       const tid = await getTenant();
@@ -334,6 +336,7 @@ export default function Ask(){
           onFocus={()=>{ if (!input) setInput(''); }}
           onChange={e=>setInput(e.target.value)}
           onKeyDown={onKeyDown}
+          ref={inputRef}
         />
         <div className="flex flex-col gap-2">
           <button className="border rounded-full px-4 py-2 bg-gradient-to-r from-blue-100 to-blue-300 hover:from-blue-200 hover:to-blue-400 shadow text-slate-900" onClick={send} disabled={loading || streaming}>
