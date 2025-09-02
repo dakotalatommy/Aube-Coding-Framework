@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useMemo, useRef, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Home, MessageSquare, Users, Calendar, Layers, Package2, Plug, CheckCircle2 } from 'lucide-react';
+import { Home, MessageSquare, Users, Calendar, Layers, Package2, Plug, CheckCircle2, MessageCircle } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { api } from '../lib/api';
 import { startGuide } from '../lib/guide';
@@ -10,7 +10,7 @@ import { UI_STRINGS } from '../lib/strings';
 // import PaneManager from './pane/PaneManager';
 import { registerActions, registerMessageBridge } from '../lib/actions';
 
-type PaneKey = 'dashboard' | 'messages' | 'contacts' | 'calendar' | 'cadences' | 'inventory' | 'integrations' | 'approvals' | 'workflows';
+type PaneKey = 'dashboard' | 'messages' | 'contacts' | 'calendar' | 'cadences' | 'inventory' | 'integrations' | 'approvals' | 'workflows' | 'askvx';
 
 const PANES: { key: PaneKey; label: string; icon: React.ReactNode }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: <Home size={18} /> },
@@ -22,6 +22,7 @@ const PANES: { key: PaneKey; label: string; icon: React.ReactNode }[] = [
   { key: 'integrations', label: 'Settings/Connections', icon: <Plug size={18} /> },
   { key: 'workflows', label: 'Work Styles', icon: <Layers size={18} /> },
   { key: 'approvals', label: 'Approvals', icon: <CheckCircle2 size={18} /> },
+  { key: 'askvx', label: 'Ask VX', icon: <MessageCircle size={18} /> },
 ];
 
 export default function WorkspaceShell(){
@@ -127,6 +128,7 @@ export default function WorkspaceShell(){
       case 'integrations': return <LazyIntegrations/>;
       case 'approvals': return <LazyApprovals/>;
       case 'workflows': return <LazyWorkflows/>;
+      case 'askvx': return <LazyAsk/>;
       default: return <div/>;
     }
   })();
@@ -138,6 +140,22 @@ export default function WorkspaceShell(){
   }, [showWelcome]);
 
   const items = useMemo(()=> PANES, []);
+  const [approvalsCount, setApprovalsCount] = useState<number>(0);
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const sp = new URLSearchParams(loc.search);
+        const isDemo = sp.get('demo')==='1';
+        if (isDemo) { setApprovalsCount(0); return; }
+        const tid = localStorage.getItem('bvx_tenant')||'';
+        if (!tid) { setApprovalsCount(0); return; }
+        const r = await api.get(`/approvals?tenant_id=${encodeURIComponent(tid)}`);
+        const arr = Array.isArray(r) ? r : (r?.items||[]);
+        const pending = (arr||[]).filter((x:any)=> String(x?.status||'pending')==='pending').length;
+        setApprovalsCount(pending);
+      } catch { setApprovalsCount(0); }
+    })();
+  }, [loc.search]);
   const refs = useRef<HTMLButtonElement[]>([]);
   useEffect(()=>{ refs.current = refs.current.slice(0, items.length); }, [items.length]);
 
@@ -169,6 +187,7 @@ export default function WorkspaceShell(){
       'nav.integrations': { id:'nav.integrations', run: ()=> setPane('integrations') },
       'nav.approvals': { id:'nav.approvals', run: ()=> setPane('approvals') },
       'nav.styles': { id:'nav.styles', run: ()=> setPane('workflows') },
+      'nav.askvx': { id:'nav.askvx', run: ()=> setPane('askvx') },
       'guide.dashboard': { id:'guide.dashboard', run: ()=> startGuide('dashboard') },
       'guide.integrations': { id:'guide.integrations', run: ()=> startGuide('integrations') },
       'guide.workflows': { id:'guide.workflows', run: ()=> startGuide('workflows') },
@@ -288,6 +307,9 @@ export default function WorkspaceShell(){
                   {active && <span aria-hidden className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-pink-400 to-violet-400 rounded-l-xl" />}
                   <span className="shrink-0">{p.icon}</span>
                   <span className="text-sm">{p.label}</span>
+                  {p.key==='approvals' && approvalsCount>0 && (
+                    <span aria-label={`${approvalsCount} pending`} className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] text-[10px] px-1 rounded-full bg-amber-100 text-amber-900 border border-amber-200">{approvalsCount}</span>
+                  )}
                   <span className="ml-auto text-[10px] text-slate-400">{i+1}</span>
                 </button>
               );
@@ -295,11 +317,13 @@ export default function WorkspaceShell(){
           </nav>
           {/* Anchored footer */}
           <div className="absolute left-3 right-3" style={{ bottom: 'calc(var(--bvx-commandbar-height,64px) + env(safe-area-inset-bottom,0px) + 18px)' }}>
-            <button
-              className={`mb-2 inline-flex w-full items-center justify-center px-3 py-2 rounded-xl border ${demo? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-white text-slate-700'}`}
-              onClick={toggleDemo}
-              data-tour="demo-toggle"
-            >{demo? 'Demo mode: on' : 'Demo mode: off'}</button>
+            {demo && (
+              <button
+                className={`mb-2 inline-flex w-full items-center justify-center px-3 py-2 rounded-xl border bg-amber-50 text-amber-800 border-amber-200`}
+                onClick={toggleDemo}
+                data-tour="demo-toggle"
+              >Demo mode: on</button>
+            )}
             {BOOKING_URL && (
               <a
                 href={BOOKING_URL}
@@ -441,6 +465,7 @@ const LazyInventory = lazy(()=> import('../pages/Inventory'));
 const LazyIntegrations = lazy(()=> import('../pages/Integrations'));
 const LazyApprovals = lazy(()=> import('../pages/Approvals'));
 const LazyWorkflows = lazy(()=> import('../pages/Workflows'));
+const LazyAsk = lazy(()=> import('../pages/Ask'));
 // Onboarding is now a standalone route (not a workspace pane)
 
 

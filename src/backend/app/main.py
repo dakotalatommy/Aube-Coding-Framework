@@ -74,6 +74,14 @@ tags_metadata = [
 ]
 
 app = FastAPI(title="BrandVX Backend", version="0.2.0", openapi_tags=tags_metadata)
+# Optional Sentry capture (dsn via SENTRY_DSN)
+try:
+    import sentry_sdk as _sentry
+    _dsn = os.getenv("SENTRY_DSN", "").strip()
+    if _dsn:
+        _sentry.init(dsn=_dsn, traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.05")))
+except Exception:
+    pass
 # Dev-only: ensure tables exist when using local SQLite without Alembic.
 try:
     if engine.url.drivername.startswith("sqlite"):
@@ -95,6 +103,23 @@ try:
                 "lead_status","appointments","messages","events_ledger",
             ]:
                 _ensure_created_at(_t)
+        # Helpful indexes for local/dev performance parity
+        try:
+            _conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_contacts_display_name ON contacts(display_name)")
+        except Exception:
+            pass
+        try:
+            _conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_contacts_last_visit ON contacts(last_visit)")
+        except Exception:
+            pass
+        try:
+            _conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_contacts_ltv ON contacts(lifetime_cents)")
+        except Exception:
+            pass
+        try:
+            _conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_appts_contact_start ON appointments(contact_id, start_ts)")
+        except Exception:
+            pass
 except Exception:
     pass
 
@@ -759,7 +784,6 @@ def _audit_logs_columns(db: Session) -> set:
         return {str(r[0]) for r in rows}
     except Exception:
         return set()
-
 def _insert_connected_account(db: Session, tenant_id: str, user_id: str, provider: str,
                               status: str, access_token_enc: Optional[str],
                               refresh_token_enc: Optional[str], expires_at: Optional[int],
@@ -1481,8 +1505,6 @@ async def _call_edge_function(name: str, payload: Dict[str, object]) -> Dict[str
             return r.json()
     except httpx.HTTPError as e:
         return {"error": str(e)}
-
-
 def _oauth_authorize_url(provider: str, tenant_id: Optional[str] = None) -> str:
     # Encode state with tenant context for multi-tenant callback handling
     try:
@@ -2281,8 +2303,6 @@ async def simulate_message(
         except Exception:
             pass
         return {"status": "sent", "demo": True}
-
-
 @app.post("/messages/send", tags=["Cadences"])
 def send_message_canonical(
     req: SendMessageRequest,
@@ -2372,6 +2392,30 @@ class ChatRawRequest(BaseModel):
     tenant_id: str
     messages: List[ChatMessage]
     session_id: Optional[str] = None
+
+class ChatSessionSummaryRequest(BaseModel):
+    tenant_id: str
+    session_id: str
+    summary: str
+
+@app.post("/ai/chat/session/summary", tags=["AI"])
+def ai_chat_save_summary(
+    req: ChatSessionSummaryRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    try:
+        db.add(dbm.ChatLog(tenant_id=req.tenant_id, session_id=req.session_id, role="assistant", content=f"[summary]\n{req.summary}"))
+        db.commit()
+        return {"status": "ok"}
+    except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return {"status": "error", "detail": str(e)[:200]}
 @app.post("/ai/chat", tags=["AI"])
 async def ai_chat(
     req: ChatRequest,
@@ -2800,7 +2844,14 @@ async def ai_chat_raw(
                 except Exception:
                     return "—"
             for r in rows:
-                data_notes.append(f"• {r.contact_id} — LTV ${(int(getattr(r,'lifetime_cents',0) or 0)/100):.2f}, Txns {int(getattr(r,'txn_count',0) or 0)}, Last {_fmt(getattr(r,'last_visit',0))}")
+                _name = (getattr(r, 'display_name', None) or (f"{(getattr(r,'first_name', '') or '').strip()} {(getattr(r,'last_name','') or '').strip()}" ).strip())
+                if not _name:
+                    try:
+                        _id = str(getattr(r, 'contact_id'))
+                        _name = f"Client {_id[-6:]}"
+                    except Exception:
+                        _name = "Client"
+                data_notes.append(f"• {_name} — LTV ${(int(getattr(r,'lifetime_cents',0) or 0)/100):.2f}, Txns {int(getattr(r,'txn_count',0) or 0)}, Last {_fmt(getattr(r,'last_visit',0))}")
         # Totals / revenue summary
         if (("total" in user_q) and ("revenue" in user_q or "lifetime" in user_q or "spend" in user_q or "ltv" in user_q)):
             try:
@@ -2837,7 +2888,14 @@ async def ai_chat_raw(
                     except Exception:
                         return "—"
                 for r in rows:
-                    data_notes.append(f"• {r.contact_id} — Last {_fmt2(getattr(r,'last_visit',0))}, Txns {int(getattr(r,'txn_count',0) or 0)}, LTV ${(int(getattr(r,'lifetime_cents',0) or 0)/100):.2f}")
+                    _name = (getattr(r, 'display_name', None) or (f"{(getattr(r,'first_name', '') or '').strip()} {(getattr(r,'last_name','') or '').strip()}" ).strip())
+                    if not _name:
+                        try:
+                            _id = str(getattr(r, 'contact_id'))
+                            _name = f"Client {_id[-6:]}"
+                        except Exception:
+                            _name = "Client"
+                    data_notes.append(f"• {_name} — Last {_fmt2(getattr(r,'last_visit',0))}, Txns {int(getattr(r,'txn_count',0) or 0)}, LTV ${(int(getattr(r,'lifetime_cents',0) or 0)/100):.2f}")
             except Exception:
                 pass
         # Birthdays this month (direct list)
@@ -2855,7 +2913,18 @@ async def ai_chat_raw(
                 for r in rows:
                     b = str(getattr(r, 'birthday', '') or '')
                     if mon in b:
-                        data_notes.append(f"• {r.contact_id} — Birthday {b}")
+                        _name = (getattr(r, 'display_name', None) or (f"{(getattr(r,'first_name', '') or '').strip()} {(getattr(r,'last_name','') or '').strip()}" ).strip()) or None
+                        if not _name:
+                            try:
+                                _id = str(getattr(r, 'contact_id'))
+                                _name = f"Client {_id[-6:]}"
+                            except Exception:
+                                _name = "Client"
+                        try:
+                            _bd = b[5:10] if len(b)>=10 else b
+                        except Exception:
+                            _bd = b
+                        data_notes.append(f"• {_name} — Birthday {_bd}")
                         shown += 1
                         if shown >= 25: break
             except Exception:
@@ -3082,6 +3151,35 @@ async def ai_chat_raw(
         from fastapi.responses import JSONResponse as _JR
         excerpt = json.dumps({k: provider_json.get(k) for k in ("status", "incomplete_details", "usage")})
         return _JR({"error": "provider_error", "detail": "no_text_output", "provider_excerpt": excerpt}, status_code=200)
+    # Mask PII (emails, phone-like sequences) in final output
+    try:
+        import re as _re
+        def _mask_email(m: "_re.Match[str]") -> str:
+            try:
+                user = m.group(1)
+                return f"{user}@***"
+            except Exception:
+                return "***@***"
+        def _mask_phone_str(s: str) -> str:
+            digits = [ch for ch in s if ch.isdigit()]
+            if len(digits) < 7:
+                return s
+            keep = digits[-4:]
+            masked = ["*" for _ in digits[:-4]] + keep
+            out = []
+            i = 0
+            for ch in s:
+                if ch.isdigit():
+                    out.append(masked[i])
+                    i += 1
+                else:
+                    out.append(ch)
+            return "".join(out)
+        content = _re.sub(r"([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]+)", _mask_email, content)
+        phone_rx = _re.compile(r"(\+?\d[\d\s\-\(\)]{6,}\d)")
+        content = phone_rx.sub(lambda m: _mask_phone_str(m.group(1)), content)
+    except Exception:
+        pass
     # Persist logs (best-effort)
     try:
         sid = req.session_id or "default"
@@ -3114,6 +3212,34 @@ def ai_diag():
     except Exception as e:
         return {"error": str(e)}
 
+
+@app.get("/ai/costs", tags=["AI"])
+def ai_costs(tenant_id: str, ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    try:
+        import datetime as _dt
+        def _today_key(prefix: str, tid: str = "global") -> str:
+            return f"{prefix}:{tid}:{_dt.datetime.utcnow().strftime('%Y%m%d')}"
+        t_tokens = int(cache_get(_today_key("ai_tokens", tenant_id)) or 0)
+        g_tokens = int(cache_get(_today_key("ai_tokens", "global")) or 0)
+        t_cost = float(cache_get(_today_key("ai_cost_usd", tenant_id)) or 0.0)
+        g_cost = float(cache_get(_today_key("ai_cost_usd", "global")) or 0.0)
+        caps = {
+            "tenant_tokens": int(os.getenv("AI_TENANT_DAILY_CAP_TOKENS", "500000") or 0),
+            "global_tokens": int(os.getenv("AI_GLOBAL_DAILY_CAP_TOKENS", "5000000") or 0),
+            "tenant_usd": float(os.getenv("AI_TENANT_DAILY_CAP_USD", "0") or 0.0),
+            "global_usd": float(os.getenv("AI_GLOBAL_DAILY_CAP_USD", "0") or 0.0),
+        }
+        return {
+            "tenant_tokens_today": t_tokens,
+            "global_tokens_today": g_tokens,
+            "tenant_cost_usd_today": round(t_cost, 4),
+            "global_cost_usd_today": round(g_cost, 4),
+            "caps": caps,
+        }
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
 
 # --- Edge Function Proxies (Gateway model) ---
 class EdgeProxyRequest(BaseModel):
@@ -3414,8 +3540,6 @@ async def ai_tool_execute(
         except Exception:
             pass
         return {"status": "error", "message": str(e)}
-
-
 @app.get("/reports/download/{token}", tags=["AI"])
 def report_download(token: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
     try:
@@ -3585,17 +3709,40 @@ def contacts_search(
             )
         except Exception:
             base = base.filter(dbm.Contact.contact_id.like(like))
+    # Add name search when available
+    try:
+        if q:
+            like = f"%{q}%"
+            base = base.filter(
+                (dbm.Contact.contact_id.ilike(like))
+                | (dbm.Contact.email_hash.ilike(like))
+                | (dbm.Contact.phone_hash.ilike(like))
+                | (dbm.Contact.display_name.ilike(like))
+                | (dbm.Contact.first_name.ilike(like))
+                | (dbm.Contact.last_name.ilike(like))
+            )
+    except Exception:
+        pass
     rows = base.order_by(dbm.Contact.id.asc()).limit(max(1, min(limit, 50))).all()
-    return {"items": [
-        {"id": r.contact_id, "name": r.contact_id, "email_hash": r.email_hash, "phone_hash": r.phone_hash, "favorite": False}
-        for r in rows
-    ]}
+    out = []
+    for r in rows:
+        try:
+            fn = str(getattr(r, "first_name", "") or "").strip()
+            ln = str(getattr(r, "last_name", "") or "").strip()
+            full = (f"{fn} {ln}" if (fn or ln) else "").strip()
+            dn = (getattr(r, "display_name", None) or "").strip() if isinstance(getattr(r, "display_name", None), str) else getattr(r, "display_name", None)
+            name = full or (dn or "Client")
+        except Exception:
+            name = "Client"
+        out.append({"id": r.contact_id, "name": name, "email_hash": r.email_hash, "phone_hash": r.phone_hash, "favorite": False})
+    return {"items": out}
 
 
 @app.get("/contacts/list", tags=["Contacts"])
 def contacts_list(
     tenant_id: str,
     limit: int = 100,
+    offset: int = 0,
     db: Session = Depends(get_db),
     ctx: UserContext = Depends(get_user_context),
 ):
@@ -3611,23 +3758,42 @@ def contacts_list(
             tid = tenant_id
         # Short‑TTL cache for rollups/list
         try:
-            ckey = f"contacts:list:{tenant_id}:{int(limit)}"
+            ckey = f"contacts:list:{tenant_id}:{int(limit)}:{int(offset)}"
             cached = cache_get(ckey)
             if cached is not None:
-                return {"items": cached}
+                return cached
         except Exception:
             pass
         q = db.query(dbm.Contact).filter(dbm.Contact.tenant_id == tid)  # type: ignore
         q = q.filter(dbm.Contact.deleted == False)  # type: ignore
+        total = q.count()
         rows = (
             q.order_by(dbm.Contact.lifetime_cents.desc(), dbm.Contact.last_visit.desc())
-            .limit(max(1, min(limit, 500)))
+            .offset(max(0, int(offset)))
+            .limit(max(1, min(limit, 1000)))
             .all()
         )
         out = []
         for r in rows:
+            dn = getattr(r, "display_name", None)
+            if not dn:
+                fn = str(getattr(r, "first_name", "") or "").strip()
+                ln = str(getattr(r, "last_name", "") or "").strip()
+                dn = (f"{fn} {ln}" if (fn or ln) else r.contact_id).strip()
+            # Compute friendly name (never expose Square IDs as names)
+            try:
+                fn = str(getattr(r, "first_name", "") or "").strip()
+                ln = str(getattr(r, "last_name", "") or "").strip()
+                full = (f"{fn} {ln}" if (fn or ln) else "").strip()
+                friendly = full or (str(dn or "").strip() or "Client")
+            except Exception:
+                friendly = "Client"
             out.append({
                 "contact_id": r.contact_id,
+                "display_name": dn,
+                "friendly_name": friendly,
+                "first_name": getattr(r, "first_name", None),
+                "last_name": getattr(r, "last_name", None),
                 "birthday": getattr(r, "birthday", None),
                 "creation_source": getattr(r, "creation_source", None),
                 "first_visit": int(getattr(r, "first_visit", 0) or 0),
@@ -3640,10 +3806,10 @@ def contacts_list(
                 "phone_hash": getattr(r, "phone_hash", None),
             })
         try:
-            cache_set(ckey, out, ttl=60)
+            cache_set(ckey, {"items": out, "total": total}, ttl=60)
         except Exception:
             pass
-        return {"items": out}
+        return {"items": out, "total": total}
     except Exception as e:
         from fastapi.responses import JSONResponse as _JR
         return _JR({"error": "internal_error", "detail": str(e)[:200]}, status_code=500)
@@ -3768,9 +3934,49 @@ def get_metrics(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext 
             "time_saved_minutes": compute_time_saved_minutes(db, tenant_id),
             "ambassador_candidate": ambassador_candidate(db, tenant_id),
         }
+    # Compute rebook stats (last 30d)
+    try:
+        rebook_total = 0
+        rebooked = 0
+        rows = db.execute(
+            _sql_text(
+                """
+                WITH base AS (
+                  SELECT id, contact_id, start_ts
+                  FROM appointments
+                  WHERE tenant_id = CAST(:t AS uuid)
+                    AND status = 'completed'
+                    AND start_ts >= (EXTRACT(epoch FROM now())::bigint - 30*86400)
+                ), rebook AS (
+                  SELECT b.id
+                  FROM base b
+                  WHERE EXISTS (
+                    SELECT 1 FROM appointments a2
+                    WHERE a2.tenant_id = CAST(:t AS uuid)
+                      AND a2.contact_id = b.contact_id
+                      AND a2.status = 'completed'
+                      AND a2.start_ts > b.start_ts AND a2.start_ts <= b.start_ts + 30*86400
+                  )
+                )
+                SELECT (SELECT COUNT(*) FROM base) AS total, (SELECT COUNT(*) FROM rebook) AS rebooked
+                """
+            ),
+            {"t": tenant_id},
+        ).fetchone()
+        if rows:
+            rebook_total = int(rows[0] or 0)
+            rebooked = int(rows[1] or 0)
+    except Exception:
+        rebook_total = rebooked = 0
+    rebook_rate = round((100.0 * rebooked / rebook_total), 1) if rebook_total > 0 else 0.0
     # enrich via admin_kpis for revenue/referrals
     k = admin_kpis(db, tenant_id)
-    base.update({"revenue_uplift": k.get("revenue_uplift", 0), "referrals_30d": k.get("referrals_30d", 0)})
+    base.update({
+        "revenue_uplift": k.get("revenue_uplift", 0),
+        "referrals_30d": k.get("referrals_30d", 0),
+        "rebooks_30d": rebooked,
+        "rebook_rate_30d": rebook_rate,
+    })
     return base
 
 
@@ -3956,6 +4162,7 @@ def surface_share_prompt(
         {"tenant_id": req.tenant_id, "kind": req.kind},
     )
     return {"status": "ok"}
+
 class SettingsRequest(BaseModel):
     tenant_id: str
     tone: Optional[str] = None
@@ -4115,8 +4322,6 @@ def provision_creator(
 class CacheClearRequest(BaseModel):
     tenant_id: str
     scope: Optional[str] = "all"  # all | inbox | inventory | calendar
-
-
 @app.post("/admin/cache/clear", tags=["Admin"])
 def admin_cache_clear(req: CacheClearRequest, ctx: UserContext = Depends(get_user_context)) -> Dict[str, Any]:
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
@@ -5485,6 +5690,48 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                 except Exception:
                     email_sub_status = None
 
+                # Names from Square
+                try:
+                    first_name = str(square_obj.get("given_name") or square_obj.get("first_name") or "").strip() or None
+                except Exception:
+                    first_name = None
+                try:
+                    last_name = str(square_obj.get("family_name") or square_obj.get("last_name") or "").strip() or None
+                except Exception:
+                    last_name = None
+                try:
+                    nickname = str(square_obj.get("nickname") or "").strip()
+                except Exception:
+                    nickname = ""
+                try:
+                    company_name = str(square_obj.get("company_name") or "").strip()
+                except Exception:
+                    company_name = ""
+                # Compute display name preference: first last > nickname > company > email local > phone tail > sq id
+                try:
+                    display_name = None
+                    if (first_name or "") or (last_name or ""):
+                        display_name = f"{(first_name or '').strip()} {(last_name or '').strip()}".strip()
+                    if not display_name and nickname:
+                        display_name = nickname
+                    if not display_name and company_name:
+                        display_name = company_name
+                    if not display_name and email:
+                        try:
+                            display_name = (email.split("@",1)[0] or email) if isinstance(email, str) else None
+                        except Exception:
+                            display_name = None
+                    if not display_name and phone_norm:
+                        try:
+                            tail4 = ''.join([ch for ch in phone_norm if ch.isdigit()])[-4:]
+                            display_name = f"Client • {tail4}" if tail4 else None
+                        except Exception:
+                            display_name = None
+                    if not display_name:
+                        display_name = f"Client {sq_id[:6]}"
+                except Exception:
+                    display_name = None
+
                 # Raw SQL upsert using a connection-bound transaction to avoid session state issues
                 with engine.begin() as _conn:
                     row = _conn.execute(
@@ -5499,11 +5746,13 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                                 """
                                 INSERT INTO contacts (
                                   tenant_id, contact_id, email_hash, phone_hash, consent_sms, consent_email,
-                                  square_customer_id, birthday, creation_source, email_subscription_status, instant_profile
+                                  square_customer_id, birthday, creation_source, email_subscription_status, instant_profile,
+                                  first_name, last_name, display_name
                                 )
                                 VALUES (
                                   CAST(:t AS uuid), :cid, :eh, :ph, :csms, :cemail,
-                                  :sqcid, :bday, :csrc, :esub, :ip
+                                  :sqcid, :bday, :csrc, :esub, :ip,
+                                  :fname, :lname, :dname
                                 )
                                 """
                             ),
@@ -5519,6 +5768,9 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                                 "csrc": creation_source,
                                 "esub": email_sub_status,
                                 "ip": bool(instant_profile),
+                                "fname": first_name,
+                                "lname": last_name,
+                                "dname": display_name,
                             },
                         )
                         created_total += 1
@@ -5537,6 +5789,9 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                                     creation_source = COALESCE(creation_source, :csrc),
                                     email_subscription_status = COALESCE(email_subscription_status, :esub),
                                     instant_profile = (instant_profile OR :ip),
+                                    first_name = COALESCE(first_name, :fname),
+                                    last_name = COALESCE(last_name, :lname),
+                                    display_name = COALESCE(display_name, :dname),
                                     updated_at = EXTRACT(epoch FROM now())::bigint
                                 WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid
                                 """
@@ -5553,6 +5808,9 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                                 "csrc": creation_source,
                                 "esub": email_sub_status,
                                 "ip": bool(instant_profile),
+                                "fname": first_name,
+                                "lname": last_name,
+                                "dname": display_name,
                             },
                         )
                         try:
@@ -5658,6 +5916,23 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                 )
         except Exception:
             pass
+        # Trigger a calendar sync after import to surface bookings immediately
+        try:
+            try:
+                with next(get_db()) as _db:  # type: ignore
+                    _db.add(dbm.EventLedger(ts=int(_time.time()), tenant_id=req.tenant_id, name="sync.calendar.auto.queued", payload=json.dumps({"reason":"post_import"})))
+                    _db.commit()
+            except Exception:
+                pass
+            try:
+                import httpx as _httpx
+                base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
+                with _httpx.Client(timeout=10) as client:
+                    client.post(f"{base_api}/calendar/sync", json={"tenant_id": req.tenant_id, "provider": "auto"})
+            except Exception:
+                pass
+        except Exception:
+            pass
         return {
             "imported": created_total,
             "meta": {
@@ -5676,6 +5951,9 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
 
 class SquareBackfillMetricsRequest(BaseModel):
     tenant_id: str
+    max_seconds: Optional[int] = None
+    max_pages: Optional[int] = None
+    max_name_fetch: Optional[int] = 150
 @app.post("/integrations/booking/square/backfill-metrics", tags=["Integrations"])
 def square_backfill_metrics(req: SquareBackfillMetricsRequest, ctx: UserContext = Depends(get_user_context_relaxed)) -> Dict[str, object]:
     try:
@@ -5704,8 +5982,10 @@ def square_backfill_metrics(req: SquareBackfillMetricsRequest, ctx: UserContext 
         per: Dict[str, Dict[str, object]] = {}
         updated = 0
         try:
-            with httpx.Client(timeout=20, headers=headers) as client:
+            start_time = _time.time()
+            with httpx.Client(timeout=60, headers=headers) as client:
                 cursor: Optional[str] = None
+                page_count = 0
                 while True:
                     params: Dict[str, str] = {"limit": "100"}
                     if cursor:
@@ -5754,8 +6034,87 @@ def square_backfill_metrics(req: SquareBackfillMetricsRequest, ctx: UserContext 
                         except Exception:
                             continue
                     cursor = body.get("cursor") or body.get("next_cursor")
+                    page_count += 1
+                    if req.max_pages and page_count >= int(req.max_pages or 0):
+                        break
+                    if req.max_seconds and (_time.time() - start_time) >= max(15, int(req.max_seconds or 0)):
+                        break
                     if not cursor:
                         break
+            # Name enrichment for contacts missing names/display
+            try:
+                missing_sqids: list[str] = []
+                with engine.begin() as conn:
+                    rows_missing = conn.execute(
+                        _sql_text(
+                            """
+                            SELECT square_customer_id::text
+                            FROM contacts
+                            WHERE tenant_id = CAST(:t AS uuid)
+                              AND square_customer_id IS NOT NULL
+                              AND (
+                                COALESCE(display_name,'') = '' OR (
+                                  (first_name IS NULL OR first_name = '') AND (last_name IS NULL OR last_name = '')
+                                )
+                              )
+                            LIMIT :lim
+                            """
+                        ),
+                        {"t": req.tenant_id, "lim": int(req.max_name_fetch or 150)},
+                    ).fetchall()
+                    missing_sqids = [str(r[0]) for r in rows_missing if r and r[0]]
+                if missing_sqids:
+                    for sqid in missing_sqids:
+                        try:
+                            cr = client.get(f"{base}/v2/customers/{sqid}")
+                            if cr.status_code >= 400:
+                                continue
+                            cbody = cr.json() or {}
+                            cust = (cbody.get("customer") or {}) if isinstance(cbody, dict) else {}
+                            first_name = str(cust.get("given_name") or cust.get("first_name") or "").strip() or None
+                            last_name = str(cust.get("family_name") or cust.get("last_name") or "").strip() or None
+                            nickname = str(cust.get("nickname") or "").strip()
+                            company_name = str(cust.get("company_name") or "").strip()
+                            email = str(cust.get("email_address") or "").strip() or None
+                            phone = str(cust.get("phone_number") or "").strip() or None
+                            display_name = None
+                            if (first_name or "") or (last_name or ""):
+                                display_name = f"{(first_name or '').strip()} {(last_name or '').strip()}".strip()
+                            if not display_name and nickname:
+                                display_name = nickname
+                            if not display_name and company_name:
+                                display_name = company_name
+                            if not display_name and email:
+                                try:
+                                    display_name = (email.split("@",1)[0] or email)
+                                except Exception:
+                                    display_name = None
+                            if not display_name and phone:
+                                try:
+                                    tail4 = ''.join([ch for ch in phone if ch.isdigit()])[-4:]
+                                    display_name = f"Client • {tail4}" if tail4 else None
+                                except Exception:
+                                    display_name = None
+                            if not display_name:
+                                display_name = f"Client {str(sqid)[:6]}"
+                            with engine.begin() as conn:
+                                conn.execute(
+                                    _sql_text(
+                                        """
+                                        UPDATE contacts
+                                        SET first_name = COALESCE(first_name, :fn),
+                                            last_name = COALESCE(last_name, :ln),
+                                            display_name = COALESCE(display_name, :dn),
+                                            updated_at = EXTRACT(epoch FROM now())::bigint
+                                        WHERE tenant_id = CAST(:t AS uuid) AND square_customer_id = :sqid
+                                        """
+                                    ),
+                                    {"t": req.tenant_id, "sqid": sqid, "fn": first_name, "ln": last_name, "dn": display_name},
+                                )
+                        except Exception:
+                            continue
+            except Exception:
+                pass
             # Write back to contacts by square_customer_id
             with engine.begin() as conn:
                 # Set RLS GUCs
@@ -5812,7 +6171,13 @@ def square_backfill_metrics(req: SquareBackfillMetricsRequest, ctx: UserContext 
             cache_del(f"contacts:list:{req.tenant_id}:500")
         except Exception:
             pass
-        return {"updated": updated, "customers": len(per)}
+        partial = False
+        try:
+            if cursor:
+                partial = True
+        except Exception:
+            partial = False
+        return {"updated": updated, "customers": len(per), "partial": partial}
     except Exception as e:
         return {"updated": 0, "error": "internal_error", "detail": str(e)[:200]}
 
@@ -6819,8 +7184,6 @@ def update_lead_status(
     db.commit()
     emit_event("LeadStatusUpdated", {"tenant_id": req.tenant_id, "contact_id": req.contact_id, "bucket": row.bucket, "tag": row.tag})
     return {"status": "ok", "bucket": row.bucket, "tag": row.tag}
-
-
 class DLQReplayRequest(BaseModel):
     tenant_id: Optional[str] = None
     limit: int = 20
@@ -7974,6 +8337,24 @@ def inventory_metrics(
 ):
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
+    # Build last sync map from events_ledger
+    inv_sync: Dict[str, object] = {}
+    try:
+        recent = (
+            db.query(dbm.EventLedger)
+            .filter(dbm.EventLedger.tenant_id == tenant_id, dbm.EventLedger.name.like("sync.inventory.%"))
+            .order_by(dbm.EventLedger.ts.desc())
+            .limit(50)
+            .all()
+        )
+        for ev in recent:
+            try:
+                prov = (ev.name or "").split(".")[-1]
+                inv_sync[prov] = {"status": "completed", "ts": ev.ts}
+            except Exception:
+                continue
+    except Exception:
+        inv_sync = {}
     prov = (provider or "auto").lower()
     now = int(_time.time())
     # Record sync queued in events_ledger instead of in-memory state
@@ -8033,7 +8414,22 @@ def inventory_metrics(
     except Exception:
         pass
     emit_event("InventorySyncRequested", {"tenant_id": tenant_id, "provider": prov})
-    return {"status": "completed", "provider": prov}
+    # Prepare response rollup
+    try:
+        s = {
+            "products": int(summary_row.products or 0),
+            "low_stock": int(summary_row.low_stock or 0),
+            "out_of_stock": int(summary_row.out_of_stock or 0),
+            "top_sku": summary_row.top_sku,
+        }
+    except Exception:
+        s = {"products": 0, "low_stock": 0, "out_of_stock": 0, "top_sku": None}
+    rows = db.query(dbm.InventoryItem).filter(dbm.InventoryItem.tenant_id == tenant_id).order_by(dbm.InventoryItem.updated_at.desc()).all()
+    items = [
+        {"sku": r.sku, "name": r.name, "stock": int(r.stock or 0), "provider": r.provider}
+        for r in rows
+    ]
+    return {"status": "completed", "provider": prov, "summary": s, "last_sync": inv_sync, "items": items}
 
 
 class SyncRequest(BaseModel):
@@ -8122,6 +8518,99 @@ def calendar_merge(req: CalendarMergeRequest, db: Session = Depends(get_db), ctx
         db.commit()
     emit_event("CalendarMerged", {"tenant_id": req.tenant_id, "dropped": drops, "kept": len(keep_ids)})
     return {"merged": drops}
+
+
+# -------- Inventory operations (sync, merge, map) ---------
+@app.post("/inventory/sync", tags=["Integrations"])
+def inventory_sync(req: SyncRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    # Reuse metrics logic to compute and return rollup
+    out = inventory_metrics(tenant_id=req.tenant_id, provider=req.provider, db=db, ctx=ctx)  # type: ignore
+    return out if isinstance(out, dict) else {"status": "ok"}
+
+
+class InventoryMergeRequest(BaseModel):
+    tenant_id: str
+    strategy: Optional[str] = "sku_then_name"
+
+
+@app.post("/inventory/merge", tags=["Integrations"])
+def inventory_merge(req: InventoryMergeRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"merged": 0}
+    rows = db.query(dbm.InventoryItem).filter(dbm.InventoryItem.tenant_id == req.tenant_id).order_by(dbm.InventoryItem.id.asc()).all()
+    keep_by_key: Dict[str, dbm.InventoryItem] = {}
+    merged = 0
+    for r in rows:
+        key = None
+        if (req.strategy or "").startswith("sku") and r.sku:
+            key = f"sku:{str(r.sku).strip().lower()}"
+        if not key and r.name:
+            key = f"name:{str(r.name).strip().lower()}"
+        if not key:
+            continue
+        if key in keep_by_key:
+            # Merge stock into keeper and mark this for delete
+            try:
+                keeper = keep_by_key[key]
+                keeper.stock = int(keeper.stock or 0) + int(r.stock or 0)  # type: ignore
+                db.delete(r)
+                merged += 1
+            except Exception:
+                continue
+        else:
+            keep_by_key[key] = r
+    db.commit()
+    try:
+        cache_del(f"inv:{req.tenant_id}")
+    except Exception:
+        pass
+    emit_event("InventoryMerged", {"tenant_id": req.tenant_id, "merged": merged})
+    return {"merged": merged}
+
+
+class InventoryMapRequest(BaseModel):
+    tenant_id: str
+    sku_map: Optional[Dict[str, str]] = None  # from_sku -> to_sku
+    name_map: Optional[Dict[str, str]] = None  # from_name -> to_name (optional)
+
+
+@app.post("/inventory/map", tags=["Integrations"])
+def inventory_map(req: InventoryMapRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"updated": 0}
+    updates = 0
+    try:
+        if req.sku_map:
+            for src, dst in req.sku_map.items():
+                if not src or not dst or str(src).strip().lower() == str(dst).strip().lower():
+                    continue
+                q = db.query(dbm.InventoryItem).filter(dbm.InventoryItem.tenant_id == req.tenant_id, dbm.InventoryItem.sku == src)
+                for it in q.all():
+                    it.sku = dst  # type: ignore
+                    updates += 1
+        if req.name_map:
+            for src, dst in req.name_map.items():
+                if not src or not dst:
+                    continue
+                q = db.query(dbm.InventoryItem).filter(dbm.InventoryItem.tenant_id == req.tenant_id, dbm.InventoryItem.name == src)
+                for it in q.all():
+                    it.name = dst  # type: ignore
+                    updates += 1
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return {"updated": 0}
+    try:
+        cache_del(f"inv:{req.tenant_id}")
+    except Exception:
+        pass
+    emit_event("InventoryMapped", {"tenant_id": req.tenant_id, "updated": updates})
+    return {"updated": updates}
 
 
 # -------- Connectors maintenance & RLS health ---------
@@ -8281,7 +8770,6 @@ def integrations_events(tenant_id: str, limit: int = 50, db: Session = Depends(g
         return {"items": items}
     except Exception as e:
         return {"items": [], "error": str(e)[:200]}
-
 class ErasureRequest(BaseModel):
     tenant_id: str
     contact_id: str

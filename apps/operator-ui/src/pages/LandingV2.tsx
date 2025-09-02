@@ -228,23 +228,23 @@ export default function LandingV2(){
               {/* slightly reduce top margin on laptops to fit common Mac heights */}
               <div className="flex gap-4 md:gap-5 items-center">
                 <div className="relative group">
-                  <div aria-hidden className="absolute -inset-2 rounded-full bg-sky-300/30 blur-md opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100" />
+                  <div aria-hidden className="absolute -inset-2 rounded-full bg-white/40 blur-md opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100" />
                   <button
                     onClick={goDemo}
-                    className="relative overflow-hidden text-black text-[20px] md:text-[24px] px-9 md:px-10 py-4 md:py-5 rounded-full shadow-md bg-gradient-to-b from-sky-100 to-sky-200 hover:from-sky-200 hover:to-sky-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px shadow-[inset_0_2px_0_rgba(255,255,255,.65),0_56px_128px_rgba(96,165,250,.35)]"
+                    className="relative overflow-hidden text-slate-900 text-[20px] md:text-[24px] px-9 md:px-10 py-4 md:py-5 rounded-full border bg-white hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px"
                     style={{fontFamily:'\"Fraunces\", ui-serif, Georgia, serif'}}
                   >
-                    Try the demo today →
-                    <span aria-hidden className="pointer-events-none absolute inset-x-0 -top-1 h-1.5 bg-white/50 blur-[2px]" />
+                    Try the demo →
+                    <span aria-hidden className="pointer-events-none absolute inset-x-0 -top-1 h-1.5 bg-white/60 blur-[2px]" />
                   </button>
                 </div>
                 <button
                   onClick={goSignup}
-                  className="relative overflow-hidden text-white text-[20px] md:text-[24px] px-9 md:px-10 py-4 md:py-5 rounded-full shadow-md bg-gradient-to-b from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-400/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px shadow-[inset_0_2px_0_rgba(255,255,255,.35),0_56px_128px_rgba(192,132,252,.35)]"
+                  className="relative overflow-hidden text-slate-900 text-[20px] md:text-[24px] px-9 md:px-10 py-4 md:py-5 rounded-full border bg-white hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px"
                   style={{fontFamily:'\"Fraunces\", ui-serif, Georgia, serif'}}
                 >
-                  Start in 5 minutes
-                  <span aria-hidden className="pointer-events-none absolute inset-x-0 -top-1 h-1.5 bg-white/40 blur-[2px]" />
+                  Create your BrandVX
+                  <span aria-hidden className="pointer-events-none absolute inset-x-0 -top-1 h-1.5 bg-white/60 blur-[2px]" />
                 </button>
               </div>
               <div style={{height: 'clamp(10px, 1.4vw, 18px)'}} />
@@ -270,6 +270,12 @@ export default function LandingV2(){
             <WorkflowRow />
           </div>
         </main>
+        {/* Simple white footer */}
+        <section className="pb-4">
+          <div className="mt-4 rounded-t-2xl bg-white border-t p-3 text-center text-[11px] text-slate-600">
+            © {new Date().getFullYear()} BrandVX · <a href="/privacy" className="underline">Privacy</a> · <a href="/terms" className="underline">Terms</a>
+          </div>
+        </section>
       </div>
     </div>
   );

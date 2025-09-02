@@ -147,6 +147,7 @@ export default function Dashboard(){
   const [refLink, setRefLink] = useState<string>('');
   const [showBillingNudge, setShowBillingNudge] = useState(false);
   const [billingAdded, setBillingAdded] = useState(false);
+  const [trialDaysLeft, setTrialDaysLeft] = useState<number>(0);
   // wfProgress removed from Quick Start compact view
   const [foundingMember, setFoundingMember] = useState<boolean>(false);
   const [shareUrl, setShareUrl] = useState<string>('');
@@ -224,6 +225,21 @@ export default function Dashboard(){
         const twoDaysMs = 2*24*60*60*1000;
         if (Date.now() - startedAt > twoDaysMs) setShowBillingNudge(true);
       }
+    } catch {}
+  }, []);
+
+  // Trial tracking (client-side best effort)
+  useEffect(()=>{
+    try {
+      const TRIAL_DAYS = Number((import.meta as any).env?.VITE_STRIPE_TRIAL_DAYS || '7');
+      let started = Number(localStorage.getItem('bvx_trial_started_at')||'0');
+      if (!started) {
+        started = Date.now();
+        localStorage.setItem('bvx_trial_started_at', String(started));
+      }
+      const elapsedDays = Math.floor((Date.now() - started) / (24*60*60*1000));
+      const left = Math.max(0, TRIAL_DAYS - elapsedDays);
+      setTrialDaysLeft(left);
     } catch {}
   }, []);
 
@@ -311,6 +327,15 @@ export default function Dashboard(){
           </div>
         </section>
       )}
+      {!billingAdded && trialDaysLeft > 0 && (
+        <section className="rounded-2xl p-3 backdrop-blur bg-white/80 border border-white/70 shadow-sm">
+          <div className="flex flex-wrap items-center gap-3 justify-center text-slate-800">
+            <div className="text-sm">Free trial · {trialDaysLeft} day{trialDaysLeft===1?'':'s'} left</div>
+            <ButtonLink href="/billing" size="sm" className="rounded-full px-3 py-1.5">Add payment</ButtonLink>
+            <Button size="sm" variant="outline" onClick={()=> nav('/billing') } className="rounded-full px-3 py-1.5">Lock $97/mo</Button>
+          </div>
+        </section>
+      )}
       {/* Referral card below the top trial banner */}
       {refLink && (
         <section className="px-0">
@@ -321,6 +346,16 @@ export default function Dashboard(){
               <Button size="sm" className="rounded-full px-3" onClick={async()=>{ try{ await navigator.clipboard.writeText(refLink); track('referral_copy'); }catch{} }}>Copy</Button>
             </div>
             <div className="mt-1 text-[11px] text-slate-500 text-center">Referrals (30d): <span className="font-medium text-slate-700">{Number(metrics?.referrals_30d||0)}</span></div>
+            <div className="mt-1 text-[11px] text-slate-600 text-center">
+              {(() => {
+                try{
+                  const n = Number(metrics?.referrals_30d||0);
+                  if (n >= 2) return 'Price preview: $97/mo locked in with 2+ referrals.';
+                  if (n === 1) return 'One more friend → Founding price $97/mo.';
+                  return 'Invite 2 friends to lock in $97/mo Founding price.';
+                } catch { return null; }
+              })()}
+            </div>
           </div>
         </section>
       )}
@@ -361,12 +396,15 @@ export default function Dashboard(){
           background: 'radial-gradient(900px 320px at 10% -10%, rgba(236,72,153,0.08), transparent), radial-gradient(700px 240px at 90% -20%, rgba(99,102,241,0.08), transparent)'
         }} />
         <div className="h-full grid place-items-center">
-          <div className="max-w-5xl mx-auto grid grid-cols-3 place-items-center gap-6 px-3 py-6">
+          <div className="max-w-5xl mx-auto grid grid-cols-4 place-items-center gap-6 px-3 py-6">
             <div className="flex-shrink-0" style={{ width: 'clamp(150px, 19vw, 200px)' }}>
               <KpiAnimated title="Messages sent" value={Number(metrics?.messages_sent||0)} />
             </div>
             <div className="flex-shrink-0" style={{ width: 'clamp(150px, 19vw, 200px)' }}>
               <TimeSavedAnimated title="Time saved" minutes={Number(timeSavedLive||0)} />
+            </div>
+            <div className="flex-shrink-0" style={{ width: 'clamp(150px, 19vw, 200px)' }}>
+              <KpiAnimated title="Rebook rate (30d)" value={Number(Math.round((metrics?.rebook_rate_30d||0)))} prefix="%" />
             </div>
             <div className="flex-shrink-0" style={{ width: 'clamp(150px, 19vw, 200px)' }}>
               <KpiAnimated title="Revenue uplift" value={Number(metrics?.revenue_uplift||0)} prefix="$" />
@@ -379,13 +417,40 @@ export default function Dashboard(){
       <section className="max-w-xl mx-auto rounded-2xl p-3 bg-white border border-slate-200/70 shadow-sm text-center">
         <h4 className="text-base md:text-[17px] font-semibold text-slate-900">This week’s micro‑wins</h4>
         <ul className="mt-2 text-sm text-slate-700 list-disc list-inside inline-block text-left">
-          <li>First cancellation filled</li>
-          <li>2 dormant clients rebooked</li>
-          <li>14‑day social plan drafted</li>
+          <DynamicMicroWins />
         </ul>
         <div className="mt-2 flex items-center justify-center gap-2">
           <Button variant="outline" size="sm" onClick={()=>{ onReanalyze(); try{ track('reanalyze_clicked'); }catch{} }}>Re‑analyze</Button>
           <Button variant="outline" size="sm" onClick={()=> handleCreateShare('First wins with BrandVX — gentle reminders and filled slots')}>Share</Button>
+        </div>
+      </section>
+      {/* Quick win CTAs */}
+      <section className="max-w-3xl mx-auto rounded-2xl p-3 bg-white border border-slate-200/70 shadow-sm">
+        <div className="text-sm font-semibold text-slate-900 mb-2 text-center">Quick wins</div>
+        <div className="flex flex-wrap gap-2 justify-center">
+          <Button size="sm" variant="outline" onClick={async()=>{
+            try{
+              const tid = await getTenant();
+              const r = await api.post('/ai/tools/execute', { tenant_id: tid, name: 'campaigns.dormant.preview', params:{ tenant_id: tid, threshold_days: 90 }, require_approval: false });
+              showToast({ title:'Dormant preview', description: `~${Number(r?.count||0)} clients to re‑engage` });
+            }catch(e:any){ setError(String(e?.message||e)); }
+          }}>Dormant 90d</Button>
+          <Button size="sm" variant="outline" onClick={async()=>{
+            try{
+              const tid = await getTenant();
+              await api.post('/ai/tools/execute', { tenant_id: tid, name: 'appointments.schedule_reminders', params:{ tenant_id: tid }, require_approval: false });
+              showToast({ title:'Rebook reminders queued', description:'We’ll schedule reminders for upcoming bookings.' });
+            }catch(e:any){ setError(String(e?.message||e)); }
+          }}>Rebook now</Button>
+          <Button size="sm" variant="outline" onClick={async()=>{
+            try{
+              const tid = await getTenant();
+              const ask = await api.post('/ai/chat/raw', { tenant_id: tid, allow_tools: true, messages:[{ role:'user', content:'What was my last week tax‑free revenue?' }] });
+              const txt = String(ask?.text||'');
+              showToast({ title:'Weekly revenue', description: txt.slice(0,80) });
+            }catch(e:any){ setError(String(e?.message||e)); }
+          }}>Weekly revenue</Button>
+          <Button size="sm" className="rounded-full" onClick={()=> nav('/workflows?tour=1')}>10‑Minute Glow Up</Button>
         </div>
       </section>
       {/* Quick Start 3 workflows */}
@@ -488,4 +553,42 @@ function TimeSavedAnimated({ title, minutes }:{ title:string; minutes:number }){
       </div>
     </motion.div>
   );
+}
+
+function DynamicMicroWins(){
+  const [items, setItems] = useState<string[]>([]);
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const tid = await getTenant();
+        const logs = await api.get(`/ai/chat/logs?tenant_id=${encodeURIComponent(tid)}&limit=120`);
+        const texts = Array.isArray(logs?.items) ? logs.items.map((x:any)=> String(x?.content||'')) : [];
+        const pool = [
+          'Confirm Friday appointments',
+          'Revive 2 dormant clients',
+          'Schedule 15 confirmations',
+          'Draft 3 IG posts',
+          'Invite 1 friend for $97/mo',
+          'Backfill Square metrics',
+        ];
+        const picks: string[] = [];
+        const pushIf = (label:string, re:RegExp)=>{ if (texts.some((t: string)=> re.test(t))) picks.push(label); };
+        pushIf('Revive 2 dormant clients', /(dormant|inactive|90d)/i);
+        pushIf('Confirm Friday appointments', /(confirm|remind|appointments?)/i);
+        pushIf('Draft 3 IG posts', /(instagram|ig|post|content)/i);
+        while (picks.length < 3 && pool.length) {
+          const n = Math.floor(Math.random()*pool.length);
+          const [x] = pool.splice(n,1);
+          if (x) picks.push(x);
+        }
+        setItems(picks.slice(0,3));
+      } catch {}
+    })();
+  },[]);
+  if (!items.length) return (<>
+    <li>First cancellation filled</li>
+    <li>2 dormant clients rebooked</li>
+    <li>14‑day social plan drafted</li>
+  </>);
+  return (<>{items.map((t,i)=> (<li key={i}>{t}</li>))}</>);
 }

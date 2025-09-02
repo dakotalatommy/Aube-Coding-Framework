@@ -34,6 +34,19 @@ export default function Inventory(){
     const m = await api.get(`/inventory/metrics?tenant_id=${encodeURIComponent(await getTenant())}`);
     setSummary(m?.summary||{}); setLastSync(m?.last_sync||{}); setItems(m?.items||[]);
   };
+  const mergeNow = async () => {
+    const r = await api.post('/inventory/merge', { tenant_id: await getTenant(), strategy: 'sku_then_name' });
+    setStatus(JSON.stringify(r));
+    const m = await api.get(`/inventory/metrics?tenant_id=${encodeURIComponent(await getTenant())}`);
+    setSummary(m?.summary||{}); setLastSync(m?.last_sync||{}); setItems(m?.items||[]);
+  };
+  const mapNow = async () => {
+    const example = { sku_map: { 'SKU-PLACEHOLDER': 'SKU-CANONICAL' } };
+    const r = await api.post('/inventory/map', { tenant_id: await getTenant(), ...example });
+    setStatus(JSON.stringify(r));
+    const m = await api.get(`/inventory/metrics?tenant_id=${encodeURIComponent(await getTenant())}`);
+    setSummary(m?.summary||{}); setLastSync(m?.last_sync||{}); setItems(m?.items||[]);
+  };
   if (loading) return <div>Loading…</div>;
   return (
     <div className="space-y-3">
@@ -71,6 +84,8 @@ export default function Inventory(){
         <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>syncNow('shopify')}>Sync now (Shopify)</button>
         <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>syncNow('square')}>Sync now (Square)</button>
         <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>syncNow('manual')}>Recompute (Manual)</button>
+        <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={mergeNow}>Merge duplicates</button>
+        <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={mapNow}>Apply mapping</button>
       </div>
       <div className="text-[11px] text-amber-700">Some actions may require approval when auto-approve is off. Review in Approvals.</div>
       {items.length === 0 ? (

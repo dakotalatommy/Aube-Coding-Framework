@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import Button from '../../components/ui/Button'
 import { useToast } from '../../components/ui/Toast'
-import { saveStep } from '../../sdk/onboardingClient'
+import { saveStep, loadLocalSnapshot } from '../../sdk/onboardingClient'
 import { startOAuth } from '../../sdk/connectionsClient'
 import { track } from '../../lib/analytics'
 
@@ -33,6 +33,15 @@ export default function OnboardingRoot(){
   const { showToast } = useToast()
 
   useEffect(()=>{
+    // Restore prior local snapshot if present
+    (async()=>{
+      try{
+        const snap = await loadLocalSnapshot()
+        if (snap && Object.keys(snap).length){
+          setState(s=> ({ ...s, data: { ...snap } }))
+        }
+      }catch{}
+    })()
     try{
       const sp = new URLSearchParams(loc.search)
       const connected = sp.get('connected')
@@ -88,6 +97,7 @@ export default function OnboardingRoot(){
 
   const finish = () => {
     try { localStorage.setItem('bvx_onboarding_done', '1') } catch {}
+    try { (window as any).posthog?.capture?.('onboarding_complete'); } catch {}
     navigate('/workspace?pane=dashboard')
   }
 

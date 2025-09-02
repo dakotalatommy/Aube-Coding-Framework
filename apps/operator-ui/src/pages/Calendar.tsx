@@ -14,19 +14,14 @@ export default function Calendar(){
   const [provider, setProvider] = useState<string>('all');
   const [merged, setMerged] = useState<number>(0);
   const [lastAnalyzed, setLastAnalyzed] = useState<number|undefined>(undefined);
-  const [showApple, setShowApple] = useState<boolean>(true);
+  const [showApple, setShowApple] = useState<boolean>(false);
   useEffect(()=>{
     (async()=>{ try{ const r = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`); setEvents(r?.events||[]); setLastSync(r?.last_sync||{}); } finally{ setLoading(false); } })();
   },[]);
   useEffect(()=>{ try{ const sp = new URLSearchParams(window.location.search); if (sp.get('tour')==='1') startGuide('calendar'); } catch {} },[]);
   useEffect(()=>{ (async()=>{ try{ const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() }); if (a?.summary?.ts) setLastAnalyzed(Number(a.summary.ts)); } catch{} })(); },[]);
-  // Hide Apple option when not configured
-  useEffect(()=>{
-    try {
-      const appleConfigured = Boolean((lastSync as any)?.apple || (events||[]).some(e=> (e as any)?.provider==='apple'));
-      setShowApple(appleConfigured);
-    } catch {}
-  }, [lastSync, JSON.stringify(events)]);
+  // Hide Apple calendar until ready (always off for now)
+  useEffect(()=>{ try { setShowApple(false); } catch {} }, [lastSync, JSON.stringify(events)]);
   const syncNow = async (prov?: string) => {
     const r = await api.post('/calendar/sync', { tenant_id: await getTenant(), provider: prov });
     setStatus(JSON.stringify(r));

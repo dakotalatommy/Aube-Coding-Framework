@@ -88,6 +88,37 @@ export default function Cadences(){
           <Button variant="outline" disabled={busy} onClick={()=> isDemo ? setStatus('Demo: updated follow‑ups') : run(async()=>api.post('/scheduler/tick',{ tenant_id: await getTenant() }))}>Run update</Button>
         </section>
 
+        <section className="border rounded-xl p-3 bg-white shadow-sm" aria-labelledby="dormant">
+          <div id="dormant" className="font-semibold mb-2">Dormant campaigns</div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <Button data-guide="dormant-preview" variant="outline" disabled={busy} onClick={async()=>{
+              if (isDemo) { setStatus('Demo: ~8 dormant clients (preview).'); return; }
+              try{
+                const tid = await getTenant();
+                const r = await api.post('/ai/tools/execute', { tenant_id: tid, name: 'campaigns.dormant.preview', params:{ tenant_id: tid, threshold_days: 60 }, require_approval: false });
+                setStatus(JSON.stringify(r));
+              } catch(e:any){ setStatus(String(e?.message||e)); }
+            }}>Preview dormant (≥60d)</Button>
+            <Button data-guide="dormant-start" variant="outline" disabled={busy} onClick={async()=>{
+              if (isDemo) { setStatus('Demo: dormant campaign queued for approval.'); return; }
+              try{
+                const tid = await getTenant();
+                const r = await api.post('/ai/tools/execute', { tenant_id: tid, name: 'campaigns.dormant.start', params:{ tenant_id: tid, threshold_days: 60 }, require_approval: true });
+                setStatus(JSON.stringify(r));
+              } catch(e:any){ setStatus(String(e?.message||e)); }
+            }}>Start campaign (approval)</Button>
+            <Button variant="outline" disabled={busy} onClick={async()=>{
+              if (isDemo) { setStatus('Demo: scheduled reminders.'); return; }
+              try{
+                const tid = await getTenant();
+                const r = await api.post('/ai/tools/execute', { tenant_id: tid, name: 'appointments.schedule_reminders', params:{ tenant_id: tid }, require_approval: false });
+                setStatus(JSON.stringify(r));
+              } catch(e:any){ setStatus(String(e?.message||e)); }
+            }}>Schedule reminders</Button>
+          </div>
+          <div className="mt-2 text-[11px] text-slate-600">Approval may be required if auto‑approve is off (see Approvals).</div>
+        </section>
+
         <section className="border rounded-xl p-3 bg-white shadow-sm">
           <div className="font-semibold mb-2">Check waitlist (Gated)</div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">

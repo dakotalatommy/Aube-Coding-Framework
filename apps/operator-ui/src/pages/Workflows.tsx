@@ -13,7 +13,7 @@ type W = { title: string; description: string; to: string; cta?: string };
 
 const workflows: W[] = [
   { title: 'Finish onboarding', description: 'Connect accounts, set brand profile, and preview consent timings (7d/3d/1d/2h).', to: '/onboarding', cta: 'Go to Onboarding' },
-  { title: 'Start a cadence', description: 'Send kind, consent-first messages with quiet-hours and approvals.', to: '/cadences', cta: 'Open Cadences' },
+  { title: 'Follow‑ups', description: 'Send kind, consent-first messages with quiet-hours and approvals.', to: '/cadences', cta: 'Open Follow‑ups' },
   { title: 'Unified calendar', description: 'Sync Google/Apple and merge Square/Acuity bookings (scheduling from BrandVX disabled).', to: '/calendar', cta: 'Open Calendar' },
   { title: 'Manage inventory', description: 'Sync Shopify/Square, review items and stock levels.', to: '/inventory', cta: 'Open Inventory' },
   { title: 'Master inbox', description: 'Connect Instagram and see all messages in one place.', to: '/inbox', cta: 'Open Inbox' },

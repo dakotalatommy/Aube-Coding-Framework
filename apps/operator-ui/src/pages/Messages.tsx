@@ -14,6 +14,7 @@ import { UI_STRINGS } from '../lib/strings';
 export default function Messages(){
   const { showToast } = useToast();
   const recommendOnly = String((import.meta as any).env?.VITE_BETA_RECOMMEND_ONLY || localStorage.getItem('bvx_recommend_only') || '0') === '1';
+  const isDemo = (()=>{ try{ return new URLSearchParams(window.location.search).get('demo')==='1'; } catch { return false; } })();
   // Add beta disclosure step to Guide me list
   const [items, setItems] = useState<any[]>([]);
   const [filterContact, setFilterContact] = useState('');
@@ -175,8 +176,12 @@ export default function Messages(){
           <div className="flex flex-wrap gap-2 items-center" data-guide="toolbar">
             <Input placeholder="Filter by client" value={filterContact} onChange={e=>setFilterContact(e.target.value)} />
             <Button variant="outline" onClick={load} aria-label={UI_STRINGS.a11y.buttons.refresh}>{UI_STRINGS.ctas.secondary.refresh}</Button>
-            <Button variant="outline" onClick={()=>simulate('sms')} aria-label={UI_STRINGS.a11y.buttons.simulateSms}>{UI_STRINGS.ctas.secondary.simulateSms}</Button>
-            <Button variant="outline" onClick={()=>simulate('email')} aria-label={UI_STRINGS.a11y.buttons.simulateEmail}>{UI_STRINGS.ctas.secondary.simulateEmail}</Button>
+            {isDemo && (
+              <>
+                <Button variant="outline" onClick={()=>simulate('sms')} aria-label={UI_STRINGS.a11y.buttons.simulateSms}>{UI_STRINGS.ctas.secondary.simulateSms}</Button>
+                <Button variant="outline" onClick={()=>simulate('email')} aria-label={UI_STRINGS.a11y.buttons.simulateEmail}>{UI_STRINGS.ctas.secondary.simulateEmail}</Button>
+              </>
+            )}
             <Button variant="outline" className="ml-auto" onClick={()=> startGuide('messages')} aria-label={UI_STRINGS.a11y.buttons.guideMessages}>{UI_STRINGS.ctas.tertiary.guideMe}</Button>
           </div>
           {lastAnalyzed && (

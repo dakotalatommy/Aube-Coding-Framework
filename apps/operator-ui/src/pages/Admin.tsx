@@ -3,9 +3,10 @@ import { api, getTenant } from '../lib/api';
 
 export default function Admin(){
   const [kpis, setKpis] = useState<any>({});
+  const [aiCosts, setAiCosts] = useState<any>({});
   const [status, setStatus] = useState('');
   const [checklist, setChecklist] = useState<string>('');
-  useEffect(()=>{ (async()=>{ try{ const r = await api.get(`/admin/kpis?tenant_id=${encodeURIComponent(await getTenant())}`); setKpis(r||{}); }catch{} try{ const d = await api.get('/docs/checklist'); setChecklist(d?.content||''); }catch{} })(); },[]);
+  useEffect(()=>{ (async()=>{ try{ const r = await api.get(`/admin/kpis?tenant_id=${encodeURIComponent(await getTenant())}`); setKpis(r||{}); }catch{} try{ const d = await api.get('/docs/checklist'); setChecklist(d?.content||''); }catch{} try{ const c = await api.get(`/ai/costs?tenant_id=${encodeURIComponent(await getTenant())}`); setAiCosts(c||{}); }catch{} })(); },[]);
   const recompute = async () => {
     try{ const r = await api.post('/marts/recompute',{ tenant_id: await getTenant() }); setStatus(JSON.stringify(r)); }
     catch(e:any){ setStatus(String(e?.message||e)); }
@@ -55,6 +56,15 @@ export default function Admin(){
           <Card title="AI chats" value={kpis?.ai_chat_used||0}/>
           <Card title="DB queries (tools)" value={kpis?.db_query_tool_used||0}/>
           <Card title="Insights served" value={kpis?.insights_served||0}/>
+        </div>
+      </section>
+      <section style={{border:'1px solid #eee',borderRadius:8,padding:12,marginBottom:12}}>
+        <div style={{fontWeight:600, marginBottom:6}}>AI Costs & Caps (today)</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
+          <Card title="Tenant tokens" value={aiCosts?.tenant_tokens_today||0}/>
+          <Card title="Global tokens" value={aiCosts?.global_tokens_today||0}/>
+          <Card title="Tenant $" value={Number(aiCosts?.tenant_cost_usd_today||0).toFixed ? Number(aiCosts?.tenant_cost_usd_today||0).toFixed(4) : (aiCosts?.tenant_cost_usd_today||0) as any}/>
+          <Card title="Global $" value={Number(aiCosts?.global_cost_usd_today||0).toFixed ? Number(aiCosts?.global_cost_usd_today||0).toFixed(4) : (aiCosts?.global_cost_usd_today||0) as any}/>
         </div>
       </section>
       <div style={{display:'flex', gap:8, marginBottom:12}}>

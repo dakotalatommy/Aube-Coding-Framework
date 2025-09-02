@@ -12,7 +12,9 @@ export default function Inbox(){
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [oauthError, setOauthError] = useState('');
-  const [ready, setReady] = useState<boolean>(false);
+  // Ready was used for IG; keep state but disable lint usage
+  // removed IG readiness UI; keep placeholder state off to avoid TS unused
+  const [_ready, _setReady] = useState<boolean>(false);
   const [channel, setChannel] = useState<string>('all');
   const [q, setQ] = useState('');
   const [dateFrom, setDateFrom] = useState('');
@@ -27,6 +29,13 @@ export default function Inbox(){
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState('');
   const [sendOk, setSendOk] = useState(false);
+  const quickReplies = {
+    email: [
+      'Thanks for your note — attaching details and a link to schedule. Happy to help!',
+      'We have availability this Friday and next Tuesday. Would either work?',
+      'Appreciate you! Here’s a quick overview and next steps.',
+    ],
+  } as const;
   const loadMsgs = async()=>{
     try{ const tid = await getTenant(); const r = await api.get(`/inbox/list?tenant_id=${encodeURIComponent(tid)}`); setItems(r?.items||[]); }
     catch(e:any){ setError(String(e?.message||e)); }
@@ -44,7 +53,7 @@ export default function Inbox(){
       try{
         const tid = await getTenant();
         const r = await api.post('/onboarding/analyze', { tenant_id: tid });
-        setReady(Boolean(r?.summary?.inbox_ready));
+        _setReady(Boolean(r?.summary?.inbox_ready));
         if (r?.summary?.connected) setConnected(r.summary.connected);
         // Load Gmail threads if Google connected
         if ((r?.summary?.connected||{}).google === 'connected') {
@@ -76,11 +85,18 @@ export default function Inbox(){
   const refreshStatus = async () => {
     try{
       const r = await api.post('/onboarding/analyze', { tenant_id: await getTenant() });
-      setReady(Boolean(r?.summary?.inbox_ready));
+      _setReady(Boolean(r?.summary?.inbox_ready));
       if (r?.summary?.connected) setConnected(r.summary.connected);
     }catch{}
   };
-  if (loading) return <div>Loading…</div>;
+  if (loading) return (
+    <div className="space-y-3">
+      <div className="h-6 w-40 bg-slate-200 rounded animate-pulse" />
+      <div className="h-8 w-full bg-slate-200 rounded animate-pulse" />
+      <div className="h-8 w-full bg-slate-200 rounded animate-pulse" />
+      <div className="h-48 w-full bg-slate-200 rounded animate-pulse" />
+    </div>
+  );
   if (error) return <div style={{color:'#b91c1c'}}>Error: {error}</div>;
   const filteredBase = channel === 'all' ? items : items.filter(i => (i.channel||'').toLowerCase() === channel);
   const filteredText = q ? filteredBase.filter(i=> [i.channel,i.from,i.to,i.preview].join(' ').toLowerCase().includes(q.toLowerCase())) : filteredBase;
@@ -93,8 +109,6 @@ export default function Inbox(){
   const channelLabel = channel === 'all' ? 'inbox' : channel;
   const counts = {
     all: items.length,
-    instagram: items.filter(i => (i.channel||'').toLowerCase()==='instagram').length,
-    sms: items.filter(i => (i.channel||'').toLowerCase()==='sms').length,
     email: items.filter(i => (i.channel||'').toLowerCase()==='email').length,
   } as const;
   return (
@@ -114,7 +128,7 @@ export default function Inbox(){
         <div className="text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-md px-2 py-1 inline-block">OAuth error: {oauthError}</div>
       )}
       <div className="flex flex-wrap items-center gap-2 text-xs" data-guide="channels">
-        {(['all','instagram','sms','email'] as const).map(key=> (
+        {(['all','email'] as const).map(key=> (
           <button key={key} className={`px-2 py-1 rounded-full border ${channel===key? 'bg-slate-900 text-white border-slate-900':'bg-white text-slate-700 hover:shadow-sm'}`} onClick={()=> setChannel(key)}>
             {key} · {counts[key] as number}
           </button>
@@ -139,15 +153,10 @@ export default function Inbox(){
         <button className="px-2 py-1 rounded-md border bg-white hover:shadow-sm" onClick={loadMsgs}>Refresh messages</button>
         <button className="ml-auto px-2 py-1 rounded-md border bg-white hover:shadow-sm" onClick={refreshStatus}>Refresh status</button>
       </div>
-      <div className="rounded-xl border bg-white p-3 shadow-sm flex items-center justify-between">
-        <div className={`text-sm ${ready ? 'text-emerald-700' : 'text-slate-700'}`}>{ready ? 'Ready: Instagram connected' : 'Connect Instagram to enable unified inbox.'}</div>
-        {!ready && (
-          <div className="flex gap-2">
-            <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm text-sm disabled:opacity-50" disabled={!!connecting.instagram} onClick={()=>connect('instagram')}>{connecting.instagram ? 'Connecting…' : 'Connect Instagram'}</button>
-          </div>
-        )}
+      <div className="rounded-xl border bg-white p-3 shadow-sm text-sm text-slate-700" aria-live="polite">
+        Email inbox: connect Gmail above to view and reply to threads.
       </div>
-      {Object.values(connected).some(s=>s==='pending_config') && (
+      {Object.entries(connected).filter(([k])=> k==='google').some(([,s])=>s==='pending_config') && (
         <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Some connections are pending configuration. Complete app credentials to activate.</div>
       )}
       {/* Gmail threads (when connected) */}
@@ -204,23 +213,6 @@ export default function Inbox(){
         <div className="rounded-xl border bg-white p-3 shadow-sm text-sm text-slate-600">
           No {channelLabel} messages yet.
           <div className="block text-xs text-slate-500 mt-1 space-y-2">
-            {/* Facebook option removed */}
-            {channel === 'instagram' && (
-              connected.instagram !== 'connected' ? (
-                <div className="flex items-center gap-2">
-                  <span>Connect Instagram to receive messages here.</span>
-                  <button className="px-2 py-1 rounded-md border bg-white hover:shadow-sm text-xs disabled:opacity-50" disabled={!!connecting.instagram} onClick={()=>connect('instagram')}>
-                    {connecting.instagram ? 'Connecting…' : 'Connect Instagram'}
-                  </button>
-                </div>
-              ) : <span>Connected. New DMs and comments will appear.</span>
-            )}
-            {channel === 'sms' && (
-              <div className="flex items-center gap-2">
-                <span>Connect SMS provider (Twilio) in Integrations to receive texts.</span>
-                <a href="/workspace?pane=integrations" className="px-2 py-1 rounded-md border bg-white hover:shadow-sm text-xs">Open Integrations</a>
-              </div>
-            )}
             {channel === 'email' && (
               <div className="flex items-center gap-2">
                 <span>Connect Email provider (SendGrid) in Integrations to receive emails.</span>
@@ -229,7 +221,7 @@ export default function Inbox(){
             )}
             {channel === 'all' && (
               <div className="flex items-center gap-2">
-                <span>Once providers are connected, new DMs, comments, texts, and emails will appear here.</span>
+                <span>Once Gmail is connected, your email threads will appear here.</span>
                 <a href="/workspace?pane=integrations" className="px-2 py-1 rounded-md border bg-white hover:shadow-sm text-xs">Connect providers</a>
               </div>
             )}
@@ -268,6 +260,15 @@ export default function Inbox(){
               <div><span className="text-slate-500">Time:</span> {selected.ts ? new Date((selected.ts as number) * 1000).toLocaleString() : '—'}</div>
               <div className="mt-3"><span className="text-slate-500 block">Preview:</span>
                 <div className="mt-1 rounded-md border bg-slate-50 p-2 text-slate-800">{selected.preview||'—'}</div>
+              </div>
+              {/* Quick replies */}
+              <div className="mt-2">
+                <div className="text-xs text-slate-500 mb-1">Quick replies</div>
+                <div className="flex flex-wrap gap-2">
+                  {(quickReplies[(selected.channel||'all') as keyof typeof quickReplies]||[]).map((qr)=> (
+                    <button key={qr} className="px-2 py-1 rounded-full border bg-white text-xs hover:shadow-sm" onClick={()=> setReplyBody((replyBody? replyBody+'\n\n' : '') + qr)}>{qr}</button>
+                  ))}
+                </div>
               </div>
               {connected.google === 'connected' && selected.channel === 'email' && (
                 <div className="mt-3 space-y-2">

@@ -12,6 +12,10 @@ class Contact(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     contact_id: Mapped[str] = mapped_column(String(64), index=True)
+    # Names
+    first_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    last_name: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    display_name: Mapped[Optional[str]] = mapped_column(String(256), nullable=True, index=True)
     # External refs
     square_customer_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
     # Pseudonymous hashes

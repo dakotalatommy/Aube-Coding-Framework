@@ -109,6 +109,10 @@ export default function DemoIntake(){
         } else {
           pushAssistant('Perfect. Thanks! Ask me a few quick questions about BrandVX — I’ll keep it brief.');
           try { track('intake_complete'); } catch {}
+          try {
+            // Best-effort: email owner with demo intake profile (if backend endpoint exists)
+            await api.post('/onboarding/email-owner', { profile: next, source: 'demo' });
+          } catch {}
           void saveRemote(next);
         }
         setBusy(false);

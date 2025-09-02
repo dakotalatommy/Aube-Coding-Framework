@@ -264,6 +264,15 @@ export default function Integrations(){
     catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
   };
+  const fmt12 = (v?: string) => {
+    try{
+      if (!v) return '';
+      const [h,m] = String(v).split(':').map((x)=> parseInt(x,10));
+      const am = (h||0) < 12;
+      const hr = (((h||0) % 12) || 12);
+      return `${hr}:${String(m||0).padStart(2,'0')} ${am ? 'AM':'PM'}`;
+    } catch { return String(v||''); }
+  };
   const saveTraining = async () => {
     try{
       setBusy(true);
@@ -590,6 +599,7 @@ export default function Integrations(){
           <input className="border rounded-md px-2 py-1 bg-white" type="time" value={settings.quiet_hours?.end||'08:00'} onChange={e=> setSettings({...settings, quiet_hours:{ ...(settings.quiet_hours||{}), end:e.target.value }})} aria-label="Quiet hours end" />
         </div>
         <div className="text-xs text-slate-600">{UI_STRINGS.quietHours.helper}</div>
+        <div className="text-[11px] text-slate-600">Preview: {fmt12(settings.quiet_hours?.start||'21:00')} – {fmt12(settings.quiet_hours?.end||'08:00')}</div>
         <label className="flex items-center gap-2 text-sm"> Auto-approve risky tools
           <input type="checkbox" checked={!!settings.auto_approve_all} onChange={e=>setSettings({...settings, auto_approve_all: e.target.checked})} />
         </label>
@@ -653,7 +663,7 @@ export default function Integrations(){
             </div>
           </section>
         )}
-        {(
+        {onboarding?.providers?.hubspot !== false && (
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
@@ -729,7 +739,7 @@ export default function Integrations(){
           <div className="flex items-center justify-between">
             <div>
               <div className="font-semibold text-slate-900">Square / Acuity</div>
-              <div className="text-sm text-slate-600">Booking & appointments (we currently ingest bookings & inventory only)</div>
+              <div className="text-sm text-slate-600">Booking & appointments (we ingest bookings; merging and 2‑way scheduling are coming soon)</div>
             </div>
             <span className={`px-2 py-1 rounded-full text-xs ${onboarding?.connectedMap?.square==='connected' || onboarding?.connectedMap?.acuity==='connected' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{(onboarding?.connectedMap?.square==='connected' || onboarding?.connectedMap?.acuity==='connected') ? 'Connected' : 'Not linked'}</span>
           </div>
@@ -741,6 +751,7 @@ export default function Integrations(){
             <Button variant="outline" disabled={busy || connecting.square || onboarding?.providers?.square===false} onClick={()=> connect('square')}>{connecting.square ? 'Connecting…' : connectLabel('square')}</Button>
             <Button variant="outline" disabled={busy || connecting.acuity || onboarding?.providers?.acuity===false} onClick={()=> connect('acuity')}>{connecting.acuity ? 'Connecting…' : connectLabel('acuity')}</Button>
             <Button variant="outline" disabled={busy || onboarding?.providers?.acuity===false} onClick={async()=>{ await acuityImportSample(); try{ showToast({ title:'Imported sample appointments', description:'Acuity sample appointments imported' }); }catch{} }}>Import sample appointments</Button>
+            <span className="text-[11px] text-slate-600">Tip: After connecting, click Re‑analyze to refresh status.</span>
             <Button variant="outline" disabled={busy} onClick={()=> { refresh('square'); try { showToast({ title:UI_STRINGS.ctas.secondary.refresh }); } catch {} }}>Refresh</Button>
             <Button variant="outline" disabled={busy} onClick={async()=>{
               try{
@@ -802,14 +813,24 @@ export default function Integrations(){
             <Button variant="outline" disabled={busy} onClick={sendTestEmail}>{UI_STRINGS.ctas.secondary.sendTestEmail}</Button>
           </div>
           <div className="mt-2 text-xs text-amber-700">Note: Test emails may require approval if auto-approve is disabled.</div>
+          {/* Deliverability hints */}
+          <div className="mt-2 rounded-md border bg-slate-50 p-3 text-xs text-slate-700">
+            <div className="font-medium text-slate-800">Deliverability</div>
+            <div className="mt-1">Add SPF and DKIM records for your sending domain to improve inbox placement.</div>
+            <ul className="list-disc list-inside mt-1">
+              <li>SPF: include:sendgrid.net</li>
+              <li>DKIM: create CNAMEs in SendGrid &rarr; Settings &rarr; Sender Authentication</li>
+            </ul>
+            <div className="mt-1">After updating DNS, click Refresh to re‑check status.</div>
+          </div>
         </section>
         )}
 
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <div className="font-semibold text-slate-900">Google / Apple Calendar</div>
-              <div className="text-sm text-slate-600">Two-way calendar (merge bookings)</div>
+              <div className="font-semibold text-slate-900">Google Calendar</div>
+              <div className="text-sm text-slate-600">One-way sync and merge bookings for now</div>
             </div>
             <div className="flex items-center gap-2">
               <span className={`px-2 py-1 rounded-full text-xs ${isConnected('google') ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{isConnected('google')? (providerStatus?.google?.status||'Connected') : 'Not linked'}</span>

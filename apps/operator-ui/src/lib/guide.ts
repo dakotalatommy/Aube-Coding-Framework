@@ -26,11 +26,9 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-tour="cta"]', popover: { title: 'Ready when you are', description: 'White‑glove or self-serve — you approve everything.' } },
   ],
   dashboard: [
-    { popover: { title: 'Welcome to your dashboard', description: 'Time saved, funnel, and quick actions live here.' } },
-    { element: '[data-guide="quick-actions"]', popover: { title: 'Quick actions', description: 'Import contacts, preview outreach (beta), simulate a message, or connect tools.' } },
-    { element: '[data-guide="kpis"]', popover: { title: 'KPIs', description: 'Track time saved, messages, revenue uplift, and referrals.' } },
-    { element: '[data-guide="chart"]', popover: { title: 'Trend', description: 'Daily progress over the last 30 days.' } },
-    { element: '[data-guide="queue"]', popover: { title: 'Cadence queue', description: 'What’s coming next, by contact and flow step.' } },
+    { popover: { title: 'Welcome to your dashboard', description: 'Time saved, quick wins, and KPIs live here.' } },
+    { element: '[data-guide="kpis"]', popover: { title: 'KPIs', description: 'Track time saved, rebook rate (30d), messages, and revenue uplift.' } },
+    { element: '[data-guide="quick-wins"]', popover: { title: 'Quick wins', description: 'One‑click actions: dormant 90d, rebook reminders, weekly revenue.' } },
   ],
   integrations: [
     { popover: { title: 'Integrations', description: 'Connect booking, CRM, messaging, and inventory.' } },

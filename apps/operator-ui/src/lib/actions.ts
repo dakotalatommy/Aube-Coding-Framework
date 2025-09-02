@@ -72,6 +72,16 @@ try {
         } catch {}
         return { status:'not_available' };
       }
+    },
+    'nav.billing': {
+      id: 'nav.billing',
+      run: async () => { try { window.location.assign('/billing'); } catch { window.location.href = '/billing'; } return { status:'ok' }; },
+      description: 'Open Billing'
+    },
+    'nav.integrations': {
+      id: 'nav.integrations',
+      run: async () => { try { window.location.assign('/workspace?pane=integrations'); } catch { window.location.href = '/workspace?pane=integrations'; } return { status:'ok' }; },
+      description: 'Open Settings/Connections'
     }
   });
 } catch {}
