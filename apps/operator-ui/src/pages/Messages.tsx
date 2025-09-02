@@ -22,6 +22,7 @@ export default function Messages(){
   const [send, setSend] = useState(()=> getPersisted('msg_draft', { contact_id:'', channel:'sms', subject:'', body:'' }));
   const [loading, setLoading] = useState(true);
   const [quiet, setQuiet] = useState<{start?:string;end?:string}>({});
+  const [limits, setLimits] = useState<Record<string, any>>({});
   const [suggestions, setSuggestions] = useState<Array<{id:string;name:string}>>([]);
   const [showSug, setShowSug] = useState(false);
   const [connected, setConnected] = useState<Record<string,string>>({});
@@ -72,6 +73,7 @@ export default function Messages(){
   };
   useEffect(()=>{ (async()=>{ try { setLoading(true); await load(); } finally { setLoading(false); } })(); },[]);
   useEffect(()=>{ (async()=>{ try { const r = await api.get(`/settings?tenant_id=${encodeURIComponent(await getTenant())}`); setQuiet(r?.data?.quiet_hours||{}); } catch{} })(); },[]);
+  useEffect(()=>{ (async()=>{ try { const r = await api.get(`/limits/status?tenant_id=${encodeURIComponent(await getTenant())}&keys=msg:sms,msg:email`); setLimits(r?.items||{}); } catch{} })(); },[]);
   useEffect(()=>{
     try{ const sp = new URLSearchParams(window.location.search); if (sp.get('tour')==='1') startGuide('messages'); } catch {}
   },[]);
@@ -289,6 +291,15 @@ export default function Messages(){
             )}
             {status.includes('rate_limited') && (
               <span className="px-2 py-1 rounded-md border bg-amber-50 border-amber-200 text-amber-700">Rate limited recently</span>
+            )}
+            {limits && (limits['msg:sms'] || limits['msg:email']) && (
+              <span className="px-2 py-1 rounded-md border bg-white text-slate-700">
+                {(() => { try{
+                  const s = limits['msg:sms']||{}; const e = limits['msg:email']||{};
+                  const fmt = (x:any)=> `${x.count||0}/${(x.limit||0)+(x.burst||0)}${typeof x.ttl_s==='number'?` · resets in ${x.ttl_s}s`:''}`;
+                  return `SMS ${fmt(s)} · Email ${fmt(e)}`;
+                }catch{return 'Rate limits' } })()}
+              </span>
             )}
           </div>
         </>

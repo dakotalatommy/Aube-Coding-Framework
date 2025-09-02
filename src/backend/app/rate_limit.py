@@ -58,3 +58,28 @@ def check_and_increment(tenant_id: str, key: str, max_per_minute: int = 60, burs
     return True, count + 1
 
 
+# Introspection helper: return current bucket count and ttl, with effective limits
+def get_bucket_status(tenant_id: str, key: str, max_per_minute: int = 60, burst: int = 30) -> dict:
+    try:
+        mult = _get_multiplier(tenant_id)
+        eff_limit = max_per_minute * mult
+        eff_burst = burst * mult
+        now = int(time.time() // 60)
+        bucket = f"rl:{tenant_id}:{key}:{now}"
+        count = 0
+        ttl = None
+        if _redis is not None:
+            try:
+                v = _redis.get(bucket)
+                count = int(v or 0)
+                ttl = _redis.ttl(bucket)
+            except Exception:
+                count = 0
+                ttl = None
+        else:
+            count = int(_rl_cache.get(bucket, 0))
+            ttl = 60 - int(time.time() % 60)
+        return {"key": key, "count": count, "limit": eff_limit, "burst": eff_burst, "ttl_s": int(ttl) if isinstance(ttl, (int, float)) and ttl is not None else None, "multiplier": mult}
+    except Exception:
+        return {"key": key, "count": 0, "limit": max_per_minute, "burst": burst, "ttl_s": None, "multiplier": 1}
+

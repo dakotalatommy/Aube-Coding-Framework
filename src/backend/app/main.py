@@ -26,6 +26,7 @@ from .crypto import encrypt_text, decrypt_text
 from .integrations.email_sendgrid import sendgrid_verify_signature
 from .utils import normalize_phone
 from .rate_limit import check_and_increment
+from .rate_limit import get_bucket_status as rl_get_bucket_status
 from .scheduler import run_tick
 from .ai import AIClient
 from .brand_prompts import BRAND_SYSTEM, cadence_intro_prompt, chat_system_prompt
@@ -74,6 +75,20 @@ tags_metadata = [
     {"name": "Sharing", "description": "Public share links."},
     {"name": "Billing", "description": "Stripe billing and referrals."},
 ]
+@app.get("/limits/status", tags=["Health"])
+def limits_status(tenant_id: str, keys: str = "msg:sms,msg:email,ai.chat,db.query.named"):
+    try:
+        out = {}
+        for k in [s.strip() for s in (keys or "").split(",") if s.strip()]:
+            try:
+                out[k] = rl_get_bucket_status(tenant_id, k)
+            except Exception:
+                out[k] = {"key": k, "count": 0}
+        return {"items": out}
+    except Exception as e:
+        from fastapi.responses import JSONResponse as _JR
+        return _JR({"error": "internal_error", "detail": str(e)[:200]}, status_code=500)
+
 
 app = FastAPI(title="BrandVX Backend", version="0.2.0", openapi_tags=tags_metadata)
 # Optional Sentry capture (dsn via SENTRY_DSN)
