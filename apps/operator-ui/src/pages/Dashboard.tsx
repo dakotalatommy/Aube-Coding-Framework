@@ -10,6 +10,7 @@ import { useToast } from '../components/ui/Toast';
 import { startGuide } from '../lib/guide';
 import Skeleton from '../components/ui/Skeleton';
 import { UI_STRINGS } from '../lib/strings';
+import StatusBadge from '../components/ui/StatusBadge';
 import ShareCard from '../components/ui/ShareCard';
 
 export default function Dashboard(){
@@ -351,10 +352,7 @@ export default function Dashboard(){
               <div className="flex flex-wrap gap-2 items-center text-[11px]">
                 <span className="text-slate-700 mr-1">Providers:</span>
                 {items.map(i=> (
-                  <span key={i.key} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border ${i.status==='connected' ? 'bg-emerald-50 border-emerald-200 text-emerald-700' : i.status==='configured' ? 'bg-sky-50 border-sky-200 text-sky-700' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
-                    <span className="capitalize">{i.key}</span>
-                    <span>· {i.status}</span>
-                  </span>
+                  <StatusBadge key={i.key} status={i.status as any} />
                 ))}
               </div>
             </section>

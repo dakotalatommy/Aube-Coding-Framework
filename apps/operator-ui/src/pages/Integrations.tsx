@@ -8,6 +8,7 @@ import { driver } from 'driver.js';
 import 'driver.js/dist/driver.css';
 import { UI_STRINGS } from '../lib/strings';
 import { useToast } from '../components/ui/Toast';
+import StatusBadge from '../components/ui/StatusBadge';
 
 export default function Integrations(){
   const { showToast } = useToast();
@@ -681,7 +682,7 @@ export default function Integrations(){
               <div className="text-sm text-slate-600">CRM sync (contacts + properties)</div>
             </div>
             <div className="flex items-center gap-2">
-              <span className={`px-2 py-1 rounded-full text-xs ${isConnected('hubspot') ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{isConnected('hubspot') ? (providerStatus?.hubspot?.status||'Connected') : 'Not linked'}</span>
+              <StatusBadge status={isConnected('hubspot') ? 'connected' : (settings.providers_live?.hubspot ? 'configured' : 'pending')} warn={expSoon('hubspot')} />
               <label className="inline-flex items-center gap-1 text-[11px]">
                 <span className={`${settings.providers_live?.hubspot ? 'text-emerald-700' : 'text-slate-600'}`}>{settings.providers_live?.hubspot ? 'Live' : 'Demo'}</span>
                 <input type="checkbox" checked={!!settings.providers_live?.hubspot} onChange={e=> setProviderLive('hubspot', e.target.checked)} />
@@ -711,7 +712,7 @@ export default function Integrations(){
               <div className="text-sm text-slate-600">Business SMS only — personal numbers not supported (yet). Each tenant uses their own number.</div>
             </div>
             <div className="flex items-center gap-2">
-              <span className="px-2 py-1 rounded-full text-xs bg-slate-100 text-slate-700">Requires Twilio</span>
+              <StatusBadge status={(settings.providers_live as any)?.twilio ? (isConnected('twilio') ? 'connected' : 'configured') : 'pending'} warn={expSoon('twilio')} />
               <label className="inline-flex items-center gap-1 text-[11px]">
                 <span className={`${settings.providers_live?.twilio ? 'text-emerald-700' : 'text-slate-600'}`}>{settings.providers_live?.twilio ? 'Live' : 'Demo'}</span>
                 <input type="checkbox" checked={!!(settings.providers_live as any)?.twilio} onChange={e=> setProviderLive('twilio', e.target.checked)} />
@@ -751,7 +752,7 @@ export default function Integrations(){
               <div className="font-semibold text-slate-900">Square / Acuity</div>
               <div className="text-sm text-slate-600">Booking & appointments (we ingest bookings; merging and 2‑way scheduling are coming soon)</div>
             </div>
-            <span className={`px-2 py-1 rounded-full text-xs ${onboarding?.connectedMap?.square==='connected' || onboarding?.connectedMap?.acuity==='connected' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{(onboarding?.connectedMap?.square==='connected' || onboarding?.connectedMap?.acuity==='connected') ? 'Connected' : 'Not linked'}</span>
+            <StatusBadge status={(onboarding?.connectedMap?.square==='connected' || onboarding?.connectedMap?.acuity==='connected') ? 'connected' : ((settings.providers_live?.square||settings.providers_live?.acuity) ? 'configured' : 'pending')} warn={expSoon('square')||expSoon('acuity')} />
           </div>
           {focusedProvider==='square' && sp.get('connected')==='1' && (
             <div className="mb-2 text-xs rounded-md px-2 py-1 bg-emerald-50 border border-emerald-100 text-emerald-700">Square connected. You can import contacts now.</div>
@@ -811,7 +812,7 @@ export default function Integrations(){
               <div className="text-sm text-slate-600">Transactional email</div>
             </div>
             <div className="flex items-center gap-2">
-              <span className="px-2 py-1 rounded-full text-xs bg-slate-100 text-slate-700">Webhook ready</span>
+              <StatusBadge status={isConnected('sendgrid') ? 'connected' : (settings.providers_live?.sendgrid ? 'configured' : 'pending')} warn={false} />
               <label className="inline-flex items-center gap-1 text-[11px]">
                 <span className={`${settings.providers_live?.sendgrid ? 'text-emerald-700' : 'text-slate-600'}`}>{(settings.providers_live as any)?.sendgrid ? 'Live' : 'Demo'}</span>
                 <input type="checkbox" checked={!!(settings.providers_live as any)?.sendgrid} onChange={e=> setProviderLive('sendgrid', e.target.checked)} />
@@ -843,7 +844,7 @@ export default function Integrations(){
               <div className="text-sm text-slate-600">One-way sync and merge bookings for now</div>
             </div>
             <div className="flex items-center gap-2">
-              <span className={`px-2 py-1 rounded-full text-xs ${isConnected('google') ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{isConnected('google')? (providerStatus?.google?.status||'Connected') : 'Not linked'}</span>
+              <StatusBadge status={isConnected('google') ? 'connected' : (settings.providers_live?.google ? 'configured' : 'pending')} warn={expSoon('google')} />
               <label className="inline-flex items-center gap-1 text-[11px]">
                 <span className={`${settings.providers_live?.google ? 'text-emerald-700' : 'text-slate-600'}`}>{settings.providers_live?.google ? 'Live' : 'Demo'}</span>
                 <input type="checkbox" checked={!!settings.providers_live?.google} onChange={e=> setProviderLive('google', e.target.checked)} />
@@ -873,7 +874,7 @@ export default function Integrations(){
                 <div className="text-sm text-slate-600">DMs & comments in Master Inbox</div>
               </div>
               <div className="flex items-center gap-2">
-                <span className={`px-2 py-1 rounded-full text-xs ${isConnected('instagram') ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{isConnected('instagram')? (providerStatus?.instagram?.status||'Connected') : 'Not linked'}</span>
+                <StatusBadge status={isConnected('instagram') ? 'connected' : (settings.providers_live?.instagram ? 'configured' : 'pending')} warn={expSoon('instagram')} />
                 <label className="inline-flex items-center gap-1 text-[11px]">
                   <span className={`${settings.providers_live?.instagram ? 'text-emerald-700' : 'text-slate-600'}`}>{settings.providers_live?.instagram ? 'Live' : 'Demo'}</span>
                   <input type="checkbox" checked={!!settings.providers_live?.instagram} onChange={e=> setProviderLive('instagram', e.target.checked)} />
@@ -926,7 +927,7 @@ export default function Integrations(){
               <div className="text-sm text-slate-600">Inventory & products</div>
             </div>
             <div className="flex items-center gap-2">
-              <span className={`px-2 py-1 rounded-full text-xs ${isConnected('shopify') ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-700'}`}>{isConnected('shopify') ? (providerStatus?.shopify?.status||'Connected') : (onboarding?.connectedMap?.shopify||'Not linked')}</span>
+              <StatusBadge status={isConnected('shopify') ? 'connected' : (settings.providers_live?.shopify ? 'configured' : 'pending')} warn={expSoon('shopify')} />
               <label className="inline-flex items-center gap-1 text-[11px]">
                 <span className={`${settings.providers_live?.shopify ? 'text-emerald-700' : 'text-slate-600'}`}>{settings.providers_live?.shopify ? 'Live' : 'Demo'}</span>
                 <input type="checkbox" checked={!!settings.providers_live?.shopify} onChange={e=> setProviderLive('shopify', e.target.checked)} />
