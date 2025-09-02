@@ -30,6 +30,7 @@ from .scheduler import run_tick
 from .ai import AIClient
 from .brand_prompts import BRAND_SYSTEM, cadence_intro_prompt, chat_system_prompt
 from .tools import execute_tool
+from .metrics_counters import TOOL_EXECUTED  # type: ignore
 from .marts import recompute_funnel_daily, recompute_time_saved
 from . import models as dbm
 from .integrations.sms_twilio import twilio_verify_signature
@@ -3474,6 +3475,12 @@ class ToolExecRequest(BaseModel):
     require_approval: bool = False
 
 
+class ToolQARequest(BaseModel):
+    tenant_id: str
+    name: str
+    params: Dict[str, object] = {}
+
+
 class ApprovalActionRequest(BaseModel):
     tenant_id: str
     approval_id: int
@@ -3533,6 +3540,10 @@ async def ai_tool_execute(
         if not isinstance(result, dict) or "status" not in result:
             result = {"status": str(result)} if not isinstance(result, dict) else {**result, "status": result.get("status", "ok")}
         emit_event("AIToolExecuted", {"tenant_id": req.tenant_id, "tool": req.name, "status": result.get("status")})
+        try:
+            TOOL_EXECUTED.labels(tenant_id=str(req.tenant_id), name=str(req.name), status=str(result.get("status","ok"))).inc()  # type: ignore
+        except Exception:
+            pass
         return result
     except Exception as e:
         try:
@@ -3540,6 +3551,27 @@ async def ai_tool_execute(
         except Exception:
             pass
         return {"status": "error", "message": str(e)}
+
+
+@app.post("/ai/tools/qa", tags=["AI"])
+async def ai_tools_qa(
+    req: ToolQARequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    # Dry-run style QA: execute tool with provided params but suppress side effects where supported
+    # For now, just call the tool and return its normalized response
+    try:
+        res = await execute_tool(req.name, dict(req.params or {}), db, ctx)
+        if not isinstance(res, dict):
+            res = {"status": "ok", "result": str(res)}
+        res.setdefault("status", "ok")
+        res.setdefault("qa", True)
+        return res
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200], "qa": True}
 @app.get("/reports/download/{token}", tags=["AI"])
 def report_download(token: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
     try:
@@ -3741,7 +3773,7 @@ def contacts_search(
 @app.get("/contacts/list", tags=["Contacts"])
 def contacts_list(
     tenant_id: str,
-    limit: int = 100,
+    limit: int = 1000,
     offset: int = 0,
     db: Session = Depends(get_db),
     ctx: UserContext = Depends(get_user_context_relaxed),
