@@ -90,6 +90,52 @@ def limits_status(tenant_id: str, keys: str = "msg:sms,msg:email,ai.chat,db.quer
         return _JR({"error": "internal_error", "detail": str(e)[:200]}, status_code=500)
 
 
+@app.get("/ai/digest", tags=["AI"])
+def ai_digest(tenant_id: str, since: Optional[int] = None, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"items": []}
+    try:
+        import time as _time
+        now = int(_time.time())
+        base_since = int(since or 0)
+        if base_since <= 0:
+            # Default to last 7 days
+            base_since = now - 7*86400
+        out: Dict[str, object] = {"since": base_since, "now": now}
+        # Contacts added/updated
+        try:
+            added = db.execute(_sql_text("SELECT COUNT(1) FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND COALESCE(created_at,0) >= :s"), {"t": tenant_id, "s": base_since}).scalar()
+            updated = db.execute(_sql_text("SELECT COUNT(1) FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND COALESCE(updated_at,0) >= :s AND COALESCE(created_at,0) < :s"), {"t": tenant_id, "s": base_since}).scalar()
+            out["contacts_added"] = int(added or 0)
+            out["contacts_updated"] = int(updated or 0)
+            rows = db.execute(_sql_text("SELECT contact_id, display_name, COALESCE(updated_at, created_at, 0) AS ts FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND COALESCE(updated_at, created_at, 0) >= :s ORDER BY ts DESC LIMIT 3"), {"t": tenant_id, "s": base_since}).fetchall()
+            out["recent_contacts"] = [{"contact_id": r[0], "display_name": r[1], "ts": int(r[2] or 0)} for r in rows]
+        except Exception:
+            out["contacts_added"] = 0; out["contacts_updated"] = 0; out["recent_contacts"] = []
+        # Appointments this week
+        try:
+            ap = db.execute(_sql_text("SELECT COUNT(1) FROM appointments WHERE tenant_id = CAST(:t AS uuid) AND start_ts >= :s"), {"t": tenant_id, "s": base_since}).scalar()
+            out["appointments"] = int(ap or 0)
+        except Exception:
+            out["appointments"] = 0
+        # Messages
+        try:
+            ms = db.execute(_sql_text("SELECT COUNT(1) FROM messages WHERE tenant_id = CAST(:t AS uuid) AND ts >= :s"), {"t": tenant_id, "s": base_since}).scalar()
+            out["messages_sent"] = int(ms or 0)
+        except Exception:
+            out["messages_sent"] = 0
+        # Sync/import events
+        try:
+            ev = db.execute(_sql_text("SELECT COUNT(1) FROM events_ledger WHERE tenant_id = CAST(:t AS uuid) AND ts >= :s AND (name ILIKE 'sync.%' OR name ILIKE 'import.%')"), {"t": tenant_id, "s": base_since}).scalar()
+            out["sync_events"] = int(ev or 0)
+        except Exception:
+            out["sync_events"] = 0
+        return {"status": "ok", "digest": out}
+    except Exception as e:
+        from fastapi.responses import JSONResponse as _JR
+        return _JR({"error": "internal_error", "detail": str(e)[:200]}, status_code=500)
+
+
 app = FastAPI(title="BrandVX Backend", version="0.2.0", openapi_tags=tags_metadata)
 # Optional Sentry capture (dsn via SENTRY_DSN)
 try:

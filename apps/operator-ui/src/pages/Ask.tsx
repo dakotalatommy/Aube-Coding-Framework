@@ -19,6 +19,7 @@ export default function Ask(){
   const [smartAction, setSmartAction] = useState<{ label: string; tool: string; params?: any } | null>(null);
   const [toolRunning, setToolRunning] = useState<boolean>(false);
   const [toolResult, setToolResult] = useState<any>(null);
+  const [digest, setDigest] = useState<any|null>(null);
   const [firstNoteShown, setFirstNoteShown] = useState<boolean>(() => {
     const k = 'bvx_first_prompt_note';
     return localStorage.getItem(k) === '1';
@@ -53,6 +54,7 @@ export default function Ask(){
   // removed getToolLabel
   const inputRef = useRef<HTMLTextAreaElement|null>(null);
   useEffect(()=>{ try{ inputRef.current?.focus(); } catch{} },[]);
+  useEffect(()=>{ (async()=>{ try{ const since = Number(localStorage.getItem('bvx_last_digest_since')||'0'); const r = await api.get(`/ai/digest?tenant_id=${encodeURIComponent(await getTenant())}&since=${encodeURIComponent(String(since||0))}`); setDigest(r?.digest||null); localStorage.setItem('bvx_last_digest_since', String(Date.now()/1000|0)); } catch{} })(); },[]);
   const loadHistory = async () => {
     try{
       const tid = await getTenant();
@@ -315,6 +317,20 @@ export default function Ask(){
                 <pre className="mt-1 whitespace-pre-wrap">{JSON.stringify(toolResult, null, 2)}</pre>
               )}
             </div>
+          )}
+        </div>
+      )}
+      {pageIdx===0 && digest && (
+        <div className="mt-2 rounded-xl bg-white shadow-sm p-3 border text-xs text-slate-700">
+          <div className="font-medium text-slate-900 text-sm mb-1">Since your last visit</div>
+          <div className="flex flex-wrap gap-3">
+            <span>Contacts: +{Number(digest.contacts_added||0)} added, {Number(digest.contacts_updated||0)} updated</span>
+            <span>Appointments: {Number(digest.appointments||0)}</span>
+            <span>Messages sent: {Number(digest.messages_sent||0)}</span>
+            <span>Sync events: {Number(digest.sync_events||0)}</span>
+          </div>
+          {!!(digest.recent_contacts||[]).length && (
+            <div className="mt-1 text-[11px] text-slate-600">Recent: {(digest.recent_contacts||[]).map((c:any)=> c.display_name||c.contact_id).join(', ')}</div>
           )}
         </div>
       )}
