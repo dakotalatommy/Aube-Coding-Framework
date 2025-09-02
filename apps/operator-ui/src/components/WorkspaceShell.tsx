@@ -285,7 +285,7 @@ export default function WorkspaceShell(){
 
   return (
     <div className="max-w-6xl mx-auto">
-      <div className="h-[100dvh] grid grid-cols-[theme(spacing.56)_1fr] gap-4 md:gap-5 overflow-hidden pb-[calc(var(--bvx-commandbar-height,64px)+env(safe-area-inset-bottom,0px))] relative">
+      <div className="h-[100dvh] grid grid-cols-[theme(spacing.56)_1fr] gap-4 md:gap-5 overflow-hidden pb-[calc(var(--bvx-commandbar-height,64px)+env(safe-area-inset-bottom,0px))] relative md:[--sticky-offset:88px] [--sticky-offset:70px]">
         {/* Left dock */}
         <aside className="h-full min-h-0 bg-white/70 backdrop-blur border border-b-0 rounded-2xl p-3 md:p-4 flex flex-col relative" aria-label="Primary navigation">
           <nav className="flex flex-col gap-2" role="tablist" aria-orientation="vertical" onKeyDown={onKeyDown}>
@@ -359,7 +359,7 @@ export default function WorkspaceShell(){
             </Suspense>
           </div>
           {/* Bottom hard separator just above Command Bar */}
-          <div aria-hidden className="absolute left-0 right-0" style={{ bottom: 'calc(var(--bvx-commandbar-height,64px) + env(safe-area-inset-bottom,0px))' }}>
+          <div aria-hidden className="sticky left-0 right-0" style={{ bottom: 'calc(var(--bvx-commandbar-height,64px) + env(safe-area-inset-bottom,0px))', top: 'var(--sticky-offset)' }}>
             <div className="h-0.5 w-full bg-slate-800/70" />
           </div>
         </main>
