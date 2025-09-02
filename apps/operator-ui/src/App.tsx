@@ -1,5 +1,5 @@
 //
-import { BrowserRouter, Routes, Route, useLocation, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useLocation, Navigate, useNavigate } from 'react-router-dom';
 import { Suspense, lazy, useEffect } from 'react';
 import ErrorBoundary from './components/ErrorBoundary';
 import Breadcrumbs from './components/Breadcrumbs';
@@ -116,6 +116,7 @@ export default function App() {
 
 function Shell() {
   const loc = useLocation();
+  const nav = useNavigate();
   const embed = new URLSearchParams(loc.search).get('embed') === '1';
   const qs = new URLSearchParams(loc.search);
   const onLanding = loc.pathname === '/brandvx';
@@ -132,6 +133,20 @@ function Shell() {
       } catch {}
     }
   }, [onLanding, loc.search]);
+
+  // Keyboard shortcut: Cmd/Ctrl+K focuses Ask VX (navigates to /ask)
+  useEffect(()=>{
+    const onKey = (e: KeyboardEvent) => {
+      try{
+        if ((e.key === 'k' || e.key === 'K') && (e.metaKey || e.ctrlKey)) {
+          e.preventDefault();
+          if (!onAskPage) nav('/ask');
+        }
+      } catch {}
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [nav, onAskPage]);
 
   return (
     <>
