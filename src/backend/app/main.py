@@ -3756,6 +3756,16 @@ def contacts_list(
             tid = _uuid.UUID(str(tenant_id))
         except Exception:
             tid = tenant_id
+        # Ensure RLS GUCs are set for this request so rows are visible under policies
+        try:
+            if getattr(db.bind, "dialect", None) and db.bind.dialect.name == "postgresql" and os.getenv("ENABLE_PG_RLS", "0") == "1":
+                try:
+                    db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": str(tenant_id)})
+                    db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                except Exception:
+                    pass
+        except Exception:
+            pass
         # Short‑TTL cache for rollups/list
         try:
             ckey = f"contacts:list:{tenant_id}:{int(limit)}:{int(offset)}"
