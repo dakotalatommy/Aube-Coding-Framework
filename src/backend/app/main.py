@@ -4676,6 +4676,45 @@ def ai_schema_map(db: Session = Depends(get_db)) -> Dict[str, object]:
     return {"tables": out}
 
 
+@app.get("/admin/tools/telemetry", tags=["AI"])
+def tools_telemetry(
+    tenant_id: str,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"items": [], "counts": {}}
+    try:
+        rows = db.execute(
+            _sql_text(
+                """
+                SELECT ts, payload
+                FROM events_ledger
+                WHERE tenant_id = CAST(:t AS uuid) AND name = 'AIToolExecuted'
+                ORDER BY ts DESC
+                LIMIT :lim
+                """
+            ),
+            {"t": tenant_id, "lim": max(1, min(int(limit or 50), 500))},
+        ).fetchall()
+        items = []
+        counts: Dict[str, int] = {}
+        for r in rows:
+            try:
+                payload = json.loads(str(r[1] or "{}"))
+            except Exception:
+                payload = {}
+            tool = str(payload.get("tool", ""))
+            status = str(payload.get("status", ""))
+            items.append({"ts": int(r[0] or 0), "tool": tool, "status": status})
+            if tool:
+                counts[tool] = counts.get(tool, 0) + 1
+        return {"items": items, "counts": counts}
+    except Exception:
+        return {"items": [], "counts": {}}
+
+
 class WorkflowPlanRequest(BaseModel):
     tenant_id: str
     name: str  # e.g., "crm_organization", "book_filling"
