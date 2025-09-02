@@ -883,7 +883,7 @@ def create_checkout_session(req: dict, ctx: UserContext = Depends(get_user_conte
     if not price_id and price_cents <= 0:
         raise HTTPException(status_code=400, detail="missing price_id_or_amount")
     cust = create_customer(ctx)
-    origin = _env("APP_ORIGIN", "http://localhost:5173")
+    origin = _env("APP_ORIGIN", _env("FRONTEND_BASE_URL", "https://app.brandvx.io"))
     # Construct line items; include recurring only for subscription mode
     if price_id:
         line_items = [{"price": price_id, "quantity": 1}]
@@ -916,7 +916,7 @@ def create_checkout_session(req: dict, ctx: UserContext = Depends(get_user_conte
 def billing_portal(ctx: UserContext = Depends(get_user_context)):
     s = _stripe_client()
     cust = create_customer(ctx)
-    origin = _env("APP_ORIGIN", "http://localhost:5173")
+    origin = _env("APP_ORIGIN", _env("FRONTEND_BASE_URL", "https://app.brandvx.io"))
     portal = s.billing_portal.Session.create(customer=cust["customer_id"], return_url=f"{origin}/billing")  # type: ignore
     return {"url": portal["url"]}
 
