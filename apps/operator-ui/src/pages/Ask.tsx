@@ -16,6 +16,9 @@ export default function Ask(){
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const streamId = useRef<number | null>(null);
+  const [smartAction, setSmartAction] = useState<{ label: string; tool: string; params?: any } | null>(null);
+  const [toolRunning, setToolRunning] = useState<boolean>(false);
+  const [toolResult, setToolResult] = useState<any>(null);
   const [firstNoteShown, setFirstNoteShown] = useState<boolean>(() => {
     const k = 'bvx_first_prompt_note';
     return localStorage.getItem(k) === '1';
@@ -103,6 +106,48 @@ export default function Ask(){
       setMessages(curr => [...curr, { role: 'assistant', content: String(e?.message||e) }]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Heuristic: propose one smart action chip based on the last assistant reply
+  useEffect(()=>{
+    try{
+      const t = lastAssistantText.toLowerCase();
+      if (!t) { setSmartAction(null); return; }
+      if (t.includes('import') && t.includes('contact')) {
+        setSmartAction({ label: 'Import contacts from Square', tool: 'contacts.import.square', params: {} });
+        return;
+      }
+      if (t.includes('sync') && t.includes('calendar')) {
+        setSmartAction({ label: 'Sync calendar', tool: 'calendar.sync', params: { provider: 'auto' } });
+        return;
+      }
+      if (t.includes('send') && (t.includes('sms') || t.includes('text'))) {
+        setSmartAction({ label: 'Send a test SMS', tool: 'messages.send', params: { contact_id: 'c_demo', channel: 'sms', body: 'Hi from BrandVX (demo)' } });
+        return;
+      }
+      setSmartAction(null);
+    } catch { setSmartAction(null); }
+  }, [lastAssistantText]);
+
+  const runSmartAction = async () => {
+    if (!smartAction || toolRunning) return;
+    try{
+      setToolRunning(true);
+      setToolResult({ status: 'running' });
+      const r = await api.post('/ai/tools/execute', {
+        tenant_id: await getTenant(),
+        name: smartAction.tool,
+        params: { tenant_id: await getTenant(), ...(smartAction.params||{}) },
+        require_approval: false,
+      });
+      setToolResult(r || { status: 'ok' });
+      try { showToast({ title: 'Action executed', description: smartAction.label }); } catch {}
+    } catch(e:any){
+      setToolResult({ status: 'error', detail: String(e?.message||e) });
+      try { showToast({ title: 'Action failed', description: String(e?.message||e) }); } catch {}
+    } finally {
+      setToolRunning(false);
     }
   };
 
@@ -255,6 +300,21 @@ export default function Ask(){
           )}
         </div>
       </div>
+      )}
+      {pageIdx===0 && smartAction && (
+        <div className="mt-2">
+          <button className="px-3 py-1.5 text-xs rounded-full border bg-white hover:shadow-sm" onClick={runSmartAction} disabled={toolRunning}>
+            {toolRunning ? 'Running…' : smartAction.label}
+          </button>
+          {toolResult && (
+            <div className="mt-1 text-[11px] text-slate-600">
+              {toolResult.status === 'running' ? 'Starting…' : `Result: ${String(toolResult.status||'ok')}`}
+              {new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '').has('dev') && (
+                <pre className="mt-1 whitespace-pre-wrap">{JSON.stringify(toolResult, null, 2)}</pre>
+              )}
+            </div>
+          )}
+        </div>
       )}
       {pageIdx===0 && !embedded && !askIsDemo && (
       <div className="flex flex-wrap gap-2 text-xs">

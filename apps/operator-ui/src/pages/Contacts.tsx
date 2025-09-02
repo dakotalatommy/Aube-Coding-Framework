@@ -12,6 +12,7 @@ import { UI_STRINGS } from '../lib/strings';
 export default function Contacts(){
   const loc = useLocation();
   const { showToast } = useToast();
+  const [lastUpdated, setLastUpdated] = useState<number>(0);
   const isDemo = (()=>{ try{ return new URLSearchParams(window.location.search).get('demo')==='1'; } catch { return false; } })();
   const [status, setStatus] = useState('');
   const [contactId, setContactId] = useState('');
@@ -60,6 +61,7 @@ export default function Contacts(){
       const r = await api.get(`/contacts/list?tenant_id=${encodeURIComponent(await getTenant())}&limit=${encodeURIComponent(String(PAGE_SIZE))}&offset=${encodeURIComponent(String((page-1)*PAGE_SIZE))}`, { timeoutMs: 20000 });
       setItems(Array.isArray(r?.items)? r.items: []);
       setTotal(Number(r?.total||0));
+      setLastUpdated(Date.now());
     } catch(e:any){ try{ showToast({ title:'Load failed', description:String(e?.message||e) }); }catch{} }
     finally { setListBusy(false); }
   };
@@ -100,6 +102,9 @@ export default function Contacts(){
     <div className="space-y-4">
       <div className="flex items-center">
         <h3 className="text-lg font-semibold">Contacts</h3>
+        {!!lastUpdated && (
+          <span className="ml-2 text-[11px] text-slate-500">Updated {new Date(lastUpdated).toLocaleTimeString()}</span>
+        )}
         <Button variant="outline" size="sm" className="ml-auto" onClick={()=> startGuide('contacts')} aria-label={UI_STRINGS.a11y.buttons.guideContacts}>{UI_STRINGS.ctas.tertiary.guideMe}</Button>
       </div>
       <div className="grid gap-4">

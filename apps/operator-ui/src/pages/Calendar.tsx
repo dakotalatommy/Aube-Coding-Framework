@@ -15,8 +15,9 @@ export default function Calendar(){
   const [merged, setMerged] = useState<number>(0);
   const [lastAnalyzed, setLastAnalyzed] = useState<number|undefined>(undefined);
   const [showApple, setShowApple] = useState<boolean>(false);
+  const [lastUpdated, setLastUpdated] = useState<number>(0);
   useEffect(()=>{
-    (async()=>{ try{ const r = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`); setEvents(r?.events||[]); setLastSync(r?.last_sync||{}); } finally{ setLoading(false); } })();
+    (async()=>{ try{ const r = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`); setEvents(r?.events||[]); setLastSync(r?.last_sync||{}); setLastUpdated(Date.now()); } finally{ setLoading(false); } })();
   },[]);
   useEffect(()=>{ try{ const sp = new URLSearchParams(window.location.search); if (sp.get('tour')==='1') startGuide('calendar'); } catch {} },[]);
   useEffect(()=>{ (async()=>{ try{ const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() }); if (a?.summary?.ts) setLastAnalyzed(Number(a.summary.ts)); } catch{} })(); },[]);
@@ -29,6 +30,7 @@ export default function Calendar(){
     const l = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`);
     setEvents(l?.events||[]); setLastSync(l?.last_sync||{});
     try { showToast({ title:'Sync started', description: prov || 'all' }); } catch {}
+    setLastUpdated(Date.now());
   };
   const mergeDupes = async () => {
     const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'calendar.merge', params:{ tenant_id: await getTenant() }, require_approval: false });
@@ -36,6 +38,7 @@ export default function Calendar(){
     const l = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`);
     setEvents(l?.events||[]);
     try { showToast({ title:'Merged bookings' }); } catch {}
+    setLastUpdated(Date.now());
   };
   if (loading) return (
     <div className="space-y-3">
@@ -57,6 +60,9 @@ export default function Calendar(){
       <div className="text-[11px] text-slate-600">Note: Scheduling from BrandVX is disabled. Calendar merges are read‑only.</div>
       {lastAnalyzed && (
         <div className="text-[11px] text-slate-500">Last analyzed: {new Date(lastAnalyzed*1000).toLocaleString()}</div>
+      )}
+      {!!lastUpdated && (
+        <div className="text-[11px] text-slate-500">Updated {new Date(lastUpdated).toLocaleTimeString()}</div>
       )}
       {/* Simple weekly grid (visual aid) */}
       <div className="rounded-xl border bg-white p-3" role="table" aria-label="Weekly calendar">
