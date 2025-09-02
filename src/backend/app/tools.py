@@ -297,6 +297,16 @@ async def execute_tool(name: str, params: Dict[str, Any], db: Session, ctx: User
                 max_candidates=int(params.get("max_candidates", 5)),
                 message_template=params.get("message_template"),
             )
+        if name == "messages.send":
+            return send_message(
+                db,
+                tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
+                contact_id=str(params.get("contact_id", "")),
+                channel=str(params.get("channel", "sms")),
+                template_id=str(params.get("template_id") or ""),
+                body=str(params.get("body") or ""),
+                subject=str(params.get("subject") or ""),
+            )
         # CRM helpers
         if name == "contacts.list.top_ltv":
             return tool_contacts_list_top_ltv(
