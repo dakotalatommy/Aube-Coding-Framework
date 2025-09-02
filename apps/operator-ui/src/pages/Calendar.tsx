@@ -6,7 +6,7 @@ import Skeleton from '../components/ui/Skeleton';
 import { useToast } from '../components/ui/Toast';
 
 export default function Calendar(){
-  const { showToast } = useToast();
+  const { toastSuccess, toastError } = useToast();
   const [events, setEvents] = useState<any[]>([]);
   const [lastSync, setLastSync] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
@@ -24,7 +24,8 @@ export default function Calendar(){
   useEffect(()=>{ try { setShowApple(false); } catch {} }, [lastSync, JSON.stringify(events)]);
   const syncNow = async (prov?: string) => {
     const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'calendar.sync', params:{ tenant_id: await getTenant(), provider: prov }, require_approval: false });
-    setStatus(JSON.stringify(r));
+    try{ if (r?.status === 'ok' || r?.status === 'pending') toastSuccess('Calendar sync started', prov ? `Provider: ${prov}` : undefined); else toastError('Calendar sync failed', r?.error || r?.status); } catch {}
+    setStatus(new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : '');
     const l = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`);
     setEvents(l?.events||[]); setLastSync(l?.last_sync||{});
     try { showToast({ title:'Sync started', description: prov || 'all' }); } catch {}

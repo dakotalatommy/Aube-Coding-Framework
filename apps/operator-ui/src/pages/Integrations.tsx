@@ -239,7 +239,7 @@ export default function Integrations(){
       setBusy(true);
       const prefs = { ...(settings.preferences||{}), user_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, user_timezone_offset: computeOffsetHours() };
       const r = await api.post('/settings',{ tenant_id: await getTenant(), ...settings, preferences: prefs });
-      setStatus(JSON.stringify(r));
+      setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })());
       try { showToast({ title:'Settings saved', description:'Settings saved successfully' }); } catch {}
       try { localStorage.setItem('bvx_onboarding_done','1'); } catch {}
     }
@@ -265,12 +265,12 @@ export default function Integrations(){
     } catch { return 0; }
   };
   const sendTestSms = async () => {
-    try{ setBusy(true); const r = await api.post('/ai/tools/execute',{ tenant_id: await getTenant(), name: 'messages.send', params: { tenant_id: await getTenant(), contact_id:'c_demo', channel:'sms', body:'Test SMS from BrandVX (reply STOP/HELP to opt out)' }, require_approval: false }); setStatus(JSON.stringify(r)); try { showToast({ title:'Test SMS sent', description:'Test SMS sent successfully' }); } catch {} }
+    try{ setBusy(true); const r = await api.post('/ai/tools/execute',{ tenant_id: await getTenant(), name: 'messages.send', params: { tenant_id: await getTenant(), contact_id:'c_demo', channel:'sms', body:'Test SMS from BrandVX (reply STOP/HELP to opt out)' }, require_approval: false }); setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })()); try { showToast({ title: (r?.status==='ok'||r?.status==='pending') ? 'Test SMS sent' : 'Test SMS failed', description:(r?.status==='ok'||r?.status==='pending') ? 'SMS sent successfully' : (r?.error||r?.status||'') }); } catch {} }
     catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
   };
   const sendTestEmail = async () => {
-    try{ setBusy(true); const r = await api.post('/ai/tools/execute',{ tenant_id: await getTenant(), name: 'messages.send', params: { tenant_id: await getTenant(), contact_id:'c_demo', channel:'email', subject:'BrandVX Test', body:'<p>Hello from BrandVX</p>' }, require_approval: false }); setStatus(JSON.stringify(r)); try { showToast({ title:'Test email sent', description:'Test email sent successfully' }); } catch {} }
+    try{ setBusy(true); const r = await api.post('/ai/tools/execute',{ tenant_id: await getTenant(), name: 'messages.send', params: { tenant_id: await getTenant(), contact_id:'c_demo', channel:'email', subject:'BrandVX Test', body:'<p>Hello from BrandVX</p>' }, require_approval: false }); setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })()); try { showToast({ title:(r?.status==='ok'||r?.status==='pending') ? 'Test email sent' : 'Test email failed', description:(r?.status==='ok'||r?.status==='pending') ? 'Email sent successfully' : (r?.error||r?.status||'') }); } catch {} }
     catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
   };
@@ -287,7 +287,7 @@ export default function Integrations(){
     try{
       setBusy(true);
       const r = await api.post('/settings', { tenant_id: await getTenant(), training_notes: settings.training_notes||'' });
-      setStatus(JSON.stringify(r));
+      setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })());
       try { showToast({ title:'Saved', description:'Training notes saved' }); } catch {}
     } catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
@@ -296,8 +296,8 @@ export default function Integrations(){
     try{
       setBusy(true);
       const r = await api.post('/integrations/twilio/provision', { tenant_id: await getTenant(), area_code: '' });
-      setStatus(JSON.stringify(r));
-      if (r?.status === 'ok') { setStatus('SMS enabled: ' + (r?.from || '')); try { showToast({ title:'SMS enabled', description: r?.from||'' }); } catch {} }
+      setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })());
+      if (r?.status === 'ok') { setStatus(''); try { showToast({ title:'SMS enabled', description: r?.from||'' }); } catch {} }
       else setErrorMsg(r?.detail||r?.status||'Enable failed');
     } catch(e:any){ setErrorMsg(String(e?.message||e)); }
     finally{ setBusy(false); }
@@ -312,7 +312,7 @@ export default function Integrations(){
         attrs:{ email:'demo@example.com', firstName:'Demo', lastName:'User' },
         idempotency_key:'demo_contact_1'
       });
-      setStatus(JSON.stringify(r));
+      setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })());
       try { showToast({ title:'HubSpot sample synced', description:'HubSpot sample contact synced' }); } catch {}
     } catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
@@ -323,7 +323,7 @@ export default function Integrations(){
       setBusy(true);
       const r = await api.post('/crm/hubspot/import', { tenant_id: await getTenant() });
       const c = Number(r?.imported||0);
-      setStatus(`HubSpot import: ${c} contacts`);
+      setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? `HubSpot import: ${c} contacts` : ''; } catch { return ''; } })());
       try { showToast({ title:'HubSpot import', description: `${c} contacts imported` }); } catch {}
     } catch(e:any){ setErrorMsg(String(e?.message||e)); }
     finally{ setBusy(false); }
@@ -333,8 +333,8 @@ export default function Integrations(){
     try{
       setBusy(true);
       const r = await api.post('/calendar/sync', { tenant_id: await getTenant(), provider: prov });
-      setStatus(`Calendar sync (${prov}): ${r?.status||'done'}`);
-      try { showToast({ title:'Calendar sync', description: prov }); } catch {}
+      setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? `Calendar sync (${prov}): ${r?.status||'done'}` : ''; } catch { return ''; } })());
+      try { showToast({ title: (r?.status==='ok'||r?.status==='pending') ? 'Calendar sync started' : 'Calendar sync failed', description: prov }); } catch {}
     }catch(e:any){ setErrorMsg(String(e?.message||e)); }
     finally{ setBusy(false); }
   };
@@ -344,8 +344,8 @@ export default function Integrations(){
       setBusy(true);
       const r = await api.post('/calendar/merge', { tenant_id: await getTenant() });
       const m = Number(r?.merged||0);
-      setStatus(`Calendar merged: ${m} duplicates dropped`);
-      try { showToast({ title:'Calendar merged', description: `${m} drops` }); } catch {}
+      setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? `Calendar merged: ${m} duplicates dropped` : ''; } catch { return ''; } })());
+      try { showToast({ title: (m>=0) ? 'Calendar merged' : 'Calendar merge', description: `${m} drops` }); } catch {}
     }catch(e:any){ setErrorMsg(String(e?.message||e)); }
     finally{ setBusy(false); }
   };
@@ -354,7 +354,7 @@ export default function Integrations(){
     try{
       setBusy(true);
       const r = await api.get('/integrations/rls/selfcheck');
-      setStatus(`RLS ok for tenant ${r?.tenant_id||''}: ${JSON.stringify(r?.counts||{})}`);
+      setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? `RLS ok for tenant ${r?.tenant_id||''}: ${JSON.stringify(r?.counts||{})}` : ''; } catch { return ''; } })());
       try { showToast({ title:'RLS self-check', description:'OK' }); } catch {}
     }catch(e:any){ setErrorMsg(String(e?.message||e)); }
     finally{ setBusy(false); }
@@ -374,8 +374,8 @@ export default function Integrations(){
     try{
       setBusy(true);
       const r = await api.post('/integrations/booking/acuity/import', { tenant_id: await getTenant(), since:'0', until:'', cursor:'' });
-      setStatus(JSON.stringify(r));
-      try { showToast({ title:'Acuity sample imported', description:'Acuity sample appointments imported' }); } catch {}
+      setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })());
+      try { showToast({ title: (r?.status==='ok') ? 'Acuity sample imported' : 'Acuity import failed', description: (r?.status==='ok') ? 'Acuity sample appointments imported' : (r?.error||r?.status||'') }); } catch {}
     } catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
   };

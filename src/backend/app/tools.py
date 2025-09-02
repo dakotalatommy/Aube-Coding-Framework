@@ -8,6 +8,7 @@ from .cadence import get_cadence_definition
 from .messaging import send_message
 from sqlalchemy import text as _sql_text
 from .db import engine
+from .crypto import decrypt_text
 import re as _re
 import math
 import io
@@ -843,6 +844,63 @@ async def tool_db_query_named(
         with engine.begin() as conn:
             conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
             conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            if n == "contacts.top_ltv":
+                q = _sql_text(
+                    """
+                    SELECT contact_id, lifetime_cents, last_visit, txn_count
+                    FROM contacts
+                    WHERE tenant_id = CAST(:t AS uuid) AND (deleted IS NULL OR deleted = false)
+                    ORDER BY lifetime_cents DESC
+                    LIMIT :lim
+                    """
+                )
+                lim = max(1, min(int(p.get("limit", 10)), 200))
+                rows = conn.execute(q, {"t": tenant_id, "lim": lim}).fetchall()
+                return {"status": "ok", "rows": [dict(r._mapping) for r in rows]}
+            if n == "cohort.dormant":
+                days = int(p.get("threshold_days", p.get("days", 60)) or 60)
+                q = _sql_text(
+                    """
+                    SELECT contact_id, lifetime_cents, last_visit
+                    FROM contacts
+                    WHERE tenant_id = CAST(:t AS uuid)
+                      AND (last_visit IS NULL OR last_visit < (EXTRACT(epoch FROM now())::bigint - :sec))
+                    ORDER BY lifetime_cents DESC
+                    LIMIT :lim
+                    """
+                )
+                lim = max(1, min(int(p.get("limit", 25)), 200))
+                rows = conn.execute(q, {"t": tenant_id, "sec": int(days)*86400, "lim": lim}).fetchall()
+                return {"status": "ok", "rows": [dict(r._mapping) for r in rows]}
+            if n == "metric.rebook_rate_30d":
+                q = _sql_text(
+                    """
+                    WITH base AS (
+                      SELECT id, contact_id, start_ts
+                      FROM appointments
+                      WHERE tenant_id = CAST(:t AS uuid)
+                        AND status = 'completed'
+                        AND start_ts >= (EXTRACT(epoch FROM now())::bigint - 30*86400)
+                    ), rebook AS (
+                      SELECT b.id
+                      FROM base b
+                      WHERE EXISTS (
+                        SELECT 1 FROM appointments a2
+                        WHERE a2.tenant_id = CAST(:t AS uuid)
+                          AND a2.contact_id = b.contact_id
+                          AND a2.status = 'completed'
+                          AND a2.start_ts > b.start_ts AND a2.start_ts <= b.start_ts + 30*86400
+                      )
+                    )
+                    SELECT (SELECT COUNT(*) FROM base) AS total, (SELECT COUNT(*) FROM rebook) AS rebooked,
+                           ROUND((CASE WHEN (SELECT COUNT(*) FROM base) = 0 THEN 0 ELSE ((SELECT COUNT(*) FROM rebook)::numeric / NULLIF((SELECT COUNT(*) FROM base),0)) * 100 END), 1) AS pct
+                    """
+                )
+                row = conn.execute(q, {"t": tenant_id}).fetchone()
+                out = {"total": 0, "rebooked": 0, "pct": 0.0}
+                if row:
+                    out = {"total": int(row[0] or 0), "rebooked": int(row[1] or 0), "pct": float(row[2] or 0.0)}
+                return {"status": "ok", "rows": [out]}
             if n == "cohort.dormant_90d":
                 q = _sql_text(
                     """
@@ -857,6 +915,74 @@ async def tool_db_query_named(
                 lim = max(1, min(int(p.get("limit", 25)), 100))
                 rows = conn.execute(q, {"t": tenant_id, "lim": lim}).fetchall()
                 return {"status": "ok", "rows": [dict(r._mapping) for r in rows]}
+            if n == "metric.weekly_revenue_last_week":
+                # Pull from Square payments API if connected
+                token: str = ""
+                try:
+                    row_v2 = conn.execute(
+                        _sql_text(
+                            "SELECT access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider='square' ORDER BY id DESC LIMIT 1"
+                        ),
+                        {"t": tenant_id},
+                    ).fetchone()
+                    if row_v2 and row_v2[0]:
+                        try:
+                            token = decrypt_text(str(row_v2[0])) or ""
+                        except Exception:
+                            token = str(row_v2[0])
+                except Exception:
+                    token = ""
+                if not token:
+                    return {"status": "ok", "rows": [{"cents": 0}]}  # no connection
+                import datetime as _dt
+                today = _dt.datetime.utcnow().date()
+                weekday = today.isoweekday()
+                this_monday = today - _dt.timedelta(days=weekday-1)
+                last_monday = this_monday - _dt.timedelta(days=7)
+                next_monday = this_monday
+                begin = _dt.datetime.combine(last_monday, _dt.time(0,0,0))
+                end = _dt.datetime.combine(next_monday, _dt.time(0,0,0))
+                def _rfc3339(dt: _dt.datetime) -> str:
+                    return dt.replace(microsecond=0).isoformat() + "Z"
+                base = os.getenv("SQUARE_API_BASE", "https://connect.squareup.com")
+                if os.getenv("SQUARE_ENV", "prod").lower().startswith("sand"):
+                    base = "https://connect.squareupsandbox.com"
+                headers = {"Authorization": f"Bearer {token}", "Accept": "application/json", "Square-Version": os.getenv("SQUARE_VERSION", "2023-10-18")}
+                total_cents = 0
+                try:
+                    with httpx.Client(timeout=20, headers=headers) as client:
+                        cursor = None
+                        while True:
+                            params: Dict[str, str] = {
+                                "limit": "100",
+                                "begin_time": _rfc3339(begin),
+                                "end_time": _rfc3339(end),
+                            }
+                            if cursor:
+                                params["cursor"] = cursor
+                            r = client.get(f"{base}/v2/payments", params=params)
+                            if r.status_code >= 400:
+                                break
+                            body = r.json() or {}
+                            payments = body.get("payments") or []
+                            for pay in payments:
+                                try:
+                                    status = str(pay.get("status") or "").upper()
+                                    if status not in {"COMPLETED", "APPROVED", "CAPTURED"}:
+                                        continue
+                                    amt = int(((pay.get("amount_money") or {}).get("amount") or 0))
+                                    tax = int(((pay.get("tax_money") or {}).get("amount") or 0))
+                                    refunded = int(((pay.get("refunded_money") or {}).get("amount") or 0))
+                                    net = max(0, amt - tax - refunded)
+                                    total_cents += net
+                                except Exception:
+                                    continue
+                            cursor = body.get("cursor") or body.get("next_cursor")
+                            if not cursor:
+                                break
+                except Exception:
+                    total_cents = 0
+                return {"status": "ok", "rows": [{"cents": int(total_cents)}]}
             if n == "metric.rebook_rate_category_fri_after_4pm_90d":
                 # Rebook definition: next completed appointment within 30 days of index appointment
                 q = _sql_text(
