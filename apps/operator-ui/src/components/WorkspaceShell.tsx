@@ -334,7 +334,7 @@ export default function WorkspaceShell(){
               >Book onboarding</a>
             )}
             <button
-              className="w-full px-3 py-2 rounded-xl border text-slate-700 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60"
+              className="w-full pl-4 pr-3 py-2 rounded-xl border text-slate-700 hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60 text-left"
               data-guide={new URLSearchParams(loc.search).get('demo')==='1' ? 'demo-signup' : undefined}
               data-tour="signup"
               onClick={async()=>{

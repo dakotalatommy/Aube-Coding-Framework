@@ -30,6 +30,7 @@ export default function Integrations(){
   };
   const SOCIAL_ON = (import.meta as any).env?.VITE_FEATURE_SOCIAL === '1';
   const SHOW_REDIRECT_URIS = ((import.meta as any).env?.VITE_SHOW_REDIRECT_URIS === '1') || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('dev'));
+  const DEV_MODE = (()=>{ try{ return new URLSearchParams(window.location.search).has('dev'); } catch { return false; } })();
   const [settings, setSettings] = useState<any>({ tone:'helpful', services:['sms','email'], auto_approve_all:false, quiet_hours:{ start:'21:00', end:'08:00' }, brand_profile:{ name:'', voice:'', about:'' }, metrics:{ monthly_revenue:'', avg_service_price:'', avg_service_time:'', rent:'' }, goals:{ primary_goal:'' }, preferences:{} });
   const isDemo = (()=>{ try{ return new URLSearchParams(window.location.search).get('demo')==='1'; } catch { return false; } })();
   const [status, setStatus] = useState('');
@@ -69,6 +70,19 @@ export default function Integrations(){
       if (Array.isArray(connAccounts)) return connAccounts.some(x => (x?.provider||'') === provider);
     } catch {}
     return false;
+  };
+  const isLive = (provider: string): boolean => {
+    try { return !!(settings?.providers_live||{})[provider]; } catch { return false; }
+  };
+  const isConnectedAny = (providers: string[]): boolean => {
+    try { return providers.some(p=> isConnected(p)); } catch { return false; }
+  };
+  const shouldShow = (providers: string | string[]): boolean => {
+    try{
+      if (DEV_MODE) return true;
+      const arr = Array.isArray(providers) ? providers : [providers];
+      return arr.some(p=> isLive(p)) || isConnectedAny(arr);
+    } catch { return true; }
   };
 
   const connectLabel = (provider: string) => isConnected(provider) ? `Reconnect ${provider.charAt(0).toUpperCase()+provider.slice(1)}` : `Connect ${provider.charAt(0).toUpperCase()+provider.slice(1)}`;
@@ -663,7 +677,7 @@ export default function Integrations(){
             </div>
           </section>
         )}
-        {onboarding?.providers?.hubspot !== false && (
+        {onboarding?.providers?.hubspot !== false && shouldShow('hubspot') && (
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
@@ -794,7 +808,7 @@ export default function Integrations(){
         </section>
         )}
 
-        {(
+        {shouldShow('sendgrid') && (
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
@@ -826,6 +840,7 @@ export default function Integrations(){
         </section>
         )}
 
+        {shouldShow('google') && (
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
@@ -853,8 +868,9 @@ export default function Integrations(){
           </div>
           {onboarding?.providers?.google===false && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Google OAuth to enable.</div>}
         </section>
+        )}
 
-        {SOCIAL_ON && (
+        {SOCIAL_ON && shouldShow('instagram') && (
           <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
             <div className="flex items-center justify-between">
               <div>
