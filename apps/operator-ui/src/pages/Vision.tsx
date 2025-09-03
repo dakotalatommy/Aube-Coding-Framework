@@ -4,15 +4,13 @@ import { startGuide } from '../lib/guide';
 import { trackEvent } from '../lib/analytics';
 
 export default function Vision(){
-  const [tab, setTab] = useState<'insta'|'upload'>('insta');
+  // Single-flow UI: Upload & Edit only (Instagram hidden)
   const [preview, setPreview] = useState<string>('');
   const [b64, setB64] = useState<string>('');
   // const [prompt] = useState<string>('Give concise, actionable feedback on lighting, framing, and clarity for beauty portfolio quality.');
   const [output, setOutput] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [mime, setMime] = useState<string>('image/jpeg');
-  const [socialUrl, setSocialUrl] = useState<string>('');
-  const [social, setSocial] = useState<{profile?:any; posts?:string[]}>({});
   // const [linkContactId] = useState<string>('');
   const [editPrompt, setEditPrompt] = useState<string>('Reduce specular highlights on T-zone; keep texture; neutralize warm cast.');
   // const [tryPrimary] = useState<string>('Soft glam: satin skin; neutral-peach blush; soft brown wing; keep freckles.');
@@ -39,6 +37,13 @@ export default function Vision(){
       const idx = dataUrl.indexOf(',');
       setB64(idx >= 0 ? dataUrl.slice(idx+1) : dataUrl);
       try{ const m = dataUrl.slice(5, dataUrl.indexOf(';')); if (m) setMime(m); }catch{}
+      // Also notify AskVX chat that an image was uploaded with the current edit prompt
+      try {
+        const note = `I uploaded an image in brandVZN. Analyze it and, if appropriate, edit it using Gemini 2.5 (nano banana). Edit prompt: "${editPrompt}"`;
+        let sid = localStorage.getItem('bvx_chat_session') || '';
+        if (!sid) { sid = 's_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('bvx_chat_session', sid); }
+        (async()=>{ try { await api.post('/ai/chat/raw', { tenant_id: await getTenant(), session_id: sid, messages: [{ role:'user', content: note }] }); } catch {} })();
+      } catch {}
     };
     reader.readAsDataURL(f);
   };
@@ -90,27 +95,11 @@ export default function Vision(){
     finally { setLoading(false); }
   };
 
-  const fetchSocial = async () => {
-    if (!socialUrl.trim()) return;
-    setLoading(true); setOutput(''); setSocial({});
-    try{
-      const prof = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name: 'social.fetch_profile', params: { tenant_id: await getTenant(), url: socialUrl }, require_approval: false });
-      const posts = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name: 'social.scrape_posts', params: { tenant_id: await getTenant(), url: socialUrl, limit: 12 }, require_approval: false });
-      setSocial({ profile: prof?.profile||{}, posts: Array.isArray(posts?.items)? posts.items : [] });
-      setOutput('Social fetched.');
-    } catch(e:any){ setOutput(String(e?.message||e)); }
-    finally { setLoading(false); }
-  };
-
   // saveToClient handled elsewhere
 
   return (
     <div className="space-y-4">
       <h3 className="text-lg font-semibold">brandVZN</h3>
-      <div className="flex gap-2">
-        <button className={`px-3 py-1 rounded-md border ${tab==='insta'?'bg-slate-900 text-white':'bg-white'}`} onClick={()=> setTab('insta')}>Instagram</button>
-        <button className={`px-3 py-1 rounded-md border ${tab==='upload'?'bg-slate-900 text-white':'bg-white'}`} onClick={()=> setTab('upload')}>Upload & Edit</button>
-      </div>
 
       <div className="flex gap-3 items-start">
         <div className="w-64 h-64 border rounded-xl bg-white shadow-sm overflow-hidden flex items-center justify-center" data-guide="preview">
@@ -118,56 +107,13 @@ export default function Vision(){
         </div>
         <div className="flex-1 space-y-3">
           <div className="flex gap-2">
-            {tab==='upload' && (
-              <>
-                <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm" onClick={pick} data-guide="upload">Upload</button>
-                <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.dng,image/*" className="hidden" onChange={onFile} />
-                <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={!b64 || loading} onClick={analyze} data-guide="analyze">{loading ? 'Analyzing…' : 'Analyze'}</button>
-                <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={!b64 || loading} onClick={()=> runEdit(editPrompt)} data-guide="edit">{loading ? 'Editing…' : 'Run Edit'}</button>
-              </>
-            )}
+            <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm" onClick={pick} data-guide="upload">Upload</button>
+            <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.dng,image/*" className="hidden" onChange={onFile} />
+            <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={!b64 || loading} onClick={analyze} data-guide="analyze">{loading ? 'Analyzing…' : 'Analyze'}</button>
+            <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={!b64 || loading} onClick={()=> runEdit(editPrompt)} data-guide="edit">{loading ? 'Editing…' : 'Run Edit'}</button>
           </div>
 
-          {tab==='insta' && (
-            <>
-              <div className="flex gap-2 items-center" data-guide="social">
-                <input className="border rounded-md px-2 py-1 flex-1" placeholder="Instagram profile URL" value={socialUrl} onChange={e=>setSocialUrl(e.target.value)} />
-                <button className="border rounded-md px-3 py-1 bg-white hover:shadow-sm" onClick={fetchSocial}>Fetch</button>
-              </div>
-              {social.profile && (
-                <div className="text-xs text-slate-700">{String(social.profile.title||'')} — {String(social.profile.bio||'')}</div>
-              )}
-              {social.posts && social.posts.length>0 && (
-                <div className="grid grid-cols-3 gap-2 mt-2">
-                  {social.posts.slice(0,3).map((u,i)=> (
-                    <button key={i} className={`group rounded-lg overflow-hidden border bg-white hover:shadow-sm ${preview===u?'ring-2 ring-pink-300':''}`} onClick={()=>{ setPreview(u); setB64(''); setOutput(''); }}>
-                      <img src={u} alt="post" className="w-full h-28 object-cover"/>
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div className="flex gap-2 items-center mt-2">
-                <button className="border rounded-md px-3 py-1 bg-white hover:shadow-sm disabled:opacity-50" disabled={!preview} onClick={async()=>{
-                  setLoading(true); setOutput('');
-                  try{
-                    const r = await api.post('/ai/tools/execute',{ tenant_id: await getTenant(), name:'vision.inspect', params:{ tenant_id: await getTenant(), imageUrl: preview }, require_approval:false });
-                    setOutput(String(r?.brief||''));
-                  }catch(e:any){ setOutput(String(e?.message||e)); } finally{ setLoading(false); }
-                }}>Analyze selected</button>
-                <button className="border rounded-md px-3 py-1 bg-white hover:shadow-sm disabled:opacity-50" disabled={!preview} onClick={async()=>{
-                  setLoading(true); setOutput('');
-                  try{
-                    const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name: 'image.edit', params: { tenant_id: await getTenant(), mode: 'edit', prompt: 'Reduce glare; preserve skin texture', imageUrl: preview, outputFormat: 'png' }, require_approval: false });
-                    if (r?.preview_url) { setPreview(r.preview_url); setOutput('Edit complete.'); } else { setOutput(String(r?.detail||r?.status||'Edit failed')); }
-                  }catch(e:any){ setOutput(String(e?.message||e)); } finally { setLoading(false); }
-                }}>Quick edit</button>
-              </div>
-            </>
-          )}
-
-          {tab==='upload' && (
-            <textarea className="w-full border rounded-md px-3 py-2" rows={3} value={editPrompt} onChange={e=>setEditPrompt(e.target.value)} />
-          )}
+          <textarea className="w-full border rounded-md px-3 py-2" rows={3} value={editPrompt} onChange={e=>setEditPrompt(e.target.value)} />
         </div>
       </div>
 
