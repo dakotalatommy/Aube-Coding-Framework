@@ -71,6 +71,8 @@ export default function DemoIntake(){
 
   const saveSettingsPartial = async (key: string, value: string) => {
     try {
+      const session = (await supabase.auth.getSession()).data.session;
+      if (!session?.access_token) return; // skip if not authenticated (demo)
       const tid = await getTenant();
       if (!tid) return; // skip if not authenticated
       const current = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
@@ -101,15 +103,18 @@ export default function DemoIntake(){
     setInput(String((profile||{})[intakeQuestions[nextIdx]?.key] || ''));
     if (nextIdx >= intakeQuestions.length) {
       try { track('intake_complete'); } catch {}
-      // Finalize: ensure both brand_profile and preferences are persisted
+      // Finalize: ensure both brand_profile and preferences are persisted when authenticated; otherwise skip
       try {
-        const tid = await getTenant();
-        if (tid) {
-          const current = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
-          const data = current?.data || {};
-          const brand_profile = { ...(data.brand_profile||{}), name: (profile as any).brand || val, voice: (profile as any).tone || data.brand_profile?.voice };
-          const preferences = { ...(data.preferences||{}), booking_provider: (profile as any).booking || data.preferences?.booking_provider };
-          await api.post('/settings', { tenant_id: tid, brand_profile, preferences });
+        const session = (await supabase.auth.getSession()).data.session;
+        if (session?.access_token) {
+          const tid = await getTenant();
+          if (tid) {
+            const current = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+            const data = current?.data || {};
+            const brand_profile = { ...(data.brand_profile||{}), name: (profile as any).brand || val, voice: (profile as any).tone || data.brand_profile?.voice };
+            const preferences = { ...(data.preferences||{}), booking_provider: (profile as any).booking || data.preferences?.booking_provider };
+            await api.post('/settings', { tenant_id: tid, brand_profile, preferences });
+          }
         }
       } catch {}
       try { await api.post('/onboarding/email-owner', { profile: { ...profile, [key]: val }, source: 'demo' }); } catch {}
