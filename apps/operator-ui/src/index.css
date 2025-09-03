@@ -94,6 +94,13 @@ body { font-size: var(--fs-body); font-weight: 500; }
 a { color: var(--primary); text-decoration: none; }
 a:hover { color: var(--primary-600); }
 
+/* Scoped override: keep left dock nav buttons black and filled */
+[aria-label="Primary navigation"] a,
+[aria-label="Primary navigation"] a:hover,
+[aria-label="Primary navigation"] a:focus {
+  color: inherit !important;
+}
+
 /* Controls */
 button, input, select, textarea { font-family: inherit; font-size: 14px; }
 

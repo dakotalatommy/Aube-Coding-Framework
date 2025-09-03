@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase';
 import Button, { ButtonLink } from '../components/ui/Button';
 import { api, getTenant } from '../lib/api';
 import { runUIAction } from '../lib/actions';
-import { track, trackEvent } from '../lib/analytics';
+import { trackEvent } from '../lib/analytics';
 import { motion } from 'framer-motion';
 import { useToast } from '../components/ui/Toast';
 import { startGuide } from '../lib/guide';
@@ -311,7 +311,7 @@ export default function Dashboard(){
       )}
       {/* Referral card below the top trial banner */}
       {refLink && (
-        <section className="px-0">
+        <section className="px-0" data-guide="referral">
           <div className="max-w-md mx-auto rounded-2xl px-3 py-1 bg-white shadow-sm">
             <div className="text-[11px] text-slate-700 mb-1 text-center">Your referral link</div>
             <div className="flex items-center gap-2">
@@ -384,17 +384,17 @@ export default function Dashboard(){
       </section>
       
       {/* Micro-wins and quick wins CTAs removed per UI trim */}
-      {/* Quick Start 3 workflows (stacked vertically) */}
-      <section className="rounded-2xl p-2 bg-white border border-white/60 shadow-sm">
-        <h4 className="text-base md:text-[17px] font-semibold text-slate-900 text-center">Quick Start · 3 workflows</h4>
+      {/* Quick Start 3 WorkStyles (stacked vertically) */}
+      <section className="rounded-2xl p-2 bg-white border border-white/60 shadow-sm" data-guide="quickstart">
+        <h4 className="text-base md:text-[17px] font-semibold text-slate-900 text-center">Quick Start · 3 WorkStyles</h4>
         <div className="mt-2 max-w-sm mx-auto grid gap-2">
           <Button size="sm" variant="outline" className="w-full" onClick={()=> runUIAction('workflows.run.social_plan')}>Run 14‑day Social</Button>
           <Button size="sm" variant="outline" className="w-full" onClick={()=> runUIAction('workflows.run.wow10')}>Run 10‑Minute Wow</Button>
-          <Button size="sm" variant="outline" className="w-full" onClick={()=> window.location.assign('/workspace?pane=workflows')}>Open Work Styles</Button>
+          <Button size="sm" variant="outline" className="w-full" onClick={()=> window.location.assign('/workspace?pane=workflows')}>Open WorkStyles</Button>
         </div>
       </section>
       {/* Today strip: one primary CTA */}
-      <section className="rounded-2xl p-3 bg-white border border-white/60 shadow-sm">
+      <section className="rounded-2xl p-3 bg-white border border-white/60 shadow-sm" data-guide="primary">
         <div className="flex items-center justify-between">
           <div className="text-sm font-semibold text-slate-900">Today</div>
           <div className="text-[11px] text-slate-500">{new Date().toLocaleDateString()}</div>

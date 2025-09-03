@@ -7,15 +7,17 @@ import { Table, THead, TR, TH, TD } from '../components/ui/Table';
 import EmptyState from '../components/ui/EmptyState';
 import Skeleton from '../components/ui/Skeleton';
 import ConfirmDialog from '../components/ui/ConfirmDialog';
+import Pager from '../components/ui/Pager';
 
 export default function Approvals(){
   const [items, setItems] = useState<any[]>([]);
-  const [page, setPage] = useState(0);
+  const [page, setPage] = useState(1);
   const pageSize = 6;
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(true);
   const [confirmAll, setConfirmAll] = useState<null | 'approve' | 'reject'>(null);
-  const [q, setQ] = useState('');
+  // Search removed in simplified To‑Do view
+  // const [q] = useState('');
   const [onlyPending, setOnlyPending] = useState(true);
   const [selected, setSelected] = useState<any|null>(null);
   const [labels, setLabels] = useState<Record<string,string>>({});
@@ -32,7 +34,7 @@ export default function Approvals(){
   const load = async () => {
     try{
       const tid = await getTenant();
-      if (!tid) { setAuthHint('Sign in to view approvals.'); setItems([]); return; }
+      if (!tid) { setAuthHint('Sign in to view your To‑Do.'); setItems([]); return; }
       const r = await api.get(`/approvals?tenant_id=${encodeURIComponent(tid)}`);
       // API returns an array; also support {items: []}
       setItems(Array.isArray(r) ? r : (r.items||[]));
@@ -45,7 +47,7 @@ export default function Approvals(){
     try{
       const r = await api.post('/approvals/action',{ tenant_id: await getTenant(), approval_id: Number(id), action: decision });
       setStatus(JSON.stringify(r));
-      try { trackEvent(decision==='approve' ? 'approvals.approve' : 'approvals.reject', { id: Number(id) }); } catch {}
+      try { trackEvent(decision==='approve' ? 'todo.approve' : 'todo.reject', { id: Number(id) }); } catch {}
       await load();
     } catch(e:any){ setStatus(String(e?.message||e)); }
   };
@@ -107,7 +109,7 @@ export default function Approvals(){
       <div className="rounded-2xl p-4 bg-white/70 backdrop-blur border border-white/70 shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="text-slate-900 font-medium">Approval #{row.id}</div>
+            <div className="text-slate-900 font-medium">To‑Do #{row.id}</div>
             <div className="text-xs text-slate-600">{tool} • {row.status||'pending'}</div>
           </div>
           <div className="flex gap-2">
@@ -181,7 +183,7 @@ export default function Approvals(){
   return (
     <div className="space-y-3">
       <div className="flex items-center">
-        <h3 className="text-lg font-semibold">Approvals</h3>
+        <h3 className="text-lg font-semibold">To‑Do</h3>
         <Button variant="outline" size="sm" className="ml-auto" onClick={()=> startGuide('approvals')}>Guide me</Button>
       </div>
       <div className="text-xs text-slate-600">When BrandVX needs your OK for an action, it shows up here. Review the details and Approve or Reject.</div>
@@ -221,7 +223,6 @@ export default function Approvals(){
         </div>
       )}
       <div className="flex flex-wrap items-center gap-2 text-sm" data-guide="filters">
-        <input className="border rounded-md px-2 py-1 bg-white" placeholder="Search…" value={q} onChange={e=>setQ(e.target.value)} />
         <label className="flex items-center gap-2 text-xs text-slate-700"><input type="checkbox" checked={onlyPending} onChange={e=>setOnlyPending(e.target.checked)} /> Show only pending</label>
       </div>
       <pre className="whitespace-pre-wrap text-sm text-slate-700">{status}</pre>
@@ -245,14 +246,9 @@ export default function Approvals(){
           <Skeleton className="h-32" />
         </div>
       ) : (
-      (items.filter(f=> (onlyPending ? (f.status||'pending')==='pending' : true) && (q? JSON.stringify(f).toLowerCase().includes(q.toLowerCase()): true)).length === 0) ? (
+      (items.filter(f=> (onlyPending ? (f.status||'pending')==='pending' : true)).length === 0) ? (
         <div className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
-          <EmptyState title="No approvals waiting" description="When VX needs your OK, it will show here. In the meantime, you can set up your Work Styles or run a quick action." />
-          <div className="mt-3 flex flex-wrap gap-2 text-sm">
-            <Button variant="outline" onClick={()=> window.location.assign('/workspace?pane=workflows')}>Set up Work Styles</Button>
-            <Button variant="outline" onClick={()=> window.location.assign('/workspace?pane=workflows&step=1')}>Open Actions</Button>
-            <Button variant="outline" onClick={()=> window.location.assign('/workspace?pane=integrations')}>Connect tools</Button>
-          </div>
+          <EmptyState title="No To‑Do items" description="When VX needs your OK, items will appear here." />
         </div>
       ) : (
         <>
@@ -265,12 +261,14 @@ export default function Approvals(){
               <TR><TH>ID</TH><TH>Status</TH><TH>Type</TH><TH>Payload</TH><TH>Action</TH></TR>
             </THead>
             <tbody>
-              {items.filter(f=> (onlyPending ? (f.status||'pending')==='pending' : true) && (q? JSON.stringify(f).toLowerCase().includes(q.toLowerCase()): true)).slice(page*pageSize, (page+1)*pageSize).map((r:any)=> (
+              {items.filter(f=> (onlyPending ? (f.status||'pending')==='pending' : true)).slice((page-1)*pageSize, page*pageSize).map((r:any)=> (
                 <TR key={r.id} onClick={()=> setSelected(r)} className={selected?.id===r.id ? 'bg-pink-50/50' : undefined}>
                   <TD>{r.id}</TD>
                   <TD>{r.status||'pending'}</TD>
                   <TD>{humanTool(r)}</TD>
-                  <TD><code className="text-xs">{JSON.stringify(r.params||r.payload)}</code></TD>
+                  <TD>
+                    <code className="text-xs truncate block max-w-[22rem]" title={JSON.stringify(r.params||r.payload)}>{JSON.stringify(r.params||r.payload)}</code>
+                  </TD>
                   <TD>
                     <div className="flex gap-2">
                       <Button variant="outline" onClick={()=>act(r.id,'approve')}>Approve</Button>
@@ -281,6 +279,13 @@ export default function Approvals(){
               ))}
             </tbody>
           </Table>
+          <Pager
+            page={page}
+            pageSize={pageSize}
+            total={items.filter(f=> (onlyPending ? (f.status||'pending')==='pending' : true)).length}
+            onPrev={()=> setPage(p=> Math.max(1, p-1))}
+            onNext={()=> setPage(p=> ((p*pageSize) < items.filter(f=> (onlyPending ? (f.status||'pending')==='pending' : true)).length ? p+1 : p))}
+          />
           {selected && (
             <div className="mt-4" data-guide="details">
               <ItemDetails row={selected} />

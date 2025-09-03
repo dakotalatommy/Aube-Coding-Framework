@@ -1,5 +1,3 @@
-import React from 'react';
-
 type Status = 'connected' | 'configured' | 'pending';
 
 export default function StatusBadge({ status, label, warn }: { status: Status; label?: string; warn?: boolean }){

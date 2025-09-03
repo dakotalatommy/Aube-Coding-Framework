@@ -47,7 +47,7 @@ export const UI_STRINGS = {
       generic: 'Something went wrong. Please try again.'
     },
     notes: {
-      manageAnytime: 'You can change this anytime in Settings/Connections.',
+      manageAnytime: 'You can change this anytime in Settings.',
       smsRates: 'Standard messaging rates may apply.'
     }
   },
@@ -108,7 +108,7 @@ export const UI_STRINGS = {
       copy: 'Copy to clipboard',
       copyRecipients: 'Copy recipients',
       copyMessage: 'Copy message',
-      saveToApprovals: 'Save to Approvals (review later)',
+      saveToApprovals: 'Save to To‑Do (review later)',
       markAsSent: 'Mark as sent',
       draftForMe: 'Draft for me',
       simulateSms: 'Simulate SMS (respects STOP/HELP)',

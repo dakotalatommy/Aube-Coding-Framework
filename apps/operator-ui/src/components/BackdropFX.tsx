@@ -33,22 +33,21 @@ export function BackdropFX({ withSpline = false, modelUrl }: BackdropFXProps) {
         }}
       />
 
-      {/* Powdery radial accents (blue + pink) */}
+      {/* Powdery radial accents — remove pink to avoid tile tint */}
       <div
         className="absolute inset-0"
         style={{
           background: [
-            'radial-gradient(600px 280px at 18% 20%, rgba(96,165,250,0.43), transparent 65%)',
-            'radial-gradient(520px 240px at 85% 28%, rgba(236,72,153,0.30), transparent 65%)',
+            'radial-gradient(600px 280px at 18% 20%, rgba(96,165,250,0.28), transparent 65%)',
           ].join(', '),
         }}
       />
 
-      {/* Very subtle aurora to add depth (kept extremely light) */}
+      {/* Very subtle aurora to add depth (kept extremely light) — remove pink stop to avoid tinting */}
       <div
-        className="absolute inset-0 opacity-[0.08] blur-3xl"
+        className="absolute inset-0 opacity-[0.06] blur-3xl"
         style={{
-          background: 'conic-gradient(from 180deg at 50% 50%, #60a5fa, #f472b6, #60a5fa)',
+          background: 'conic-gradient(from 180deg at 50% 50%, #60a5fa, #93c5fd, #60a5fa)',
         }}
       />
 

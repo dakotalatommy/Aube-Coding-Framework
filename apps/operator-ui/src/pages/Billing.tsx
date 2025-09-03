@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
@@ -10,6 +10,7 @@ export default function Billing(){
   const navigate = useNavigate();
   const [sp] = useSearchParams();
   const [clientSecret, setClientSecret] = useState<string>('');
+  const lastGoodSecret = useRef<string>('');
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string>('');
 
@@ -20,19 +21,26 @@ export default function Billing(){
 
   useEffect(()=>{
     let mounted = true;
+    const ctrl = new AbortController();
     (async()=>{
       try {
         setLoading(true);
-        const resp = await api.post('/billing/create-setup-intent', {});
+        setError('');
+        const resp = await api.post('/billing/create-setup-intent', {}, { signal: (ctrl as any).signal });
         if (!mounted) return;
-        setClientSecret(resp?.client_secret || '');
+        const sec = String(resp?.client_secret||'');
+        if (sec) { setClientSecret(sec); lastGoodSecret.current = sec; }
+        else {
+          setError('Billing is misconfigured: setup intent missing client_secret.');
+        }
       } catch (e: any) {
+        if (!mounted) return;
         setError(e?.message || 'Failed to initialize billing.');
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     })();
-    return ()=>{ mounted = false; };
+    return ()=>{ mounted = false; try{ (ctrl as any).abort?.(); }catch{} };
   },[]);
 
   const success = sp.get('success') === '1';
@@ -47,6 +55,10 @@ export default function Billing(){
       </div>
     );
   }
+
+  const effectiveSecret = clientSecret || lastGoodSecret.current;
+  const maskedPk = publishableKey ? `${publishableKey.slice(0,6)}…${publishableKey.slice(-4)}` : '';
+  const showDiag = !!error || new URLSearchParams(window.location.search).has('dev');
 
   return (
     <div className="max-w-lg mx-auto">
@@ -65,15 +77,21 @@ export default function Billing(){
         {error && (
           <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50/60 text-rose-800 px-3 py-2 text-sm">{error}</div>
         )}
+        {showDiag && (
+          <div className="mt-2 text-[11px] text-slate-600">
+            <div>Stripe publishable: {maskedPk || 'missing'}</div>
+            <div>SetupIntent secret present: {effectiveSecret ? 'yes' : 'no'}</div>
+          </div>
+        )}
         <div className="mt-5">
-          {loading || !clientSecret || !stripePromise ? (
+          {loading || !effectiveSecret || !stripePromise ? (
             <div className="animate-pulse">
               <div className="h-10 w-full rounded-xl bg-slate-100" />
               <div className="h-10 w-full mt-3 rounded-xl bg-slate-100" />
               <div className="h-10 w-40 mt-4 rounded-xl bg-slate-100" />
             </div>
           ) : (
-            <Elements stripe={stripePromise!} options={{ clientSecret, appearance: { theme: 'flat' } }}>
+            <Elements key={effectiveSecret} stripe={stripePromise!} options={{ clientSecret: effectiveSecret, appearance: { theme: 'flat' } }}>
               <PaymentSetupForm onSuccess={()=>{
                 try { localStorage.setItem('bvx_billing_added','1'); } catch {}
                 try { track('billing_submit', { method: 'setup_intent' }); } catch {}

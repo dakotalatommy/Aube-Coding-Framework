@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 // import { useNavigate } from 'react-router-dom';
 import { api, getTenant } from '../lib/api';
+import { startGuide } from '../lib/guide';
 import { useToast } from '../components/ui/Toast';
 import { track, trackEvent } from '../lib/analytics';
 import { motion } from 'framer-motion';
@@ -185,23 +186,6 @@ export default function Ask(){
     } catch(e:any){ showToast({ title:'Save error', description:String(e?.message||e) }); }
     finally { setTrainerSaving(false); }
   };
-  const auditPII = async () => {
-    try{
-      if (!lastAssistantText) { showToast({ title:'Nothing to audit', description:'Ask a question first.' }); return; }
-      const r = await api.post('/ai/tools/execute', {
-        tenant_id: await getTenant(),
-        name: 'pii.audit',
-        params: { tenant_id: await getTenant(), text: lastAssistantText },
-        require_approval: false,
-      });
-      if (r?.review) {
-        showToast({ title:'PII/Compliance review', description:'Suggestions below.' });
-        setMessages(curr => [...curr, { role:'assistant', content: String(r.review) }]);
-      } else {
-        showToast({ title:'Audit complete', description: 'No issues found or no review text.' });
-      }
-    } catch(e:any){ showToast({ title:'Audit error', description:String(e?.message||e) }); }
-  };
   const summarizeSession = async () => {
     try{
       if (summarizing) return;
@@ -233,6 +217,8 @@ export default function Ask(){
   const askIsDemo = sp.get('demo') === '1';
   const initialPage = sp.get('page') === '2' ? 1 : 0;
   const [pageIdx, setPageIdx] = useState<number>(initialPage);
+  // Deep link tour
+  useEffect(()=>{ try{ if (new URLSearchParams(window.location.search).get('tour')==='1') startGuide('askvx'); } catch {} },[]);
 
   return (
     <div className={`h-full min-h-0 flex flex-col min-w-0 overflow-x-hidden`}>
@@ -249,7 +235,7 @@ export default function Ask(){
         <div className="flex items-center justify-between">
           <h3 className="text-xl font-semibold" style={{fontFamily:'var(--font-display)'}}>Brand&nbsp;VX</h3>
           <div className="flex items-center gap-2">
-            <div className="inline-flex rounded-md border bg-white overflow-hidden">
+            <div className="inline-flex rounded-full bg-white overflow-hidden shadow-sm">
               <button className={`px-3 py-1 text-sm ${pageIdx===0? 'bg-slate-900 text-white':'text-slate-700'}`} onClick={()=> setPageIdx(0)}>Chat</button>
               <button className={`px-3 py-1 text-sm ${pageIdx===1? 'bg-slate-900 text-white':'text-slate-700'}`} onClick={()=> setPageIdx(1)}>Train & Profile</button>
             </div>
@@ -263,14 +249,14 @@ export default function Ask(){
       )}
       {/* "This week" section removed */}
       {pageIdx===0 && (
-      <div className={`grid ${embedded ? 'grid-cols-3' : 'grid-cols-3'} items-center gap-2 text-sm`}>
-        <div className="flex items-center gap-2">
+      <div className={`grid ${embedded ? 'grid-cols-3' : 'grid-cols-3'} items-center gap-2 text-sm`} data-guide="toolbar">
+        <div className="flex items-center gap-2" data-guide="history">
           <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ setHistoryOpen(h=>!h); if (!historyOpen) void loadHistory(); }}>{historyOpen ? 'Hide history' : 'Show history'}</button>
           <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ const sid = 's_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('bvx_chat_session', sid); window.location.reload(); }}>New session</button>
           {/* Sessions button removed */}
         </div>
         <div className="flex items-center">
-          <div className="font-semibold" style={{fontFamily:'var(--font-display)'}}>Ask VX</div>
+          <div className="font-semibold" style={{fontFamily:'var(--font-display)', fontSize:'calc(1em + 8px)'}}>Ask VX</div>
         </div>
         <div className="flex items-center justify-end" />
       </div>
@@ -287,7 +273,7 @@ export default function Ask(){
         </div>
       )}
       {pageIdx===0 && (
-      <div className={`rounded-xl bg-white shadow-sm p-3 border flex-1 min-h-0 overflow-auto min-w-0`} aria-live="polite" aria-atomic="false" role="log">
+      <div className={`rounded-xl bg-white shadow-sm p-3 border flex-1 min-h-0 overflow-auto min-w-0`} aria-live="polite" aria-atomic="false" role="log" data-guide="messages">
         {messages.length === 0 && (
           <div className="text-sm text-slate-500">Start a conversation below.</div>
         )}
@@ -323,13 +309,9 @@ export default function Ask(){
         </div>
       </div>
       )}
-      {pageIdx===0 && (
-        <div className="mt-2 text-right">
-          <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm text-xs" onClick={auditPII}>Audit PII</button>
-        </div>
-      )}
+      {/* Audit PII button removed per spec */}
       {pageIdx===0 && smartAction && (
-        <div className="mt-2">
+        <div className="mt-2" data-guide="smart-action">
           <button className="px-3 py-1.5 text-xs rounded-full border bg-white hover:shadow-sm" onClick={runSmartAction} disabled={toolRunning}>
             {toolRunning ? 'Running…' : smartAction.label}
           </button>
@@ -344,7 +326,7 @@ export default function Ask(){
         </div>
       )}
       {pageIdx===0 && digest && (
-        <div className="mt-2 rounded-xl bg-white shadow-sm p-3 border text-xs text-slate-700">
+        <div className="mt-2 rounded-xl bg-white shadow-sm p-3 border text-xs text-slate-700" data-guide="digest">
           <div className="font-medium text-slate-900 text-sm mb-1">Since your last visit</div>
           <div className="flex flex-wrap gap-3">
             <span>Contacts: +{Number(digest.contacts_added||0)} added, {Number(digest.contacts_updated||0)} updated</span>
@@ -366,7 +348,7 @@ export default function Ask(){
       )}
       {/* Last session summary moved to bottom and auto-populated */}
       {pageIdx===0 && (
-      <div className={`flex gap-2 items-start ${embedded ? 'shrink-0' : 'shrink-0'} pb-[max(env(safe-area-inset-bottom,0px),0px)]`}>
+      <div className={`flex gap-2 items-start ${embedded ? 'shrink-0' : 'shrink-0'} pb-[max(env(safe-area-inset-bottom,0px),0px)]`} data-guide="composer">
         <textarea
           className={`flex-1 border rounded-md px-3 py-2 ${embedded ? 'min-h-[120px]' : ''}`}
           rows={3}

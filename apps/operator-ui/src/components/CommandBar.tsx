@@ -15,12 +15,12 @@ export default function CommandBar(){
   const allActionIds = useMemo(()=> listActions(), []);
   const suggestions = useMemo(()=>{
     const q = query.trim().toLowerCase();
+    if (!q) return [] as string[]; // Disable automatic suggestions
     const ids = allActionIds
-      .filter(id=> id.startsWith('nav.') || id.startsWith('guide.') || id.startsWith('workflows.run.') || id.startsWith('integrations.'))
+      .filter(id=> id.toLowerCase().includes(q))
       .slice(0, 50);
     const filtered = ids.filter(id=> id !== 'workflows.run.wow10');
-    if (!q) return filtered.slice(0, 6);
-    return filtered.filter(id=> id.toLowerCase().includes(q)).slice(0, 6);
+    return filtered.slice(0, 6);
   }, [allActionIds, query]);
 
   function requiresApproval(id: string): boolean {

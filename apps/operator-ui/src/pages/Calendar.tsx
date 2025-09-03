@@ -4,18 +4,23 @@ import { startGuide } from '../lib/guide';
 import { UI_STRINGS } from '../lib/strings';
 import Skeleton from '../components/ui/Skeleton';
 import { useToast } from '../components/ui/Toast';
+import EmptyState from '../components/ui/EmptyState';
+import Pager from '../components/ui/Pager';
 
 export default function Calendar(){
-  const { toastSuccess, toastError } = useToast();
+  const { toastSuccess, toastError, showToast } = useToast();
   const [events, setEvents] = useState<any[]>([]);
   const [lastSync, setLastSync] = useState<Record<string, any>>({});
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('');
   const [provider, setProvider] = useState<string>('all');
   const [merged, setMerged] = useState<number>(0);
+  const [page, setPage] = useState<number>(1);
+  const pageSize = 12;
   const [lastAnalyzed, setLastAnalyzed] = useState<number|undefined>(undefined);
   const [showApple, setShowApple] = useState<boolean>(false);
   const [lastUpdated, setLastUpdated] = useState<number>(0);
+  const [actionBusy, setActionBusy] = useState<boolean>(false);
   useEffect(()=>{
     (async()=>{ try{ const r = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`); setEvents(r?.events||[]); setLastSync(r?.last_sync||{}); setLastUpdated(Date.now()); } finally{ setLoading(false); } })();
   },[]);
@@ -39,6 +44,35 @@ export default function Calendar(){
     setEvents(l?.events||[]);
     try { showToast({ title:'Merged bookings' }); } catch {}
     setLastUpdated(Date.now());
+  };
+  const reschedule = async (evt:any, deltaMin:number) => {
+    try{
+      setActionBusy(true);
+      const start = Number(evt.start_ts||0) + deltaMin*60;
+      const payload:any = { tenant_id: await getTenant(), start_ts: start };
+      if (evt.provider && evt.id) { payload.provider = String(evt.provider); payload.provider_event_id = String(evt.id); }
+      else if (evt.external_ref) { payload.external_ref = String(evt.external_ref); }
+      const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'calendar.reschedule', params: payload, require_approval: true });
+      if (r?.status==='ok' || r?.status==='pending') { try { toastSuccess('Rescheduled', 'Queued'); } catch {} }
+      else { try { toastError('Reschedule failed', String(r?.status||'error')); } catch {} }
+      const l = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`);
+      setEvents(l?.events||[]); setLastUpdated(Date.now());
+    }catch(e:any){ try{ toastError('Reschedule failed', String(e?.message||e)); }catch{} }
+    finally{ setActionBusy(false); }
+  };
+  const cancel = async (evt:any) => {
+    try{
+      setActionBusy(true);
+      const payload:any = { tenant_id: await getTenant() };
+      if (evt.provider && evt.id) { payload.provider = String(evt.provider); payload.provider_event_id = String(evt.id); }
+      else if (evt.external_ref) { payload.external_ref = String(evt.external_ref); }
+      const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'calendar.cancel', params: payload, require_approval: true });
+      if (r?.status==='ok' || r?.status==='pending') { try { toastSuccess('Canceled', 'Queued'); } catch {} }
+      else { try { toastError('Cancel failed', String(r?.status||'error')); } catch {} }
+      const l = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`);
+      setEvents(l?.events||[]); setLastUpdated(Date.now());
+    }catch(e:any){ try{ toastError('Cancel failed', String(e?.message||e)); }catch{} }
+    finally{ setActionBusy(false); }
   };
   if (loading) return (
     <div className="space-y-3">
@@ -64,12 +98,19 @@ export default function Calendar(){
       {!!lastUpdated && (
         <div className="text-[11px] text-slate-500">Updated {new Date(lastUpdated).toLocaleTimeString()}</div>
       )}
-      {/* Simple weekly grid (visual aid) */}
-      <div className="rounded-xl border bg-white p-3" role="table" aria-label="Weekly calendar">
-        <div className="grid grid-cols-7 gap-2 text-xs text-slate-600">
+      {/* Weekly plan band: 7 vertical sections with dividers (compact height) */}
+      <div className="rounded-xl border bg-white/90 backdrop-blur p-3 shadow-sm" role="region" aria-label="Weekly plan">
+        <div className="grid grid-cols-7 gap-2 text-xs text-slate-600 mb-2">
           {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=> <div key={d} className="text-center font-medium">{d}</div>)}
-          {Array.from({length:7}).map((_,i)=> (
-            <div key={i} className="min-h-[56px] rounded-md border bg-white/70" aria-label={`Day ${i+1}`}></div>
+        </div>
+        <div className="relative rounded-lg border bg-white overflow-hidden" style={{ height: 'min(14vh, 140px)' }}>
+          {Array.from({length:6}).map((_, i)=> (
+            <div
+              key={i}
+              aria-hidden
+              className="absolute top-0 bottom-0 bg-slate-400/50"
+              style={{ left: `${((i+1) * (100/7))}%`, width: '1px' }}
+            />
           ))}
         </div>
       </div>
@@ -114,13 +155,29 @@ export default function Calendar(){
           </EmptyState>
         ) : (
           <ul className="list-disc ml-5 text-sm text-slate-700">
-            {events.filter(e=> provider==='all' ? true : (e.provider||'')===provider).map((e,i)=> {
+            {events.filter(e=> provider==='all' ? true : (e.provider||'')===provider).slice((page-1)*pageSize, page*pageSize).map((e,i)=> {
               const raw = (e as any)?.start_ts;
               const tsNum = typeof raw === 'number' ? raw : Number(raw);
               const dateStr = isFinite(tsNum) && tsNum > 0 ? new Date(tsNum * (tsNum < 1e12 ? 1000 : 1)).toLocaleString() : String(raw||'');
-              return (<li key={i}>{e.title} — {dateStr}{e.provider ? ` · ${e.provider}` : ''}</li>);
+              return (
+                <li key={i} className="truncate flex items-center gap-2" title={`${e.title} — ${dateStr}`}>
+                  <span className="flex-1 min-w-0">{e.title} — {dateStr}{e.provider ? ` · ${e.provider}` : ''}</span>
+                  <button disabled={actionBusy} className="px-2 py-0.5 rounded-md border bg-white disabled:opacity-50" onClick={()=> reschedule(e, 15)}>+15m</button>
+                  <button disabled={actionBusy} className="px-2 py-0.5 rounded-md border bg-white disabled:opacity-50" onClick={()=> reschedule(e, -15)}>-15m</button>
+                  <button disabled={actionBusy} className="px-2 py-0.5 rounded-md border bg-white disabled:opacity-50" onClick={()=> cancel(e)}>Cancel</button>
+                </li>
+              );
             })}
           </ul>
+        )}
+        {events.filter(e=> provider==='all' ? true : (e.provider||'')===provider).length>pageSize && (
+          <Pager
+            page={page}
+            pageSize={pageSize}
+            total={events.filter(e=> provider==='all' ? true : (e.provider||'')===provider).length}
+            onPrev={()=> setPage(p=> Math.max(1, p-1))}
+            onNext={()=> setPage(p=> ((p*pageSize) < events.filter(e=> provider==='all' ? true : (e.provider||'')===provider).length ? p+1 : p))}
+          />
         )}
       </div>
       <div className="flex flex-wrap gap-2 text-xs text-slate-700">
@@ -136,7 +193,7 @@ export default function Calendar(){
         <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={mergeDupes}>{UI_STRINGS.ctas.secondary.deduplicate}</button>
       </div>
       {merged>0 && <div className="text-xs text-emerald-700">Removed {merged} duplicates.</div>}
-      <div className="text-[11px] text-amber-700">Some actions may require approval when auto-approve is off. Review in Approvals.</div>
+      <div className="text-[11px] text-amber-700">Some actions may require review when auto-approve is off. Check your To‑Do.</div>
       {status && <pre aria-live="polite" className="text-xs text-slate-700 whitespace-pre-wrap">{status}</pre>}
     </div>
   );

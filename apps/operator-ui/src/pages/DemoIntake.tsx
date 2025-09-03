@@ -1,9 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { track } from '../lib/analytics';
 import { supabase } from '../lib/supabase';
 import { api, getTenant } from '../lib/api';
-
-type Msg = { role: 'user'|'assistant'; content: string };
 
 // Trim to 3 highest-signal questions for a faster intake
 const intakeQuestions = [
@@ -18,22 +16,19 @@ const choiceBank: Record<string, string[]> = {
 };
 
 export default function DemoIntake(){
-  const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
-  const [busy, setBusy] = useState(false);
+  const busy = false;
   const [idx, setIdx] = useState(0);
-  const [freePromptsLeft, setFreePromptsLeft] = useState<number>(()=> 5);
   const [profile, setProfile] = useState<Record<string,string>>(()=>{
     try { return JSON.parse(localStorage.getItem('bvx_demo_profile')||'{}'); } catch { return {}; }
   });
-  const started = useRef(false);
 
   useEffect(()=>{
-    if (started.current) return;
-    started.current = true;
     try { track('intake_start'); } catch {}
-    pushAssistant("Quick intro for your demo. I’ll ask a few questions and then you can chat with me. You can skip anytime.");
-    setTimeout(()=> pushAssistant(intakeQuestions[0].q), 250);
+    // Prefill input if saved
+    const k = intakeQuestions[0].key;
+    const v = (profile||{})[k] || '';
+    setInput(String(v));
   }, []);
 
   // Ensure any persisted floater state is off on demo
@@ -68,90 +63,71 @@ export default function DemoIntake(){
     void saveRemote(next);
   };
 
-  const pushAssistant = (text: string) => setMessages(m=>[...m,{role:'assistant',content:text}]);
-  const pushUser = (text: string) => setMessages(m=>[...m,{role:'user',content:text}]);
+  const persistAnswer = (key: string, value: string) => {
+    const next = { ...profile, [key]: value } as Record<string,string>;
+    setProfile(next);
+    saveProfile(next);
+  };
 
-  const handleSend = async () => {
-    const text = input.trim();
-    if (!text || busy) return;
-    setInput('');
-    pushUser(text);
-    setBusy(true);
-    try{
-      // If still in scripted intake, either answer an on-the-fly question or capture the scripted answer
-      if (idx < intakeQuestions.length){
-        // Hybrid: if the user asks a question mid‑intake, answer openly and do not advance index
-        if (/[?？]\s*$/.test(text)) {
-          try {
-            const r = await api.post('/ai/chat/raw', {
-              tenant_id: await getTenant(),
-              messages: [ { role:'user', content: text } ],
-              session_id: 'demo_open_q',
-            }, { timeoutMs: 20000 });
-            const reply = String((r as any)?.text || '').trim();
-            pushAssistant(reply || 'Thanks!');
-          } catch(e:any){
-            pushAssistant(String(e?.message||e));
-          } finally {
-            setBusy(false);
-          }
-          return;
-        }
-        const key = intakeQuestions[idx].key;
-        const next = { ...profile, [key]: text } as Record<string,string>;
-        setProfile(next); saveProfile(next);
-        try { track('intake_field',{ key }); } catch {}
-        const nextIdx = idx + 1;
-        setIdx(nextIdx);
-        if (nextIdx < intakeQuestions.length) {
-          // Keep intake snappy: advance to the next scripted question without AI
-          pushAssistant(intakeQuestions[nextIdx].q);
-        } else {
-          pushAssistant('Perfect. Thanks! Ask me a few quick questions about BrandVX — I’ll keep it brief.');
-          try { track('intake_complete'); } catch {}
-          try {
-            // Best-effort: email owner with demo intake profile (if backend endpoint exists)
-            await api.post('/onboarding/email-owner', { profile: next, source: 'demo' });
-          } catch {}
-          void saveRemote(next);
-        }
-        setBusy(false);
-        return;
+  const saveSettingsPartial = async (key: string, value: string) => {
+    try {
+      const tid = await getTenant();
+      if (!tid) return; // skip if not authenticated
+      const current = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+      const data = current?.data || {};
+      if (key === 'brand') {
+        const brand_profile = { ...(data.brand_profile||{}), name: value };
+        await api.post('/settings', { tenant_id: tid, brand_profile });
+      } else if (key === 'booking') {
+        const preferences = { ...(data.preferences||{}), booking_provider: value };
+        await api.post('/settings', { tenant_id: tid, preferences });
+      } else if (key === 'tone') {
+        const brand_profile = { ...(data.brand_profile||{}), voice: value };
+        await api.post('/settings', { tenant_id: tid, brand_profile });
       }
-      // Post‑intake: power replies via AskVX in open mode with a 5-turn cap
-      if (freePromptsLeft > 0) {
-        const r = await api.post('/ai/chat/raw', {
-          tenant_id: await getTenant(),
-          messages: [ { role:'user', content: text } ],
-          session_id: 'demo_open',
-        }, { timeoutMs: 20000 }).catch(async ()=>{
-          return await api.post('/ai/chat/raw', {
-            tenant_id: await getTenant(),
-            messages: [ { role:'user', content: text } ],
-            session_id: 'demo_open_r1',
-          }, { timeoutMs: 20000 });
-        });
-        const reply = String((r as any)?.text || '').trim();
-        pushAssistant(reply || 'Thanks!');
-        setFreePromptsLeft(freePromptsLeft-1);
-        setBusy(false);
-        return;
-      }
-      pushAssistant('Tap “Create your BrandVX” to continue the full tour.');
-    } catch(e:any){
-      pushAssistant(String(e?.message||e));
-    } finally {
-      setBusy(false);
+    } catch {}
+  };
+
+  const nextStep = async () => {
+    if (busy) return;
+    const key = intakeQuestions[idx].key;
+    const val = (profile||{})[key] || input.trim();
+    if (!val) return; // require answer
+    persistAnswer(key, val);
+    void saveSettingsPartial(key, val);
+    const nextIdx = idx + 1;
+    setIdx(nextIdx);
+    try { track('intake_field',{ key }); } catch {}
+    setInput(String((profile||{})[intakeQuestions[nextIdx]?.key] || ''));
+    if (nextIdx >= intakeQuestions.length) {
+      try { track('intake_complete'); } catch {}
+      // Finalize: ensure both brand_profile and preferences are persisted
+      try {
+        const tid = await getTenant();
+        if (tid) {
+          const current = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+          const data = current?.data || {};
+          const brand_profile = { ...(data.brand_profile||{}), name: (profile as any).brand || val, voice: (profile as any).tone || data.brand_profile?.voice };
+          const preferences = { ...(data.preferences||{}), booking_provider: (profile as any).booking || data.preferences?.booking_provider };
+          await api.post('/settings', { tenant_id: tid, brand_profile, preferences });
+        }
+      } catch {}
+      try { await api.post('/onboarding/email-owner', { profile: { ...profile, [key]: val }, source: 'demo' }); } catch {}
+      void saveRemote({ ...profile, [key]: val });
+      // Land in demo workspace
+      window.location.assign('/workspace?pane=dashboard&demo=1&tour=1');
     }
   };
 
-  const skip = () => {
-    try { track('intake_skip'); } catch {}
-    setIdx(intakeQuestions.length);
-    pushAssistant('No problem. Ask me two quick questions about BrandVX, then we’ll start your guided demo.');
+  const prevStep = () => {
+    if (busy) return;
+    const prev = Math.max(0, idx - 1);
+    setIdx(prev);
+    const pk = intakeQuestions[prev].key;
+    setInput(String((profile||{})[pk] || ''));
   };
 
-  const tz = useMemo(()=> Intl.DateTimeFormat().resolvedOptions().timeZone, []);
+  // skip removed: intake is required before entering demo
 
   return (
     <div className="min-h-[100svh] demo-svh relative overflow-hidden bg-white">
@@ -163,79 +139,33 @@ export default function DemoIntake(){
       `}</style>
       {/* Removed duplicate full-screen overlay to avoid double Ask UI; using inline panel below */}
       <div aria-hidden className="absolute inset-0 -z-10 bg-white" />
-      <div aria-hidden className="absolute inset-0 -z-10" style={{
-        background: 'radial-gradient(900px 400px at 10% -10%, rgba(236,72,153,0.10), transparent), radial-gradient(800px 300px at 90% -20%, rgba(99,102,241,0.12), transparent)'
-      }} />
-      <div className="max-w-6xl mx-auto px-4 py-6 h-full overflow-hidden flex flex-col pb-[max(env(safe-area-inset-bottom,0px),12px)]">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-semibold leading-tight" style={{fontFamily:'var(--font-display)'}}>Quick intro for your demo</h1>
-            <div className="text-sm text-slate-600 mt-0.5">We detected {tz}. You can adjust later.</div>
-          </div>
-          <div className="text-sm">
-            <a href="/login" className="text-slate-700 hover:underline">Already have BrandVX? Sign in</a>
-          </div>
-        </div>
+      <div className="max-w-[560px] mx-auto px-4 py-8 h-full overflow-hidden flex flex-col pb-[max(env(safe-area-inset-bottom,0px),12px)] items-center justify-center">
 
-        <div className="mt-5 grid grid-cols-12 gap-4 items-start flex-1 min-h-0">
-          <div className="col-span-12 md:col-span-5 lg:col-span-4 h-full">
-            <div className="h-full rounded-2xl border bg-white/80 backdrop-blur p-3 shadow-sm flex flex-col">
-              <div className="flex items-center justify-between mb-2">
-                <div className="font-medium text-slate-800">Ask VX</div>
-                {idx < intakeQuestions.length && (
-                  <button className="text-xs text-slate-600 hover:underline" onClick={skip}>Skip</button>
-                )}
+        {/* Single auth-sized card with prev/next stepper */}
+        <div className="w-full max-w-[560px] min-h-[560px] group rounded-2xl border-[3px] border-white/60 shadow-[0_24px_48px_-22px_rgba(0,0,0,0.25)] bg-white/70 backdrop-blur p-7 md:p-8 relative overflow-visible">
+          <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 w-full h-[120px] md:h-[140px] rounded-2xl blur-md opacity-70" style={{
+            background: 'radial-gradient(60% 140px at 20% 20%, rgba(236,72,153,0.14), transparent 70%), radial-gradient(60% 140px at 80% 20%, rgba(99,102,241,0.12), transparent 72%)'
+          }} />
+          <div aria-hidden className="pointer-events-none absolute -inset-2 rounded-2xl blur-md opacity-0 transition group-hover:opacity-100" style={{
+            background: 'radial-gradient(420px 180px at 20% -10%, rgba(236,72,153,0.18), transparent 60%), radial-gradient(480px 200px at 80% -15%, rgba(99,102,241,0.18), transparent 65%)'
+          }} />
+          <h1 className="text-[40px] md:text-[56px] leading-[1.05] font-extrabold text-slate-900 text-center">Quick demo setup</h1>
+          <div className="mt-6">
+            <div className="text-sm text-slate-700 mb-2">Step {idx+1} of {intakeQuestions.length}</div>
+            <div className="text-[16px] md:text-[18px] font-medium text-slate-900">{intakeQuestions[idx].q}</div>
+            {(choiceBank[intakeQuestions[idx].key]||[]).length>0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(choiceBank[intakeQuestions[idx].key]||[]).map((c)=> (
+                  <button key={c} className={'px-3 py-1.5 rounded-full border text-sm '+(input===c?'bg-slate-900 text-white':'bg-white text-slate-800')} onClick={()=> setInput(c)}>{c}</button>
+                ))}
               </div>
-              <div className="flex-1 min-h-0 overflow-auto rounded-md border bg-white p-3 text-sm">
-                {messages.length === 0 && (
-                  <div className="text-slate-500">I’ll ask a few questions to tailor your demo. You can skip anytime.</div>
-                )}
-                <div className="space-y-2">
-                  {messages.map((m,i)=> (
-                    <div key={i} className={m.role==='user'?'text-right':'text-left'}>
-                      <span className={'inline-block px-3 py-2 rounded-lg '+(m.role==='user'?'bg-sky-100 text-slate-900':'bg-slate-100 text-slate-900')}>{m.content}</span>
-                    </div>
-                  ))}
-                  {busy && (
-                    <div className="text-left" aria-live="polite" aria-atomic="true">
-                      <span className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-slate-100 text-slate-900">
-                        <span>BrandVX is typing</span>
-                        <span className="inline-flex ml-1 items-end">
-                          <span className="w-1.5 h-1.5 bg-slate-600 rounded-full animate-bounce [animation-delay:0ms]"></span>
-                          <span className="w-1.5 h-1.5 bg-slate-600 rounded-full ml-1 animate-bounce [animation-delay:150ms]"></span>
-                          <span className="w-1.5 h-1.5 bg-slate-600 rounded-full ml-1 animate-bounce [animation-delay:300ms]"></span>
-                        </span>
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-              {idx < intakeQuestions.length && (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {(choiceBank[intakeQuestions[idx].key]||[]).map((c)=> (
-                    <button key={c} className="px-3 py-1.5 rounded-full border bg-white text-slate-700 text-xs hover:shadow-sm"
-                      onClick={()=>{ if (!busy) { setInput(c); void handleSend(); } }}>
-                      {c}
-                    </button>
-                  ))}
-                </div>
-              )}
-              <div className="mt-2 flex gap-2 items-start shrink-0">
-                <textarea className="flex-1 border rounded-md px-3 py-2 max-h-24 overflow-auto" rows={2} placeholder="And type short answer here" value={input} onChange={e=>setInput(e.target.value)} onKeyDown={(e)=>{ if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } if (e.key==='Enter' && (e.metaKey||e.ctrlKey)) { e.preventDefault(); handleSend(); } }} />
-                <button className="rounded-full px-4 py-2 bg-gradient-to-r from-blue-100 to-blue-300 hover:from-blue-200 hover:to-blue-400 shadow text-slate-900" onClick={handleSend} disabled={busy}>{busy?'…':'Send'}</button>
-              </div>
-              {idx >= intakeQuestions.length && (
-                <div className="text-[11px] text-slate-500 mt-1">You have {freePromptsLeft} quick questions before we start the full tour.</div>
-              )}
+            )}
+            <div className="mt-3">
+              <input className="w-full h-12 md:h-14 border border-slate-300/60 rounded-xl px-3 bg-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-pink-300/60 focus:border-transparent" value={input} onChange={e=> setInput(e.target.value)} placeholder="Type your answer" />
             </div>
-          </div>
-          <div className="col-span-12 md:col-span-7 lg:col-span-8 h-full">
-            <div className="h-full rounded-2xl border bg-white/70 backdrop-blur p-4 shadow-sm flex flex-col">
-              <div className="text-slate-700 text-sm">We’ll tailor the demo using your answers. You can change these later.</div>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button onClick={()=>{ try { track('tour_start_click',{source:'intake_panel'}); } catch{}; window.location.href='/workspace?pane=dashboard&demo=1&tour=1'; }} className="inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold text-slate-900 shadow bg-gradient-to-r from-blue-100 to-blue-300 hover:from-blue-200 hover:to-blue-400">Start guided walkthrough</button>
-                <button onClick={()=>{ try { track('signup_click',{source:'persistent_cta'}); } catch{}; window.location.href='/signup?from=intake'; }} className="inline-flex items-center px-4 py-2 rounded-full text-sm font-semibold text-white shadow bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600">Create your BrandVX</button>
-              </div>
+            <div className="mt-5 flex items-center justify-between">
+              <button className="px-4 py-2 rounded-full border bg-white text-slate-800 disabled:opacity-50" onClick={prevStep} disabled={idx===0 || busy}>Prev</button>
+              <button className="px-5 py-2 rounded-full bg-gradient-to-b from-pink-500 to-violet-500 text-white disabled:opacity-50" onClick={nextStep} disabled={busy || !input.trim()}>{idx<intakeQuestions.length-1? 'Next' : 'Finish'}</button>
             </div>
           </div>
         </div>

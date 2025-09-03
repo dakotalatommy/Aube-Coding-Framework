@@ -1,22 +1,29 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { api, getTenant } from '../lib/api';
+import { trackEvent } from '../lib/analytics';
+import * as Sentry from '@sentry/react';
 import Button from '../components/ui/Button';
 import { startGuide } from '../lib/guide';
 import Input from '../components/ui/Input';
 import Skeleton from '../components/ui/Skeleton';
 import { Table, THead, TR, TH, TD } from '../components/ui/Table';
+import { useToast } from '../components/ui/Toast';
 
 export default function Cadences(){
   const loc = useLocation();
   const isDemo = new URLSearchParams(loc.search).get('demo') === '1';
   const [status, setStatus] = useState('');
-  const [contactId, setContactId] = useState('c_demo');
-  const [cadenceId, setCadenceId] = useState('warm_lead_default');
+  const [contactId, setContactId] = useState('');
   const [busy, setBusy] = useState(false);
   const [suggestions, setSuggestions] = useState<Array<{id:string;name:string}>>([]);
   const [showSug, setShowSug] = useState(false);
   const [queue, setQueue] = useState<any>({ items: [] });
+  const [vxPanel, setVxPanel] = useState<string>('');
+  const [lastQueued, setLastQueued] = useState<string>('');
+  const { toastSuccess } = useToast();
+  const [selectedName, setSelectedName] = useState('');
+  const [tab, setTab] = useState<'actions'|'queue'>('actions');
 
   const run = async (fn: ()=>Promise<any>) => {
     try{ setBusy(true); const r = await fn(); setStatus(JSON.stringify(r)); }
@@ -61,66 +68,140 @@ export default function Cadences(){
         <Button variant="outline" className="ml-auto" onClick={()=> startGuide('cadences')}>Guide me</Button>
       </div>
       <div className="grid gap-4">
+        <div className="flex items-center gap-2">
+          <button className={`px-3 py-1 rounded-full border text-sm ${tab==='actions'?'bg-white border-pink-200 text-slate-900':'bg-white border-slate-200 text-slate-600'}`} onClick={()=>setTab('actions')}>Actions</button>
+          <button className={`px-3 py-1 rounded-full border text-sm ${tab==='queue'?'bg-white border-pink-200 text-slate-900':'bg-white border-slate-200 text-slate-600'}`} onClick={()=>setTab('queue')}>Queue{Array.isArray(queue.items)&&queue.items.length>0?` (${queue.items.length})`:''}</button>
+        </div>
+        {tab==='actions' && (
         <section className="border rounded-xl p-3 bg-white shadow-sm" aria-labelledby="start-cadence">
+          <div className="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Beta: reminders only — SMS/Email sending is disabled. Actions create To‑Do items.</div>
           <div id="start-cadence" className="font-semibold mb-2">Start follow‑up</div>
-          <div className="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Beta: reminders only — SMS/Email sending is disabled. Actions generate recommendations in Approvals.</div>
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+          <div className="grid grid-cols-1 gap-2">
             <div className="relative">
-              <Input placeholder="client_search" value={contactId} onFocus={()=>setShowSug(true)} onBlur={()=> setTimeout(()=>setShowSug(false), 120)} onChange={e=>setContactId(e.target.value)} />
+              <Input placeholder="Search client by name" value={contactId} onFocus={()=>setShowSug(true)} onBlur={()=> setTimeout(()=>setShowSug(false), 120)} onChange={e=>{ setContactId(e.target.value); setSelectedName(''); }} />
               {showSug && suggestions.length > 0 && (
                 <div className="absolute z-10 mt-1 max-h-40 overflow-auto bg-white border rounded-md shadow-sm text-xs w-full">
                   {suggestions.map(s => (
-                    <button key={s.id} className="block w-full text-left px-2 py-1 hover:bg-slate-50" onMouseDown={(ev)=>{ ev.preventDefault(); setContactId(s.id); setShowSug(false); }}>
+                    <button key={s.id} className="block w-full text-left px-2 py-1 hover:bg-slate-50" onMouseDown={(ev)=>{ ev.preventDefault(); setContactId(s.id); setSelectedName(s.name||''); setShowSug(false); }}>
                       {s.name || s.id}
                     </button>
                   ))}
                 </div>
               )}
             </div>
-            <Input placeholder="cadence_id" value={cadenceId} onChange={e=>setCadenceId(e.target.value)} />
-            <Button variant="outline" disabled={busy} onClick={()=> isDemo ? setStatus('Demo: created recommendations for '+contactId+' in Approvals') : run(async()=>api.post('/cadences/start',{ tenant_id: await getTenant(), contact_id: contactId, cadence_id: cadenceId }))}>Start</Button>
-            <Button variant="outline" disabled={busy} onClick={()=> isDemo ? setStatus('Demo: stopped cadence for '+contactId) : run(async()=>api.post(`/cadences/stop?tenant_id=${encodeURIComponent(await getTenant())}&contact_id=${encodeURIComponent(contactId)}&cadence_id=${encodeURIComponent(cadenceId)}`, {} as any))}>Stop</Button>
+            {contactId && (
+              <div className="text-xs">
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full border bg-slate-50 border-slate-200 text-slate-700">
+                  {selectedName || contactId}
+                  <button className="ml-1" aria-label="Clear" onClick={()=>{ setContactId(''); setSelectedName(''); }}>×</button>
+                </span>
+              </div>
+            )}
+          </div>
+          {/* Read‑only AskVX panel */}
+          <div className="mt-3 rounded-xl border bg-white p-3 min-h-[120px] text-sm text-slate-700 whitespace-pre-wrap">{vxPanel || 'Results will appear here after you start.'}</div>
+          {lastQueued && (<div className="mt-2 text-xs text-slate-600">{lastQueued}</div>)}
+          <div className="mt-2">
+            <Button variant="outline" disabled={busy || !contactId.trim()} onClick={async()=>{
+              if (isDemo) { setVxPanel(`Demo: Follow‑up plan for ${contactId||'Client'}\n• Draft: "Hi! Just checking in — would you like to book your next visit?"`); return; }
+              await run(async()=>{
+                const tid = await getTenant();
+                await api.post('/cadences/start',{ tenant_id: tid, contact_id: contactId });
+                try{
+                  const sim = await api.post('/messages/simulate',{ tenant_id: tid, contact_id: contactId, channel:'sms', generate:false });
+                  setVxPanel(`Follow‑up plan for ${selectedName||contactId||'Client'}\n• Draft: ${sim?.body||'Draft prepared.'}`);
+                }catch{ setVxPanel(`Follow‑up plan for ${selectedName||contactId||'Client'}\n• Draft: Hi {FirstName}! Would you like to book your next visit?`); }
+              });
+            }}>Start</Button>
           </div>
         </section>
+        )}
 
-        <section className="border rounded-xl p-3 bg-white shadow-sm" aria-labelledby="scheduler-tick">
-          <div id="scheduler-tick" className="font-semibold mb-2">Update follow‑ups</div>
-          <Button variant="outline" disabled={busy} onClick={()=> isDemo ? setStatus('Demo: updated follow‑ups') : run(async()=>api.post('/scheduler/tick',{ tenant_id: await getTenant() }))}>Run update</Button>
-        </section>
-
-        <section className="border rounded-xl p-3 bg-white shadow-sm" aria-labelledby="dormant">
-          <div id="dormant" className="font-semibold mb-2">Dormant campaigns</div>
+        {tab==='actions' && (
+        <section className="border rounded-xl p-3 bg-white shadow-sm" aria-labelledby="reminders">
+          <div id="reminders" className="font-semibold mb-2">Who needs a reminder?</div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <Button data-guide="dormant-preview" variant="outline" disabled={busy} onClick={async()=>{
-              if (isDemo) { setStatus('Demo: ~8 dormant clients (preview).'); return; }
-              try{
-                const tid = await getTenant();
-                const r = await api.post('/ai/tools/execute', { tenant_id: tid, name: 'campaigns.dormant.preview', params:{ tenant_id: tid, threshold_days: 60 }, require_approval: false });
-                setStatus(JSON.stringify(r));
-              } catch(e:any){ setStatus(String(e?.message||e)); }
-            }}>Preview dormant (≥60d)</Button>
-            <Button data-guide="dormant-start" variant="outline" disabled={busy} onClick={async()=>{
-              if (isDemo) { setStatus('Demo: dormant campaign queued for approval.'); return; }
-              try{
-                const tid = await getTenant();
-                const r = await api.post('/ai/tools/execute', { tenant_id: tid, name: 'campaigns.dormant.start', params:{ tenant_id: tid, threshold_days: 60 }, require_approval: true });
-                setStatus(JSON.stringify(r));
-              } catch(e:any){ setStatus(String(e?.message||e)); }
-            }}>Start campaign (approval)</Button>
             <Button variant="outline" disabled={busy} onClick={async()=>{
-              if (isDemo) { setStatus('Demo: scheduled reminders.'); return; }
-              try{
+              await run(async()=>{
                 const tid = await getTenant();
-                const r = await api.post('/ai/tools/execute', { tenant_id: tid, name: 'appointments.schedule_reminders', params:{ tenant_id: tid }, require_approval: false });
-                setStatus(JSON.stringify(r));
-              } catch(e:any){ setStatus(String(e?.message||e)); }
-            }}>Schedule reminders</Button>
+                const cal = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(tid)}`);
+                const now = new Date();
+                const inDays = (d:number)=> new Date(now.getTime()+d*24*3600*1000);
+                const tomorrow = inDays(1).getTime();
+                const weekEnd = inDays(7).getTime();
+                const events = (cal?.events||[]).filter((e:any)=>{
+                  const raw = Number(e?.start_ts||0); const tsMs = raw<1e12? raw*1000 : raw; return tsMs>=tomorrow && tsMs<=weekEnd;
+                });
+                setVxPanel(`Reminders for tomorrow + this week\n• Appointments: ${events.length}\n• Draft: "Hi {FirstName}! Quick reminder about your appointment — reply YES to confirm or text if you need a different time. See you soon!"`);
+                try {
+                  trackEvent('cadences.reminders.next_week', { count: events.length });
+                  Sentry.addBreadcrumb({ category: 'cadences', level: 'info', message: 'enqueue next_week reminders', data: { count: events.length } });
+                  await api.post('/ai/tools/execute', {
+                    name: 'appointments.schedule_reminders',
+                    params: { window: 'next_week' },
+                    require_approval: true
+                  });
+                  const toQueue = (events||[]).map((e:any)=> ({ contact_id: (e.contact_id||e.client_id||e.title||'Client'), cadence_id: 'reminder', step_index: 0, next_action_at: new Date().toISOString() }));
+                  setQueue((q:any)=> ({ items: [...(q.items||[]), ...toQueue] }));
+                  setLastQueued(`Queued ${events.length} To‑Do item(s) for tomorrow + this week.`);
+                  toastSuccess('Queued reminders', `${events.length} To‑Do item(s) created`);
+                } catch (e:any) { Sentry.captureException(e); }
+              });
+            }}>Tomorrow + this week</Button>
+            <Button variant="outline" disabled={busy} onClick={async()=>{
+              await run(async()=>{
+                const tid = await getTenant();
+                const res = await api.get(`/contacts/list?tenant_id=${encodeURIComponent(tid)}&limit=500`);
+                const items = (res?.items||[]).filter((c:any)=>{
+                  const lv = Number(c?.last_visit||0); if (!lv) return false; const base = lv<1e12? lv*1000: lv; const days = Math.floor((Date.now()- base)/86400000); return days>=29 && days<=33;
+                });
+                setVxPanel(`Re‑engage 30‑day clients\n• Clients: ${items.length}\n• Draft: "Hey {FirstName}! It’s been about a month — I’d love to see you again. Want me to hold a spot this week?"`);
+                try {
+                  trackEvent('cadences.reminders.reengage_30d', { count: items.length });
+                  Sentry.addBreadcrumb({ category: 'cadences', level: 'info', message: 'enqueue reengage_30d', data: { count: items.length } });
+                  await api.post('/ai/tools/execute', {
+                    name: 'campaigns.dormant.preview',
+                    params: { strategy: 'reengage_30d' },
+                    require_approval: true
+                  });
+                  const toQueue = (items||[]).map((c:any)=> ({ contact_id: (c.id||c.contact_id||c.name||'Client'), cadence_id: 'reengage_30d', step_index: 0, next_action_at: new Date().toISOString() }));
+                  setQueue((q:any)=> ({ items: [...(q.items||[]), ...toQueue] }));
+                  setLastQueued(`Queued ${items.length} To‑Do item(s) for 30‑day re‑engage.`);
+                  toastSuccess('Queued re‑engage', `${items.length} To‑Do item(s) created`);
+                } catch (e:any) { Sentry.captureException(e); }
+              });
+            }}>Re‑engage at 30 days</Button>
+            <Button variant="outline" disabled={busy} onClick={async()=>{
+              await run(async()=>{
+                const tid = await getTenant();
+                const res = await api.get(`/contacts/list?tenant_id=${encodeURIComponent(tid)}&limit=500`);
+                const items = (res?.items||[]).filter((c:any)=>{
+                  const lv = Number(c?.last_visit||0); if (!lv) return false; const base = lv<1e12? lv*1000: lv; const days = Math.floor((Date.now()- base)/86400000); return days>=45;
+                });
+                setVxPanel(`Win‑back 45+ day clients\n• Clients: ${items.length}\n• Draft: "Hi {FirstName}! I’ve got a couple of times open — want to refresh your look? I can help you pick the perfect time."`);
+                try {
+                  trackEvent('cadences.reminders.winback_45d', { count: items.length });
+                  Sentry.addBreadcrumb({ category: 'cadences', level: 'info', message: 'enqueue winback_45d', data: { count: items.length } });
+                  await api.post('/ai/tools/execute', {
+                    name: 'campaigns.dormant.preview',
+                    params: { strategy: 'winback_45d_plus' },
+                    require_approval: true
+                  });
+                  const toQueue = (items||[]).map((c:any)=> ({ contact_id: (c.id||c.contact_id||c.name||'Client'), cadence_id: 'winback_45d_plus', step_index: 0, next_action_at: new Date().toISOString() }));
+                  setQueue((q:any)=> ({ items: [...(q.items||[]), ...toQueue] }));
+                  setLastQueued(`Queued ${items.length} To‑Do item(s) for 45+ day win‑back.`);
+                  toastSuccess('Queued win‑back', `${items.length} To‑Do item(s) created`);
+                } catch (e:any) { Sentry.captureException(e); }
+              });
+            }}>Win‑back 45+ days</Button>
           </div>
-          <div className="mt-2 text-[11px] text-slate-600">Approval may be required if auto‑approve is off (see Approvals).</div>
+          <div className="mt-2 text-[11px] text-slate-600">Actions create To‑Do items for review before sending.</div>
         </section>
+        )}
 
+        {tab==='actions' && (
         <section className="border rounded-xl p-3 bg-white shadow-sm">
-          <div className="font-semibold mb-2">Check waitlist (Gated)</div>
+          <div className="font-semibold mb-2">Check waitlist</div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <Button variant="outline" disabled={busy} onClick={()=>run(async()=>api.post('/ai/tools/execute',{
               tenant_id: await getTenant(), name:'notify_trigger_send', params:{ tenant_id: await getTenant(), max_candidates:5 }, require_approval:true
@@ -130,25 +211,29 @@ export default function Cadences(){
             }))}>Send Now (respects auto-approve)</Button>
           </div>
         </section>
-
+        )}
+        {tab==='queue' && (
         <section className="border rounded-xl p-3 bg-white shadow-sm" aria-labelledby="cadence-queue">
           <div id="cadence-queue" className="font-semibold mb-2">Follow‑up queue</div>
           <Table>
             <THead>
-              <TR><TH>Contact</TH><TH>Cadence</TH><TH>Step</TH><TH>Next Action</TH></TR>
+              <TR><TH>Done</TH><TH>Contact</TH><TH>Type</TH><TH>Next Action</TH></TR>
             </THead>
             <tbody className="divide-y">
               {(queue.items||[]).map((r:any,i:number)=> (
                 <TR key={i}>
+                  <TD>
+                    <input type="checkbox" aria-label="Mark done" onChange={()=> setQueue((q:any)=> ({ items: (q.items||[]).filter((_:any,idx:number)=> idx!==i) }))} />
+                  </TD>
                   <TD>{r.contact_id}</TD>
-                  <TD>{r.cadence_id}</TD>
-                  <TD>{r.step_index}</TD>
+                  <TD>{r.cadence_id||'reminder'}</TD>
                   <TD>{r.next_action_at}</TD>
                 </TR>
               ))}
             </tbody>
           </Table>
         </section>
+        )}
       </div>
       {busy ? <Skeleton className="h-8" /> : <pre className="whitespace-pre-wrap text-sm text-slate-700">{status || 'No recent actions.'}</pre>}
     </div>

@@ -18,6 +18,7 @@ import os
 import httpx
 import secrets as _secrets
 from .rate_limit import check_and_increment
+from sqlalchemy import text as _sql_text
 from .metrics_counters import DB_QUERY_TOOL_USED
 import base64 as _b64
 import json as _json
@@ -350,6 +351,22 @@ async def tool_calendar_merge(db: Session, ctx: UserContext, tenant_id: str) -> 
     base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.post(f"{base_api}/calendar/merge", json={"tenant_id": tenant_id})
+        return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
+
+async def tool_calendar_reschedule(db: Session, ctx: UserContext, tenant_id: str, external_ref: str | None, provider: str | None, provider_event_id: str | None, start_ts: int, end_ts: int | None) -> Dict[str, Any]:
+    _require_tenant(ctx, tenant_id)
+    base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
+    payload = {"tenant_id": tenant_id, "external_ref": external_ref, "provider": provider, "provider_event_id": provider_event_id, "start_ts": int(start_ts), "end_ts": (int(end_ts) if end_ts else None)}
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(f"{base_api}/calendar/reschedule", json=payload)
+        return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
+
+async def tool_calendar_cancel(db: Session, ctx: UserContext, tenant_id: str, external_ref: str | None, provider: str | None, provider_event_id: str | None) -> Dict[str, Any]:
+    _require_tenant(ctx, tenant_id)
+    base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
+    payload = {"tenant_id": tenant_id, "external_ref": external_ref, "provider": provider, "provider_event_id": provider_event_id}
+    async with httpx.AsyncClient(timeout=30) as client:
+        r = await client.post(f"{base_api}/calendar/cancel", json=payload)
         return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
 
 async def tool_oauth_refresh(db: Session, ctx: UserContext, tenant_id: str, provider: str) -> Dict[str, Any]:
@@ -870,6 +887,7 @@ def tool_export_contacts(
 # Extend registry with new tools
 REGISTRY.update(
     {
+        "todo.enqueue": tool_todo_enqueue,
         "contacts.dedupe": tool_contacts_dedupe,
         "campaigns.dormant.start": tool_campaigns_dormant_start,
         "appointments.schedule_reminders": tool_appointments_schedule_reminders,
@@ -885,6 +903,8 @@ REGISTRY.update(
         "connectors.normalize": tool_connectors_normalize,
         "calendar.sync": tool_calendar_sync,
         "calendar.merge": tool_calendar_merge,
+        "calendar.reschedule": tool_calendar_reschedule,
+        "calendar.cancel": tool_calendar_cancel,
         "oauth.refresh": tool_oauth_refresh,
         "square.backfill": tool_square_backfill,
         "integrations.twilio.provision": tool_twilio_provision,
@@ -920,6 +940,17 @@ REGISTRY["social.schedule.14days"] = tool_social_schedule_14days
 
 # Extend dispatcher
 async def _dispatch_extended(name: str, params: Dict[str, Any], db: Session, ctx: UserContext) -> Optional[Dict[str, Any]]:
+    if name == "todo.enqueue":
+        return await tool_todo_enqueue(
+            db,
+            ctx,
+            tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
+            type=str(params.get("type", "generic")),
+            message=params.get("message"),
+            severity=params.get("severity"),
+            payload=(params.get("payload") if isinstance(params.get("payload"), dict) else None),
+            idempotency_key=params.get("idempotency_key"),
+        )
     if name == "contacts.dedupe":
         return tool_contacts_dedupe(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)))
     if name == "campaigns.dormant.start":
@@ -957,6 +988,24 @@ async def _dispatch_extended(name: str, params: Dict[str, Any], db: Session, ctx
         return await tool_calendar_sync(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)), provider=params.get("provider"))
     if name == "calendar.merge":
         return await tool_calendar_merge(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)))
+    if name == "calendar.reschedule":
+        return await tool_calendar_reschedule(
+            db, ctx,
+            tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
+            external_ref=params.get("external_ref"),
+            provider=params.get("provider"),
+            provider_event_id=params.get("provider_event_id"),
+            start_ts=int(params.get("start_ts", 0)),
+            end_ts=(int(params.get("end_ts", 0)) if params.get("end_ts") is not None else None),
+        )
+    if name == "calendar.cancel":
+        return await tool_calendar_cancel(
+            db, ctx,
+            tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
+            external_ref=params.get("external_ref"),
+            provider=params.get("provider"),
+            provider_event_id=params.get("provider_event_id"),
+        )
     if name == "oauth.refresh":
         return await tool_oauth_refresh(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)), provider=str(params.get("provider", "")))
     if name == "contacts.import.square":
@@ -1029,6 +1078,63 @@ async def _dispatch_extended(name: str, params: Dict[str, Any], db: Session, ctx
 
 
 # ---------------------- CRM helpers ----------------------
+
+# ---------------------- Unified To-Do enqueue ----------------------
+async def tool_todo_enqueue(
+    db: Session,
+    ctx: UserContext,
+    tenant_id: str,
+    type: str,
+    message: Optional[str] = None,
+    severity: Optional[str] = None,
+    payload: Optional[Dict[str, Any]] = None,
+    idempotency_key: Optional[str] = None,
+) -> Dict[str, Any]:
+    _require_tenant(ctx, tenant_id)
+    # Idempotency guard at DB level (unique on idempotency_keys.key)
+    if idempotency_key:
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    _sql_text(
+                        """
+                        INSERT INTO idempotency_keys (tenant_id, key, created_at)
+                        VALUES (CAST(:t AS uuid), :k, extract(epoch from now())::int)
+                        ON CONFLICT (key) DO NOTHING
+                        """
+                    ),
+                    {"t": tenant_id, "k": idempotency_key},
+                )
+                # If not inserted, assume duplicate and no-op
+                dup = conn.execute(
+                    _sql_text("SELECT 1 FROM idempotency_keys WHERE key = :k"), {"k": idempotency_key}
+                ).fetchone()
+                if dup is None:
+                    return {"status": "duplicate"}
+        except Exception:
+            # proceed without idempotency if insert fails
+            pass
+    params_obj: Dict[str, Any] = {
+        "message": message or "",
+        "severity": severity or "info",
+        "payload": payload or {},
+        "tenant_id": tenant_id,
+        "type": type,
+    }
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                _sql_text(
+                    """
+                    INSERT INTO approvals (tenant_id, tool_name, params_json, status, created_at)
+                    VALUES (CAST(:t AS uuid), :tool, :p, 'pending', extract(epoch from now())::int)
+                    """
+                ),
+                {"t": tenant_id, "tool": f"todo.{type}", "p": _json.dumps(params_obj)},
+            )
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:160]}
+    return {"status": "ok"}
 def tool_contacts_list_top_ltv(
     db: Session,
     ctx: UserContext,
@@ -1522,6 +1628,7 @@ REGISTRY.update(
 # ---------------------- Tool Registry Metadata & Schema ----------------------
 
 TOOL_META: Dict[str, Dict[str, Any]] = {
+    "todo.enqueue": {"public": True, "description": "Create a To‑Do item for review.", "params": {"tenant_id": "string", "type": "string", "message": "string?", "severity": {"enum":["info","warn","error"]}, "payload": "object?", "idempotency_key": "string?"}},
     "draft_message": {"public": True, "description": "Draft a first outreach message respecting consent and tone.", "params": {"tenant_id": "string", "contact_id": "string", "channel": {"enum": ["sms", "email"]}, "service": "string?"}},
     "pricing_model": {"public": True, "description": "Compute effective hourly and margin from inputs.", "params": {"tenant_id": "string", "price": "number", "product_cost": "number", "service_time_minutes": "number"}},
     "safety_check": {"public": True, "description": "Review text for compliance/PII and suggest safe rewrites.", "params": {"tenant_id": "string", "text": "string"}},
@@ -1536,6 +1643,8 @@ TOOL_META: Dict[str, Dict[str, Any]] = {
     "connectors.normalize": {"public": True, "description": "Migrate legacy connectors and dedupe v2.", "params": {"tenant_id": "string"}},
     "calendar.sync": {"public": True, "description": "Sync unified calendar (Google/Apple/bookings).", "params": {"tenant_id": "string", "provider": "string?"}},
     "calendar.merge": {"public": True, "description": "Merge duplicate calendar events by title/time.", "params": {"tenant_id": "string"}},
+    "calendar.reschedule": {"public": True, "description": "Reschedule an appointment by ref or provider id.", "params": {"tenant_id": "string", "external_ref": "string?", "provider": "string?", "provider_event_id": "string?", "start_ts": "number", "end_ts": "number?"}},
+    "calendar.cancel": {"public": True, "description": "Cancel an appointment by ref or provider id.", "params": {"tenant_id": "string", "external_ref": "string?", "provider": "string?", "provider_event_id": "string?"}},
     "campaigns.dormant.preview": {"public": True, "description": "Preview dormant segment size by threshold.", "params": {"tenant_id": "string", "threshold_days": "number?"}},
     "campaigns.dormant.start": {"public": True, "description": "Start dormant outreach cadence for candidates.", "params": {"tenant_id": "string", "threshold_days": "number?"}},
     "appointments.schedule_reminders": {"public": True, "description": "Schedule reminder triggers (7d/3d/1d/0).", "params": {"tenant_id": "string"}},

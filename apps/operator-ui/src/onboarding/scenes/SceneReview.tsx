@@ -12,7 +12,7 @@ export default function SceneReview({ state, back, onFinish }: any){
         <div className="p-3 rounded-xl border bg-white/70"><div className="font-medium">Operations</div><div className="text-sm text-slate-600">{d.ops?.clientsPerWeek || '—'} clients/week • {d.ops?.avgMinutes || '—'} min/service • ${d.ops?.avgPrice || '—'}</div></div>
         <div className="p-3 rounded-xl border bg-white/70"><div className="font-medium">Connections</div><div className="text-sm text-slate-600">{d.connections?.bookingProvider || 'Not set'}</div></div>
         <div className="p-3 rounded-xl border bg-white/70"><div className="font-medium">Goals</div><div className="text-sm text-slate-600">{(d.goals?.quarter||[]).join(', ') || '—'}</div></div>
-        <div className="p-3 rounded-xl border bg-white/70"><div className="font-medium">Work Styles</div><div className="text-sm text-slate-600">{(d.styles?.selected||[]).join(', ') || '—'}</div></div>
+        <div className="p-3 rounded-xl border bg-white/70"><div className="font-medium">WorkStyles</div><div className="text-sm text-slate-600">{(d.styles?.selected||[]).join(', ') || '—'}</div></div>
       </div>
       <div className="mt-4 text-sm">Estimated time back: <strong>+{Math.round(hrs*10)/10}h/week</strong></div>
       {/* Shareable milestone slot */}

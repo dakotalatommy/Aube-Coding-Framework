@@ -29,17 +29,35 @@ class Base(DeclarativeBase):
     pass
 
 
-pool_size = int(os.getenv("SQL_POOL_SIZE", "5"))
-max_overflow = int(os.getenv("SQL_MAX_OVERFLOW", "5"))
-pool_timeout = int(os.getenv("SQL_POOL_TIMEOUT", "10"))
-pool_recycle = int(os.getenv("SQL_POOL_RECYCLE", "900"))
+pool_size = int(os.getenv("DB_POOL_SIZE", os.getenv("SQL_POOL_SIZE", "5")))
+max_overflow = int(os.getenv("DB_MAX_OVERFLOW", os.getenv("SQL_MAX_OVERFLOW", "5")))
+pool_timeout = int(os.getenv("DB_POOL_TIMEOUT", os.getenv("SQL_POOL_TIMEOUT", "10")))
+pool_recycle = int(os.getenv("DB_POOL_RECYCLE_SECONDS", os.getenv("SQL_POOL_RECYCLE", "900")))
+pool_pre_ping = os.getenv("DB_POOL_PRE_PING", "0") == "1"
+
+# Per-connection defaults (can be overridden by PGOPTIONS or role settings)
+pg_statement_timeout_ms = int(os.getenv("PG_STATEMENT_TIMEOUT_MS", "12000"))
+pg_lock_timeout_ms = int(os.getenv("PG_LOCK_TIMEOUT_MS", "3000"))
+pg_idle_txn_timeout_ms = int(os.getenv("PG_IDLE_IN_TXN_TIMEOUT_MS", "10000"))
+db_app_name = os.getenv("DB_APP_NAME", "brandvx")
+db_connect_timeout = int(os.getenv("DB_CONNECT_TIMEOUT", "5"))
+
+_connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+if not DATABASE_URL.startswith("sqlite"):
+    # Pass through libpq options for faster fail and observability
+    _connect_args.update({
+        "connect_timeout": db_connect_timeout,
+        "application_name": db_app_name,
+    })
+
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
+    connect_args=_connect_args,
     pool_size=pool_size if not DATABASE_URL.startswith("sqlite") else None,
     max_overflow=max_overflow if not DATABASE_URL.startswith("sqlite") else None,
     pool_timeout=pool_timeout if not DATABASE_URL.startswith("sqlite") else None,
     pool_recycle=pool_recycle if not DATABASE_URL.startswith("sqlite") else None,
+    pool_pre_ping=pool_pre_ping if not DATABASE_URL.startswith("sqlite") else None,
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -108,4 +126,30 @@ try:
         Base.metadata.create_all(engine)
 except Exception:
     pass
+
+
+# Apply Postgres per-connection timeouts defensively at DBAPI connect
+def _on_connect(dbapi_connection, connection_record):  # type: ignore
+    try:
+        if DATABASE_URL.startswith("postgres"):
+            cur = dbapi_connection.cursor()
+            try:
+                cur.execute("SET statement_timeout TO %s", (pg_statement_timeout_ms,))
+                cur.execute("SET lock_timeout TO %s", (pg_lock_timeout_ms,))
+                cur.execute(
+                    "SET idle_in_transaction_session_timeout TO %s",
+                    (pg_idle_txn_timeout_ms,),
+                )
+                cur.execute("SET application_name TO %s", (db_app_name,))
+            finally:
+                try:
+                    cur.close()
+                except Exception:
+                    pass
+    except Exception:
+        # Non-fatal; allow connection to proceed even if SET fails
+        pass
+
+
+event.listen(engine, "connect", _on_connect)
 

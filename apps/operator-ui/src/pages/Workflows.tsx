@@ -267,7 +267,7 @@ export default function Workflows(){
     <div className="space-y-3">
       {/* StepPager removed; header Prev/Next + buttons control steps */}
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-semibold">Work Styles</h3>
+        <h3 className="text-lg font-semibold">WorkStyles</h3>
         <div className="flex items-center gap-2">
           <button
             aria-label="Previous"

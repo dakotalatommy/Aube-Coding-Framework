@@ -6,6 +6,14 @@ export default {
 	theme: {
 		extend: {
 			colors: {
+				brand: {
+					50:'#FFEFF5',100:'#FFD8E7',200:'#FFC0D8',300:'#FFA6C8',400:'#FF8CB7',
+					500:'#F574A7',600:'#D25D8F',700:'#AB4874',800:'#83375A',900:'#5D2741',
+				},
+				powder: {
+					50:'#F2FAFF',100:'#E6F5FF',200:'#CCE9FF',300:'#B3DEFF',400:'#99D2FF',
+					500:'#80C6FF',600:'#5AAAE6',700:'#3E88BF',800:'#2A648F',900:'#1A425F',
+				},
 				primary: {
 					DEFAULT: "#0EA5E9",
 					600: "#0284C7",

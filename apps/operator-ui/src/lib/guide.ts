@@ -11,9 +11,11 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-tour="nav-calendar"]', popover: { title: 'Calendar', description: 'Merge Google/Apple with Square/Acuity.' } },
     { element: '[data-tour="nav-cadences"]', popover: { title: 'Follow‑ups', description: 'Friendly follow‑ups; quiet hours and approvals respected.' } },
     { element: '[data-tour="nav-inventory"]', popover: { title: 'Inventory', description: 'Track low/out‑of‑stock; sync Shopify/Square.' } },
-    { element: '[data-tour="nav-integrations"]', popover: { title: 'Settings/Connections', description: 'Connect tools one step at a time.' } },
-    { element: '[data-tour="nav-workflows"]', popover: { title: 'Work Styles', description: 'Playbooks like 14‑day Social and 10‑Minute Wow.' } },
-    { element: '[data-tour="nav-approvals"]', popover: { title: 'Approvals', description: 'We’ll pause here when your OK is needed.' } },
+    { element: '[data-tour="nav-integrations"]', popover: { title: 'Settings', description: 'Connect tools one step at a time.' } },
+    { element: '[data-tour="nav-workflows"]', popover: { title: 'WorkStyles', description: 'Playbooks like 14‑day Social and 10‑Minute Wow.' } },
+    { element: '[data-tour="nav-approvals"]', popover: { title: 'To‑Do', description: 'We’ll pause here when your OK is needed.' } },
+    { element: '[data-tour="nav-askvx"]', popover: { title: 'Ask VX', description: 'Ask, plan, and run tools with one tap. You approve changes.' } },
+    { element: '[data-tour="nav-vision"]', popover: { title: 'Brand Vision', description: 'Analyze/edit images and fetch socials; save to clients.' } },
     { element: '#bvx-commandbar', popover: { title: 'Ask or type a command', description: 'Quickly navigate or run actions. You approve anything impactful.' } },
     { element: '[data-tour="demo-toggle"]', popover: { title: 'Demo mode', description: 'Turn demo on/off. Demo uses simulated data only.' } },
     { element: '[data-tour="book-onboarding"]', popover: { title: 'Book onboarding', description: 'Prefer a white‑glove walkthrough? Book a time.' } },
@@ -28,7 +30,26 @@ const registry: Record<string, GuideStep[]> = {
   dashboard: [
     { popover: { title: 'Welcome to your dashboard', description: 'Time saved, quick wins, and KPIs live here.' } },
     { element: '[data-guide="kpis"]', popover: { title: 'KPIs', description: 'Track time saved, rebook rate (30d), messages, and revenue uplift.' } },
-    { element: '[data-guide="quick-wins"]', popover: { title: 'Quick wins', description: 'One‑click actions: dormant 90d, rebook reminders, weekly revenue.' } },
+    { element: '[data-guide="referral"]', popover: { title: 'Referral link', description: 'Invite 2 friends to lock founding price; copy your link here.' } },
+    { element: '[data-guide="quickstart"]', popover: { title: 'Quick start', description: 'Run 14‑day Social or 10‑Minute Wow from here.' } },
+    { element: '[data-guide="primary"]', popover: { title: 'Primary action', description: 'Today’s suggested next step, always one tap away.' } },
+  ],
+  askvx: [
+    { popover: { title: 'Ask VX', description: 'Chat with your ops co‑pilot. Answers in your brand voice.' } },
+    { element: '[data-guide="history"]', popover: { title: 'History', description: 'Open recent messages for continuity.' } },
+    { element: '[data-guide="composer"]', popover: { title: 'Compose', description: 'Type your question; Enter to send; Shift+Enter for newline.' } },
+    { element: '[data-guide="smart-action"]', popover: { title: 'Smart action', description: 'VX proposes one safe action; you approve and we run it.' } },
+    { element: '[data-guide="digest"]', popover: { title: 'Since your last visit', description: 'Quick digest of changes across contacts, bookings, and messages.' } },
+    { element: '[data-guide="trainer"]', popover: { title: 'Train VX', description: 'Add tone notes; VX prefers this voice in drafts.' } },
+  ],
+  vision: [
+    { popover: { title: 'Brand Vision', description: 'Analyze/edit photos, fetch socials, and save to clients.' } },
+    { element: '[data-guide="preview"]', popover: { title: 'Preview', description: 'Your working image; edits update here.' } },
+    { element: '[data-guide="upload"]', popover: { title: 'Upload', description: 'Pick a photo or screenshot to analyze or edit.' } },
+    { element: '[data-guide="analyze"]', popover: { title: 'Analyze', description: 'Gemini inspects lighting, framing, and quality flags.' } },
+    { element: '[data-guide="edit"]', popover: { title: 'Edit / Try‑on', description: 'Apply subtle edits or preset looks; export results.' } },
+    { element: '[data-guide="social"]', popover: { title: 'Social fetch', description: 'Fetch public profile and recent posts (best effort).' } },
+    { element: '[data-guide="save"]', popover: { title: 'Save to client', description: 'Link images to a client record for before/after.' } },
   ],
   integrations: [
     { popover: { title: 'Integrations', description: 'Connect booking, CRM, messaging, and inventory.' } },
@@ -69,7 +90,7 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-guide="table"]', popover: { title: 'Messages', description: 'Click any row to open details.' } },
   ],
   workflows: [
-    { popover: { title: 'Work Styles', description: 'Everything you can do in one place. Click a flow to begin.' } },
+    { popover: { title: 'WorkStyles', description: 'Everything you can do in one place. Click a flow to begin.' } },
     { element: '[data-tour="wf-quick"]', popover: { title: 'Quick actions', description: 'Run common steps without leaving this page.' } },
     { element: '[data-tour="wf-dedupe"]', popover: { title: 'Dedupe contacts', description: 'Removes duplicates by email/phone. May require approval.' } },
     { element: '[data-tour="wf-lowstock"]', popover: { title: 'Low stock check', description: 'Find items at or below threshold for restock.' } },
@@ -94,9 +115,17 @@ export function getGuideSteps(page: string): GuideStep[] {
   return registry[page] || [];
 }
 
-export function startGuide(page: string) {
+export function startGuide(page: string, opts?: { step?: number }) {
   const steps = getGuideSteps(page);
   if (!steps || steps.length === 0) return;
+  // Persist last guide context for resume
+  try { localStorage.setItem('bvx_last_tour_page', page); } catch {}
+  try {
+    const urlStep = (()=>{ try{ const sp = new URLSearchParams(window.location.search); return Number(sp.get('tourStep')||sp.get('step')||'0'); }catch{ return 0 } })();
+    const raw = Number(opts?.step || 0) || (Number.isFinite(urlStep) ? urlStep : 0);
+    const s = Math.max(0, Math.floor(raw||0));
+    localStorage.setItem('bvx_last_tour_step', String(s||0));
+  } catch {}
   // Demo-specific orchestration: if on dashboard with demo=1, chain across panels
   try {
     const sp = new URLSearchParams(window.location.search);
@@ -113,7 +142,7 @@ export function startGuide(page: string) {
       // Welcome only on dashboard, then single-step per pane sequence
       const demoStepsMap: Record<string, GuideStep[]> = {
         dashboard: [
-          { element: '[data-guide="quick-actions"]', popover: { title: 'Dashboard', description: 'Quick actions and KPIs — then we’ll show each area briefly.' } },
+          { element: '[data-guide="kpis"]', popover: { title: 'Dashboard', description: 'KPIs up top — then we’ll show each area briefly.' } },
         ],
         messages: [
           { element: '[data-guide="table"]', popover: { title: 'Messages', description: 'Preview and copy examples (beta). Sending will enable automatically later.' } },
@@ -134,7 +163,7 @@ export function startGuide(page: string) {
           { element: '[data-guide="providers"]', popover: { title: 'Integrations', description: 'Connect booking, CRM, messaging, and more — status at a glance.' } },
         ],
         workflows: [
-          { element: '[data-tour="wf-quick"]', popover: { title: 'Workflows', description: 'One place for common actions and impact steps.' } },
+          { element: '[data-tour="wf-quick"]', popover: { title: 'WorkStyles', description: 'One place for common actions and impact steps.' } },
         ],
         approvals: [
           { element: '[data-guide="table"]', popover: { title: 'Approvals', description: 'Risky or bulk actions wait here for your OK.' } },
@@ -192,12 +221,20 @@ export function startGuide(page: string) {
   } catch {}
   try { localStorage.setItem(`bvx_tour_seen_${page}`, '1'); } catch {}
   try { track('tour_start', { page }); } catch {}
+  // Support deep-link to a specific step by slicing steps
+  let startAt = 0;
+  try {
+    const fromOpts = Number(opts?.step||0);
+    const fromUrl = (()=>{ try{ const sp = new URLSearchParams(window.location.search); return Number(sp.get('tourStep')||sp.get('step')||'0'); }catch{ return 0 } })();
+    startAt = Math.max(0, (fromOpts || fromUrl || 0) - 1);
+  } catch { startAt = 0; }
+  const stepsToRun = Array.isArray(steps) ? steps.slice(startAt) : steps;
   const d = driver({
     showProgress: true,
     nextBtnText: 'Next',
     prevBtnText: 'Back',
     doneBtnText: 'Done',
-    steps,
+    steps: stepsToRun,
   } as any);
   d.drive();
   try {

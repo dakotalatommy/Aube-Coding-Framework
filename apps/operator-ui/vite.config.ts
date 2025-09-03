@@ -16,6 +16,13 @@ export default defineConfig({
             if (id.includes('echarts')) return 'echarts';
             if (id.includes('@stripe')) return 'stripe';
             if (id.includes('posthog-js')) return 'analytics';
+            if (id.includes('@supabase') || id.includes('jwt-decode')) return 'supabase';
+            if (id.includes('@sentry')) return 'sentry';
+            if (id.includes('@radix-ui')) return 'radix';
+            if (id.includes('lucide-react')) return 'icons';
+            if (id.includes('cmdk')) return 'cmdk';
+            if (id.includes('howler')) return 'howler';
+            if (id.includes('opentype.js')) return 'opentype';
           }
         },
       },

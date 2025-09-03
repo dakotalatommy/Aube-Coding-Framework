@@ -47,7 +47,7 @@ function IntegrationsRedirect() {
 function RouteContent() {
   const loc = useLocation();
   const embed = new URLSearchParams(loc.search).get('embed') === '1';
-  const hideCrumbs = loc.pathname === '/workspace' || loc.pathname === '/login' || loc.pathname === '/signup' || loc.pathname === '/billing';
+  const hideCrumbs = loc.pathname === '/workspace' || loc.pathname === '/login' || loc.pathname === '/signup' || loc.pathname === '/billing' || loc.pathname === '/demo';
   initAnalytics();
   try { trackPage(loc.pathname + loc.search); } catch {}
   if (loc.pathname === '/landing-v2') {

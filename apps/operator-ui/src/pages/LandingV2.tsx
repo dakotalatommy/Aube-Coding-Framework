@@ -63,26 +63,21 @@ function WorkflowRow() {
         {items.map(({title, sub, icon}, i) => (
           <div key={i} className="mx-auto aspect-square min-w-[160px] md:min-w-0" style={{ width: 'calc(86% + 14px)' }}>
             <div className="relative group h-full w-full">
-              <div aria-hidden className="pointer-events-none absolute -inset-2 rounded-3xl blur-md opacity-0 transition group-hover:opacity-100" style={{
-                background:
-                  'radial-gradient(380px 150px at 15% -20%, rgba(236,72,153,0.18), transparent 60%), radial-gradient(420px 160px at 85% -20%, rgba(99,102,241,0.18), transparent 65%)'
-              }} />
-              <div role="button" tabIndex={0} aria-label={`${title}: ${sub}`} className="relative h-full w-full rounded-3xl p-6 md:p-7 bg-white/70 backdrop-blur border-[3px] border-white/70 shadow-[0_24px_48px_-22px_rgba(0,0,0,0.28)] overflow-hidden transition will-change-transform hover:-translate-y-1.5 hover:shadow-[0_40px_80px_-32px_rgba(0,0,0,0.45)] focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300 flex flex-col items-center justify-center text-center">
-              <div aria-hidden className="absolute inset-0 -z-10" style={{
-                background:
-                  'radial-gradient(380px 150px at 15% -20%, rgba(236,72,153,0.10), transparent 60%), radial-gradient(420px 160px at 85% -20%, rgba(99,102,241,0.10), transparent 65%)'
-              }} />
-              <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/40 to-white/0" />
-              <div aria-hidden className="pointer-events-none absolute inset-x-0 -top-10 h-10 bg-white/40 blur-md opacity-0 transition-opacity duration-200 hover:opacity-70" />
-              <div aria-hidden className="pointer-events-none absolute -top-8 left-0 right-0 h-16 bg-gradient-to-b from-white/60 to-transparent" />
-              {icon && (
-                <div className="text-slate-700 mb-2" aria-hidden>
-                  {icon}
-                </div>
-              )}
-              <div className="font-semibold text-slate-900 text-[20px] md:text-[22px]">{title}</div>
-              <div className="text-slate-600 text-[14px] md:text-[16px] mt-1">{sub}</div>
-              {/* proof removed per request */}
+              <div role="button" tabIndex={0} aria-label={`${title}: ${sub}`} className="relative h-full w-full rounded-3xl p-6 md:p-7 bg-white border-[3px] border-white shadow-[0_24px_48px_-22px_rgba(0,0,0,0.28)] overflow-hidden transition will-change-transform hover:-translate-y-1.5 hover:shadow-[0_40px_80px_-32px_rgba(0,0,0,0.45)] focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300 isolate mix-blend-normal">
+              {/* Force isolation: solid white backdrop inside tile */}
+              <div aria-hidden className="absolute inset-0 bg-white z-0" />
+              {/* Keep subtle white sheen only; remove any color that could tint */}
+              <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/30 to-white/0 z-10" />
+              <div className="relative z-20 flex flex-col items-center justify-center text-center h-full w-full">
+                {icon && (
+                  <div className="text-slate-700 mb-2" aria-hidden>
+                    {icon}
+                  </div>
+                )}
+                <div className="font-semibold text-slate-900 text-[20px] md:text-[22px]">{title}</div>
+                <div className="text-slate-600 text-[14px] md:text-[16px] mt-1">{sub}</div>
+                {/* proof removed per request */}
+              </div>
               </div>
             </div>
           </div>
@@ -167,7 +162,8 @@ export default function LandingV2(){
 
 
   return (
-    <div className="mx-auto max-w-6xl relative z-10" style={{ backgroundColor: '#F7CBDD' }}>
+    <div className="relative w-full min-h-[100dvh]" style={{ backgroundColor: '#F7CBDD' }}>
+      <div className="mx-auto max-w-6xl relative z-10">
       {/* Use GLB copied to /public/spline */}
       <BackdropFX modelUrl="/spline/swirl.glb" />
       {/* Hairlines */}
@@ -270,12 +266,13 @@ export default function LandingV2(){
             <WorkflowRow />
           </div>
         </main>
-        {/* Simple white footer */}
-        <section className="pb-4">
-          <div className="mt-4 rounded-t-2xl bg-white border-t p-3 text-center text-[11px] text-slate-600">
+        {/* Footer over pink background (no line) */}
+        <section className="pb-6">
+          <div className="mt-4 p-3 text-center text-[11px] text-slate-700">
             © {new Date().getFullYear()} BrandVX · <a href="/privacy" className="underline">Privacy</a> · <a href="/terms" className="underline">Terms</a>
           </div>
         </section>
+      </div>
       </div>
     </div>
   );

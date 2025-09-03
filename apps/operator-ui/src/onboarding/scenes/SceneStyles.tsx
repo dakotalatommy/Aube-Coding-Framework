@@ -16,7 +16,7 @@ export default function SceneStyles({ state, next, back, save }: any){
   const onContinue = async()=> { await save({ styles: { selected }}); next(); }
   return (
     <section className="rounded-2xl shadow-xl bg-white/60 backdrop-blur border border-white/70 p-5">
-      <h2 className="text-xl font-semibold text-slate-900">Pick your first 3 Work Styles</h2>
+      <h2 className="text-xl font-semibold text-slate-900">Pick your first 3 WorkStyles</h2>
       <p className="mt-1 text-sm text-slate-600">These are your signature automations. Start with three—add more anytime.</p>
       {!instagramLinked && (
         <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 p-3 text-amber-900 text-sm">

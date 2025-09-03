@@ -1,18 +1,10 @@
 import { useEffect, useState } from 'react';
 import { api, getTenant, API_BASE } from '../lib/api';
-import { setQueryParams } from '../lib/url';
-import { track, trackEvent } from '../lib/analytics';
+// import { setQueryParams } from '../lib/url';
+import { trackEvent } from '../lib/analytics';
 import Button from '../components/ui/Button';
-import Input from '../components/ui/Input';
-// Lazy-load driver.js only when needed to reduce bundle size
-let _driver: any; let _driverCssLoaded = false;
-async function getDriver(){
-  if (_driver) return _driver;
-  const mod = await import('driver.js');
-  if (!_driverCssLoaded) { try { await import('driver.js/dist/driver.css'); _driverCssLoaded = true; } catch {} }
-  _driver = (mod as any).driver || (mod as any).default?.driver || (mod as any).default;
-  return _driver;
-}
+// import Input from '../components/ui/Input';
+import { driver as _noop } from 'driver.js'; // type placeholder
 import { UI_STRINGS } from '../lib/strings';
 import { useToast } from '../components/ui/Toast';
 import StatusBadge from '../components/ui/StatusBadge';
@@ -24,14 +16,7 @@ export default function Integrations(){
   const providerFromURL = (()=>{ try{ return (sp.get('provider')||'').toLowerCase(); } catch { return ''; } })();
   const returnHint = (()=>{ try{ return (sp.get('return')||''); } catch { return ''; } })();
   const [focusedProvider] = useState<string>(providerFromURL);
-  const PAGE_MAX = 3;
-  const initialStep = (()=>{ try{ const n = parseInt(new URLSearchParams(window.location.search).get('step')||'1',10); return Math.min(Math.max(n,1), PAGE_MAX); } catch { return 1; } })();
-  const [page, setPage] = useState<number>(initialStep);
-  const go = (n: number) => {
-    const clamped = Math.min(Math.max(n,1), PAGE_MAX);
-    setPage(clamped);
-    setQueryParams({ pane:'integrations', step: clamped }, { replace: true, pathname: '/workspace' });
-  };
+  // Pager removed; single-page layout
   const SOCIAL_ON = (import.meta as any).env?.VITE_FEATURE_SOCIAL === '1';
   const SHOW_REDIRECT_URIS = ((import.meta as any).env?.VITE_SHOW_REDIRECT_URIS === '1') || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('dev'));
   const DEV_MODE = (()=>{ try{ return new URLSearchParams(window.location.search).has('dev'); } catch { return false; } })();
@@ -44,8 +29,7 @@ export default function Integrations(){
   const [onboarding, setOnboarding] = useState<any>({ connected:false, first_sync_done:false, counts:{}, connectedMap:{}, providers:{} });
   const [squareLink, setSquareLink] = useState<string>('');
   const [redirects, setRedirects] = useState<any>(null);
-  const [twilioArea, setTwilioArea] = useState<string>('');
-  const [twilioFrom, setTwilioFrom] = useState<string>('');
+  // Twilio inputs removed with section
   const [connAccounts, setConnAccounts] = useState<Array<{provider:string,status?:string,ts?:number}>>([]);
   const [lastCallback, setLastCallback] = useState<any>(null);
   const [linked, setLinked] = useState<Record<string, boolean>>({});
@@ -210,41 +194,41 @@ export default function Integrations(){
 
   // Optional deep-link tour to Twilio card
   useEffect(()=>{
-    try{
-      const sp = new URLSearchParams(window.location.search);
-      if (sp.get('tour') === 'twilio') {
-        const drv = await getDriver();
-        const d = drv({
-          showProgress: true,
-          steps: [
+    (async()=>{
+      try{
+        const sp = new URLSearchParams(window.location.search);
+        if (sp.get('tour') === 'twilio') {
+          const mod = await import('driver.js');
+          const drv = (mod as any).driver || (mod as any).default?.driver || (mod as any).default;
+          const d = drv({ showProgress: true, steps: [
             { popover: { title: 'SMS via Twilio', description: 'Use a dedicated business number. Personal numbers are not supported yet.' } },
             { element: '[data-guide="twilio"]', popover: { title: 'Twilio SMS', description: 'Connect a Twilio number for outbound/inbound SMS. Porting personal numbers will come later.' } },
-          ]
-        } as any);
-        d.drive();
-      }
-    } catch {}
+          ] } as any);
+          d.drive();
+        }
+      } catch {}
+    })();
   },[]);
 
   useEffect(()=>{
-    try{
-      const sp = new URLSearchParams(window.location.search);
-      if (sp.get('tour') === '1') {
-        const drv = await getDriver();
-        const d = drv({
-          showProgress: true,
-          steps: [
+    (async()=>{
+      try{
+        const sp = new URLSearchParams(window.location.search);
+        if (sp.get('tour') === '1') {
+          const mod = await import('driver.js');
+          const drv = (mod as any).driver || (mod as any).default?.driver || (mod as any).default;
+          const d = drv({ showProgress: true, steps: [
             { popover: { title: 'Integrations', description: 'Connect booking, CRM, messaging, and inventory.' } },
             { element: '[data-guide="providers"]', popover: { title: 'Providers', description: 'Each card shows connection status and actions.' } },
             { element: '[data-guide="twilio"]', popover: { title: 'SMS via Twilio', description: 'Use a dedicated business number. Personal numbers are not supported yet.' } },
-          ]
-        } as any);
-        d.drive();
-      }
-    } catch {}
+          ] } as any);
+          d.drive();
+        }
+      } catch {}
+    })();
   },[]);
 
-  const save = async () => {
+  /* const save = async () => {
     try{
       setBusy(true);
       const prefs = { ...(settings.preferences||{}), user_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, user_timezone_offset: computeOffsetHours() };
@@ -255,7 +239,7 @@ export default function Integrations(){
     }
     catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
-  };
+  }; */
 
   // Toggle a provider between Demo and Live directly from the card
   const setProviderLive = async (provider: string, live: boolean) => {
@@ -274,11 +258,11 @@ export default function Integrations(){
       return Math.round((-minutes) / 60);
     } catch { return 0; }
   };
-  const sendTestSms = async () => {
+  /* const sendTestSms = async () => {
     try{ setBusy(true); const r = await api.post('/ai/tools/execute',{ tenant_id: await getTenant(), name: 'messages.send', params: { tenant_id: await getTenant(), contact_id:'c_demo', channel:'sms', body:'Test SMS from BrandVX (reply STOP/HELP to opt out)' }, require_approval: false }); setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })()); try { showToast({ title: (r?.status==='ok'||r?.status==='pending') ? 'Test SMS sent' : 'Test SMS failed', description:(r?.status==='ok'||r?.status==='pending') ? 'SMS sent successfully' : (r?.error||r?.status||'') }); } catch {} }
     catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
-  };
+  }; */
   const sendTestEmail = async () => {
     try{ setBusy(true); const r = await api.post('/ai/tools/execute',{ tenant_id: await getTenant(), name: 'messages.send', params: { tenant_id: await getTenant(), contact_id:'c_demo', channel:'email', subject:'BrandVX Test', body:'<p>Hello from BrandVX</p>' }, require_approval: false }); setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })()); try { showToast({ title:(r?.status==='ok'||r?.status==='pending') ? 'Test email sent' : 'Test email failed', description:(r?.status==='ok'||r?.status==='pending') ? 'Email sent successfully' : (r?.error||r?.status||'') }); } catch {} }
     catch(e:any){ setStatus(String(e?.message||e)); }
@@ -293,7 +277,7 @@ export default function Integrations(){
       return `${hr}:${String(m||0).padStart(2,'0')} ${am ? 'AM':'PM'}`;
     } catch { return String(v||''); }
   };
-  const saveTraining = async () => {
+  /* const saveTraining = async () => {
     try{
       setBusy(true);
       const r = await api.post('/settings', { tenant_id: await getTenant(), training_notes: settings.training_notes||'' });
@@ -301,8 +285,8 @@ export default function Integrations(){
       try { showToast({ title:'Saved', description:'Training notes saved' }); } catch {}
     } catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
-  };
-  const enableSms = async () => {
+  }; */
+  /* const enableSms = async () => {
     try{
       setBusy(true);
       const r = await api.post('/integrations/twilio/provision', { tenant_id: await getTenant(), area_code: '' });
@@ -311,7 +295,7 @@ export default function Integrations(){
       else setErrorMsg(r?.detail||r?.status||'Enable failed');
     } catch(e:any){ setErrorMsg(String(e?.message||e)); }
     finally{ setBusy(false); }
-  };
+  }; */
 
   const hubspotUpsertSample = async () => {
     try{
@@ -467,7 +451,7 @@ export default function Integrations(){
         <div className="space-y-3 overflow-hidden min-h-[calc(100vh-var(--bvx-commandbar-height,64px)-48px)]">
           <section className="grid place-items-center h-[calc(100vh-var(--ask-float-height,0px)-80px)]">
             <div className="max-w-lg text-center rounded-2xl p-6 bg-white/70 backdrop-blur border border-white/70 shadow-sm">
-              <div className="text-lg font-semibold text-slate-900">Settings & Connections</div>
+              <div className="text-lg font-semibold text-slate-900">Settings</div>
               <div className="text-sm text-slate-600 mt-1">We’ll connect booking, messages, and (optionally) CRM. One step at a time.</div>
               <div className="mt-4 flex justify-center">
                 <Button onClick={()=>{ setShowIntro(false); try{ sessionStorage.setItem('bvx_integrations_intro_seen','1'); }catch{} }}>Start</Button>
@@ -491,7 +475,7 @@ export default function Integrations(){
   return (
     <div className="space-y-3 overflow-hidden min-h-[calc(100vh-var(--bvx-commandbar-height,64px)-48px)]">
       <div className="flex items-center sticky top-0 z-10 bg-white/80 backdrop-blur rounded-md px-1 py-1">
-        <h3 className="text-lg font-semibold">Settings & Connections</h3>
+        <h3 className="text-lg font-semibold">Settings</h3>
         <div className="flex items-center gap-2 ml-auto">
           <span className="text-xs text-slate-600 px-2 py-1 rounded-md border bg-white/70">
             TZ: {Intl.DateTimeFormat().resolvedOptions().timeZone} (UTC{computeOffsetHours()>=0?'+':''}{computeOffsetHours()})
@@ -499,18 +483,14 @@ export default function Integrations(){
           <Button variant="outline" size="sm" onClick={()=>{ reanalyze(); try{ trackEvent('integrations.reanalyze.click', { area:'integrations' }); }catch{} }} aria-label="Re-analyze connections" data-guide="reanalyze">{UI_STRINGS.ctas.secondary.reanalyze}</Button>
           <Button variant="outline" size="sm" aria-label="Open integrations guide" onClick={()=>{
             try { trackEvent('integrations.guide.open', { area: 'integrations' }); } catch {}
-            const d = driver({ showProgress: true, steps: [
+            const d = _noop({ showProgress: true, steps: [
               { popover: { title: 'Integrations', description: 'Connect booking, CRM, messaging, and inventory.' } },
               { element: '[data-guide="providers"]', popover: { title: 'What each does', description: 'Booking (Square/Acuity), Calendar (Google/Apple), CRM (HubSpot), Messaging (Twilio/SendGrid), Commerce (Shopify).' } },
               { element: '[data-guide="reanalyze"]', popover: { title: 'Re‑analyze', description: 'Re‑pull provider deltas and refresh KPIs after connecting or changing settings.' } },
             ] } as any);
             d.drive();
           }}>{UI_STRINGS.ctas.tertiary.guideMe}</Button>
-          <div className="flex items-center gap-1 ml-2">
-            <Button variant="outline" size="sm" onClick={()=> go(page-1)} disabled={page<=1}>Prev</Button>
-            <span className="text-xs px-2">Page {page}/3</span>
-            <Button variant="outline" size="sm" onClick={()=> go(page+1)} disabled={page>=3}>Next</Button>
-          </div>
+          {/* Pager removed */}
         </div>
       </div>
       {/* Token expiry warnings */}
@@ -562,57 +542,14 @@ export default function Integrations(){
           </div>
         </div>
       )}
-      {page===1 && (
       <div className="grid gap-3 max-w-xl">
-        {onboarding?.providers && Object.entries(onboarding.providers).some(([,v])=> (v as boolean)===false) && (
-          <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1">Some providers are pending app credentials; connect buttons will be disabled for those until configured.</div>
-        )}
-        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Some actions may require approval when auto-approve is off. Review in <a className="underline" href="/workspace?pane=approvals">Approvals</a>.</div>
+        {/* Pending credentials and approval banners removed */}
         {lastCallback && (
           <div className="text-[11px] text-slate-600">Last OAuth callback: {new Date(Number(lastCallback?.ts||0)*1000).toLocaleString()} · {String(lastCallback?.action||'')}</div>
         )}
-        <label className="flex items-center gap-2 text-sm"> Tone
-          <Input value={settings.tone||''} onChange={e=>setSettings({...settings,tone:e.target.value})} />
-        </label>
-        <div className="grid gap-2 text-sm">
-          <div className="text-slate-700">Brand profile</div>
-          <Input placeholder="Business name" value={settings.brand_profile?.name||''} onChange={e=> setSettings({...settings, brand_profile:{ ...(settings.brand_profile||{}), name:e.target.value }})} />
-          <Input placeholder="Brand voice (e.g., Warm, Editorial crisp)" value={settings.brand_profile?.voice||''} onChange={e=> setSettings({...settings, brand_profile:{ ...(settings.brand_profile||{}), voice:e.target.value }})} />
-          <Input placeholder="About (one line)" value={settings.brand_profile?.about||''} onChange={e=> setSettings({...settings, brand_profile:{ ...(settings.brand_profile||{}), about:e.target.value }})} />
-        </div>
-        <div className="grid sm:grid-cols-2 gap-2 text-sm">
-          <div>
-            <div className="text-slate-700">Monthly revenue</div>
-            <Input placeholder="$" value={settings.metrics?.monthly_revenue||''} onChange={e=> setSettings({...settings, metrics:{ ...(settings.metrics||{}), monthly_revenue:e.target.value }})} />
-          </div>
-          <div>
-            <div className="text-slate-700">Avg service price</div>
-            <Input placeholder="$" value={settings.metrics?.avg_service_price||''} onChange={e=> setSettings({...settings, metrics:{ ...(settings.metrics||{}), avg_service_price:e.target.value }})} />
-          </div>
-          <div>
-            <div className="text-slate-700">Avg service time (mins)</div>
-            <Input placeholder="minutes" value={settings.metrics?.avg_service_time||''} onChange={e=> setSettings({...settings, metrics:{ ...(settings.metrics||{}), avg_service_time:e.target.value }})} />
-          </div>
-          <div>
-            <div className="text-slate-700">Monthly rent</div>
-            <Input placeholder="$" value={settings.metrics?.rent||''} onChange={e=> setSettings({...settings, metrics:{ ...(settings.metrics||{}), rent:e.target.value }})} />
-          </div>
-        </div>
-        <div className="grid gap-2 text-sm">
-          <div className="text-slate-700">Primary goal</div>
-          <Input placeholder="What do you want BrandVX to do first?" value={settings.goals?.primary_goal||''} onChange={e=> setSettings({...settings, goals:{ ...(settings.goals||{}), primary_goal:e.target.value }})} />
-        </div>
+        {/* Tone, Brand profile, Metrics, and Primary goal removed per spec */}
         {/* Provider mode moved onto each integration card (Demo/Live) */}
-        <label className="flex items-center gap-2 text-sm"> SMS
-          <input type="checkbox" checked={settings.services?.includes('sms')} onChange={e=>{
-            const s = new Set(settings.services||[]); e.target.checked ? s.add('sms') : s.delete('sms'); setSettings({...settings, services: Array.from(s)});
-          }} />
-        </label>
-        <label className="flex items-center gap-2 text-sm"> Email
-          <input type="checkbox" checked={settings.services?.includes('email')} onChange={e=>{
-            const s = new Set(settings.services||[]); e.target.checked ? s.add('email') : s.delete('email'); setSettings({...settings, services: Array.from(s)});
-          }} />
-        </label>
+        {/* SMS and Email toggles hidden per spec */}
         <div className="grid grid-cols-1 sm:grid-cols-3 items-center gap-2 text-sm">
           <div className="text-slate-700">{UI_STRINGS.quietHours.sectionTitle}</div>
           <input className="border rounded-md px-2 py-1 bg-white" type="time" value={settings.quiet_hours?.start||'21:00'} onChange={e=> setSettings({...settings, quiet_hours:{ ...(settings.quiet_hours||{}), start:e.target.value }})} aria-label="Quiet hours start" />
@@ -631,26 +568,12 @@ export default function Integrations(){
           }} />
         </label>
         <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Some actions may require approval when auto-approve is off. Review in <a className="underline" href="/workspace?pane=approvals">Approvals</a>.</div>
-        <div className="flex gap-2">
-          <Button variant="outline" disabled={busy} onClick={save}>{UI_STRINGS.ctas.primary.saveChanges}</Button>
-          <Button variant="outline" disabled={busy} onClick={sendTestSms}>Send Test SMS</Button>
-          <Button variant="outline" disabled={busy} onClick={sendTestEmail}>Send Test Email</Button>
-        </div>
+        {/* Save/Send test buttons removed per spec */}
         <section className="rounded-2xl p-3 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
-          <div className="font-medium text-slate-900">Train VX</div>
-          <div className="text-sm text-slate-600 mt-1">Add context, phrases, and do/don’t guidance. VX will prefer this voice.</div>
-          <textarea className="mt-2 w-full border rounded-md px-3 py-2 bg-white text-sm" rows={5} placeholder="e.g., We always say 'gentle nudge' not 'blast'. Short, kind, clear."
-            value={settings.training_notes||''}
-            onChange={e=> setSettings({...settings, training_notes: e.target.value})}
-          />
-          <div className="mt-2 flex gap-2">
-            <Button variant="outline" size="sm" disabled={busy} onClick={saveTraining}>Save training</Button>
-          </div>
+          {/* Train VX section removed per spec */}
         </section>
       </div>
-      )}
 
-      {page===2 && (
       <div className="grid md:grid-cols-3 gap-4 mt-1 overflow-hidden" data-guide="providers">
         {SHOW_REDIRECT_URIS && redirects && (
           <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm md:col-span-3">
@@ -713,46 +636,7 @@ export default function Integrations(){
         </section>
         )}
 
-        {(
-        <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm" id="twilio-card" data-guide="twilio">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-semibold text-slate-900">Twilio SMS</div>
-              <div className="text-sm text-slate-600">Business SMS only — personal numbers not supported (yet). Each tenant uses their own number.</div>
-            </div>
-            <div className="flex items-center gap-2">
-              <StatusBadge status={(settings.providers_live as any)?.twilio ? (isConnected('twilio') ? 'connected' : 'configured') : 'pending'} warn={expSoon('twilio')} />
-              <label className="inline-flex items-center gap-1 text-[11px]">
-                <span className={`${settings.providers_live?.twilio ? 'text-emerald-700' : 'text-slate-600'}`}>{settings.providers_live?.twilio ? 'Live' : 'Demo'}</span>
-                <input type="checkbox" checked={!!(settings.providers_live as any)?.twilio} onChange={e=> setProviderLive('twilio', e.target.checked)} />
-              </label>
-            </div>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Button variant="outline" disabled={busy || isDemo} onClick={enableSms}>{isDemo ? 'Enable (live only)' : 'Enable SMS'}</Button>
-            <input className="border rounded-md px-2 py-1 bg-white text-sm" placeholder="Area code (optional)" value={twilioArea} onChange={e=> setTwilioArea(e.target.value)} style={{width:140}} />
-            <Button variant="outline" disabled={busy || isDemo} onClick={async()=>{
-              try{
-                setStatus('Provisioning…');
-                const r = await api.post('/integrations/twilio/provision', { area_code: twilioArea });
-                if (r?.from) { setTwilioFrom(r.from); setStatus('Provisioned'); try { showToast({ title:'Provisioned', description: r.from }); } catch {} }
-                else if (r?.detail) setStatus(String(r.detail));
-              } catch(e:any){ setStatus(String(e?.message||e)); }
-            }}>Provision number</Button>
-            {twilioFrom && <span className="text-xs text-slate-600">From: {twilioFrom}</span>}
-            <Button variant="outline" disabled={busy || isDemo} onClick={()=>{ try{ track('twilio_test_sms'); }catch{}; if (isDemo) { setStatus('Demo: sending disabled'); return; } sendTestSms(); try { showToast({ title:'Test SMS sent', description:'Test SMS sent successfully' }); } catch {} }}>{isDemo? 'Send test (demo off)' : 'Send test SMS'}</Button>
-            {!isDemo && (
-              <>
-                <Button variant="outline" disabled={busy} onClick={()=>{ try{ track('twilio_console_open'); }catch{}; window.open('https://www.twilio.com/console', '_blank', 'noreferrer'); try { showToast({ title:'Opening Twilio Console' }); } catch {} }}>Open Twilio Console</Button>
-                <Button variant="outline" disabled={busy} onClick={()=>{ try{ track('twilio_docs_open'); }catch{}; window.open('https://www.twilio.com/en-us/messaging/channels/sms', '_blank', 'noreferrer'); }}>Twilio SMS Guide</Button>
-              </>
-            )}
-          </div>
-          <div className="mt-2 text-xs text-amber-700">
-            {isDemo ? 'Coming soon in demo. In live workspaces, you can provision a dedicated Twilio business number (no personal numbers).' : 'Use a dedicated Twilio business number for SMS. We’ll add number porting support later. For now, personal mobile numbers are not supported.'}
-          </div>
-        </section>
-        )}
+        {/* Twilio SMS section removed per spec */}
 
         {(
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
@@ -910,7 +794,6 @@ export default function Integrations(){
           </section>
         )}
       </div>
-      )}
 
       {/* Troubleshooting (dev helpers) */}
       {(() => {
@@ -918,6 +801,7 @@ export default function Integrations(){
           const dev = new URLSearchParams(window.location.search).has('dev')
           if (!dev) return null
         }catch{ return null }
+        // Dev toolbar only (no pager here)
         return (
           <div className="mt-3 rounded-md border bg-slate-50 px-2 py-2 text-xs flex gap-2">
             <Button variant="outline" size="sm" disabled={busy} onClick={rlsSelfcheck}>RLS self-check</Button>
@@ -926,7 +810,6 @@ export default function Integrations(){
         )
       })()}
 
-      {page===3 && (
       <div className="grid md:grid-cols-3 gap-4 mt-4">
         {(
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
@@ -956,9 +839,12 @@ export default function Integrations(){
         </section>
         )}
       </div>
-      )}
       {(() => {
         try{ if (!new URLSearchParams(window.location.search).has('dev')) return null }catch{ return null }
+        // Simple pagination for recent events (stored on window to avoid state wiring in dev block)
+        const pageSize = 15; const key = '__intg_page';
+        const curPage = Math.max(1, Number((window as any)[key] || 1));
+        const set = (p:number)=>{ (window as any)[key] = Math.max(1, p); const ev = new Event('int:pg'); window.dispatchEvent(ev); };
         return (
           <section className="rounded-2xl p-3 bg-white/60 backdrop-blur border border-white/70 shadow-sm mt-3">
             <div className="flex items-center justify-between">
@@ -966,7 +852,7 @@ export default function Integrations(){
               <Button variant="outline" size="sm" disabled={busy} onClick={loadEvents}>Refresh</Button>
             </div>
             <div className="mt-2 text-[12px] max-h-48 overflow-auto">
-              {events.map((e,i)=> (
+              {events.slice((curPage-1)*pageSize, curPage*pageSize).map((e,i)=> (
                 <div key={i} className="py-1 border-b border-slate-100/70">
                   <div className="text-slate-800">{e.name}</div>
                   <div className="text-slate-500">{fmtTs(e.ts)}</div>
@@ -976,6 +862,12 @@ export default function Integrations(){
                 <div className="text-slate-500">No recent events</div>
               )}
             </div>
+            {events.length>pageSize && (
+              <div className="flex items-center justify-end gap-2 text-xs mt-2">
+                <button className="px-2 py-1 rounded-md border bg-white disabled:opacity-50" onClick={()=> set(Math.max(1, curPage-1))} disabled={curPage<=1}>&larr; Prev</button>
+                <button className="px-2 py-1 rounded-md border bg-white disabled:opacity-50" onClick={()=> set((curPage*pageSize)<events.length? curPage+1 : curPage)} disabled={(curPage*pageSize)>=events.length}>Next &rarr;</button>
+              </div>
+            )}
           </section>
         )
       })()}

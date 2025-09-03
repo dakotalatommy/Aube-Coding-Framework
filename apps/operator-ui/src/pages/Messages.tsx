@@ -6,7 +6,8 @@ import Input from '../components/ui/Input';
 import { Table, THead, TR, TH, TD } from '../components/ui/Table';
 import { startGuide } from '../lib/guide';
 import Skeleton from '../components/ui/Skeleton';
-import EmptyState from '../components/ui/EmptyState';
+// import EmptyState from '../components/ui/EmptyState';
+import Pager from '../components/ui/Pager';
 import { useToast } from '../components/ui/Toast';
 import { UI_STRINGS } from '../lib/strings';
 // import { Link } from 'react-router-dom';
@@ -14,10 +15,10 @@ import { UI_STRINGS } from '../lib/strings';
 export default function Messages(){
   const { showToast } = useToast();
   const recommendOnly = String((import.meta as any).env?.VITE_BETA_RECOMMEND_ONLY || localStorage.getItem('bvx_recommend_only') || '0') === '1';
-  const isDemo = (()=>{ try{ return new URLSearchParams(window.location.search).get('demo')==='1'; } catch { return false; } })();
+  // const isDemo = (()=>{ try{ return new URLSearchParams(window.location.search).get('demo')==='1'; } catch { return false; } })();
   // Add beta disclosure step to Guide me list
   const [items, setItems] = useState<any[]>([]);
-  const [filterContact, setFilterContact] = useState('');
+  const [filterContact] = useState('');
   const [status, setStatus] = useState('');
   const [send, setSend] = useState(()=> getPersisted('msg_draft', { contact_id:'', channel:'sms', subject:'', body:'' }));
   const [loading, setLoading] = useState(true);
@@ -27,8 +28,8 @@ export default function Messages(){
   const [showSug, setShowSug] = useState(false);
   const [connected, setConnected] = useState<Record<string,string>>({});
   const [lastAnalyzed, setLastAnalyzed] = useState<number|undefined>(undefined);
-  const [page, setPage] = useState(0);
-  const pageSize = 6;
+  const [page, setPage] = useState(1);
+  const pageSize = 10;
   useEffect(()=>{ (async()=>{ try{ const r = await api.post('/onboarding/analyze', { tenant_id: await getTenant() }); if (r?.summary?.connected) setConnected(r.summary.connected); } catch{} })(); },[]);
   const twilioConnected = (connected['twilio']||'') === 'connected';
 
@@ -79,23 +80,8 @@ export default function Messages(){
   },[]);
   useEffect(()=>{ (async()=>{ try{ const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() }); if (a?.summary?.ts) setLastAnalyzed(Number(a.summary.ts)); } catch{} })(); },[]);
 
-  const simulate = async (channel:'sms'|'email') => {
-    try {
-      await api.post('/messages/simulate', { tenant_id: await getTenant(), contact_id: filterContact || 'c_demo', channel, generate: false });
-      setStatus(channel==='sms' ? 'Simulated SMS to Demo Client' : 'Simulated Email to Demo Client');
-      await load();
-      try { showToast({ title: channel==='sms' ? 'Simulated SMS' : 'Simulated Email' }); } catch {}
-    } catch(e:any){
-      // retry once on transient network error
-      try {
-        await new Promise(res=> setTimeout(res, 600));
-        await api.post('/messages/simulate', { tenant_id: await getTenant(), contact_id: filterContact || 'c_demo', channel, generate: false });
-        setStatus(channel==='sms' ? 'Simulated SMS to Demo Client' : 'Simulated Email to Demo Client');
-        await load();
-        try { showToast({ title: channel==='sms' ? 'Simulated SMS' : 'Simulated Email' }); } catch {}
-      } catch(e2:any){ setStatus('Simulation failed. Please try again.'); }
-    }
-  };
+  // simulate kept for dev; currently unused after UI simplification
+  // simulate removed entirely in simplified UI
   useEffect(()=>{ setPersisted('msg_draft', send); }, [send]);
   useEffect(()=>{
     const t = setTimeout(async () => {
@@ -152,8 +138,8 @@ export default function Messages(){
       const item = { id: 'sc_'+Math.random().toString(36).slice(2,10), created_at: Date.now(), contact_id: send.contact_id, channel: send.channel, subject: send.subject||'', body: send.body||'', status: 'pending', title: 'Suggested Campaign' };
       const next = { ...data, suggested_campaigns: [item, ...list].slice(0, 200) };
       await api.post('/settings', { tenant_id: tid, ...next });
-      setStatus('Saved to Approvals (pending)');
-      try { showToast({ title: 'Saved to Approvals' }); } catch {}
+      setStatus('Saved to To‑Do (pending)');
+      try { showToast({ title: 'Saved to To‑Do' }); } catch {}
     } catch(e:any){ setStatus('Save failed: '+String(e?.message||e)); }
   };
 
@@ -170,6 +156,11 @@ export default function Messages(){
 
   return (
     <div className="space-y-4">
+      {/* Header */}
+      <div className="flex items-center px-1 py-1">
+        <h3 className="text-lg font-semibold">Messages</h3>
+        <Button variant="outline" className="ml-auto" onClick={()=> startGuide('messages')} aria-label={UI_STRINGS.a11y.buttons.guideMessages}>{UI_STRINGS.ctas.tertiary.guideMe}</Button>
+      </div>
       {loading && (
         <div className="space-y-3">
           <Skeleton className="h-10" />
@@ -179,37 +170,39 @@ export default function Messages(){
       )}
       {!loading && (
         <>
-          <div className="flex flex-wrap gap-2 items-center sticky top-[var(--sticky-offset,64px)] z-10 bg-white/70 backdrop-blur rounded-md px-1 py-1" data-guide="toolbar" role="region" aria-label="Messages toolbar">
-            <Input placeholder="Filter by client" value={filterContact} onChange={e=>setFilterContact(e.target.value)} />
-            <Button variant="outline" onClick={load} aria-label={UI_STRINGS.a11y.buttons.refresh}>{UI_STRINGS.ctas.secondary.refresh}</Button>
-            {isDemo && (
-              <>
-                <Button variant="outline" onClick={()=>simulate('sms')} aria-label={UI_STRINGS.a11y.buttons.simulateSms}>{UI_STRINGS.ctas.secondary.simulateSms}</Button>
-                <Button variant="outline" onClick={()=>simulate('email')} aria-label={UI_STRINGS.a11y.buttons.simulateEmail}>{UI_STRINGS.ctas.secondary.simulateEmail}</Button>
-              </>
-            )}
-            <Button variant="outline" className="ml-auto" onClick={()=> startGuide('messages')} aria-label={UI_STRINGS.a11y.buttons.guideMessages}>{UI_STRINGS.ctas.tertiary.guideMe}</Button>
-          </div>
+          {/* Toolbar removed for simplicity; history has its own refresh */}
           {lastAnalyzed && (
             <div className="text-[11px] text-slate-500">Last analyzed: {new Date(lastAnalyzed*1000).toLocaleString()}</div>
           )}
 
           <div className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm" data-guide="compose">
-            <div className="font-semibold mb-2">Send Message</div>
+            <div className="font-semibold mb-2">Compose</div>
             <div className="mb-2 text-xs">
               <Button variant="outline" size="sm" onClick={draftForMe}>{UI_STRINGS.ctas.secondary.draftForMe}</Button>
             </div>
             {recommendOnly ? (
               <div className="mb-2 text-xs text-sky-800 bg-sky-50 border border-sky-100 rounded-md px-2 py-1 inline-block">Beta: recommend-only mode — preview and copy. BrandVX sending is coming soon.</div>
             ) : (
-              <div className="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Some actions may require approval when auto-approve is off. Review in Approvals.</div>
+              <div className="mb-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Some actions may require review when auto-approve is off. Check your To‑Do.</div>
             )}
             {!!quiet?.start && !!quiet?.end && (
               <div className="mb-2 text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-md px-2 py-1 inline-block" data-guide="quiet">Quiet hours: {format12h(quiet.start)}–{format12h(quiet.end)}. Sending will be disabled during this window.</div>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" role="form" aria-label="Send message form">
               <div className="relative">
-                <Input placeholder="client_search" value={send.contact_id} onFocus={()=>setShowSug(true)} onBlur={()=> setTimeout(()=>setShowSug(false), 120)} onChange={e=>setSend({...send,contact_id:e.target.value})} />
+                {/* Recipient chip */}
+                {Boolean((send.contact_id||'').trim()) && (
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full border bg-white text-xs">
+                      <span className="truncate max-w-[14rem]">{(() => { try{
+                        const found = suggestions.find(s=> s.id===send.contact_id);
+                        return found?.name || send.contact_id;
+                      }catch{ return send.contact_id; } })()}</span>
+                      <button className="text-slate-500 hover:text-slate-700" onClick={()=> setSend(s=> ({ ...s, contact_id:'' }))} aria-label="Remove recipient">×</button>
+                    </span>
+                  </div>
+                )}
+                <Input placeholder="Search client" value={send.contact_id} onFocus={()=>setShowSug(true)} onBlur={()=> setTimeout(()=>setShowSug(false), 120)} onChange={e=>setSend({...send,contact_id:e.target.value})} />
                 {showSug && suggestions.length > 0 && (
                   <div className="absolute z-10 mt-1 max-h-40 overflow-auto bg-white border rounded-md shadow-sm text-xs w-full">
                     {suggestions.map(s => (
@@ -224,12 +217,14 @@ export default function Messages(){
                 <option value="sms">sms</option>
                 <option value="email">email</option>
               </select>
-              <Input placeholder="Subject (email)" value={send.subject} onChange={e=>setSend({...send,subject:e.target.value})} />
+              {send.channel==='email' && (
+                <Input placeholder="Subject" value={send.subject} onChange={e=>setSend({...send,subject:e.target.value})} />
+              )}
               <Input placeholder="Message" value={send.body} onChange={e=>setSend({...send,body:e.target.value})} />
             </div>
             <div className="mt-2 text-xs text-slate-700 flex flex-wrap items-center gap-2">
               <span className="font-medium">Quiet hours:</span>
-              <Button variant="outline" size="sm" onClick={()=> setQuiet({ start:'21:00', end:'08:00' })}>Suggest 21:00–08:00</Button>
+              <Button variant="outline" size="sm" onClick={()=> setQuiet({ start:'21:00', end:'08:00' })}>Suggest 9:00 PM–8:00 AM</Button>
               <Button variant="outline" size="sm" onClick={async()=>{ try { await api.post('/settings', { tenant_id: await getTenant(), quiet_hours: quiet }); } catch{} }} aria-label={UI_STRINGS.a11y.buttons.saveQuietHours}>{UI_STRINGS.ctas.secondary.save}</Button>
             </div>
             <div className="mt-2 text-[11px] font-medium text-slate-700">Client Messaging Templates</div>
@@ -246,7 +241,7 @@ export default function Messages(){
               <div className="mt-2 flex flex-wrap gap-2">
                 <Button variant="outline" onClick={copyRecipients}>{UI_STRINGS.ctas.secondary.copyRecipients}</Button>
                 <Button variant="outline" onClick={copyMessage}>{UI_STRINGS.ctas.secondary.copyMessage}</Button>
-                <Button variant="outline" onClick={saveSuggestion}>{UI_STRINGS.ctas.secondary.saveToApprovals}</Button>
+                <Button variant="outline" onClick={saveSuggestion}>Save to To‑Do</Button>
                 <Button variant="primary" onClick={markAsSent}>{UI_STRINGS.ctas.secondary.markAsSent}</Button>
               </div>
             ) : (
@@ -255,53 +250,41 @@ export default function Messages(){
           </div>
 
           <pre className="whitespace-pre-wrap text-sm text-slate-700" data-guide="status" aria-live="polite">{status}</pre>
-          {items.length === 0 ? (
-            <EmptyState title={UI_STRINGS.emptyStates.messages.title} description={UI_STRINGS.emptyStates.messages.body}>
-              <Button variant="outline" size="sm" onClick={()=> setSend(s=> ({ ...s, body: 'Hi! Just checking in — would you like to book your next visit?' }))}>Use a template</Button>
-              <Button variant="outline" size="sm" onClick={()=> startGuide('messages')}>{UI_STRINGS.ctas.tertiary.guideMe}</Button>
-            </EmptyState>
-          ) : (
+          {items.length === 0 ? null : (
             <Table data-guide="list">
               <THead>
                 <TR><TH>ID</TH><TH>Contact</TH><TH>Channel</TH><TH>Status</TH><TH>Template</TH><TH>Time</TH></TR>
               </THead>
               <tbody className="divide-y">
-                {items.slice(page*pageSize, (page+1)*pageSize).map((r:any)=> (
+                {items.slice((page-1)*pageSize, page*pageSize).map((r:any)=> (
                   <TR key={r.id}>
                     <TD>{r.id}</TD>
-                    <TD>{r.contact_id}</TD>
+                    <TD><span className="truncate inline-block max-w-[10rem]" title={r.contact_id}>{r.contact_id}</span></TD>
                     <TD>{r.channel}</TD>
-                    <TD className={String(r.status).includes('rate')? 'text-amber-700':''}>{r.status}</TD>
-                    <TD>{r.template_id||''}</TD>
-                    <TD>{r.ts}</TD>
+                    <TD className={String(r.status).includes('rate')? 'text-amber-700':''}><span className="truncate inline-block max-w-[10rem]" title={r.status}>{r.status}</span></TD>
+                    <TD><span className="truncate inline-block max-w-[12rem]" title={r.template_id||''}>{r.template_id||''}</span></TD>
+                    <TD><span className="truncate inline-block max-w-[12rem]" title={String(r.ts||'')}>{r.ts}</span></TD>
                   </TR>
                 ))}
               </tbody>
             </Table>
           )}
           {items.length>0 && (
-            <div className="flex items-center justify-end gap-2 text-xs mt-2 sticky bottom-[calc(var(--bvx-commandbar-height,64px)+env(safe-area-inset-bottom,0px)+8px)] bg-white/70 backdrop-blur rounded-md px-2 py-1">
-              <button className="px-2 py-1 rounded-md border bg-white disabled:opacity-50" onClick={()=> setPage(p=> Math.max(0, p-1))} disabled={page<=0}>&larr; Prev</button>
-              <button className="px-2 py-1 rounded-md border bg-white disabled:opacity-50" onClick={()=> setPage(p=> p+1)} disabled={(page+1)*pageSize >= items.length}>Next &rarr;</button>
-            </div>
+            <Pager page={page} pageSize={pageSize} total={items.length} onPrev={()=> setPage(p=> Math.max(1, p-1))} onNext={()=> setPage(p=> (p*pageSize<items.length? p+1: p))} />
           )}
+          {/* Bottom counters: SMS/Email usage */}
           <div className="flex gap-2 text-xs">
-            {isWithinQuiet(quiet) && (
-              <span className="px-2 py-1 rounded-md border bg-slate-50 border-slate-200 text-slate-700">Quiet hours active ({format12h(quiet.start)}–{format12h(quiet.end)})</span>
-            )}
-            {status.includes('rate_limited') && (
-              <span className="px-2 py-1 rounded-md border bg-amber-50 border-amber-200 text-amber-700">Rate limited recently</span>
-            )}
             {limits && (limits['msg:sms'] || limits['msg:email']) && (
               <span className="px-2 py-1 rounded-md border bg-white text-slate-700">
                 {(() => { try{
                   const s = limits['msg:sms']||{}; const e = limits['msg:email']||{};
-                  const fmt = (x:any)=> `${x.count||0}/${(x.limit||0)+(x.burst||0)}${typeof x.ttl_s==='number'?` · resets in ${x.ttl_s}s`:''}`;
+                  const fmt = (x:any)=> `${x.count||0}/${(x.limit||0)+(x.burst||0)}`;
                   return `SMS ${fmt(s)} · Email ${fmt(e)}`;
-                }catch{return 'Rate limits' } })()}
+                }catch{return 'SMS 0/0 · Email 0/0' } })()}
               </span>
             )}
           </div>
+          {/* badges row moved to top */}
         </>
       )}
     </div>

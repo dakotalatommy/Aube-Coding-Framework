@@ -1112,6 +1112,35 @@ async def stripe_webhook(request: Request):
     elif typ == "invoice.paid":
         cust_id = data.get("customer")
         t_update = {"last_invoice_paid": int(_time.time())}
+    elif typ == "invoice.payment_failed":
+        cust_id = data.get("customer")
+        # Enqueue To-Do for payment failure
+        try:
+            with next(get_db()) as db:  # type: ignore
+                # Resolve tenant via customer metadata
+                tenant_hint = ""
+                try:
+                    if cust_id:
+                        cust_obj = s.Customer.retrieve(cust_id)  # type: ignore
+                        tenant_hint = str(cust_obj.get("metadata", {}).get("tenant_id") or "")
+                except Exception:
+                    tenant_hint = ""
+                if tenant_hint:
+                    await execute_tool(
+                        "todo.enqueue",
+                        {
+                            "tenant_id": tenant_hint,
+                            "type": "billing.payment_failed",
+                            "message": "Payment failed — update your card to avoid interruption.",
+                            "severity": "warn",
+                            "payload": {"stripe_customer": str(cust_id or ""), "invoice_id": str(data.get("id") or "")},
+                            "idempotency_key": f"stripe_payment_failed_{data.get('id','')}",
+                        },
+                        db,
+                        UserContext(tenant_id=tenant_hint, role="owner_admin", user_id="system"),  # type: ignore
+                    )
+        except Exception:
+            pass
     else:
         return JSONResponse({"status": "ignored"})
     # Persist to settings for the tenant owning this customer (prefer exact tenant via Stripe metadata)
@@ -3659,6 +3688,10 @@ class ApprovalActionRequest(BaseModel):
     approval_id: int
     action: str  # approve|reject
 
+class ExpiryCheckRequest(BaseModel):
+    tenant_id: str
+    days: int = 7
+
 
 @app.post("/ai/tools/execute", tags=["AI"])
 async def ai_tool_execute(
@@ -4449,6 +4482,10 @@ class SettingsRequest(BaseModel):
     # Onboarding/tour persistence
     tour_completed: Optional[bool] = None
     onboarding_step: Optional[int] = None
+    # BrandVX gating flags
+    onboarding_completed: Optional[bool] = None
+    welcome_seen: Optional[bool] = None
+    guide_done: Optional[bool] = None
     # Timezone support
     user_timezone: Optional[str] = None  # e.g., "America/Chicago"
     # Creator / developer flags
@@ -4525,6 +4562,13 @@ def update_settings(
             data["onboarding_step"] = int(req.onboarding_step)
         except Exception:
             data["onboarding_step"] = 0
+    # New gating flags
+    if req.onboarding_completed is not None:
+        data["onboarding_completed"] = bool(req.onboarding_completed)
+    if req.welcome_seen is not None:
+        data["welcome_seen"] = bool(req.welcome_seen)
+    if req.guide_done is not None:
+        data["guide_done"] = bool(req.guide_done)
     if req.user_timezone is not None:
         prefs = dict(data.get("preferences") or {})
         prefs["user_timezone"] = req.user_timezone
@@ -8769,6 +8813,51 @@ def calendar_reschedule(req: ApptRescheduleRequest, db: Session = Depends(get_db
         try: db.rollback()  # noqa: E701
         except Exception: pass
         return {"status": "error"}
+@app.post("/integrations/check-expiry", tags=["Integrations"])
+async def integrations_check_expiry(
+    req: ExpiryCheckRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"enqueued": 0}
+    try:
+        now = int(_time.time())
+        horizon = now + int(max(1, req.days)) * 86400
+        rows = (
+            db.query(dbm.ConnectedAccount)
+            .filter(dbm.ConnectedAccount.tenant_id == req.tenant_id)
+            .filter(dbm.ConnectedAccount.status == "connected")
+            .all()
+        )
+        count = 0
+        for r in rows:
+            try:
+                exp = int(r.expires_at or 0)
+            except Exception:
+                exp = 0
+            if exp and exp <= horizon:
+                try:
+                    await execute_tool(
+                        "todo.enqueue",
+                        {
+                            "tenant_id": req.tenant_id,
+                            "type": "integration.token_expiry",
+                            "message": f"{r.provider} token expires soon",
+                            "severity": "warn",
+                            "payload": {"provider": r.provider, "expires_at": exp},
+                            "idempotency_key": f"token_expiry_{r.provider}_{exp}",
+                        },
+                        db,
+                        ctx,
+                    )
+                    count += 1
+                except Exception:
+                    continue
+        return {"enqueued": count}
+    except Exception:
+        return {"enqueued": 0}
+
     try:
         invalidate_calendar_cache(req.tenant_id)
     except Exception:
