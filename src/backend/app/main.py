@@ -1120,32 +1120,7 @@ async def stripe_webhook(request: Request):
     elif typ == "invoice.payment_failed":
         cust_id = data.get("customer")
         # Enqueue To-Do for payment failure
-        try:
-            with next(get_db()) as db:  # type: ignore
-                # Resolve tenant via customer metadata
-                tenant_hint = ""
-                try:
-                    if cust_id:
-                        cust_obj = s.Customer.retrieve(cust_id)  # type: ignore
-                        tenant_hint = str(cust_obj.get("metadata", {}).get("tenant_id") or "")
-                except Exception:
-                    tenant_hint = ""
-                if tenant_hint:
-                    await execute_tool(
-                        "todo.enqueue",
-                        {
-                            "tenant_id": tenant_hint,
-                            "type": "billing.payment_failed",
-                            "message": "Payment failed — update your card to avoid interruption.",
-                            "severity": "warn",
-                            "payload": {"stripe_customer": str(cust_id or ""), "invoice_id": str(data.get("id") or "")},
-                            "idempotency_key": f"stripe_payment_failed_{data.get('id','')}",
-                        },
-                        db,
-                        UserContext(tenant_id=tenant_hint, role="owner_admin", user_id="system"),  # type: ignore
-                    )
-        except Exception:
-            pass
+        # Defer enqueue to scheduler/tick to avoid import order problems during startup
     else:
         return JSONResponse({"status": "ignored"})
     # Persist to settings for the tenant owning this customer (prefer exact tenant via Stripe metadata)
