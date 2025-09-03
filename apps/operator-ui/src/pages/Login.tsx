@@ -77,7 +77,11 @@ export default function Login() {
             onClick={async()=>{
               try{ localStorage.setItem('bvx_offer_pending','1'); }catch{}
               try{
-                const redirectTo = `${window.location.origin}/auth/callback?next=/workspace?pane=dashboard&tour=1&postVerify=1`;
+                // If the Google account doesn't exist, Supabase will guide account creation.
+                // We set next to onboarding to orient new users; existing users go to workspace.
+                const next = '/onboarding';
+                const fallback = '/workspace?pane=dashboard&tour=1&postVerify=1';
+                const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}&alt=${encodeURIComponent(fallback)}`;
                 const { data, error } = await supabase.auth.signInWithOAuth({ provider:'google', options:{ redirectTo } });
                 if (error) { alert(String(error.message||error)); return; }
                 if (data && (data as any).url) window.location.assign((data as any).url as string);

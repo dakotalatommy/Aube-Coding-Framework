@@ -336,6 +336,16 @@ export default function WorkspaceShell(){
           if (tid) await api.post('/settings', { tenant_id: tid, guide_done: true });
         } catch {}
       } catch {}
+      // After tour completes, present payment options unless dismissed or in demo
+      try {
+        const dismissed = localStorage.getItem('bvx_billing_dismissed') === '1';
+        const sp = new URLSearchParams(window.location.search);
+        const isDemo = sp.get('demo') === '1';
+        if (!dismissed && !isDemo) {
+          setBillingOpen(true);
+          return;
+        }
+      } catch {}
       setShowOnboardingPrompt(true);
     };
     window.addEventListener('bvx:guide:workspace_intro:done', handler, { once: true } as any);
