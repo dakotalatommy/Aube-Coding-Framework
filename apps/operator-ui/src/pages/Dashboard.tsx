@@ -63,7 +63,7 @@ export default function Dashboard(){
         const timeoutMs = 7000;
         const tasks = [
           api.get(`/metrics?tenant_id=${encodeURIComponent(tid)}`, { signal: abort.signal, timeoutMs }),
-          api.get(`/cadences/queue?tenant_id=${encodeURIComponent(tid)}`, { signal: abort.signal, timeoutMs }),
+          (async()=>{ const sess=(await supabase.auth.getSession()).data.session; if(!sess?.access_token) return { items: [] }; return api.get(`/cadences/queue?tenant_id=${encodeURIComponent(tid)}`, { signal: abort.signal, timeoutMs }); })(),
           api.get(`/funnel/daily?tenant_id=${encodeURIComponent(tid)}&days=30`, { signal: abort.signal, timeoutMs }),
           api.post('/messages/simulate', { tenant_id: tid, contact_id: 'demo', channel: 'email' }, { signal: abort.signal, timeoutMs }),
           api.post('/onboarding/analyze', { tenant_id: tid }, { signal: abort.signal, timeoutMs })
@@ -91,7 +91,7 @@ export default function Dashboard(){
             try {
               const retry = await Promise.allSettled([
                 mRes.status==='rejected'? api.get(`/metrics?tenant_id=${encodeURIComponent(tid)}`, { timeoutMs: 8000 }): Promise.resolve(null as any),
-                qRes.status==='rejected'? api.get(`/cadences/queue?tenant_id=${encodeURIComponent(tid)}`, { timeoutMs: 8000 }): Promise.resolve(null as any),
+                qRes.status==='rejected'? (async()=>{ const sess=(await supabase.auth.getSession()).data.session; if(!sess?.access_token) return null as any; return api.get(`/cadences/queue?tenant_id=${encodeURIComponent(tid)}`, { timeoutMs: 8000 }); })(): Promise.resolve(null as any),
                 fRes.status==='rejected'? api.get(`/funnel/daily?tenant_id=${encodeURIComponent(tid)}&days=30`, { timeoutMs: 8000 }): Promise.resolve(null as any),
                 ,
                 anRes.status==='rejected'? api.post('/onboarding/analyze', { tenant_id: tid }, { timeoutMs: 8000 }) : Promise.resolve(null as any)

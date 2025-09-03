@@ -14,10 +14,11 @@ export default function Calendar(){
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('');
   const [provider, setProvider] = useState<string>('all');
-  const [merged, setMerged] = useState<number>(0);
+  // const [merged, setMerged] = useState<number>(0);
   const [page, setPage] = useState<number>(1);
   const pageSize = 12;
   const [lastAnalyzed, setLastAnalyzed] = useState<number|undefined>(undefined);
+  const [connected, setConnected] = useState<Record<string,string>>({});
   const [showApple, setShowApple] = useState<boolean>(false);
   const [lastUpdated, setLastUpdated] = useState<number>(0);
   const [actionBusy, setActionBusy] = useState<boolean>(false);
@@ -50,7 +51,7 @@ export default function Calendar(){
       } catch {}
     })();
   }, []);
-  useEffect(()=>{ (async()=>{ try{ const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() }); if (a?.summary?.ts) setLastAnalyzed(Number(a.summary.ts)); } catch{} })(); },[]);
+  useEffect(()=>{ (async()=>{ try{ const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() }); if (a?.summary?.ts) setLastAnalyzed(Number(a.summary.ts)); if (a?.summary?.connected) setConnected(a.summary.connected); } catch{} })(); },[]);
   // Hide Apple calendar until ready (always off for now)
   useEffect(()=>{ try { setShowApple(false); } catch {} }, [lastSync, JSON.stringify(events)]);
   const syncNow = async (prov?: string) => {
@@ -62,13 +63,13 @@ export default function Calendar(){
     try { showToast({ title:'Sync started', description: prov || 'all' }); } catch {}
     setLastUpdated(Date.now());
   };
-  const mergeDupes = async () => {
-    const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'calendar.merge', params:{ tenant_id: await getTenant() }, require_approval: false });
-    setMerged((r as any)?.merged ?? 0);
-    const l = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`);
-    setEvents(l?.events||[]);
-    try { showToast({ title:'Merged bookings' }); } catch {}
-    setLastUpdated(Date.now());
+  // merge action is available via backend but button removed from UI; keep for potential future use
+  // mergeDupes temporarily removed from UI and code to avoid unused var error
+  const connectGoogle = async () => {
+    try{
+      const r = await api.get(`/oauth/google/login?tenant_id=${encodeURIComponent(await getTenant())}&return=workspace`);
+      if (r?.url) { try{ window.location.href = r.url; } catch { window.location.assign(r.url); } }
+    } catch {}
   };
   const reschedule = async (evt:any, deltaMin:number) => {
     try{
@@ -133,7 +134,7 @@ export default function Calendar(){
             <div
               key={i}
               aria-hidden
-              className="absolute top-0 bottom-0 bg-slate-400/50"
+              className="absolute top-0 bottom-0 bg-slate-200"
               style={{ left: `${((i+1) * (100/7))}%`, width: '1px' }}
             />
           ))}
@@ -175,8 +176,7 @@ export default function Calendar(){
       <div className="rounded-xl border bg-white p-3 shadow-sm" data-guide="list">
         {events.length === 0 ? (
           <EmptyState title={UI_STRINGS.emptyStates.calendar.title} description={UI_STRINGS.emptyStates.calendar.body}>
-            <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>syncNow('google')}>{UI_STRINGS.ctas.secondary.syncNowGoogle}</button>
-            <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>mergeDupes()}>{UI_STRINGS.ctas.secondary.deduplicate}</button>
+            <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>{ const isConn = String(connected['google']||'')==='connected'; isConn ? syncNow('google') : connectGoogle(); }}>{String(connected['google']||'')==='connected' ? UI_STRINGS.ctas.secondary.syncNowGoogle : 'Connect Google Calendar'}</button>
           </EmptyState>
         ) : (
           <ul className="list-disc ml-5 text-sm text-slate-700">
@@ -211,13 +211,7 @@ export default function Calendar(){
           return <span key={prov} className="px-2 py-1 rounded-md border bg-white">{prov}: {(info as any)?.status} {ts && `· ${ts}`}</span>
         })}
       </div>
-      <div className="flex gap-2">
-        <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>syncNow('google')}>{UI_STRINGS.ctas.secondary.syncNowGoogle}</button>
-        <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>syncNow('apple')}>{UI_STRINGS.ctas.secondary.syncNowApple}</button>
-        <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>syncNow()}>{UI_STRINGS.ctas.secondary.mergeBookings}</button>
-        <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={mergeDupes}>{UI_STRINGS.ctas.secondary.deduplicate}</button>
-      </div>
-      {merged>0 && <div className="text-xs text-emerald-700">Removed {merged} duplicates.</div>}
+      {/* Dedupe banner hidden until merge action is reintroduced */}
       <div className="text-[11px] text-amber-700">Some actions may require review when auto-approve is off. Check your To‑Do.</div>
       {status && <pre aria-live="polite" className="text-xs text-slate-700 whitespace-pre-wrap">{status}</pre>}
     </div>

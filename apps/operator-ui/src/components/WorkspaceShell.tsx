@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { Home, MessageSquare, Users, Calendar, Layers, Package2, Plug, CheckCircle2, MessageCircle, Eye } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { api } from '../lib/api';
+import { api, getTenant } from '../lib/api';
 import { startGuide } from '../lib/guide';
 import { track } from '../lib/analytics';
 import { UI_STRINGS } from '../lib/strings';
@@ -179,7 +179,10 @@ export default function WorkspaceShell(){
         const sp = new URLSearchParams(loc.search);
         const isDemo = sp.get('demo')==='1';
         if (isDemo) { setApprovalsCount(0); setQueueCount(0); return; }
-        const tid = localStorage.getItem('bvx_tenant')||'';
+        // Ensure we have an authenticated session before hitting protected endpoints
+        const session = (await supabase.auth.getSession()).data.session;
+        if (!session?.access_token) { setApprovalsCount(0); setQueueCount(0); return; }
+        const tid = await getTenant();
         if (!tid) { setApprovalsCount(0); setQueueCount(0); return; }
         const r = await api.get(`/approvals?tenant_id=${encodeURIComponent(tid)}`);
         const arr = Array.isArray(r) ? r : (r?.items||[]);
