@@ -91,8 +91,7 @@ export default function Billing(){
       </div>
       <div className="rounded-2xl border bg-white/80 backdrop-blur p-5 shadow-sm">
         <h1 className="text-2xl font-semibold text-slate-900">Add payment method</h1>
-        <p className="text-slate-600 mt-1">Free trial starts now. Add a card to avoid interruptions later — optional today.</p>
-        <div className="mt-2 text-xs text-slate-700">Choosing <span className="font-medium">$97 today</span> locks your <span className="font-medium">Founding Member</span> price at $97/month (recurring), not a one‑time payment.</div>
+        <div className="text-slate-600 mt-1">Pay <span className="font-semibold">$97 today</span> to lock your Founding Member price at $97/month — or pay nothing today and get a <span className="font-semibold">7‑day free trial</span> locking in your Founding Member price of $147.</div>
         {error && (
           <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50/60 text-rose-800 px-3 py-2 text-sm">{error}</div>
         )}
@@ -113,7 +112,6 @@ export default function Billing(){
             <Elements key={effectiveSecret} stripe={stripePromise!} options={{ clientSecret: effectiveSecret, appearance: { theme: 'flat' } }}>
               <div className="grid gap-3">
                 <PaymentElement options={{ layout: 'tabs' }} />
-                <div className="text-[11px] text-slate-500">Card UI is loaded for verification. Use the buttons below to start your plan.</div>
               </div>
             </Elements>
           )}
@@ -135,7 +133,7 @@ export default function Billing(){
             try { track('billing_start_founder', { plan: 'founder_97_monthly' }); } catch {}
             try {
               const price_id = (billingCfg?.price_97 || (import.meta as any).env?.VITE_STRIPE_PRICE_97 || '').trim();
-              const trial_days = Number((billingCfg?.trial_days ?? (import.meta as any).env?.VITE_STRIPE_TRIAL_DAYS) || '7');
+              const trial_days = 0; // charge today for $97 plan
               if (!price_id) { setError('Price 97 is not configured on the server.'); return; }
               const r = await api.post('/billing/create-checkout-session', { price_id, mode: 'subscription', trial_days });
               if (r?.url) window.location.href = r.url;
@@ -145,7 +143,7 @@ export default function Billing(){
           }}>Lock $97/mo (Founding Member)</Button>
           <Button variant="ghost" onClick={()=>{ try { track('billing_skip'); } catch {}; navigate('/workspace?pane=dashboard'); }}>Skip for now</Button>
         </div>
-        <div className="mt-3 text-xs text-slate-500">We charge nothing today. You’ll be notified before any charges after your trial.</div>
+        <div className="mt-3 text-xs text-slate-500">Charges depend on your selection: $97 charges today; $147 starts a 7‑day free trial. You’ll be notified before any future charges.</div>
       </div>
     </div>
   );

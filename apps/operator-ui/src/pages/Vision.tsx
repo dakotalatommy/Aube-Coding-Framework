@@ -4,7 +4,7 @@ import { startGuide } from '../lib/guide';
 import { trackEvent } from '../lib/analytics';
 
 export default function Vision(){
-  const [tab, setTab] = useState<'analyze'|'edit'|'tryon'>('analyze');
+  const [tab, setTab] = useState<'insta'|'upload'>('insta');
   const [preview, setPreview] = useState<string>('');
   const [b64, setB64] = useState<string>('');
   const [prompt, setPrompt] = useState<string>('Give concise, actionable feedback on lighting, framing, and clarity for beauty portfolio quality.');
@@ -116,11 +116,10 @@ export default function Vision(){
 
   return (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold">BrandVX</h3>
+      <h3 className="text-lg font-semibold">brandVZN</h3>
       <div className="flex gap-2">
-        <button className={`px-3 py-1 rounded-md border ${tab==='analyze'?'bg-slate-900 text-white':'bg-white'}`} onClick={()=> setTab('analyze')}>Analyze</button>
-        <button className={`px-3 py-1 rounded-md border ${tab==='edit'?'bg-slate-900 text-white':'bg-white'}`} onClick={()=> setTab('edit')}>Edit</button>
-        <button className={`px-3 py-1 rounded-md border ${tab==='tryon'?'bg-slate-900 text-white':'bg-white'}`} onClick={()=> setTab('tryon')}>Try‑on</button>
+        <button className={`px-3 py-1 rounded-md border ${tab==='insta'?'bg-slate-900 text-white':'bg-white'}`} onClick={()=> setTab('insta')}>Instagram</button>
+        <button className={`px-3 py-1 rounded-md border ${tab==='upload'?'bg-slate-900 text-white':'bg-white'}`} onClick={()=> setTab('upload')}>Upload & Edit</button>
       </div>
 
       <div className="flex gap-3 items-start">
@@ -129,26 +128,18 @@ export default function Vision(){
         </div>
         <div className="flex-1 space-y-3">
           <div className="flex gap-2">
-            <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm" onClick={pick} data-guide="upload">Upload</button>
-            <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.dng,image/*" className="hidden" onChange={onFile} />
-            {tab==='analyze' && (
-              <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={!b64 || loading} onClick={analyze} data-guide="analyze">{loading ? 'Analyzing…' : 'Analyze'}</button>
-            )}
-            {tab==='edit' && (
-              <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={!b64 || loading} onClick={()=> runEdit(editPrompt)} data-guide="edit">{loading ? 'Editing…' : 'Run Step 1'}</button>
-            )}
-            {tab==='tryon' && (
-              <div className="flex gap-2">
-                <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={!b64 || loading} onClick={()=> runEdit(tryPrimary)} data-guide="edit">{loading ? 'Editing…' : 'Primary'}</button>
-                <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={!b64 || loading} onClick={()=> runEdit(tryDay)} data-guide="edit">{loading ? 'Editing…' : 'Day‑safe'}</button>
-                <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={!b64 || loading} onClick={()=> runEdit(tryNight)} data-guide="edit">{loading ? 'Editing…' : 'Evening'}</button>
-              </div>
+            {tab==='upload' && (
+              <>
+                <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm" onClick={pick} data-guide="upload">Upload</button>
+                <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.dng,image/*" className="hidden" onChange={onFile} />
+                <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={!b64 || loading} onClick={analyze} data-guide="analyze">{loading ? 'Analyzing…' : 'Analyze'}</button>
+                <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={!b64 || loading} onClick={()=> runEdit(editPrompt)} data-guide="edit">{loading ? 'Editing…' : 'Run Edit'}</button>
+              </>
             )}
           </div>
 
-          {tab==='analyze' && (
+          {tab==='insta' && (
             <>
-              <textarea className="w-full border rounded-md px-3 py-2" rows={3} value={prompt} onChange={e=>setPrompt(e.target.value)} />
               <div className="flex gap-2 items-center" data-guide="social">
                 <input className="border rounded-md px-2 py-1 flex-1" placeholder="Instagram profile URL" value={socialUrl} onChange={e=>setSocialUrl(e.target.value)} />
                 <button className="border rounded-md px-3 py-1 bg-white hover:shadow-sm" onClick={fetchSocial}>Fetch</button>
@@ -157,27 +148,36 @@ export default function Vision(){
                 <div className="text-xs text-slate-700">{String(social.profile.title||'')} — {String(social.profile.bio||'')}</div>
               )}
               {social.posts && social.posts.length>0 && (
-                <div className="grid grid-cols-6 gap-1">
-                  {social.posts.slice(0,12).map((u,i)=> (<img key={i} src={u} alt="post" className="w-full h-16 object-cover rounded"/>))}
+                <div className="grid grid-cols-3 gap-2 mt-2">
+                  {social.posts.slice(0,3).map((u,i)=> (
+                    <button key={i} className={`group rounded-lg overflow-hidden border bg-white hover:shadow-sm ${preview===u?'ring-2 ring-pink-300':''}`} onClick={()=>{ setPreview(u); setB64(''); setOutput(''); }}>
+                      <img src={u} alt="post" className="w-full h-28 object-cover"/>
+                    </button>
+                  ))}
                 </div>
               )}
-              <div className="flex gap-2 items-center mt-2" data-guide="save">
-                <input className="border rounded-md px-2 py-1 flex-1" placeholder="Link to client_id (optional)" value={linkContactId} onChange={e=>setLinkContactId(e.target.value)} />
-                <button className="border rounded-md px-3 py-1 bg-white hover:shadow-sm disabled:opacity-50" disabled={!preview || !linkContactId} onClick={saveToClient}>Save to client</button>
+              <div className="flex gap-2 items-center mt-2">
+                <button className="border rounded-md px-3 py-1 bg-white hover:shadow-sm disabled:opacity-50" disabled={!preview} onClick={async()=>{
+                  setLoading(true); setOutput('');
+                  try{
+                    const r = await api.post('/ai/tools/execute',{ tenant_id: await getTenant(), name:'vision.inspect', params:{ tenant_id: await getTenant(), imageUrl: preview }, require_approval:false });
+                    setOutput(String(r?.brief||''));
+                  }catch(e:any){ setOutput(String(e?.message||e)); } finally{ setLoading(false); }
+                }}>Analyze selected</button>
+                <button className="border rounded-md px-3 py-1 bg-white hover:shadow-sm disabled:opacity-50" disabled={!preview} onClick={async()=>{
+                  try{
+                    const resp = await fetch(preview); const buf = await resp.arrayBuffer(); const bytes = new Uint8Array(buf);
+                    let binary=''; for (let i=0;i<bytes.length;i++){ binary += String.fromCharCode(bytes[i]); }
+                    const base64 = btoa(binary); setB64(base64); setMime(resp.headers.get('content-type')||'image/jpeg');
+                    await runEdit('Reduce glare; preserve skin texture');
+                  }catch(e:any){ setOutput(String(e?.message||e)); }
+                }}>Quick edit</button>
               </div>
             </>
           )}
 
-          {tab==='edit' && (
+          {tab==='upload' && (
             <textarea className="w-full border rounded-md px-3 py-2" rows={3} value={editPrompt} onChange={e=>setEditPrompt(e.target.value)} />
-          )}
-
-          {tab==='tryon' && (
-            <div className="grid gap-2">
-              <textarea className="w-full border rounded-md px-3 py-2" rows={2} value={tryPrimary} onChange={e=>setTryPrimary(e.target.value)} />
-              <textarea className="w-full border rounded-md px-3 py-2" rows={2} value={tryDay} onChange={e=>setTryDay(e.target.value)} />
-              <textarea className="w-full border rounded-md px-3 py-2" rows={2} value={tryNight} onChange={e=>setTryNight(e.target.value)} />
-            </div>
           )}
         </div>
       </div>
