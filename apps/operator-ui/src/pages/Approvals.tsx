@@ -19,6 +19,7 @@ export default function Approvals(){
   // Search removed in simplified To‑Do view
   // const [q] = useState('');
   const [onlyPending, setOnlyPending] = useState(true);
+  const [typeFilter, setTypeFilter] = useState<string>('all');
   const [selected, setSelected] = useState<any|null>(null);
   const [labels, setLabels] = useState<Record<string,string>>({});
   const [authHint, setAuthHint] = useState<string>('');
@@ -45,6 +46,7 @@ export default function Approvals(){
   useEffect(()=>{ (async()=>{ try { const s = await api.get('/ai/tools/schema_human'); const map:Record<string,string>={}; if (Array.isArray(s?.tools)) { for (const t of s.tools) { map[String(t?.id||t?.name||'')] = String(t?.label||t?.title||''); } } setLabels(map);} catch {} })(); },[]);
   const act = async (id:string, decision:'approve'|'reject') => {
     try{
+      try { (window as any).Sentry?.addBreadcrumb?.({ category:'todo', level:'info', message:`${decision} ${id}` }); } catch {}
       const r = await api.post('/approvals/action',{ tenant_id: await getTenant(), approval_id: Number(id), action: decision });
       setStatus(JSON.stringify(r));
       try { trackEvent(decision==='approve' ? 'todo.approve' : 'todo.reject', { id: Number(id) }); } catch {}
@@ -77,6 +79,26 @@ export default function Approvals(){
   const humanTool = (r:any) => {
     const n = r.tool || r.tool_name || r.kind || r.type || 'tool';
     return labels[n] || n;
+  };
+  const groupOf = (r:any): string => {
+    try{
+      const raw = String(r.tool || r.tool_name || r.kind || r.type || '').toLowerCase();
+      if (!raw) return 'other';
+      if (raw.startsWith('todo.')) {
+        const seg = raw.split('.')[1]||'';
+        if (['billing','integration','reminder','security'].includes(seg)) return seg;
+        if (seg.startsWith('billing')) return 'billing';
+        if (seg.startsWith('integration')) return 'integration';
+        if (seg.startsWith('reminder')) return 'reminder';
+        if (seg.startsWith('security')) return 'security';
+        return 'other';
+      }
+      if (raw.includes('billing') || raw.includes('stripe')) return 'billing';
+      if (raw.includes('oauth') || raw.includes('integration') || raw.includes('connectors')) return 'integration';
+      if (raw.includes('remind') || raw.startsWith('appointments.')) return 'reminder';
+      if (raw.includes('security') || raw.includes('pii') || raw.includes('audit')) return 'security';
+      return 'other';
+    }catch{ return 'other'; }
   };
   const parseParams = (r:any) => {
     try{
@@ -224,6 +246,13 @@ export default function Approvals(){
       )}
       <div className="flex flex-wrap items-center gap-2 text-sm" data-guide="filters">
         <label className="flex items-center gap-2 text-xs text-slate-700"><input type="checkbox" checked={onlyPending} onChange={e=>setOnlyPending(e.target.checked)} /> Show only pending</label>
+        <select className="text-xs border rounded-md px-2 py-1 bg-white" value={typeFilter} onChange={e=>{ setTypeFilter(e.target.value); setPage(1); }} aria-label="Filter by type">
+          <option value="all">All types</option>
+          <option value="billing">Billing</option>
+          <option value="integration">Integrations</option>
+          <option value="reminder">Reminders</option>
+          <option value="security">Security</option>
+        </select>
       </div>
       <pre className="whitespace-pre-wrap text-sm text-slate-700">{status}</pre>
       {!loading && items.length > 0 && (
@@ -246,7 +275,7 @@ export default function Approvals(){
           <Skeleton className="h-32" />
         </div>
       ) : (
-      (items.filter(f=> (onlyPending ? (f.status||'pending')==='pending' : true)).length === 0) ? (
+      (items.filter(f=> (onlyPending ? (f.status||'pending')==='pending' : true) && (typeFilter==='all' ? true : groupOf(f)===typeFilter)).length === 0) ? (
         <div className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
           <EmptyState title="No To‑Do items" description="When VX needs your OK, items will appear here." />
         </div>
@@ -261,11 +290,17 @@ export default function Approvals(){
               <TR><TH>ID</TH><TH>Status</TH><TH>Type</TH><TH>Payload</TH><TH>Action</TH></TR>
             </THead>
             <tbody>
-              {items.filter(f=> (onlyPending ? (f.status||'pending')==='pending' : true)).slice((page-1)*pageSize, page*pageSize).map((r:any)=> (
+              {items.filter(f=> (onlyPending ? (f.status||'pending')==='pending' : true) && (typeFilter==='all' ? true : groupOf(f)===typeFilter)).slice((page-1)*pageSize, page*pageSize).map((r:any)=> (
                 <TR key={r.id} onClick={()=> setSelected(r)} className={selected?.id===r.id ? 'bg-pink-50/50' : undefined}>
                   <TD>{r.id}</TD>
                   <TD>{r.status||'pending'}</TD>
-                  <TD>{humanTool(r)}</TD>
+                  <TD>
+                    <span className="inline-flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded-full border text-[10px] bg-slate-50 border-slate-200 text-slate-700">{humanTool(r)}</span>
+                      {/* severity chip if present */}
+                      {(()=>{ try{ const p = parseParams(r); const sev = String(p?.severity||''); if(!sev) return null; const cls = sev==='error' ? 'bg-red-50 border-red-200 text-red-800' : (sev==='warn' ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-emerald-50 border-emerald-200 text-emerald-800'); return <span className={`px-2 py-0.5 rounded-full border text-[10px] ${cls}`}>{sev}</span>; }catch{return null} })()}
+                    </span>
+                  </TD>
                   <TD>
                     <code className="text-xs truncate block max-w-[22rem]" title={JSON.stringify(r.params||r.payload)}>{JSON.stringify(r.params||r.payload)}</code>
                   </TD>
@@ -282,7 +317,7 @@ export default function Approvals(){
           <Pager
             page={page}
             pageSize={pageSize}
-            total={items.filter(f=> (onlyPending ? (f.status||'pending')==='pending' : true)).length}
+            total={items.filter(f=> (onlyPending ? (f.status||'pending')==='pending' : true) && (typeFilter==='all' ? true : groupOf(f)===typeFilter)).length}
             onPrev={()=> setPage(p=> Math.max(1, p-1))}
             onNext={()=> setPage(p=> ((p*pageSize) < items.filter(f=> (onlyPending ? (f.status||'pending')==='pending' : true)).length ? p+1 : p))}
           />

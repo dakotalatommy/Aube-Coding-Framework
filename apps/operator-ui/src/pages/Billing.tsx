@@ -15,18 +15,37 @@ export default function Billing(){
   const [error, setError] = useState<string>('');
 
   const publishableKey = (import.meta as any).env?.VITE_STRIPE_PUBLISHABLE_KEY || (import.meta as any).env?.VITE_STRIPE_PK || '';
-  const stripePromise = useMemo(() => publishableKey ? loadStripe(publishableKey) : null, [publishableKey]);
+  const [runtimePk, setRuntimePk] = useState<string>('');
+  const pkFinal = publishableKey || runtimePk;
+  const stripePromise = useMemo(() => pkFinal ? loadStripe(pkFinal) : null, [pkFinal]);
+  const [billingCfg, setBillingCfg] = useState<{ price_147?: string; price_97?: string; trial_days?: number }|null>(null);
+  // If build-time key is missing, fetch a non-secret publishable key from backend config
+  useEffect(()=>{
+    if (publishableKey) return;
+    (async()=>{
+      try{
+        const cfg = await fetch((window as any)?.API_BASE || 'https://api.brandvx.io/billing/config').then(r=> r.json()).catch(()=> ({} as any));
+        if (cfg && typeof cfg.publishable_key === 'string' && cfg.publishable_key) {
+          setRuntimePk(cfg.publishable_key);
+        }
+      }catch{}
+    })();
+  },[publishableKey]);
 
   useEffect(()=>{ try { track('billing_view'); } catch{} }, []);
 
   useEffect(()=>{
     let mounted = true;
-    const ctrl = new AbortController();
     (async()=>{
       try {
         setLoading(true);
         setError('');
-        const resp = await api.post('/billing/create-setup-intent', {}, { signal: (ctrl as any).signal });
+        // Fetch server-side billing config (truth for price ids)
+        try {
+          const cfg = await fetch('https://api.brandvx.io/billing/config').then(r=> r.json());
+          if (mounted) setBillingCfg(cfg||{});
+        } catch {}
+        const resp = await api.post('/billing/create-setup-intent', {});
         if (!mounted) return;
         const sec = String(resp?.client_secret||'');
         if (sec) { setClientSecret(sec); lastGoodSecret.current = sec; }
@@ -40,7 +59,7 @@ export default function Billing(){
         if (mounted) setLoading(false);
       }
     })();
-    return ()=>{ mounted = false; try{ (ctrl as any).abort?.(); }catch{} };
+    return ()=>{ mounted = false; };
   },[]);
 
   const success = sp.get('success') === '1';
@@ -57,7 +76,7 @@ export default function Billing(){
   }
 
   const effectiveSecret = clientSecret || lastGoodSecret.current;
-  const maskedPk = publishableKey ? `${publishableKey.slice(0,6)}…${publishableKey.slice(-4)}` : '';
+  const maskedPk = pkFinal ? `${pkFinal.slice(0,6)}…${pkFinal.slice(-4)}` : '';
   const showDiag = !!error || new URLSearchParams(window.location.search).has('dev');
 
   return (
@@ -104,7 +123,10 @@ export default function Billing(){
           <Button onClick={async()=>{
             try { track('billing_start_subscription', { plan: '147_monthly' }); } catch {}
             try {
-              const r = await api.post('/billing/create-checkout-session', { price_id: (import.meta as any).env?.VITE_STRIPE_PRICE_147 || '', mode: 'subscription', trial_days: Number((import.meta as any).env?.VITE_STRIPE_TRIAL_DAYS || '7') });
+              const price_id = (billingCfg?.price_147 || (import.meta as any).env?.VITE_STRIPE_PRICE_147 || '').trim();
+              const trial_days = Number((billingCfg?.trial_days ?? (import.meta as any).env?.VITE_STRIPE_TRIAL_DAYS) || '7');
+              if (!price_id) { setError('Price 147 is not configured on the server.'); return; }
+              const r = await api.post('/billing/create-checkout-session', { price_id, mode: 'subscription', trial_days });
               if (r?.url) window.location.href = r.url;
             } catch (e) {
               setError('Failed to start subscription.');
@@ -113,7 +135,10 @@ export default function Billing(){
           <Button variant="outline" onClick={async()=>{
             try { track('billing_start_founder', { plan: 'founder_97_monthly' }); } catch {}
             try {
-              const r = await api.post('/billing/create-checkout-session', { price_id: (import.meta as any).env?.VITE_STRIPE_PRICE_97 || '', mode: 'subscription', trial_days: Number((import.meta as any).env?.VITE_STRIPE_TRIAL_DAYS || '7') });
+              const price_id = (billingCfg?.price_97 || (import.meta as any).env?.VITE_STRIPE_PRICE_97 || '').trim();
+              const trial_days = Number((billingCfg?.trial_days ?? (import.meta as any).env?.VITE_STRIPE_TRIAL_DAYS) || '7');
+              if (!price_id) { setError('Price 97 is not configured on the server.'); return; }
+              const r = await api.post('/billing/create-checkout-session', { price_id, mode: 'subscription', trial_days });
               if (r?.url) window.location.href = r.url;
             } catch (e) {
               setError('Failed to start $97/mo checkout.');

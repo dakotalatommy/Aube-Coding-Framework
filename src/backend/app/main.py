@@ -1073,6 +1073,11 @@ def billing_config() -> Dict[str, object]:
         "price_127": _env("STRIPE_PRICE_127", ""),
         "price_97": _env("STRIPE_PRICE_97", ""),
         "trial_days": int(_env("STRIPE_TRIAL_DAYS", "7") or 7),
+        # Safe to expose to browser
+        "publishable_key": _env(
+            "STRIPE_PUBLISHABLE_KEY",
+            _env("STRIPE_PUBLISHABLE", _env("VITE_STRIPE_PUBLISHABLE_KEY", "")),
+        ),
     }
 @app.post("/billing/webhook", tags=["Integrations"])
 async def stripe_webhook(request: Request):
