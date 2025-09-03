@@ -57,7 +57,9 @@ async def _gemini_generate(parts: list[dict], temperature: float = 0.2, timeout_
         async with httpx.AsyncClient(timeout=timeout_s) as client:
             r = await client.post(url, json=payload)
             if r.status_code >= 400:
-                return {"status": "error", "detail": f"gemini_http_{r.status_code}", "body": r.text[:200]}
+                # Map rare upstream non-standard codes (e.g., 600) to retriable errors
+                detail = f"gemini_http_{r.status_code}"
+                return {"status": "error", "detail": detail, "body": r.text[:200]}
             return r.json()
     except httpx.HTTPError as e:
         return {"status": "error", "detail": str(e)}
@@ -101,6 +103,55 @@ async def _load_image_as_inline(image_url: str | None, input_b64: str | None) ->
 
 
 # ---------------------- Vision + Edit Tools ----------------------
+
+# Nano Banana (direct edit) adapter
+def _banana_base() -> str:
+    return os.getenv("NANO_BANANA_API_URL", os.getenv("BANANA_API_URL", "")).rstrip("/")
+
+
+def _banana_key() -> str:
+    return os.getenv("NANO_BANANA_API_KEY", os.getenv("BANANA_API_KEY", ""))
+
+
+async def _banana_edit(image_b64: str, prompt: str, output_format: str | None = None, timeout_s: int = 60) -> dict:
+    base = _banana_base()
+    key = _banana_key()
+    if not base:
+        return {"status": "error", "detail": "missing_banana_url"}
+    if not key:
+        return {"status": "error", "detail": "missing_banana_key"}
+    url = base
+    # Allow passing a full URL or base + fixed path
+    if not url.startswith("http"):
+        url = f"https://{url}"
+    headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json", "x-api-key": key}
+    payload = {"prompt": prompt, "image_base64": image_b64}
+    if output_format:
+        payload["output_format"] = output_format
+    try:
+        async with httpx.AsyncClient(timeout=timeout_s) as client:
+            r = await client.post(url, json=payload, headers=headers)
+            if r.status_code >= 400:
+                return {"status": "error", "detail": f"banana_http_{r.status_code}", "body": r.text[:200]}
+            body = r.json() if r.headers.get("content-type", "").startswith("application/json") else {}
+            # Heuristic field extraction
+            img_b64 = (
+                body.get("image_base64")
+                or (body.get("data") or {}).get("image_base64")
+                or (body.get("result") or {}).get("image_base64")
+                or body.get("image")
+                or (body.get("data") or {}).get("image")
+            )
+            out_url = body.get("url") or body.get("output_url") or (body.get("data") or {}).get("url")
+            mime = body.get("mime") or (body.get("data") or {}).get("mime") or "image/png"
+            if out_url:
+                return {"status": "ok", "preview_url": out_url, "mime": mime}
+            if img_b64:
+                data_url = f"data:{mime};base64,{img_b64}"
+                return {"status": "ok", "data_url": data_url, "mime": mime}
+            return {"status": "error", "detail": "banana_no_image"}
+    except httpx.HTTPError as e:
+        return {"status": "error", "detail": str(e)[:160]}
 
 async def tool_vision_inspect(
     db: Session,
@@ -165,54 +216,38 @@ async def tool_image_edit(
             return {"status": "rate_limited", "retry_s": int(ttl)}
     except Exception:
         pass
-    # Accept either base64 or imageUrl for server-side fetch (avoids browser CORS)
-    img_obj = await _load_image_as_inline(imageUrl, inputImageBase64 or None)
-    if not img_obj:
+    # Accept either base64 or imageUrl, but for edits we call Nano Banana directly without LLM.
+    # Prefer input base64 to avoid fetching again.
+    img_inline = await _load_image_as_inline(imageUrl, inputImageBase64 or None)
+    if not img_inline:
         return {"status": "error", "detail": "missing_image"}
-    parts = [
-        img_obj,
-        {"text": f"Edit instruction: {prompt}. Keep skin texture; no body morphing; match undertone."},
-    ]
-    res = await _gemini_generate(parts, temperature=0.2)
-    if res.get("status") == "error":
-        # Retry once on server errors
-        if "http_5" in str(res.get("detail", "")):
-            res = await _gemini_generate(parts, temperature=0.2)
-            if res.get("status") == "error":
-                return res
-        else:
-            return res
-    # Locate inline image data in candidates
-    data_b64 = ""
-    mime = "image/png"
-    try:
-        cand = (res.get("candidates") or [{}])[0]
-        for p in cand.get("content", {}).get("parts", []):
-            if "inlineData" in p and p["inlineData"].get("data"):
-                data_b64 = p["inlineData"]["data"]
-                mime = p["inlineData"].get("mimeType", mime)
-                break
-    except Exception:
-        data_b64 = ""
+    data_b64 = (img_inline.get("inlineData") or {}).get("data")
     if not data_b64:
-        return {"status": "error", "detail": "no_image_returned"}
-    # Persist to share_reports and return a signed-like URL path
-    token = _secrets.token_urlsafe(16)
-    filename = f"brandvx_edit.{ 'png' if 'png' in mime else ('jpg' if 'jpeg' in mime else 'img')}"
-    data_url = f"data:{mime};base64,{data_b64}"
-    try:
-        with engine.begin() as conn:
-            conn.execute(
-                _sql_text(
-                    "INSERT INTO share_reports (tenant_id, token, mime, filename, data_text) VALUES (CAST(:t AS uuid), :tok, :m, :fn, :dt)"
-                ),
-                {"t": tenant_id, "tok": token, "m": mime, "fn": filename, "dt": data_url},
-            )
-    except Exception as e:
-        return {"status": "error", "detail": f"persist_failed: {str(e)[:120]}"}
-    base_api = os.getenv("BACKEND_BASE_URL", "").rstrip("/")
-    url = f"{base_api}/reports/download/{token}" if base_api else f"/reports/download/{token}"
-    return {"status": "ok", "preview_url": url, "mime": mime}
+        return {"status": "error", "detail": "missing_image_data"}
+    banana = await _banana_edit(data_b64, prompt, output_format)
+    if banana.get("status") == "error":
+        return banana
+    # If service returned a URL, forward it. If it returned a data URL, persist and hand out a link for consistency.
+    if banana.get("preview_url"):
+        return {"status": "ok", "preview_url": banana.get("preview_url"), "mime": banana.get("mime")}
+    if banana.get("data_url"):
+        mime = str(banana.get("mime") or "image/png")
+        token = _secrets.token_urlsafe(16)
+        filename = f"brandvx_edit.{ 'png' if 'png' in mime else ('jpg' if 'jpeg' in mime else 'img')}"
+        try:
+            with engine.begin() as conn:
+                conn.execute(
+                    _sql_text(
+                        "INSERT INTO share_reports (tenant_id, token, mime, filename, data_text) VALUES (CAST(:t AS uuid), :tok, :m, :fn, :dt)"
+                    ),
+                    {"t": tenant_id, "tok": token, "m": mime, "fn": filename, "dt": banana["data_url"]},
+                )
+        except Exception as e:
+            return {"status": "error", "detail": f"persist_failed: {str(e)[:120]}"}
+        base_api = os.getenv("BACKEND_BASE_URL", "").rstrip("/")
+        url = f"{base_api}/reports/download/{token}" if base_api else f"/reports/download/{token}"
+        return {"status": "ok", "preview_url": url, "mime": mime}
+    return {"status": "error", "detail": "banana_no_output"}
 
 
 # ---------------------- Social scraping (public metadata only) ----------------------
