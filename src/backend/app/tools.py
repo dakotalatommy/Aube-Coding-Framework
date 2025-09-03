@@ -78,7 +78,7 @@ def _allowed_image_mime(mime: str) -> bool:
         return True
 
 
-async def _load_image_as_inline(image_url: str | None, input_b64: str | None) -> dict | None:
+async def _load_image_as_inline(image_url: Optional[str], input_b64: Optional[str]) -> Optional[dict]:
     max_mb = float(os.getenv("VISION_MAX_IMAGE_MB", "10") or "10")
     if input_b64:
         # Assume JPEG by default; client should send proper mime when possible
