@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { loadStripe } from '@stripe/stripe-js';
-import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js';
+import { Elements, PaymentElement } from '@stripe/react-stripe-js';
 import Button from '../components/ui/Button';
 import { track } from '../lib/analytics';
 import { api } from '../lib/api';
 
 export default function Billing(){
   const navigate = useNavigate();
-  const [sp] = useSearchParams();
+  // Removed success banner handling (using Checkout redirect flow)
   const [clientSecret, setClientSecret] = useState<string>('');
   const lastGoodSecret = useRef<string>('');
   const [loading, setLoading] = useState<boolean>(true);
@@ -44,6 +44,9 @@ export default function Billing(){
         try {
           const cfg = await fetch('https://api.brandvx.io/billing/config').then(r=> r.json());
           if (mounted) setBillingCfg(cfg||{});
+          if (!publishableKey && cfg?.publishable_key && !runtimePk) {
+            setRuntimePk(String(cfg.publishable_key));
+          }
         } catch {}
         const resp = await api.post('/billing/create-setup-intent', {});
         if (!mounted) return;
@@ -62,7 +65,7 @@ export default function Billing(){
     return ()=>{ mounted = false; };
   },[]);
 
-  const success = sp.get('success') === '1';
+  // Setup-intent success banner removed (flow now focuses on Checkout buttons)
 
   if (!publishableKey) {
     return (
@@ -90,9 +93,6 @@ export default function Billing(){
         <h1 className="text-2xl font-semibold text-slate-900">Add payment method</h1>
         <p className="text-slate-600 mt-1">Free trial starts now. Add a card to avoid interruptions later — optional today.</p>
         <div className="mt-2 text-xs text-slate-700">Choosing <span className="font-medium">$97 today</span> locks your <span className="font-medium">Founding Member</span> price at $97/month (recurring), not a one‑time payment.</div>
-        {success && (
-          <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50/60 text-emerald-800 px-3 py-2 text-sm">Payment method saved.</div>
-        )}
         {error && (
           <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50/60 text-rose-800 px-3 py-2 text-sm">{error}</div>
         )}
@@ -111,11 +111,10 @@ export default function Billing(){
             </div>
           ) : (
             <Elements key={effectiveSecret} stripe={stripePromise!} options={{ clientSecret: effectiveSecret, appearance: { theme: 'flat' } }}>
-              <PaymentSetupForm onSuccess={()=>{
-                try { localStorage.setItem('bvx_billing_added','1'); } catch {}
-                try { track('billing_submit', { method: 'setup_intent' }); } catch {}
-                navigate('/workspace?pane=dashboard&billing=success', { replace: true });
-              }} />
+              <div className="grid gap-3">
+                <PaymentElement options={{ layout: 'tabs' }} />
+                <div className="text-[11px] text-slate-500">Card UI is loaded for verification. Use the buttons below to start your plan.</div>
+              </div>
             </Elements>
           )}
         </div>
@@ -152,49 +151,6 @@ export default function Billing(){
   );
 }
 
-function PaymentSetupForm({ onSuccess }: { onSuccess: () => void }){
-  const stripe = useStripe();
-  const elements = useElements();
-  const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState<string>('');
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!stripe || !elements) return;
-    setSubmitting(true);
-    setMessage('');
-    try {
-      const result = await stripe.confirmSetup({
-        elements,
-        confirmParams: {
-          return_url: `${window.location.origin}/billing?success=1`,
-        },
-        redirect: 'if_required',
-      });
-      if (result.error) {
-        setMessage(result.error.message || 'Could not save payment method.');
-        try { track('billing_submit', { ok: false, code: result.error.type }); } catch {}
-      } else {
-        onSuccess();
-      }
-    } catch (err: any) {
-      setMessage(err?.message || 'Something went wrong.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="grid gap-4">
-      <PaymentElement options={{ layout: 'tabs' }} />
-      {message && (
-        <div className="rounded-lg border border-rose-200 bg-rose-50/60 text-rose-800 px-3 py-2 text-sm">{message}</div>
-      )}
-      <Button type="submit" disabled={!stripe || submitting} className="rounded-full">
-        {submitting ? 'Saving…' : 'Save payment'}
-      </Button>
-    </form>
-  );
-}
+// Legacy setup-intent form removed; we render PaymentElement read-only and use Checkout buttons
 
 

@@ -887,7 +887,6 @@ def tool_export_contacts(
 # Extend registry with new tools
 REGISTRY.update(
     {
-        "todo.enqueue": tool_todo_enqueue,
         "contacts.dedupe": tool_contacts_dedupe,
         "campaigns.dormant.start": tool_campaigns_dormant_start,
         "appointments.schedule_reminders": tool_appointments_schedule_reminders,
@@ -937,6 +936,7 @@ def tool_social_schedule_14days(
 
 # Register after definition to avoid NameError on import
 REGISTRY["social.schedule.14days"] = tool_social_schedule_14days
+REGISTRY["todo.enqueue"] = tool_todo_enqueue
 
 # Extend dispatcher
 async def _dispatch_extended(name: str, params: Dict[str, Any], db: Session, ctx: UserContext) -> Optional[Dict[str, Any]]:
