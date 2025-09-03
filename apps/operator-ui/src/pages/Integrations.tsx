@@ -567,6 +567,19 @@ export default function Integrations(){
             (async()=>{ try{ await api.post('/settings', { tenant_id: await getTenant(), ai_share_insights: e.target.checked }); }catch{} })();
           }} />
         </label>
+        <div className="grid grid-cols-1 sm:grid-cols-3 items-center gap-2 text-sm">
+          <div className="text-slate-700">Names in chat</div>
+          <select className="border rounded-md px-2 py-1 bg-white" value={settings.ai?.chat_name_exposure||'masked'} onChange={async(e)=>{
+            const ai = { ...(settings.ai||{}), chat_name_exposure: e.target.value };
+            setSettings({ ...settings, ai });
+            try { await api.post('/settings', { tenant_id: await getTenant(), preferences: { chat_name_exposure: e.target.value } }); } catch {}
+          }}>
+            <option value="masked">Masked (privacy-first)</option>
+            <option value="first_name">First name only</option>
+            <option value="full_name">Full name</option>
+          </select>
+          <div className="text-[11px] text-slate-600">Controls how Ask VX references client names in chat.</div>
+        </div>
         <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Some actions may require approval when auto-approve is off. Review in <a className="underline" href="/workspace?pane=approvals">Approvals</a>.</div>
         {/* Save/Send test buttons removed per spec */}
         <section className="rounded-2xl p-3 bg-white/60 backdrop-blur border border-white/70 shadow-sm">

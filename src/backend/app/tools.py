@@ -67,7 +67,8 @@ async def _gemini_generate(parts: list[dict], temperature: float = 0.2, timeout_
 
 def _allowed_image_mime(mime: str) -> bool:
     try:
-        allowed = (os.getenv("VISION_ALLOWED_MIME", "jpeg,png,dng") or "").lower().split(",")
+        # Allow common camera/mobile formats by default; can be overridden via env
+        allowed = (os.getenv("VISION_ALLOWED_MIME", "jpeg,png,dng,heic,heif,webp") or "").lower().split(",")
         mime = (mime or "").lower()
         if mime.startswith("image/"):
             short = mime.split("/", 1)[1]
@@ -78,11 +79,12 @@ def _allowed_image_mime(mime: str) -> bool:
         return True
 
 
-async def _load_image_as_inline(image_url: Optional[str], input_b64: Optional[str]) -> Optional[dict]:
+async def _load_image_as_inline(image_url: Optional[str], input_b64: Optional[str], input_mime: Optional[str] = None) -> Optional[dict]:
     max_mb = float(os.getenv("VISION_MAX_IMAGE_MB", "10") or "10")
     if input_b64:
-        # Assume JPEG by default; client should send proper mime when possible
-        return {"inlineData": {"mimeType": "image/jpeg", "data": input_b64}}
+        # Prefer provided mime; default to image/jpeg
+        mime = (input_mime or "image/jpeg").strip() or "image/jpeg"
+        return {"inlineData": {"mimeType": mime, "data": input_b64}}
     if image_url:
         try:
             async with httpx.AsyncClient(timeout=20, headers=_DEFAULT_HTTP_HEADERS) as client:
@@ -113,7 +115,9 @@ def _banana_key() -> str:
     return os.getenv("NANO_BANANA_API_KEY", os.getenv("BANANA_API_KEY", ""))
 
 
-async def _banana_edit(image_b64: str, prompt: str, output_format: str | None = None, timeout_s: int = 60) -> dict:
+from typing import Optional as _Optional
+
+async def _banana_edit(image_b64: str, prompt: str, output_format: _Optional[str] = None, timeout_s: int = 60) -> dict:
     base = _banana_base()
     key = _banana_key()
     if not base:
@@ -157,8 +161,9 @@ async def tool_vision_inspect(
     db: Session,
     ctx: UserContext,
     tenant_id: str,
-    image_url: str | None = None,
-    inputImageBase64: str | None = None,
+    image_url: _Optional[str] = None,
+    inputImageBase64: _Optional[str] = None,
+    inputMime: _Optional[str] = None,
     ret: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     _require_tenant(ctx, tenant_id)
@@ -168,7 +173,7 @@ async def tool_vision_inspect(
             return {"status": "rate_limited", "retry_s": int(ttl)}
     except Exception:
         pass
-    img = await _load_image_as_inline(image_url, inputImageBase64)
+    img = await _load_image_as_inline(image_url, inputImageBase64, inputMime)
     if not img:
         return {"status": "error", "detail": "invalid_image"}
     prompt = (
@@ -205,9 +210,10 @@ async def tool_image_edit(
     tenant_id: str,
     mode: str,
     prompt: str,
-    inputImageBase64: str | None,
-    outputFormat: str | None = None,
-    imageUrl: str | None = None,
+    inputImageBase64: _Optional[str],
+    outputFormat: _Optional[str] = None,
+    imageUrl: _Optional[str] = None,
+    inputMime: _Optional[str] = None,
 ) -> Dict[str, Any]:
     _require_tenant(ctx, tenant_id)
     try:
@@ -216,38 +222,54 @@ async def tool_image_edit(
             return {"status": "rate_limited", "retry_s": int(ttl)}
     except Exception:
         pass
-    # Accept either base64 or imageUrl, but for edits we call Nano Banana directly without LLM.
-    # Prefer input base64 to avoid fetching again.
-    img_inline = await _load_image_as_inline(imageUrl, inputImageBase64 or None)
-    if not img_inline:
+    # Accept either base64 or imageUrl and perform edit via Gemini
+    img_obj = await _load_image_as_inline(imageUrl, inputImageBase64 or None, inputMime)
+    if not img_obj:
         return {"status": "error", "detail": "missing_image"}
-    data_b64 = (img_inline.get("inlineData") or {}).get("data")
+    parts = [
+        img_obj,
+        {"text": f"Edit instruction: {prompt}. Keep skin texture; no body morphing; match undertone."},
+    ]
+    res = await _gemini_generate(parts, temperature=0.2)
+    if res.get("status") == "error":
+        # Retry once on server errors
+        if "http_5" in str(res.get("detail", "")):
+            res = await _gemini_generate(parts, temperature=0.2)
+            if res.get("status") == "error":
+                return res
+        else:
+            return res
+    # Locate inline image data in candidates
+    data_b64 = ""
+    mime = "image/png"
+    try:
+        cand = (res.get("candidates") or [{}])[0]
+        for p in cand.get("content", {}).get("parts", []):
+            if "inlineData" in p and p["inlineData"].get("data"):
+                data_b64 = p["inlineData"]["data"]
+                mime = p["inlineData"].get("mimeType", mime)
+                break
+    except Exception:
+        data_b64 = ""
     if not data_b64:
-        return {"status": "error", "detail": "missing_image_data"}
-    banana = await _banana_edit(data_b64, prompt, output_format)
-    if banana.get("status") == "error":
-        return banana
-    # If service returned a URL, forward it. If it returned a data URL, persist and hand out a link for consistency.
-    if banana.get("preview_url"):
-        return {"status": "ok", "preview_url": banana.get("preview_url"), "mime": banana.get("mime")}
-    if banana.get("data_url"):
-        mime = str(banana.get("mime") or "image/png")
-        token = _secrets.token_urlsafe(16)
-        filename = f"brandvx_edit.{ 'png' if 'png' in mime else ('jpg' if 'jpeg' in mime else 'img')}"
-        try:
-            with engine.begin() as conn:
-                conn.execute(
-                    _sql_text(
-                        "INSERT INTO share_reports (tenant_id, token, mime, filename, data_text) VALUES (CAST(:t AS uuid), :tok, :m, :fn, :dt)"
-                    ),
-                    {"t": tenant_id, "tok": token, "m": mime, "fn": filename, "dt": banana["data_url"]},
-                )
-        except Exception as e:
-            return {"status": "error", "detail": f"persist_failed: {str(e)[:120]}"}
-        base_api = os.getenv("BACKEND_BASE_URL", "").rstrip("/")
-        url = f"{base_api}/reports/download/{token}" if base_api else f"/reports/download/{token}"
-        return {"status": "ok", "preview_url": url, "mime": mime}
-    return {"status": "error", "detail": "banana_no_output"}
+        return {"status": "error", "detail": "no_image_returned"}
+    # Persist to share_reports and return a link
+    token = _secrets.token_urlsafe(16)
+    filename = f"brandvx_edit.{ 'png' if 'png' in mime else ('jpg' if 'jpeg' in mime else 'img')}"
+    data_url = f"data:{mime};base64,{data_b64}"
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                _sql_text(
+                    "INSERT INTO share_reports (tenant_id, token, mime, filename, data_text) VALUES (CAST(:t AS uuid), :tok, :m, :fn, :dt)"
+                ),
+                {"t": tenant_id, "tok": token, "m": mime, "fn": filename, "dt": data_url},
+            )
+    except Exception as e:
+        return {"status": "error", "detail": f"persist_failed: {str(e)[:120]}"}
+    base_api = os.getenv("BACKEND_BASE_URL", "").rstrip("/")
+    url = f"{base_api}/reports/download/{token}" if base_api else f"/reports/download/{token}"
+    return {"status": "ok", "preview_url": url, "mime": mime}
 
 
 # ---------------------- Social scraping (public metadata only) ----------------------
@@ -400,7 +422,7 @@ async def tool_calendar_merge(db: Session, ctx: UserContext, tenant_id: str) -> 
         r = await client.post(f"{base_api}/calendar/merge", json={"tenant_id": tenant_id})
         return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
 
-async def tool_calendar_reschedule(db: Session, ctx: UserContext, tenant_id: str, external_ref: str | None, provider: str | None, provider_event_id: str | None, start_ts: int, end_ts: int | None) -> Dict[str, Any]:
+async def tool_calendar_reschedule(db: Session, ctx: UserContext, tenant_id: str, external_ref: _Optional[str], provider: _Optional[str], provider_event_id: _Optional[str], start_ts: int, end_ts: _Optional[int]) -> Dict[str, Any]:
     _require_tenant(ctx, tenant_id)
     base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
     payload = {"tenant_id": tenant_id, "external_ref": external_ref, "provider": provider, "provider_event_id": provider_event_id, "start_ts": int(start_ts), "end_ts": (int(end_ts) if end_ts else None)}
@@ -408,7 +430,7 @@ async def tool_calendar_reschedule(db: Session, ctx: UserContext, tenant_id: str
         r = await client.post(f"{base_api}/calendar/reschedule", json=payload)
         return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
 
-async def tool_calendar_cancel(db: Session, ctx: UserContext, tenant_id: str, external_ref: str | None, provider: str | None, provider_event_id: str | None) -> Dict[str, Any]:
+async def tool_calendar_cancel(db: Session, ctx: UserContext, tenant_id: str, external_ref: _Optional[str], provider: _Optional[str], provider_event_id: _Optional[str]) -> Dict[str, Any]:
     _require_tenant(ctx, tenant_id)
     base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
     payload = {"tenant_id": tenant_id, "external_ref": external_ref, "provider": provider, "provider_event_id": provider_event_id}

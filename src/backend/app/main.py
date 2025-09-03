@@ -3374,9 +3374,18 @@ async def ai_chat_raw(
         from fastapi.responses import JSONResponse as _JR
         excerpt = json.dumps({k: provider_json.get(k) for k in ("status", "incomplete_details", "usage")})
         return _JR({"error": "provider_error", "detail": "no_text_output", "provider_excerpt": excerpt}, status_code=200)
-    # Mask PII (emails, phone-like sequences) in final output
+    # Apply tenant chat exposure for names; always mask emails/phones
     try:
         import re as _re
+        # Load tenant ai.chat_name_exposure
+        exposure = "masked"
+        try:
+            row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == ctx.tenant_id).first()
+            if row and row.data_json:
+                ai_cfg = (json.loads(row.data_json).get("ai") or {})
+                exposure = str(ai_cfg.get("chat_name_exposure") or "masked").lower()
+        except Exception:
+            exposure = "masked"
         def _mask_email(m: "_re.Match[str]") -> str:
             try:
                 user = m.group(1)
@@ -3401,6 +3410,13 @@ async def ai_chat_raw(
         content = _re.sub(r"([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]+)", _mask_email, content)
         phone_rx = _re.compile(r"(\+?\d[\d\s\-\(\)]{6,}\d)")
         content = phone_rx.sub(lambda m: _mask_phone_str(m.group(1)), content)
+        if exposure == "masked":
+            # Redact obvious First Last patterns to initials
+            try:
+                name_rx = _re.compile(r"\b([A-Z][a-z]{1,20})\s+([A-Z][a-z]{1,20})\b")
+                content = name_rx.sub(lambda m: f"{m.group(1)[0]}. {m.group(2)[0]}.", content)
+            except Exception:
+                pass
     except Exception:
         pass
     # Persist logs (best-effort)
@@ -4618,6 +4634,14 @@ def update_settings(
         ai_cfg = dict(data.get("ai") or {})
         ai_cfg["share_insights"] = bool(req.ai_share_insights)
         data["ai"] = ai_cfg
+    # Per-tenant: chat name exposure (masked | first_name | full_name)
+    try:
+        if isinstance(req.preferences, dict) and req.preferences.get("chat_name_exposure"):
+            ai_cfg = dict(data.get("ai") or {})
+            ai_cfg["chat_name_exposure"] = str(req.preferences.get("chat_name_exposure"))
+            data["ai"] = ai_cfg
+    except Exception:
+        pass
     if not row_id:
         db.execute(_sql_text("INSERT INTO settings(tenant_id, data_json) VALUES (:tid, :dj)"), {"tid": req.tenant_id, "dj": json.dumps(data)})
     else:
