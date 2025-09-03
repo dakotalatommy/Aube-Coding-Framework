@@ -25,6 +25,31 @@ export default function Calendar(){
     (async()=>{ try{ const r = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`); setEvents(r?.events||[]); setLastSync(r?.last_sync||{}); setLastUpdated(Date.now()); } finally{ setLoading(false); } })();
   },[]);
   useEffect(()=>{ try{ const sp = new URLSearchParams(window.location.search); if (sp.get('tour')==='1') startGuide('calendar'); } catch {} },[]);
+  // Ensure weekly appointments are fresh on open
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const now = new Date();
+        const day = now.getDay();
+        const diffToMonday = (day === 0 ? -6 : 1) - day; // Monday as start
+        const monday = new Date(now);
+        monday.setDate(now.getDate() + diffToMonday);
+        monday.setHours(0,0,0,0);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        sunday.setHours(23,59,59,999);
+        await api.post('/ai/tools/execute', {
+          tenant_id: await getTenant(),
+          name: 'calendar.sync',
+          params: { tenant_id: await getTenant(), range_start: Math.floor(monday.getTime()/1000), range_end: Math.floor(sunday.getTime()/1000) },
+          require_approval: false
+        });
+        // Refresh list after kick-off
+        const l = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`);
+        setEvents(l?.events||[]); setLastSync(l?.last_sync||{}); setLastUpdated(Date.now());
+      } catch {}
+    })();
+  }, []);
   useEffect(()=>{ (async()=>{ try{ const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() }); if (a?.summary?.ts) setLastAnalyzed(Number(a.summary.ts)); } catch{} })(); },[]);
   // Hide Apple calendar until ready (always off for now)
   useEffect(()=>{ try { setShowApple(false); } catch {} }, [lastSync, JSON.stringify(events)]);

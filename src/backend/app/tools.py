@@ -22,6 +22,15 @@ from sqlalchemy import text as _sql_text
 from .metrics_counters import DB_QUERY_TOOL_USED
 import base64 as _b64
 import json as _json
+_DEFAULT_HTTP_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/126.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 
 # ---------------------- Gemini Adapter (no extra deps) ----------------------
@@ -74,7 +83,7 @@ async def _load_image_as_inline(image_url: str | None, input_b64: str | None) ->
         return {"inlineData": {"mimeType": "image/jpeg", "data": input_b64}}
     if image_url:
         try:
-            async with httpx.AsyncClient(timeout=20) as client:
+            async with httpx.AsyncClient(timeout=20, headers=_DEFAULT_HTTP_HEADERS) as client:
                 r = await client.get(image_url)
                 if r.status_code >= 400:
                     return None
@@ -145,8 +154,9 @@ async def tool_image_edit(
     tenant_id: str,
     mode: str,
     prompt: str,
-    inputImageBase64: str,
+    inputImageBase64: str | None,
     outputFormat: str | None = None,
+    imageUrl: str | None = None,
 ) -> Dict[str, Any]:
     _require_tenant(ctx, tenant_id)
     try:
@@ -155,10 +165,12 @@ async def tool_image_edit(
             return {"status": "rate_limited", "retry_s": int(ttl)}
     except Exception:
         pass
-    if not inputImageBase64:
+    # Accept either base64 or imageUrl for server-side fetch (avoids browser CORS)
+    img_obj = await _load_image_as_inline(imageUrl, inputImageBase64 or None)
+    if not img_obj:
         return {"status": "error", "detail": "missing_image"}
     parts = [
-        {"inlineData": {"mimeType": "image/jpeg", "data": inputImageBase64}},
+        img_obj,
         {"text": f"Edit instruction: {prompt}. Keep skin texture; no body morphing; match undertone."},
     ]
     res = await _gemini_generate(parts, temperature=0.2)
@@ -221,7 +233,7 @@ async def tool_social_fetch_profile(
     except Exception:
         pass
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=15, headers=_DEFAULT_HTTP_HEADERS) as client:
             r = await client.get(url)
             if r.status_code >= 400:
                 return {"status": "error", "detail": f"http_{r.status_code}"}
@@ -263,7 +275,7 @@ async def tool_social_scrape_posts(
     except Exception:
         pass
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=15, headers=_DEFAULT_HTTP_HEADERS) as client:
             r = await client.get(url)
             if r.status_code >= 400:
                 return {"status": "error", "detail": f"http_{r.status_code}"}
@@ -1029,8 +1041,9 @@ async def _dispatch_extended(name: str, params: Dict[str, Any], db: Session, ctx
             tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
             mode=str(params.get("mode", "edit")),
             prompt=str(params.get("prompt", "")),
-            inputImageBase64=str(params.get("inputImageBase64", "")),
+            inputImageBase64=(str(params.get("inputImageBase64")) if params.get("inputImageBase64") else None),
             outputFormat=params.get("outputFormat"),
+            imageUrl=(str(params.get("imageUrl")) if params.get("imageUrl") else None),
         )
     if name == "social.fetch_profile":
         return await tool_social_fetch_profile(

@@ -7,17 +7,17 @@ export default function Vision(){
   const [tab, setTab] = useState<'insta'|'upload'>('insta');
   const [preview, setPreview] = useState<string>('');
   const [b64, setB64] = useState<string>('');
-  const [prompt, setPrompt] = useState<string>('Give concise, actionable feedback on lighting, framing, and clarity for beauty portfolio quality.');
+  // const [prompt] = useState<string>('Give concise, actionable feedback on lighting, framing, and clarity for beauty portfolio quality.');
   const [output, setOutput] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [mime, setMime] = useState<string>('image/jpeg');
   const [socialUrl, setSocialUrl] = useState<string>('');
   const [social, setSocial] = useState<{profile?:any; posts?:string[]}>({});
-  const [linkContactId, setLinkContactId] = useState<string>('');
+  // const [linkContactId] = useState<string>('');
   const [editPrompt, setEditPrompt] = useState<string>('Reduce specular highlights on T-zone; keep texture; neutralize warm cast.');
-  const [tryPrimary, setTryPrimary] = useState<string>('Soft glam: satin skin; neutral-peach blush; soft brown wing; keep freckles.');
-  const [tryDay, setTryDay] = useState<string>('No-makeup makeup: sheer base, correct under-eye only, groom brows, clear gloss.');
-  const [tryNight, setTryNight] = useState<string>('Evening: deepen crease +10%, warm shimmer center lid, richer lip; preserve texture.');
+  // const [tryPrimary] = useState<string>('Soft glam: satin skin; neutral-peach blush; soft brown wing; keep freckles.');
+  // const [tryDay] = useState<string>('No-makeup makeup: sheer base, correct under-eye only, groom brows, clear gloss.');
+  // const [tryNight] = useState<string>('Evening: deepen crease +10%, warm shimmer center lid, richer lip; preserve texture.');
   const inputRef = useRef<HTMLInputElement|null>(null);
   // Deep link tour
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -102,17 +102,7 @@ export default function Vision(){
     finally { setLoading(false); }
   };
 
-  const saveToClient = async () => {
-    if (!preview || !linkContactId.trim()) { setOutput('Select a client and generate/edit an image first.'); return; }
-    try{
-      setLoading(true);
-      const url = preview.startsWith('data:') ? '' : preview;
-      const r = await api.post('/client-images/save', { tenant_id: await getTenant(), contact_id: linkContactId.trim(), url: url || preview, kind: 'vision', notes: '' });
-      setOutput(r?.status==='ok' ? 'Saved to client.' : String(r?.status||'Save failed'));
-      try { trackEvent('vision.save_to_client', { ok: r?.status==='ok' }); } catch {}
-    } catch(e:any){ setOutput(String(e?.message||e)); }
-    finally { setLoading(false); }
-  };
+  // saveToClient handled elsewhere
 
   return (
     <div className="space-y-4">
@@ -165,12 +155,11 @@ export default function Vision(){
                   }catch(e:any){ setOutput(String(e?.message||e)); } finally{ setLoading(false); }
                 }}>Analyze selected</button>
                 <button className="border rounded-md px-3 py-1 bg-white hover:shadow-sm disabled:opacity-50" disabled={!preview} onClick={async()=>{
+                  setLoading(true); setOutput('');
                   try{
-                    const resp = await fetch(preview); const buf = await resp.arrayBuffer(); const bytes = new Uint8Array(buf);
-                    let binary=''; for (let i=0;i<bytes.length;i++){ binary += String.fromCharCode(bytes[i]); }
-                    const base64 = btoa(binary); setB64(base64); setMime(resp.headers.get('content-type')||'image/jpeg');
-                    await runEdit('Reduce glare; preserve skin texture');
-                  }catch(e:any){ setOutput(String(e?.message||e)); }
+                    const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name: 'image.edit', params: { tenant_id: await getTenant(), mode: 'edit', prompt: 'Reduce glare; preserve skin texture', imageUrl: preview, outputFormat: 'png' }, require_approval: false });
+                    if (r?.preview_url) { setPreview(r.preview_url); setOutput('Edit complete.'); } else { setOutput(String(r?.detail||r?.status||'Edit failed')); }
+                  }catch(e:any){ setOutput(String(e?.message||e)); } finally { setLoading(false); }
                 }}>Quick edit</button>
               </div>
             </>

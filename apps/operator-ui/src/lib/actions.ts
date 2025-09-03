@@ -1,3 +1,4 @@
+import { api, getTenant } from './api';
 export type UIAction = {
   id: string;
   run: (...args: any[]) => Promise<any> | any;
@@ -65,13 +66,97 @@ try {
           ];
           for (const p of payloads) {
             try {
-              const r = await (await fetch('/ai/tools/execute', { method:'POST', headers:{ 'Content-Type':'application/json' }, body: JSON.stringify({ tenant_id: tid, ...p, require_approval: true }) })).json();
+              const r = await api.post('/ai/tools/execute', { tenant_id: tid, ...p, require_approval: true });
               if (!r?.error) return r;
             } catch {}
           }
         } catch {}
         return { status:'not_available' };
       }
+    },
+    'workflows.run.reminders': {
+      id: 'workflows.run.reminders',
+      run: async () => {
+        try {
+          const tid = await getTenant();
+          return await api.post('/ai/tools/execute', { tenant_id: tid, name:'appointments.schedule_reminders', params:{ tenant_id: tid }, require_approval: false });
+        } catch { return { status:'error' }; }
+      },
+      description: 'Schedule gentle appointment reminders for this week'
+    },
+    'workflows.run.reengage_30': {
+      id: 'workflows.run.reengage_30',
+      run: async () => {
+        try {
+          const tid = await getTenant();
+          return await api.post('/ai/tools/execute', { tenant_id: tid, name:'campaigns.dormant.preview', params:{ tenant_id: tid, threshold_days: 30 }, require_approval: false });
+        } catch { return { status:'error' }; }
+      },
+      description: 'Preview 30‑day re‑engagement list'
+    },
+    'workflows.run.winback_45': {
+      id: 'workflows.run.winback_45',
+      run: async () => {
+        try {
+          const tid = await getTenant();
+          return await api.post('/ai/tools/execute', { tenant_id: tid, name:'campaigns.dormant.preview', params:{ tenant_id: tid, threshold_days: 45 }, require_approval: false });
+        } catch { return { status:'error' }; }
+      },
+      description: 'Preview 45+ day win‑back list'
+    },
+    'workflows.run.social_plan': {
+      id: 'workflows.run.social_plan',
+      run: async () => {
+        try {
+          const tid = await getTenant();
+          return await api.post('/ai/tools/execute', { tenant_id: tid, name:'social.schedule.14days', params:{ tenant_id: tid }, require_approval: true });
+        } catch { return { status:'error' }; }
+      },
+      description: 'Draft a 14‑day social plan'
+    },
+    'workflows.run.import_and_normalize': {
+      id: 'workflows.run.import_and_normalize',
+      run: async () => {
+        try {
+          const tid = await getTenant();
+          // Attempt import first, then normalize/cleanup
+          try { await api.post('/ai/tools/execute', { tenant_id: tid, name:'contacts.import.square', params:{ tenant_id: tid }, require_approval: true }); } catch {}
+          try { await api.post('/ai/tools/execute', { tenant_id: tid, name:'connectors.normalize', params:{ tenant_id: tid }, require_approval: false }); } catch {}
+          try { await api.post('/ai/tools/execute', { tenant_id: tid, name:'connectors.cleanup', params:{ tenant_id: tid }, require_approval: false }); } catch {}
+          return { status:'ok' };
+        } catch { return { status:'error' }; }
+      },
+      description: 'Pull bookings and tidy contact list'
+    },
+    'workflows.run.calendar_sync': {
+      id: 'workflows.run.calendar_sync',
+      run: async () => {
+        try {
+          const tid = await getTenant();
+          return await api.post('/ai/tools/execute', { tenant_id: tid, name:'calendar.sync', params:{ tenant_id: tid }, require_approval: false });
+        } catch { return { status:'error' }; }
+      },
+      description: 'Sync calendar now'
+    },
+    'workflows.run.calendar_merge': {
+      id: 'workflows.run.calendar_merge',
+      run: async () => {
+        try {
+          const tid = await getTenant();
+          return await api.post('/ai/tools/execute', { tenant_id: tid, name:'calendar.merge', params:{ tenant_id: tid }, require_approval: false });
+        } catch { return { status:'error' }; }
+      },
+      description: 'Merge duplicate calendar events'
+    },
+    'workflows.run.dedupe_contacts': {
+      id: 'workflows.run.dedupe_contacts',
+      run: async () => {
+        try {
+          const tid = await getTenant();
+          return await api.post('/ai/tools/execute', { tenant_id: tid, name:'contacts.dedupe', params:{ tenant_id: tid }, require_approval: true });
+        } catch { return { status:'error' }; }
+      },
+      description: 'Remove duplicate contacts'
     },
     'nav.billing': {
       id: 'nav.billing',

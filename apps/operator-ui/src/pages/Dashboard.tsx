@@ -388,9 +388,9 @@ export default function Dashboard(){
       <section className="rounded-2xl p-2 bg-white border border-white/60 shadow-sm" data-guide="quickstart">
         <h4 className="text-base md:text-[17px] font-semibold text-slate-900 text-center">Quick Start · 3 WorkStyles</h4>
         <div className="mt-2 max-w-sm mx-auto grid gap-2">
-          <Button size="sm" variant="outline" className="w-full" onClick={()=> runUIAction('workflows.run.social_plan')}>Run 14‑day Social</Button>
-          <Button size="sm" variant="outline" className="w-full" onClick={()=> runUIAction('workflows.run.wow10')}>Run 10‑Minute Wow</Button>
-          <Button size="sm" variant="outline" className="w-full" onClick={()=> window.location.assign('/workspace?pane=workflows')}>Open WorkStyles</Button>
+          <Button size="sm" variant="outline" className="w-full" onClick={()=> runUIAction('workflows.run.reminders')}>Fill your week: gentle appointment reminders</Button>
+          <Button size="sm" variant="outline" className="w-full" onClick={()=> runUIAction('workflows.run.reengage_30')}>Check‑in at 30 days: “Ready for a refresh?”</Button>
+          <Button size="sm" variant="outline" className="w-full" onClick={()=> runUIAction('workflows.run.winback_45')}>Win‑back list: 6+ weeks love note</Button>
         </div>
       </section>
       {/* Today strip: one primary CTA */}

@@ -19,6 +19,8 @@ export default function Billing(){
   const pkFinal = publishableKey || runtimePk;
   const stripePromise = useMemo(() => pkFinal ? loadStripe(pkFinal) : null, [pkFinal]);
   const [billingCfg, setBillingCfg] = useState<{ price_147?: string; price_97?: string; trial_days?: number }|null>(null);
+  const buyBtn147 = (import.meta as any).env?.VITE_STRIPE_BUY_BUTTON_147 || '';
+  const buyBtn97  = (import.meta as any).env?.VITE_STRIPE_BUY_BUTTON_97  || '';
   // If build-time key is missing, fetch a non-secret publishable key from backend config
   useEffect(()=>{
     if (publishableKey) return;
@@ -33,6 +35,19 @@ export default function Billing(){
   },[publishableKey]);
 
   useEffect(()=>{ try { track('billing_view'); } catch{} }, []);
+
+  // Load Stripe Buy Button script if any buy-button id is configured
+  useEffect(()=>{
+    if (!(buyBtn147 || buyBtn97)) return;
+    try{
+      const already = document.querySelector('script[src*="buy-button.js"]');
+      if (already) return;
+      const s = document.createElement('script');
+      s.async = true;
+      s.src = 'https://js.stripe.com/v3/buy-button.js';
+      document.head.appendChild(s);
+    }catch{}
+  }, [buyBtn147, buyBtn97]);
 
   useEffect(()=>{
     let mounted = true;
@@ -102,7 +117,7 @@ export default function Billing(){
           </div>
         )}
         <div className="mt-5">
-          {loading || !effectiveSecret || !stripePromise ? (
+          {loading || (!stripePromise && !(buyBtn147||buyBtn97)) ? (
             <div className="animate-pulse">
               <div className="h-10 w-full rounded-xl bg-slate-100" />
               <div className="h-10 w-full mt-3 rounded-xl bg-slate-100" />
@@ -111,11 +126,26 @@ export default function Billing(){
           ) : (
             <Elements key={effectiveSecret} stripe={stripePromise!} options={{ clientSecret: effectiveSecret, appearance: { theme: 'flat' } }}>
               <div className="grid gap-3">
-                <PaymentElement options={{ layout: 'tabs' }} />
+                {/* Prefer Buy Buttons when configured; otherwise show PaymentElement */}
+                {(buyBtn147 || buyBtn97) ? (
+                  <div className="grid gap-3">
+                    {buyBtn147 && (
+                      // @ts-ignore - custom element provided by Stripe script
+                      <stripe-buy-button buy-button-id={buyBtn147} publishable-key={(pkFinal || (billingCfg as any)?.publishable_key || '') as any}></stripe-buy-button>
+                    )}
+                    {buyBtn97 && (
+                      // @ts-ignore - custom element provided by Stripe script
+                      <stripe-buy-button buy-button-id={buyBtn97} publishable-key={(pkFinal || (billingCfg as any)?.publishable_key || '') as any}></stripe-buy-button>
+                    )}
+                  </div>
+                ) : (
+                  <PaymentElement options={{ layout: 'tabs' }} />
+                )}
               </div>
             </Elements>
           )}
         </div>
+        {!(buyBtn147 || buyBtn97) && (
         <div className="mt-4 flex items-center gap-2 flex-wrap">
           <Button onClick={async()=>{
             try { track('billing_start_subscription', { plan: '147_monthly' }); } catch {}
@@ -143,6 +173,7 @@ export default function Billing(){
           }}>Lock $97/mo (Founding Member)</Button>
           <Button variant="ghost" onClick={()=>{ try { track('billing_skip'); } catch {}; navigate('/workspace?pane=dashboard'); }}>Skip for now</Button>
         </div>
+        )}
         <div className="mt-3 text-xs text-slate-500">Charges depend on your selection: $97 charges today; $147 starts a 7‑day free trial. You’ll be notified before any future charges.</div>
       </div>
     </div>
