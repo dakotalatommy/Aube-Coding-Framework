@@ -493,6 +493,50 @@ def _scheduler_loop():
                             _run_insights_aggregate_tick(_db)
                         except Exception:
                             pass
+                        # NEW: periodic calendar sync for connected providers
+                        try:
+                            # every 10 minutes by default
+                            sync_interval = int(os.getenv("CALENDAR_SYNC_INTERVAL_SECS", "600"))
+                            now = int(_t.time())
+                            # Iterate connected_accounts_v2 to find tenants/providers
+                            rows = _db.execute(_sql_text(
+                                """
+                                SELECT tenant_id::text, provider, COALESCE(last_sync,0)
+                                FROM connected_accounts_v2
+                                WHERE status='connected' AND provider IN ('google','square')
+                                """
+                            )).fetchall()
+                            for tid, prov, last_sync in rows or []:
+                                try:
+                                    # throttle per provider/tenant
+                                    if int(now) - int(last_sync or 0) < sync_interval:
+                                        continue
+                                except Exception:
+                                    pass
+                                try:
+                                    # enqueue event and call calendar_sync directly
+                                    _db.add(dbm.EventLedger(ts=now, tenant_id=tid, name=f"sync.calendar.{prov}.queued", payload=None))
+                                    _db.commit()
+                                except Exception:
+                                    try: _db.rollback()
+                                    except Exception: pass
+                                try:
+                                    # best-effort HTTP call to our own endpoint
+                                    base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
+                                    import httpx as _httpx
+                                    with _httpx.Client(timeout=10) as client:
+                                        client.post(f"{base_api}/calendar/sync", json={"tenant_id": tid, "provider": prov})
+                                except Exception:
+                                    pass
+                                try:
+                                    # mark last_sync to avoid hot loop; backend endpoint will also write events_ledger
+                                    _db.execute(_sql_text("UPDATE connected_accounts_v2 SET last_sync=:ts WHERE tenant_id = CAST(:t AS uuid) AND provider=:p"), {"ts": now, "t": tid, "p": prov})
+                                    _db.commit()
+                                except Exception:
+                                    try: _db.rollback()
+                                    except Exception: pass
+                        except Exception:
+                            pass
                     except Exception:
                         pass
             except Exception:
@@ -794,7 +838,6 @@ def _square_env_mode() -> str:
     return "sandbox"
 def _env(name: str, default: str = "") -> str:
     return os.getenv(name, default)
-
 def _new_cid() -> str:
     try:
         return _secrets.token_hex(8)
@@ -1575,8 +1618,6 @@ def _http_request_with_retry(method: str, url: str, *, headers: Optional[Dict[st
         raise last_exc
     # Fallback (should not reach): return a dummy 599-like response
     return httpx.Response(599, request=httpx.Request(method.upper(), url))
-
-
 # ---- AskVX context loaders (tenant memories, global insights/faq, providers status) ----
 def _load_tenant_memories(db: Session, tenant_id: str, limit: int = 20) -> List[Dict[str, object]]:
     try:
@@ -4474,8 +4515,6 @@ class SettingsRequest(BaseModel):
     rate_limit_multiplier: Optional[int] = None
     # AI insights sharing (opt-in)
     ai_share_insights: Optional[bool] = None
-
-
 @app.get("/settings", tags=["Integrations"])
 def get_settings(
     tenant_id: Optional[str] = None,
@@ -6585,8 +6624,6 @@ def scheduler_tick(tenant_id: Optional[str] = None, db: Session = Depends(get_db
     return {"processed": run_tick(db, tenant_id)}
 class RecomputeRequest(BaseModel):
     tenant_id: str
-
-
 @app.post("/marts/recompute", tags=["Health"])
 def recompute_marts(
     req: RecomputeRequest,
@@ -8938,8 +8975,6 @@ def client_images_list(tenant_id: str, contact_id: str, db: Session = Depends(ge
 class CalendarMergeRequest(BaseModel):
     tenant_id: str
     # in future: strategy fields
-
-
 @app.post("/calendar/merge", tags=["Integrations"])
 def calendar_merge(req: CalendarMergeRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":

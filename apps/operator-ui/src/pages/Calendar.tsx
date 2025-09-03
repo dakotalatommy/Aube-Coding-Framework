@@ -117,6 +117,20 @@ export default function Calendar(){
         <h3 className="text-lg font-semibold">Calendar</h3>
         <button className="ml-auto text-sm text-slate-600 hover:underline" aria-label={UI_STRINGS.a11y.buttons.guideCalendar} onClick={()=> startGuide('calendar')}>{UI_STRINGS.ctas.tertiary.guideMe}</button>
       </div>
+      {(() => {
+        try{
+          // Stale banner if last sync older than 15 minutes for any provider
+          const lastTs = Math.max(0, ...Object.values(lastSync||{}).map((v:any)=> Number((v?.ts)||0)));
+          if (lastTs>0 && (Date.now()/1000 - lastTs) > (15*60)) {
+            return (
+              <div className="rounded-md border bg-amber-50 border-amber-200 text-amber-900 text-xs px-2 py-1">
+                Calendar may be out of date. Click Sync now to refresh.
+              </div>
+            );
+          }
+        } catch {}
+        return null;
+      })()}
       <div className="text-[11px] text-slate-600">Note: Scheduling from BrandVX is disabled. Calendar merges are read‑only.</div>
       {lastAnalyzed && (
         <div className="text-[11px] text-slate-500">Last analyzed: {new Date(lastAnalyzed*1000).toLocaleString()}</div>
