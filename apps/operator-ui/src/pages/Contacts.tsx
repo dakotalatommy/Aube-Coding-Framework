@@ -19,7 +19,7 @@ export default function Contacts(){
   // contactId/search typeahead removed in simplified UI
   const [busy, setBusy] = useState(false);
   // Typeahead removed
-  const [items, setItems] = useState<Array<{ contact_id:string; display_name?:string; first_name?:string; last_name?:string; first_visit?:number; last_visit?:number; txn_count?:number; lifetime_cents?:number; birthday?:string; creation_source?:string }>>([]);
+  const [items, setItems] = useState<Array<{ contact_id:string; display_name?:string; friendly_name?:string; first_name?:string; last_name?:string; first_visit?:number; last_visit?:number; txn_count?:number; lifetime_cents?:number; birthday?:string; creation_source?:string }>>([]);
   const [total, setTotal] = useState<number>(0);
   const [listBusy, setListBusy] = useState(false);
   const [page, setPage] = useState(()=> readNumberParam('page', 1));
@@ -27,8 +27,10 @@ export default function Contacts(){
   // Reach suggestions panel removed in cleanup
   const [expert, setExpert] = useState<{open:boolean; contact?:any}>({open:false});
 
-  const nameOf = (r: { display_name?: string; first_name?: string; last_name?: string; contact_id?: string; }) => {
+  const nameOf = (r: { friendly_name?: string; display_name?: string; first_name?: string; last_name?: string; contact_id?: string; }) => {
     try{
+      const friendly = (r.friendly_name||'').toString().trim();
+      if (friendly && !/^sq[:_]/i.test(friendly)) return friendly;
       const first = (r.first_name||'').toString().trim();
       const last  = (r.last_name||'').toString().trim();
       const full  = `${first} ${last}`.trim();

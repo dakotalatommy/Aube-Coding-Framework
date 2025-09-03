@@ -207,7 +207,7 @@ export default function Messages(){
                   <div className="absolute z-10 mt-1 max-h-40 overflow-auto bg-white border rounded-md shadow-sm text-xs w-full">
                     {suggestions.map(s => (
                       <button key={s.id} className="block w-full text-left px-2 py-1 hover:bg-slate-50" onMouseDown={(ev)=>{ ev.preventDefault(); setSend({...send, contact_id: s.id}); setShowSug(false); }}>
-                        {s.name || s.id}
+                        {s.name || 'Client'}
                       </button>
                     ))}
                   </div>

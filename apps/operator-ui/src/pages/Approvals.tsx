@@ -233,7 +233,7 @@ export default function Approvals(){
               {suggested.map((r:any)=> (
                 <TR key={r.id}>
                   <TD>{r.created_at ? new Date(r.created_at).toLocaleString() : ''}</TD>
-                  <TD>{r.contact_id||''}</TD>
+                  <TD>{r.friendly_name || r.display_name || (r.contact_id ? 'Client' : '')}</TD>
                   <TD>{r.channel||''}</TD>
                   <TD>{r.subject||''}</TD>
                   <TD className="max-w-[22rem] truncate">{r.body||''}</TD>

@@ -3712,6 +3712,19 @@ class ApprovalActionRequest(BaseModel):
 class ExpiryCheckRequest(BaseModel):
     tenant_id: str
     days: int = 7
+@app.get("/debug/vision_env", tags=["Health"])
+def debug_vision_env():
+    try:
+        import os as _os
+        key = _os.getenv("GEMINI_API_KEY", "")
+        return {
+            "base": _os.getenv("GEMINI_API_BASE", ""),
+            "model": _os.getenv("GEMINI_IMAGE_MODEL", ""),
+            "has_key": bool(key),
+            "key_head": key[:6] if key else "",
+        }
+    except Exception as e:
+        return {"error": str(e)[:120]}
 
 
 @app.post("/ai/tools/execute", tags=["AI"])
@@ -6035,7 +6048,7 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                     company_name = str(square_obj.get("company_name") or "").strip()
                 except Exception:
                     company_name = ""
-                # Compute display name preference: first last > nickname > company > email local > phone tail > sq id
+                # Compute display name preference: first last > nickname > company > email local > phone tail > fallback (never expose raw square id)
                 try:
                     display_name = None
                     if (first_name or "") or (last_name or ""):
@@ -6117,9 +6130,13 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                                     creation_source = COALESCE(creation_source, :csrc),
                                     email_subscription_status = COALESCE(email_subscription_status, :esub),
                                     instant_profile = (instant_profile OR :ip),
-                                    first_name = COALESCE(first_name, :fname),
-                                    last_name = COALESCE(last_name, :lname),
-                                    display_name = COALESCE(display_name, :dname),
+                                    first_name = CASE WHEN first_name IS NULL OR first_name = '' THEN :fname ELSE first_name END,
+                                    last_name = CASE WHEN last_name IS NULL OR last_name = '' THEN :lname ELSE last_name END,
+                                    display_name = CASE
+                                      WHEN display_name IS NULL OR display_name = '' OR display_name ~ '^Client [0-9a-zA-Z]+'
+                                      THEN :dname
+                                      ELSE display_name
+                                    END,
                                     updated_at = EXTRACT(epoch FROM now())::bigint
                                 WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid
                                 """
@@ -6428,9 +6445,13 @@ def square_backfill_metrics(req: SquareBackfillMetricsRequest, ctx: UserContext 
                                     _sql_text(
                                         """
                                         UPDATE contacts
-                                        SET first_name = COALESCE(first_name, :fn),
-                                            last_name = COALESCE(last_name, :ln),
-                                            display_name = COALESCE(display_name, :dn),
+                                        SET first_name = CASE WHEN first_name IS NULL OR first_name = '' THEN :fn ELSE first_name END,
+                                            last_name = CASE WHEN last_name IS NULL OR last_name = '' THEN :ln ELSE last_name END,
+                                            display_name = CASE
+                                              WHEN display_name IS NULL OR display_name = '' OR display_name ~ '^Client [0-9a-zA-Z]+'
+                                              THEN :dn
+                                              ELSE display_name
+                                            END,
                                             updated_at = EXTRACT(epoch FROM now())::bigint
                                         WHERE tenant_id = CAST(:t AS uuid) AND square_customer_id = :sqid
                                         """
@@ -6439,6 +6460,11 @@ def square_backfill_metrics(req: SquareBackfillMetricsRequest, ctx: UserContext 
                                 )
                         except Exception:
                             continue
+            except Exception:
+                pass
+            # Invalidate rollup caches to reflect updated names
+            try:
+                invalidate_contacts_cache(req.tenant_id)
             except Exception:
                 pass
             # Write back to contacts by square_customer_id

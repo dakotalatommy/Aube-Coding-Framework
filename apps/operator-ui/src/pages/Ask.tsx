@@ -335,7 +335,7 @@ export default function Ask(){
             <span>Sync events: {Number(digest.sync_events||0)}</span>
           </div>
           {!!(digest.recent_contacts||[]).length && (
-            <div className="mt-1 text-[11px] text-slate-600">Recent: {(digest.recent_contacts||[]).map((c:any)=> c.display_name||c.contact_id).join(', ')}</div>
+            <div className="mt-1 text-[11px] text-slate-600">Recent: {(digest.recent_contacts||[]).map((c:any)=> c.friendly_name||c.display_name||'Client').join(', ')}</div>
           )}
         </div>
       )}
