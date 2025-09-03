@@ -86,6 +86,33 @@ async def _load_image_as_inline(image_url: Optional[str], input_b64: Optional[st
         mime = (input_mime or "image/jpeg").strip() or "image/jpeg"
         return {"inlineData": {"mimeType": mime, "data": input_b64}}
     if image_url:
+        # Support data URLs directly (e.g., data:image/png;base64,....)
+        try:
+            if image_url.startswith("data:"):
+                head, b64 = image_url.split(",", 1)
+                mime = "image/jpeg"
+                try:
+                    if head.startswith("data:"):
+                        # e.g., data:image/png;base64
+                        core = head[5:]
+                        if ";" in core:
+                            mime = core.split(";", 1)[0] or mime
+                        elif core:
+                            mime = core or mime
+                except Exception:
+                    pass
+                if not _allowed_image_mime(mime):
+                    return None
+                # Basic size guard (approx) – base64 expands ~4/3; estimate bytes
+                try:
+                    approx_bytes = int(len(b64) * 3 / 4)
+                    if approx_bytes > max_mb * 1024 * 1024:
+                        return None
+                except Exception:
+                    pass
+                return {"inlineData": {"mimeType": mime, "data": b64}}
+        except Exception:
+            return None
         try:
             async with httpx.AsyncClient(timeout=20, headers=_DEFAULT_HTTP_HEADERS) as client:
                 r = await client.get(image_url)
@@ -1089,6 +1116,7 @@ async def _dispatch_extended(name: str, params: Dict[str, Any], db: Session, ctx
             tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
             image_url=params.get("imageUrl"),
             inputImageBase64=params.get("inputImageBase64"),
+            inputMime=params.get("inputMime"),
             ret=params.get("return"),
         )
     if name == "image.edit":
@@ -1101,6 +1129,7 @@ async def _dispatch_extended(name: str, params: Dict[str, Any], db: Session, ctx
             inputImageBase64=(str(params.get("inputImageBase64")) if params.get("inputImageBase64") else None),
             outputFormat=params.get("outputFormat"),
             imageUrl=(str(params.get("imageUrl")) if params.get("imageUrl") else None),
+            inputMime=params.get("inputMime"),
         )
     if name == "social.fetch_profile":
         return await tool_social_fetch_profile(
