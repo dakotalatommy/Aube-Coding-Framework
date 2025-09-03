@@ -3838,7 +3838,7 @@ async def ai_tools_qa(
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200], "qa": True}
 @app.get("/reports/download/{token}", tags=["AI"])
-def report_download(token: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+def report_download(token: str, db: Session = Depends(get_db)):
     try:
         row = db.execute(
             _sql_text("SELECT mime, filename, data_text, tenant_id::text, EXTRACT(EPOCH FROM (NOW() - created_at))::bigint AS age_s FROM share_reports WHERE token = :tok ORDER BY id DESC LIMIT 1"),
@@ -3858,8 +3858,6 @@ def report_download(token: str, db: Session = Depends(get_db), ctx: UserContext 
                 raise HTTPException(status_code=404, detail="expired")
         except Exception:
             pass
-        if ctx.role != "owner_admin" and str(ctx.tenant_id) != tenant_id:
-            raise HTTPException(status_code=403, detail="forbidden")
         from fastapi.responses import Response as _Resp
         # If stored as data URL, decode base64 payload
         try:
