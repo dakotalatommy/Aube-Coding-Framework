@@ -774,6 +774,46 @@ def share_create(
     return {"token": token, "url": url}
 
 
+class ScreenshotUploadRequest(BaseModel):
+    tenant_id: str
+    data_url: str  # data:image/png;base64,...
+    title: Optional[str] = None
+
+
+@app.post("/share/screenshot", tags=["Sharing"])
+def share_screenshot(
+    body: ScreenshotUploadRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != body.tenant_id and ctx.role != "owner_admin":
+        raise HTTPException(status_code=403, detail="forbidden")
+    token = _secrets.token_urlsafe(16)
+    try:
+        db.execute(
+            _sql_text(
+                "INSERT INTO share_reports (tenant_id, token, mime, filename, data_text) VALUES (CAST(:t AS uuid), :tok, :m, :fn, :dt)"
+            ),
+            {
+                "t": body.tenant_id,
+                "tok": token,
+                "m": "image/dataurl",
+                "fn": f"{(body.title or 'share_screenshot')}.txt",
+                "dt": body.data_url,
+            },
+        )
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+    base = os.getenv("FRONTEND_BASE_URL", "")
+    url = (base.rstrip("/") + f"/s/{token}") if base else f"/s/{token}"
+    emit_event("ShareScreenshotSaved", {"tenant_id": body.tenant_id, "token": token})
+    return {"token": token, "url": url}
+
+
 @app.get("/share/{token}", tags=["Sharing"])
 def share_get(token: str, db: Session = Depends(get_db)):
     sl = db.query(dbm.ShareLink).filter(dbm.ShareLink.token == token).first()
@@ -2745,6 +2785,29 @@ def ai_chat_save_summary(
     try:
         db.add(dbm.ChatLog(tenant_id=req.tenant_id, session_id=req.session_id, role="assistant", content=f"[summary]\n{req.summary}"))
         db.commit()
+        # Upsert into ai_memories for Train VX boot context
+        try:
+            with engine.begin() as conn:
+                # Per-session summary key
+                conn.execute(
+                    _sql_text("UPDATE ai_memories SET value=:v, tags=:tg, updated_at=NOW() WHERE tenant_id = CAST(:t AS uuid) AND key=:k"),
+                    {"t": req.tenant_id, "k": f"session:{req.session_id}:summary", "v": req.summary, "tg": "session,summary"},
+                )
+                conn.execute(
+                    _sql_text("INSERT INTO ai_memories (tenant_id, key, value, tags) SELECT CAST(:t AS uuid), :k, :v, :tg WHERE NOT EXISTS (SELECT 1 FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key=:k)"),
+                    {"t": req.tenant_id, "k": f"session:{req.session_id}:summary", "v": req.summary, "tg": "session,summary"},
+                )
+                # Rolling pointer to the last session summary
+                conn.execute(
+                    _sql_text("UPDATE ai_memories SET value=:v, tags=:tg, updated_at=NOW() WHERE tenant_id = CAST(:t AS uuid) AND key='last_session_summary'"),
+                    {"t": req.tenant_id, "v": req.summary, "tg": "rolling,summary"},
+                )
+                conn.execute(
+                    _sql_text("INSERT INTO ai_memories (tenant_id, key, value, tags) SELECT CAST(:t AS uuid), 'last_session_summary', :v, :tg WHERE NOT EXISTS (SELECT 1 FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key='last_session_summary')"),
+                    {"t": req.tenant_id, "v": req.summary, "tg": "rolling,summary"},
+                )
+        except Exception:
+            pass
         return {"status": "ok"}
     except Exception as e:
         try:
@@ -3605,6 +3668,52 @@ async def ai_chat_raw(
     except Exception:
         pass
     return {"text": content}
+
+
+# --- Train VX: explicit memory upsert/list for pertinent storage ---
+class MemoryUpsertRequest(BaseModel):
+    tenant_id: str
+    key: str
+    value: str
+    tags: Optional[str] = None
+
+
+@app.post("/ai/memories/upsert", tags=["AI"])
+def ai_memories_upsert(req: MemoryUpsertRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                _sql_text("UPDATE ai_memories SET value=:v, tags=:tg, updated_at=NOW() WHERE tenant_id = CAST(:t AS uuid) AND key=:k"),
+                {"t": req.tenant_id, "k": req.key, "v": req.value, "tg": (req.tags or None)},
+            )
+            conn.execute(
+                _sql_text("INSERT INTO ai_memories (tenant_id, key, value, tags) SELECT CAST(:t AS uuid), :k, :v, :tg WHERE NOT EXISTS (SELECT 1 FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key=:k)"),
+                {"t": req.tenant_id, "k": req.key, "v": req.value, "tg": (req.tags or None)},
+            )
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
+
+
+@app.get("/ai/memories/list", tags=["AI"])
+def ai_memories_list(tenant_id: str, limit: int = 20, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"items": []}
+    try:
+        rows = db.execute(
+            _sql_text(
+                "SELECT key, value, tags, EXTRACT(EPOCH FROM updated_at)::bigint FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) ORDER BY updated_at DESC LIMIT :lim"
+            ),
+            {"t": tenant_id, "lim": max(1, min(int(limit or 20), 200))},
+        ).fetchall()
+        items = [
+            {"key": r[0], "value": r[1], "tags": r[2], "updated_at": int(r[3] or 0)} for r in rows
+        ]
+        return {"items": items}
+    except Exception:
+        return {"items": []}
 
 @app.get("/ai/diag", tags=["AI"])
 def ai_diag():

@@ -15,6 +15,9 @@ export default function Vision(){
   // const [linkContactId] = useState<string>('');
   const [editPrompt, setEditPrompt] = useState<string>('Reduce specular highlights on T-zone; keep texture; neutralize warm cast.');
   const [igItems, setIgItems] = useState<string[]>([]);
+  const [contactId, setContactId] = useState<string>('');
+  const [notes, setNotes] = useState<string>('');
+  const [saving, setSaving] = useState(false);
   // const [tryPrimary] = useState<string>('Soft glam: satin skin; neutral-peach blush; soft brown wing; keep freckles.');
   // const [tryDay] = useState<string>('No-makeup makeup: sheer base, correct under-eye only, groom brows, clear gloss.');
   // const [tryNight] = useState<string>('Evening: deepen crease +10%, warm shimmer center lid, richer lip; preserve texture.');
@@ -140,6 +143,36 @@ export default function Vision(){
     finally { setLoading(false); }
   };
 
+  const saveToLibrary = async () => {
+    try{
+      if (!preview) { setOutput('Nothing to save — upload or import first.'); return; }
+      setSaving(true);
+      const tid = await getTenant();
+      const cid = (contactId || 'library').trim();
+      await api.post('/client-images/save', { tenant_id: tid, contact_id: cid, url: preview, notes });
+      setOutput('Saved to library.');
+    } catch(e:any){ setOutput(String(e?.message||e)); }
+    finally { setSaving(false); }
+  };
+
+  const loadLibrary = async () => {
+    try{
+      setLoading(true);
+      const tid = await getTenant();
+      const cid = (contactId || 'library').trim();
+      const r = await api.get(`/client-images/list?tenant_id=${encodeURIComponent(tid)}&contact_id=${encodeURIComponent(cid)}`);
+      const items = (r?.items || []).map((it:any)=> String(it?.url||'')).filter(Boolean);
+      setIgItems(items);
+      if (items.length) {
+        setPreview(items[0]); setSrcUrl(items[0]); setB64('');
+        setOutput('Loaded from library.');
+      } else {
+        setOutput('No saved images found for this contact.');
+      }
+    } catch(e:any){ setOutput(String(e?.message||e)); }
+    finally { setLoading(false); }
+  };
+
   // saveToClient handled elsewhere
 
   return (
@@ -161,6 +194,21 @@ export default function Vision(){
         </div>
 
           <textarea className="w-full border rounded-md px-3 py-2" rows={3} value={editPrompt} onChange={e=>setEditPrompt(e.target.value)} />
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end">
+            <label className="grid gap-1">
+              <span className="text-xs text-slate-600">Contact ID (or "library")</span>
+              <input className="border rounded-md px-3 py-2" value={contactId} onChange={e=>setContactId(e.target.value)} placeholder="client_123 or library" />
+            </label>
+            <label className="md:col-span-2 grid gap-1">
+              <span className="text-xs text-slate-600">Notes (optional)</span>
+              <input className="border rounded-md px-3 py-2" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Lighting edit, version A…" />
+            </label>
+          </div>
+          <div className="flex gap-2">
+            <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={saving || !preview} onClick={saveToLibrary}>{saving ? 'Saving…' : 'Save to Library'}</button>
+            <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={loading} onClick={loadLibrary}>My Images</button>
+          </div>
         </div>
       </div>
 
@@ -175,7 +223,20 @@ export default function Vision(){
           ))}
         </div>
       )}
+      {preview && (
+        <div className="mt-3 flex items-center gap-2">
+          <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm" onClick={async()=>{
+            try{
+              setOutput('');
+              const tid = await getTenant();
+              const prompt = 'Touch up skin texture gently; keep lighting natural; increase color depth slightly.';
+              const r = await api.post('/ai/tools/execute', { name: 'image.edit', params: { tenant_id: tid, mode: 'edit', prompt, imageUrl: preview, outputFormat: 'data_url' } })
+              const url = (r?.output?.[0]?.url || r?.data_url || '');
+              if (url) setOutput(url);
+            }catch(e:any){ setOutput('Failed: ' + String(e?.message||e)); }
+          }}>Quick edit</button>
+        </div>
+      )}
     </div>
   );
 }
-

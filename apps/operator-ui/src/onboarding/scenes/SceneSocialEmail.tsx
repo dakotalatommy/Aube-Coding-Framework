@@ -1,13 +1,23 @@
 import { useState } from 'react'
 import { startOAuth } from '../../sdk/connectionsClient'
+import { api, getTenant } from '../../lib/api'
 
 export default function SceneSocialEmail({ state, next, back, save }: any){
   const prev = state.data.social || { instagram: '', email: '' }
   const [instagram, setInstagram] = useState(prev.instagram)
   const [email, setEmail] = useState(prev.email)
-  const [analyzing] = useState(false)
-  const [analyzed] = useState(false)
+  const [analyzing, setAnalyzing] = useState(false)
+  const [analyzed, setAnalyzed] = useState(false)
+  const [error, setError] = useState('')
   const onContinue = async()=> { await save({ social: { instagram, email }}); next(); }
+  const runAnalysis = async()=>{
+    try{
+      setError(''); setAnalyzing(true)
+      const r = await api.post('/ai/tools/execute', { name: 'brand.vision.analyze', params: { tenant_id: await getTenant(), sample: 12 }})
+      if (r?.status === 'ok') setAnalyzed(true)
+    }catch(e:any){ setError(String(e?.message||e)) }
+    finally{ setAnalyzing(false) }
+  }
   return (
     <section className="rounded-2xl shadow-xl bg-white border border-white/80 p-5">
       <h2 className="text-xl font-semibold text-slate-900">Instagram & Email</h2>
@@ -29,6 +39,10 @@ export default function SceneSocialEmail({ state, next, back, save }: any){
           ) : analyzed ? (
             <div className="mt-2 text-xs text-slate-600">Brand page scanned. Ready to generate your 14‑day plan.</div>
           ) : null}
+          <div className="mt-2 flex gap-2 text-xs">
+            <button className="rounded-full border px-3 py-1 bg-white" onClick={runAnalysis} disabled={analyzing}>Analyze now</button>
+            {error && <span className="text-rose-700">{error}</span>}
+          </div>
         </div>
         <label className="block"><div className="text-sm">Instagram handle</div><input className="w-full border rounded-md px-3 py-2" value={instagram} onChange={(e)=>setInstagram(e.target.value)} placeholder="@yourhandle" /></label>
         <label className="block"><div className="text-sm">Email</div><input className="w-full border rounded-md px-3 py-2" value={email} onChange={(e)=>setEmail(e.target.value)} placeholder="you@business.com" /></label>

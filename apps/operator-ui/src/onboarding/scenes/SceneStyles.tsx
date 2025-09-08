@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { api, getTenant } from '../../lib/api'
 
 const STYLE_KEYS = [
   { key: 'no_show_shield', name: 'No-Show Shield', desc: 'Confirmations + friendly reschedule helper.' },
@@ -13,6 +14,12 @@ export default function SceneStyles({ state, next, back, save }: any){
   const [selected, setSelected] = useState<string[]>(prev.selected)
   const toggle = (k:string) => setSelected(sel => sel.includes(k) ? sel.filter(x=>x!==k) : (sel.length>=3 ? sel : [...sel, k]))
   const instagramLinked = Boolean(state?.data?.social?.oauth?.instagram?.linked)
+  const [q1, setQ1] = useState('')
+  const [q2, setQ2] = useState('')
+  const [q3, setQ3] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [status, setStatus] = useState('')
+  const [error, setError] = useState('')
   const onContinue = async()=> { await save({ styles: { selected }}); next(); }
   return (
     <section className="rounded-2xl shadow-xl bg-white/60 backdrop-blur border border-white/70 p-5">
@@ -45,7 +52,16 @@ export default function SceneStyles({ state, next, back, save }: any){
             <button key={t} className="px-2 py-1 rounded-full border bg-white">{t}</button>
           ))}
         </div>
-        <div className="mt-3"><button className="rounded-full border px-3 py-2 text-sm bg-white">Generate 14‑day plan</button></div>
+        <div className="mt-3"><button className="rounded-full border px-3 py-2 text-sm bg-white" onClick={async()=>{
+          try{
+            setBusy(true); setStatus(''); setError('')
+            const r = await api.post('/ai/tools/execute', { name:'social.schedule.14days', params:{ tenant_id: await getTenant() }, require_approval: true })
+            setStatus(r?.status==='ok'||r?.status==='pending' ? 'Plan requested — check Approvals' : (r?.status||'error'))
+            await save({ plan: { requested: true, ts: Date.now() }})
+          }catch(e:any){ setError(String(e?.message||e)) }
+          finally{ setBusy(false) }
+        }}>Generate 14‑day plan</button></div>
+        {(status||error) && <div className="mt-2 text-xs"><span className="text-emerald-700">{status}</span> {error && <span className="text-rose-700 ml-2">{error}</span>}</div>}
         {/* Milestone share slot */}
         <div className="mt-3 rounded-lg border bg-white p-2">
           <div className="text-sm font-medium text-slate-900">Milestone ready</div>
@@ -55,6 +71,20 @@ export default function SceneStyles({ state, next, back, save }: any){
             <button className="px-2 py-1 rounded-md border bg-white" onClick={()=>{ try{ navigator.clipboard.writeText(window.location.origin+'/s/demo'); }catch{} }}>Copy share link</button>
           </div>
         </div>
+      </div>
+      <div className="mt-4 rounded-xl bg-white/70 border border-white/70 p-3">
+        <div className="font-medium text-slate-900">Train VX — three quick inputs</div>
+        <div className="text-xs text-slate-600">These guide tone and priorities in drafts.</div>
+        <label className="block mt-2 text-sm">Audience focus<input className="w-full border rounded-md px-3 py-2 mt-1" placeholder="Ex: Balayage + lived‑in color" value={q1} onChange={e=>setQ1(e.target.value)} /></label>
+        <label className="block mt-2 text-sm">Signature services<input className="w-full border rounded-md px-3 py-2 mt-1" placeholder="Ex: Copper melt, gloss, bond repair" value={q2} onChange={e=>setQ2(e.target.value)} /></label>
+        <label className="block mt-2 text-sm">Tone preferences<input className="w-full border rounded-md px-3 py-2 mt-1" placeholder="Ex: Warm, kind, no hard sell" value={q3} onChange={e=>setQ3(e.target.value)} /></label>
+        <div className="mt-2"><button className="rounded-full border px-3 py-2 text-sm bg-white" disabled={busy} onClick={async()=>{
+          try{ setBusy(true); setStatus(''); setError('');
+            await save({ trainvx: { audience: q1, services: q2, tone: q3 } });
+            setStatus('Saved');
+          }catch(e:any){ setError(String(e?.message||e)) } finally { setBusy(false) }
+        }}>Save</button></div>
+        {(status||error) && <div className="mt-2 text-xs"><span className="text-emerald-700">{status}</span> {error && <span className="text-rose-700 ml-2">{error}</span>}</div>}
       </div>
       <div className="mt-6 flex gap-2">
         <button className="rounded-full border px-3 py-2 text-sm bg-white" onClick={back}>Back</button>

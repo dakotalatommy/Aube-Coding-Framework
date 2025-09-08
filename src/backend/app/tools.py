@@ -394,6 +394,33 @@ async def tool_brand_vision_analyze(
     return {"status": "ok", "analysis": analysis}
 
 
+# ---------------------- Memories (Train VX) ----------------------
+def tool_memories_upsert(
+    db: Session,
+    ctx: UserContext,
+    tenant_id: str,
+    key: str,
+    value: str,
+    tags: Optional[str] = None,
+) -> Dict[str, Any]:
+    _require_tenant(ctx, tenant_id)
+    try:
+        db.execute(
+            _sql_text("UPDATE ai_memories SET value=:v, tags=:tg, updated_at=NOW() WHERE tenant_id = CAST(:t AS uuid) AND key=:k"),
+            {"t": tenant_id, "k": key, "v": value, "tg": (tags or None)},
+        )
+        db.execute(
+            _sql_text("INSERT INTO ai_memories (tenant_id, key, value, tags) SELECT CAST(:t AS uuid), :k, :v, :tg WHERE NOT EXISTS (SELECT 1 FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key=:k)"),
+            {"t": tenant_id, "k": key, "v": value, "tg": (tags or None)},
+        )
+        db.commit()
+        return {"status": "ok"}
+    except Exception as e:
+        try: db.rollback()
+        except Exception: pass
+        return {"status": "error", "detail": str(e)[:200]}
+
+
 # ---------------------- Social scraping (public metadata only) ----------------------
 
 async def tool_social_fetch_profile(
@@ -1102,6 +1129,7 @@ REGISTRY.update(
         "vision.inspect": tool_vision_inspect,
         "image.edit": tool_image_edit,
         "brand.vision.analyze": tool_brand_vision_analyze,
+        "memories.remember": tool_memories_upsert,
         "social.fetch_profile": tool_social_fetch_profile,
         "social.scrape_posts": tool_social_scrape_posts,
         # db.query.* registered below after definitions
@@ -1248,6 +1276,15 @@ async def _dispatch_extended(name: str, params: Dict[str, Any], db: Session, ctx
             tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
             url=str(params.get("url", "")),
             limit=int(params.get("limit", 12)),
+        )
+    if name == "memories.remember":
+        return tool_memories_upsert(
+            db,
+            ctx,
+            tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
+            key=str(params.get("key", "")),
+            value=str(params.get("value", "")),
+            tags=(str(params.get("tags")) if params.get("tags") is not None else None),
         )
     if name == "db.query.sql":
         out = await tool_db_query_sql(
@@ -1861,6 +1898,7 @@ TOOL_META: Dict[str, Dict[str, Any]] = {
     "brand.vision.analyze": {"public": True, "description": "Analyze Instagram brand presence and save to brand_profile.", "params": {"tenant_id": "string", "sample": "number?"}},
     "social.fetch_profile": {"public": True, "description": "Fetch public profile metadata.", "params": {"tenant_id": "string", "url": "string"}},
     "social.scrape_posts": {"public": True, "description": "Scrape recent public post thumbnails (best-effort).", "params": {"tenant_id": "string", "url": "string", "limit": "number?"}},
+    "memories.remember": {"public": True, "description": "Persist a short memory for AskVX boot.", "params": {"tenant_id": "string", "key": "string", "value": "string", "tags": "string?"}},
 }
 
 
