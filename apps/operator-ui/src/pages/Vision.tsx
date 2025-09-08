@@ -7,12 +7,14 @@ export default function Vision(){
   // Single-flow UI: Upload & Edit only (Instagram hidden)
   const [preview, setPreview] = useState<string>('');
   const [b64, setB64] = useState<string>('');
+  const [srcUrl, setSrcUrl] = useState<string>('');
   // const [prompt] = useState<string>('Give concise, actionable feedback on lighting, framing, and clarity for beauty portfolio quality.');
   const [output, setOutput] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [mime, setMime] = useState<string>('image/jpeg');
   // const [linkContactId] = useState<string>('');
   const [editPrompt, setEditPrompt] = useState<string>('Reduce specular highlights on T-zone; keep texture; neutralize warm cast.');
+  const [igItems, setIgItems] = useState<string[]>([]);
   // const [tryPrimary] = useState<string>('Soft glam: satin skin; neutral-peach blush; soft brown wing; keep freckles.');
   // const [tryDay] = useState<string>('No-makeup makeup: sheer base, correct under-eye only, groom brows, clear gloss.');
   // const [tryNight] = useState<string>('Evening: deepen crease +10%, warm shimmer center lid, richer lip; preserve texture.');
@@ -34,6 +36,7 @@ export default function Vision(){
     reader.onload = () => {
       const dataUrl = String(reader.result || '');
       setPreview(dataUrl);
+      setSrcUrl('');
       const idx = dataUrl.indexOf(',');
       setB64(idx >= 0 ? dataUrl.slice(idx+1) : dataUrl);
       try{ const m = dataUrl.slice(5, dataUrl.indexOf(';')); if (m) setMime(m); }catch{}
@@ -56,7 +59,7 @@ export default function Vision(){
       const r = await api.post('/ai/tools/execute', {
         tenant_id: await getTenant(),
         name: 'vision.inspect',
-        params: { tenant_id: await getTenant(), inputImageBase64: b64, inputMime: mime, return: ['faces','lighting','colors','qualityFlags','safeSearch'] },
+        params: { tenant_id: await getTenant(), ...(b64?{ inputImageBase64: b64, inputMime: mime }:{ imageUrl: srcUrl }), return: ['faces','lighting','colors','qualityFlags','safeSearch'] },
         require_approval: false,
       });
       const brief = String(r?.brief || '');
@@ -74,14 +77,14 @@ export default function Vision(){
   };
 
   const runEdit = async (p: string) => {
-    if (!b64) { setOutput('Upload an image first.'); return; }
+    if (!b64 && !srcUrl) { setOutput('Upload or import an image first.'); return; }
     setLoading(true);
     setOutput('');
     try{
       const r = await api.post('/ai/tools/execute', {
         tenant_id: await getTenant(),
         name: 'image.edit',
-        params: { tenant_id: await getTenant(), mode: 'edit', prompt: p, inputImageBase64: b64, inputMime: mime, outputFormat: 'png' },
+        params: { tenant_id: await getTenant(), mode: 'edit', prompt: p, ...(b64?{ inputImageBase64: b64, inputMime: mime }:{ imageUrl: srcUrl }), outputFormat: 'png' },
         require_approval: false,
       });
       if (r?.preview_url) {
@@ -90,6 +93,48 @@ export default function Vision(){
         try { trackEvent('ask.smart_action.run', { tool: 'image.edit' }); } catch {}
       } else {
         setOutput(String(r?.detail||r?.status||'Edit failed'));
+      }
+    } catch(e:any){ setOutput(String(e?.message||e)); }
+    finally { setLoading(false); }
+  };
+
+  const analyzeBrand = async () => {
+    setLoading(true);
+    setOutput('');
+    try {
+      const r = await api.post('/ai/tools/execute', {
+        tenant_id: await getTenant(),
+        name: 'brand.vision.analyze',
+        params: { tenant_id: await getTenant(), sample: 12 },
+        require_approval: false,
+      });
+      const a = r?.analysis || {};
+      const parts: string[] = [];
+      if (a.summary) parts.push(String(a.summary));
+      if (a.tone) parts.push(`Tone: ${a.tone}`);
+      if (a.palette) parts.push(`Palette: ${Array.isArray(a.palette)?a.palette.join(', '):a.palette}`);
+      if (a.strengths) parts.push(`Strengths: ${(a.strengths||[]).join('; ')}`);
+      if (a.weaknesses) parts.push(`Weaknesses: ${(a.weaknesses||[]).join('; ')}`);
+      if (a.cadence) parts.push(`Cadence: ${a.cadence}`);
+      setOutput(parts.join('\n'));
+    } catch(e:any){ setOutput(String(e?.message||e)); }
+    finally { setLoading(false); }
+  };
+
+  const importInstagram = async () => {
+    setLoading(true);
+    setOutput('');
+    try {
+      const j = await api.get(`/instagram/media?tenant_id=${encodeURIComponent(await getTenant())}&limit=12`);
+      const items = (j?.items || []).map((it:any)=> String(it?.url||'' )).filter(Boolean);
+      setIgItems(items);
+      if (items.length) {
+        setPreview(items[0]);
+        setSrcUrl(items[0]);
+        setB64('');
+        setOutput('Imported first image. Click another thumbnail to switch.');
+      } else {
+        setOutput('No Instagram media found.');
       }
     } catch(e:any){ setOutput(String(e?.message||e)); }
     finally { setLoading(false); }
@@ -106,20 +151,31 @@ export default function Vision(){
           {preview ? <img src={preview} alt="preview" className="object-contain w-full h-full"/> : <span className="text-slate-500 text-sm">No image</span>}
         </div>
         <div className="flex-1 space-y-3">
-          <div className="flex gap-2">
-            <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm" onClick={pick} data-guide="upload">Upload</button>
-            <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.dng,image/*" className="hidden" onChange={onFile} />
-            <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={!b64 || loading} onClick={analyze} data-guide="analyze">{loading ? 'Analyzing…' : 'Analyze'}</button>
-            <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={!b64 || loading} onClick={()=> runEdit(editPrompt)} data-guide="edit">{loading ? 'Editing…' : 'Run Edit'}</button>
-          </div>
+        <div className="flex gap-2">
+          <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm" onClick={pick} data-guide="upload">Upload</button>
+          <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.dng,image/*" className="hidden" onChange={onFile} />
+          <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={!b64 || loading} onClick={analyze} data-guide="analyze">{loading ? 'Analyzing…' : 'Analyze'}</button>
+          <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={!b64 || loading} onClick={()=> runEdit(editPrompt)} data-guide="edit">{loading ? 'Editing…' : 'Run Edit'}</button>
+          <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={loading} onClick={analyzeBrand}>Analyze Brand</button>
+          <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={loading} onClick={importInstagram}>Import IG</button>
+        </div>
 
           <textarea className="w-full border rounded-md px-3 py-2" rows={3} value={editPrompt} onChange={e=>setEditPrompt(e.target.value)} />
         </div>
       </div>
 
       <div className="border rounded-xl bg-white shadow-sm p-3 min-h-24 whitespace-pre-wrap text-sm">{output}</div>
+
+      {igItems.length > 0 && (
+        <div className="mt-2 grid grid-cols-6 gap-2">
+          {igItems.map((u, i)=> (
+            <button key={i} className="aspect-square overflow-hidden border rounded hover:ring-2 ring-pink-300" onClick={()=>{ setPreview(u); setSrcUrl(u); setB64(''); }}>
+              <img src={u} alt={`ig_${i}`} className="object-cover w-full h-full"/>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
-
 

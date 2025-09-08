@@ -5,21 +5,20 @@ import 'driver.js/dist/driver.css';
 
 const registry: Record<string, GuideStep[]> = {
   workspace_intro: [
-    { element: '[data-tour="nav-dashboard"]', popover: { title: 'Dashboard', description: 'KPIs and quick actions live here.' } },
-    { element: '[data-tour="nav-messages"]', popover: { title: 'Messages', description: 'Preview and later send SMS/Email in your voice.' } },
-    { element: '[data-tour="nav-contacts"]', popover: { title: 'Contacts', description: 'Import from booking/CRM; manage consent.' } },
-    { element: '[data-tour="nav-calendar"]', popover: { title: 'Calendar', description: 'Merge Google/Apple with Square/Acuity.' } },
-    { element: '[data-tour="nav-cadences"]', popover: { title: 'Follow‑ups', description: 'Friendly follow‑ups; quiet hours and approvals respected.' } },
-    { element: '[data-tour="nav-inventory"]', popover: { title: 'Inventory', description: 'Track low/out‑of‑stock; sync Shopify/Square.' } },
-    { element: '[data-tour="nav-integrations"]', popover: { title: 'Settings', description: 'Connect tools one step at a time.' } },
-    { element: '[data-tour="nav-workflows"]', popover: { title: 'WorkStyles', description: 'Playbooks like 14‑day Social and 10‑Minute Wow.' } },
-    { element: '[data-tour="nav-approvals"]', popover: { title: 'To‑Do', description: 'We’ll pause here when your OK is needed.' } },
-    { element: '[data-tour="nav-askvx"]', popover: { title: 'Ask VX', description: 'Ask, plan, and run tools with one tap. You approve changes.' } },
-    { element: '[data-tour="nav-vision"]', popover: { title: 'Brand Vision', description: 'Analyze/edit images and fetch socials; save to clients.' } },
-    { element: '#bvx-commandbar', popover: { title: 'Ask or type a command', description: 'Quickly navigate or run actions. You approve anything impactful.' } },
-    { element: '[data-tour="demo-toggle"]', popover: { title: 'Demo mode', description: 'Turn demo on/off. Demo uses simulated data only.' } },
-    { element: '[data-tour="book-onboarding"]', popover: { title: 'Book onboarding', description: 'Prefer a white‑glove walkthrough? Book a time.' } },
-    { element: '[data-tour="signup"]', popover: { title: 'Sign up / Sign out', description: 'Create your workspace or sign out anytime.' } },
+    // Follow visible sidebar order with simple, beauty‑friendly language
+    { element: '[data-tour="nav-dashboard"]', popover: { title: 'Dashboard', description: 'Your at‑a‑glance wins and quick actions live here.' } },
+    { element: '[data-tour="nav-askvx"]', popover: { title: 'Ask VX', description: 'Ask anything or run a step. You approve changes first.' } },
+    { element: '[data-tour="nav-vision"]', popover: { title: 'brandVZN', description: 'Analyze and lightly edit photos; pull social previews.' } },
+    { element: '[data-tour="nav-messages"]', popover: { title: 'Messages', description: 'Preview copy now; sending enables after setup.' } },
+    { element: '[data-tour="nav-contacts"]', popover: { title: 'Contacts', description: 'Import from booking/CRM and manage consent simply.' } },
+    { element: '[data-tour="nav-calendar"]', popover: { title: 'Calendar', description: 'Unified view from Google/Apple plus Square/Acuity.' } },
+    { element: '[data-tour="nav-cadences"]', popover: { title: 'Follow‑ups', description: 'Friendly check‑ins that respect quiet hours.' } },
+    { element: '[data-tour="nav-inventory"]', popover: { title: 'Inventory', description: 'Spot low/out‑of‑stock and restock quickly.' } },
+    { element: '[data-tour="nav-workflows"]', popover: { title: 'WorkStyles', description: 'Guided playbooks like 14‑day Social and 10‑Minute Wow.' } },
+    { element: '[data-tour="nav-approvals"]', popover: { title: 'To‑Do', description: 'When a step needs your OK, it appears here.' } },
+    { element: '[data-tour="nav-integrations"]', popover: { title: 'Settings', description: 'Connect Square, Instagram, and more in one place.' } },
+    // Helpful extras
+    { element: '#bvx-commandbar', popover: { title: 'Quick command', description: 'Type to navigate or run actions fast.' } },
   ],
   onboarding: [
     { element: '[data-tour="steps"]', popover: { title: 'Steps', description: 'Quick 5 steps — you can jump around anytime.' } },

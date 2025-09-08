@@ -466,6 +466,7 @@ export default function WorkspaceShell(){
             <div className="text-slate-700 text-sm mt-1">Let’s briefly walk through your different views.</div>
             <div className="mt-4 flex items-center justify-center">
               <button className="inline-flex rounded-full px-5 py-2 bg-slate-900 text-white" onClick={async()=>{ setShowWelcome(false); try{ sessionStorage.setItem('bvx_welcome_seen','1'); }catch{}; try{ const tid = localStorage.getItem('bvx_tenant')||''; if (tid) await api.post('/settings', { tenant_id: tid, welcome_seen: true }); }catch{}; try{ startGuide('workspace_intro'); }catch{} }}>Start</button>
+              <a className="ml-2 inline-flex rounded-full px-5 py-2 border bg-white" href="/onboarding">Go to onboarding</a>
             </div>
           </div>
         </div>, document.body)

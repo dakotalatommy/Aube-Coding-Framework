@@ -17,6 +17,7 @@ from .cache import cache_get, cache_set, cache_del, cache_incr
 from .metrics_counters import CACHE_HIT, CACHE_MISS, AI_CHAT_USED, INSIGHTS_SERVED
 from .messaging import send_message
 from .integrations import crm_hubspot, booking_acuity
+from .integrations import instagram_basic as ig_basic
 class EmailOwnerRequest(BaseModel):
     profile: Dict[str, Any]
     source: Optional[str] = "demo"
@@ -8263,6 +8264,78 @@ def onboarding_status(
     except Exception:
         pass
     return {"connected": connected, "first_sync_done": first_sync_done, "counts": counts}
+
+
+# -------------------- Instagram API (Basic Display) helpers --------------------
+def _get_provider_access_token(tenant_id: str, provider: str) -> str:
+    token = ""
+    # Prefer v2 token vault
+    try:
+        with engine.begin() as conn:
+            row = conn.execute(
+                _sql_text("SELECT access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider = :p ORDER BY id DESC LIMIT 1"),
+                {"t": tenant_id, "p": provider},
+            ).fetchone()
+        if row and row[0]:
+            try:
+                token = decrypt_text(str(row[0])) or ""
+            except Exception:
+                token = str(row[0])
+    except Exception:
+        token = ""
+    if token:
+        return token
+    # Fallback to legacy table if present
+    try:
+        cols = _connected_accounts_columns(next(get_db()))  # type: ignore
+    except Exception:
+        cols = []
+    name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
+    if name_col:
+        token_col = 'access_token_enc' if 'access_token_enc' in cols else ('access_token' if 'access_token' in cols else None)
+        if not token_col:
+            token_col = 'access_token_enc'
+        try:
+            is_uuid = _connected_accounts_tenant_is_uuid(next(get_db()))  # type: ignore
+        except Exception:
+            is_uuid = True
+        where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
+        try:
+            with engine.begin() as conn:
+                row = conn.execute(
+                    _sql_text(f"SELECT {token_col} FROM connected_accounts WHERE {where_tid} AND {name_col} = :p ORDER BY id DESC LIMIT 1"),
+                    {"t": tenant_id, "p": provider},
+                ).fetchone()
+            if row and row[0]:
+                try:
+                    return decrypt_text(str(row[0])) or str(row[0])
+                except Exception:
+                    return str(row[0])
+        except Exception:
+            return ""
+    return ""
+
+
+@app.get("/instagram/profile", tags=["Integrations"])
+def instagram_profile(tenant_id: str, ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    at = _get_provider_access_token(tenant_id, "instagram")
+    if not at:
+        return {"status": "not_connected"}
+    res = ig_basic.get_profile(at)
+    return res
+
+
+@app.get("/instagram/media", tags=["Integrations"])
+def instagram_media(tenant_id: str, limit: int = 12, ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    at = _get_provider_access_token(tenant_id, "instagram")
+    if not at:
+        return {"status": "not_connected", "items": []}
+    res = ig_basic.get_media(at, limit=limit)
+    return res
 
 
 @app.post("/webhooks/sendgrid", tags=["Integrations"])

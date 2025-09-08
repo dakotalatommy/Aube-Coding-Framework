@@ -299,6 +299,101 @@ async def tool_image_edit(
     return {"status": "ok", "preview_url": url, "mime": mime}
 
 
+# ---------------------- Brand Vision (Instagram-driven) ----------------------
+
+async def tool_brand_vision_analyze(
+    db: Session,
+    ctx: UserContext,
+    tenant_id: str,
+    sample: int = 12,
+) -> Dict[str, Any]:
+    _require_tenant(ctx, tenant_id)
+    try:
+        ok, ttl = check_and_increment(str(ctx.tenant_id), "ai.brand.vision", max_per_minute=6, burst=3)
+        if not ok:
+            return {"status": "rate_limited", "retry_s": int(ttl)}
+    except Exception:
+        pass
+    base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
+    profile: Dict[str, Any] = {}
+    items: list[dict] = []
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            rp = await client.get(f"{base_api}/instagram/profile", params={"tenant_id": tenant_id})
+            if rp.status_code < 400:
+                j = rp.json()
+                if isinstance(j, dict):
+                    profile = j.get("profile") or {}
+            rm = await client.get(f"{base_api}/instagram/media", params={"tenant_id": tenant_id, "limit": max(1, min(int(sample or 12), 30))})
+            if rm.status_code < 400:
+                j2 = rm.json()
+                if isinstance(j2, dict):
+                    items = list(j2.get("items") or [])
+    except Exception:
+        pass
+    # Build a concise analysis prompt
+    captions = []
+    for it in items[: max(1, min(int(sample or 12), 20))]:
+        cap = str((it or {}).get("caption") or "").strip()
+        if cap:
+            captions.append(cap[:220])
+    ptext = (
+        "Analyze this Instagram presence for a beauty professional. Return JSON with keys: "
+        "summary (<=60w), tone (<=5 words), palette (<=6 adjectives), strengths (list), weaknesses (list), cadence (one sentence). "
+        "Base analysis on provided captions and any visible cues. Be specific but concise."
+    )
+    try:
+        if profile:
+            uname = str(profile.get("username") or "").strip()
+            mcount = str(profile.get("media_count") or "")
+            if uname:
+                ptext += f"\nAccount: {uname}."
+            if mcount:
+                ptext += f" Media count: {mcount}."
+    except Exception:
+        pass
+    if captions:
+        caps_joined = "\n- ".join(captions[:10])
+        ptext += f"\nRecent captions (samples):\n- {caps_joined}"
+    client = AIClient()
+    raw = await client.generate(
+        BRAND_SYSTEM,
+        [{"role": "user", "content": ptext}],
+        max_tokens=600,
+    )
+    analysis: Dict[str, Any] = {}
+    summary = ""
+    try:
+        analysis = _json.loads(raw)
+    except Exception:
+        summary = raw[:400]
+        analysis = {"summary": summary}
+    # Persist into settings.brand_profile
+    try:
+        row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == tenant_id).first()
+        data = {}
+        if row and row.data_json:
+            try:
+                data = _json.loads(row.data_json)
+            except Exception:
+                data = {}
+        bp = dict(data.get("brand_profile") or {})
+        for k in ["summary", "tone", "palette", "strengths", "weaknesses", "cadence"]:
+            if analysis.get(k) is not None:
+                bp[k] = analysis.get(k)
+        data["brand_profile"] = bp
+        blob = _json.dumps(data)
+        if not row:
+            db.add(dbm.Settings(tenant_id=tenant_id, data_json=blob))
+        else:
+            row.data_json = blob
+        db.commit()
+    except Exception:
+        try: db.rollback()
+        except Exception: pass
+    return {"status": "ok", "analysis": analysis}
+
+
 # ---------------------- Social scraping (public metadata only) ----------------------
 
 async def tool_social_fetch_profile(
@@ -1006,6 +1101,7 @@ REGISTRY.update(
         # Vision + Edit + Social
         "vision.inspect": tool_vision_inspect,
         "image.edit": tool_image_edit,
+        "brand.vision.analyze": tool_brand_vision_analyze,
         "social.fetch_profile": tool_social_fetch_profile,
         "social.scrape_posts": tool_social_scrape_posts,
         # db.query.* registered below after definitions
@@ -1130,6 +1226,13 @@ async def _dispatch_extended(name: str, params: Dict[str, Any], db: Session, ctx
             outputFormat=params.get("outputFormat"),
             imageUrl=(str(params.get("imageUrl")) if params.get("imageUrl") else None),
             inputMime=params.get("inputMime"),
+        )
+    if name == "brand.vision.analyze":
+        return await tool_brand_vision_analyze(
+            db,
+            ctx,
+            tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
+            sample=int(params.get("sample", 12)),
         )
     if name == "social.fetch_profile":
         return await tool_social_fetch_profile(
@@ -1754,7 +1857,8 @@ TOOL_META: Dict[str, Dict[str, Any]] = {
     "report.generate.csv": {"public": True, "description": "Generate a CSV for a supported source (named query).", "params": {"tenant_id": "string", "source": "string", "params": "object?"}},
     "pii.audit": {"public": True, "description": "Audit text for PII/compliance issues and suggest safe rewrites.", "params": {"tenant_id": "string", "text": "string"}},
     "vision.inspect": {"public": True, "description": "Analyze image for lighting, colors, quality, and cues.", "params": {"tenant_id": "string", "imageUrl": "string?", "inputImageBase64": "string?", "return": "array?"}},
-    "image.edit": {"public": True, "description": "Gemini edit (Nano Banana-like) with texture-safe prompts.", "params": {"tenant_id": "string", "mode": {"enum": ["edit"]}, "prompt": "string", "inputImageBase64": "string", "outputFormat": "string?"}},
+    "image.edit": {"public": True, "description": "Gemini edit (Nano Banana-like) with texture-safe prompts.", "params": {"tenant_id": "string", "mode": {"enum": ["edit"]}, "prompt": "string", "inputImageBase64": "string?", "imageUrl": "string?", "outputFormat": "string?"}},
+    "brand.vision.analyze": {"public": True, "description": "Analyze Instagram brand presence and save to brand_profile.", "params": {"tenant_id": "string", "sample": "number?"}},
     "social.fetch_profile": {"public": True, "description": "Fetch public profile metadata.", "params": {"tenant_id": "string", "url": "string"}},
     "social.scrape_posts": {"public": True, "description": "Scrape recent public post thumbnails (best-effort).", "params": {"tenant_id": "string", "url": "string", "limit": "number?"}},
 }
