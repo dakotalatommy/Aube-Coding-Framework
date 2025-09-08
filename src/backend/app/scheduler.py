@@ -27,38 +27,45 @@ def run_tick(db: Session, tenant_id: Optional[str] = None) -> int:
                 tz_offset = int(prefs.get("user_timezone_offset", tz_offset))
     except Exception:
         pass
-    q = db.query(dbm.CadenceState)
-    if tenant_id:
-        q = q.filter(dbm.CadenceState.tenant_id == tenant_id)
-    q = q.filter(dbm.CadenceState.next_action_epoch != None, dbm.CadenceState.next_action_epoch <= now)
+    # Configurable batch size per tick
+    batch_limit = int(os.getenv("SCHEDULER_TICK_LIMIT", "200"))
     processed = 0
-    for cs in q.limit(50).all():
-        # quiet hours check (rough per-tenant offset)
-        local_hour = int(((now // 3600) + tz_offset) % 24)
-        if quiet_start > quiet_end:
-            in_quiet = local_hour >= quiet_start or local_hour < quiet_end
-        else:
-            in_quiet = quiet_start <= local_hour < quiet_end
-        if in_quiet:
-            # push to next allowed hour
-            next_hour = (quiet_end - tz_offset) % 24
-            next_epoch = (now // 3600 + ((next_hour - local_hour) % 24)) * 3600
-            cs.next_action_epoch = next_epoch
-            continue
-        # Step-aware progression
-        steps = get_cadence_definition(cs.cadence_id)
-        if cs.step_index < len(steps):
-            step = steps[cs.step_index]
-            channel = str(step.get("channel", "sms"))
-            send_message(db, cs.tenant_id, cs.contact_id, channel, None)
-        cs.step_index += 1
-        cs.next_action_epoch = None
-        processed += 1
-        emit_event(
-            "CadenceStepCompleted",
-            {"tenant_id": cs.tenant_id, "contact_id": cs.contact_id, "step_index": cs.step_index},
-        )
-    db.commit()
+    while processed < batch_limit:
+        q = db.query(dbm.CadenceState)
+        if tenant_id:
+            q = q.filter(dbm.CadenceState.tenant_id == tenant_id)
+        q = q.filter(dbm.CadenceState.next_action_epoch != None, dbm.CadenceState.next_action_epoch <= now)
+        remaining = batch_limit - processed
+        batch = q.limit(max(1, remaining)).all()
+        if not batch:
+            break
+        for cs in batch:
+            # quiet hours check (rough per-tenant offset)
+            local_hour = int(((now // 3600) + tz_offset) % 24)
+            if quiet_start > quiet_end:
+                in_quiet = local_hour >= quiet_start or local_hour < quiet_end
+            else:
+                in_quiet = quiet_start <= local_hour < quiet_end
+            if in_quiet:
+                # push to next allowed hour
+                next_hour = (quiet_end - tz_offset) % 24
+                next_epoch = (now // 3600 + ((next_hour - local_hour) % 24)) * 3600
+                cs.next_action_epoch = next_epoch
+                continue
+            # Step-aware progression
+            steps = get_cadence_definition(cs.cadence_id)
+            if cs.step_index < len(steps):
+                step = steps[cs.step_index]
+                channel = str(step.get("channel", "sms"))
+                send_message(db, cs.tenant_id, cs.contact_id, channel, None)
+            cs.step_index += 1
+            cs.next_action_epoch = None
+            processed += 1
+            emit_event(
+                "CadenceStepCompleted",
+                {"tenant_id": cs.tenant_id, "contact_id": cs.contact_id, "step_index": cs.step_index},
+            )
+        db.commit()
     try:
         scope = tenant_id or "all"
         SCHED_TICKS.labels(scope=scope).inc()  # type: ignore
@@ -117,5 +124,4 @@ def schedule_appointment_reminders(db: Session, tenant_id: Optional[str] = None)
                 processed += 1
     db.commit()
     return processed
-
 

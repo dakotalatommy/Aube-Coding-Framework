@@ -81,6 +81,7 @@ import json as _json
 import stripe as _stripe
 from urllib.parse import urlparse as _uparse
 from .jobs import enqueue_sms_job, enqueue_email_job, enqueue_ai_job, start_job_worker_if_enabled
+from .events import _get_redis as _redis
 import secrets as _secrets
 
 
@@ -608,7 +609,33 @@ def _scheduler_loop():
 def _start_scheduler_if_enabled():
     try:
         if os.getenv("ENABLE_SCHEDULER", "0") == "1":
-            t = _threading.Thread(target=_scheduler_loop, daemon=True)
+            # Optional distributed lock to ensure only one active scheduler across replicas
+            def _locked_loop():
+                try:
+                    import socket, random
+                    ident = f"{socket.gethostname()}-{random.randint(1000,9999)}"
+                except Exception:
+                    ident = "brandvx-scheduler"
+                lock_key = os.getenv("SCHEDULER_LOCK_KEY", "brandvx:scheduler:lock")
+                lock_ttl = int(os.getenv("SCHEDULER_LOCK_SECS", "55"))
+                while True:
+                    c = _redis()
+                    have_lock = False
+                    try:
+                        if c:
+                            # NX=only set if not exists; EX=expire seconds
+                            have_lock = bool(c.set(lock_key, ident, nx=True, ex=lock_ttl))
+                    except Exception:
+                        have_lock = True  # if Redis unavailable, run as best-effort
+                    if have_lock:
+                        try:
+                            _scheduler_loop()
+                        except Exception:
+                            pass
+                    else:
+                        # Sleep roughly the scheduler interval
+                        _time.sleep(int(os.getenv("SCHEDULER_INTERVAL_SECS", "60")))
+            t = _threading.Thread(target=_locked_loop, daemon=True)
             t.start()
         # Start Redis-backed job worker if enabled
         start_job_worker_if_enabled()

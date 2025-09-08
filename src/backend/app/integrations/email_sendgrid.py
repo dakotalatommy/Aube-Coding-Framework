@@ -14,15 +14,15 @@ except Exception:  # pragma: no cover - import guard
     _NACL_AVAILABLE = False
 
 
-def sendgrid_send_email(to_email: str, subject: str, body_html: str) -> Dict[str, Any]:
+def sendgrid_send_email(to_email: str, subject: str, body_html: str, text_override: str | None = None) -> Dict[str, Any]:
     api_key = os.getenv("SENDGRID_API_KEY", "")
     from_email = os.getenv("SENDGRID_FROM_EMAIL", "")
     if not (api_key and from_email and to_email):
         raise RuntimeError("sendgrid not configured")
     url = "https://api.sendgrid.com/v3/mail/send"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    # Plain-text fallback by stripping HTML tags
-    text_fallback = re.sub(r"<[^>]+>", " ", body_html)
+    # Plain-text fallback by stripping HTML tags (or use provided override)
+    text_fallback = (text_override or re.sub(r"<[^>]+>", " ", body_html))
     text_fallback = re.sub(r"\s+", " ", text_fallback).strip()
     payload = {
         "personalizations": [{"to": [{"email": to_email}]}],
@@ -73,5 +73,4 @@ def sendgrid_verify_signature(headers: Dict[str, str], payload: bytes) -> bool:
         return True
     except Exception:
         return False
-
 

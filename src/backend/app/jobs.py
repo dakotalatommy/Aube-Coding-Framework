@@ -110,9 +110,25 @@ def _process_job(db: Session, job: Dict[str, Any]) -> Tuple[bool, Optional[str]]
         if jtype == "ai":
             tenant_id = str(job.get("tenant_id"))
             prompt = str(job.get("prompt") or "")
-            client = AIClient(tenant_id=tenant_id)
-            _ = client.chat([{"role": "user", "content": prompt}], max_tokens=200)
-            return (True, None)
+            try:
+                import asyncio
+                client = AIClient()
+                text = asyncio.run(client.generate(
+                    system=("You are BrandVX, a helpful assistant for beauty professionals."
+                            " Keep responses concise."),
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=200,
+                ))
+                try:
+                    if text:
+                        db.add(dbm.ChatLog(tenant_id=tenant_id, session_id="jobs.ai", role="assistant", content=text))
+                        db.commit()
+                except Exception:
+                    try: db.rollback()
+                    except Exception: pass
+                return (True, None)
+            except Exception as e:
+                return (False, str(e) or "ai_generate_failed")
         return (True, None)
     except Exception as e:
         return (False, str(e) or "exception")
@@ -182,5 +198,4 @@ def start_job_worker_if_enabled() -> None:
         t.start()
     except Exception:
         pass
-
 
