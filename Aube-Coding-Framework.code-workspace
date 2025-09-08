@@ -22,5 +22,7 @@
 			"path": "../Downloads/brandvx-onboarding-starter (1)"
 		}
 	],
-	"settings": {}
+	"settings": {
+		"chatgpt.config": {}
+	}
 }

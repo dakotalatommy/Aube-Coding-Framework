@@ -242,10 +242,22 @@ _required = [
 cors_origins = sorted(set(_env_origins + _required))
 
 # Optional regex to allow ephemeral Cloudflare Pages preview URLs like https://<hash>.brandvx-operator-ui.pages.dev
-cors_regex = os.getenv(
+# Sanitize to strip accidental surrounding quotes from env values
+def _sanitize_regex(v: Optional[str]) -> Optional[str]:
+    try:
+        if not v:
+            return None
+        s = str(v).strip()
+        if (s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'")):
+            s = s[1:-1].strip()
+        return s or None
+    except Exception:
+        return None
+
+cors_regex = _sanitize_regex(os.getenv(
     "CORS_ORIGIN_REGEX",
     r"^https://[a-z0-9\-]+\.brandvx-operator-ui\.pages\.dev$",
-).strip() or None
+))
 
 app.add_middleware(
     CORSMiddleware,
@@ -270,6 +282,52 @@ class CacheHeadersMiddleware(BaseHTTPMiddleware):
         except Exception:
             pass
         return response
+
+# --- Route de-duplication: keep first occurrence of (path, methods-without-HEAD) ---
+try:
+    def _dedupe_routes(_app: FastAPI):
+        try:
+            routes = list(_app.router.routes)
+        except Exception:
+            return []
+        seen = set()
+        new_routes = []
+        removed = []
+        for r in routes:
+            try:
+                path = getattr(r, "path", None)
+                methods = set(getattr(r, "methods", set()) or set())
+                # Ignore implicit HEAD when comparing duplicates
+                methods.discard("HEAD")
+                key = (path, tuple(sorted(methods)))
+            except Exception:
+                new_routes.append(r)
+                continue
+            if key in seen:
+                removed.append(key)
+                continue
+            seen.add(key)
+            new_routes.append(r)
+        try:
+            _app.router.routes[:] = new_routes
+        except Exception:
+            # Fallback to clear/extend if slice assign fails
+            try:
+                _app.router.routes.clear()
+                _app.router.routes.extend(new_routes)
+            except Exception:
+                pass
+        return removed
+
+    _removed_dups = _dedupe_routes(app)
+    if _removed_dups and os.getenv("LOG_ROUTE_DEDUPS", "1") == "1":
+        try:
+            print(f"[router] removed duplicate routes: {len(_removed_dups)}")
+        except Exception:
+            pass
+except Exception:
+    # Non-fatal if router internals change
+    pass
 
 app.add_middleware(CacheHeadersMiddleware)
 
@@ -558,6 +616,32 @@ def _start_scheduler_if_enabled():
         _ensure_connected_accounts_v2()
         # Bootstrap AI context tables
         _ensure_ai_tables()
+        # Second-pass route de-duplication after all routes are registered
+        try:
+            removed = _dedupe_routes(app)
+            if removed and os.getenv("LOG_ROUTE_DEDUPS", "1") == "1":
+                print(f"[router] removed duplicate routes at startup: {len(removed)}")
+        except Exception:
+            pass
+        # Warn on unsafe production configs
+        try:
+            def _is_true(k: str) -> bool:
+                return (os.getenv(k, "0") or "0").strip().lower() in {"1","true","yes"}
+            prod = not (os.getenv("ENV", "dev").lower() in {"dev","development","local"})
+            if prod:
+                if _is_true("ALLOW_WEAK_JWT"):
+                    print("[warn] ALLOW_WEAK_JWT=1 in production — disable for security.")
+                if _is_true("DEV_AUTH_ALLOW"):
+                    print("[warn] DEV_AUTH_ALLOW=1 in production — disable for security.")
+                if _is_true("SENDGRID_ACCEPT_UNSIGNED"):
+                    print("[warn] SENDGRID_ACCEPT_UNSIGNED=true — enable signature verification in production.")
+                if (os.getenv("AI_PROVIDER","chat").lower()=="agents") and not (os.getenv("OPENAI_AGENT_ID","")):
+                    print("[warn] AI_PROVIDER=agents but OPENAI_AGENT_ID is empty — will fall back to chat.")
+                from_num = os.getenv("TWILIO_FROM_NUMBER","")
+                if from_num and not from_num.startswith("+"):
+                    print("[warn] TWILIO_FROM_NUMBER not in E.164 format (e.g., +15551234567).")
+        except Exception:
+            pass
     except Exception:
         pass
 # --------------------------- Plans & Usage Limits (admin) ---------------------------

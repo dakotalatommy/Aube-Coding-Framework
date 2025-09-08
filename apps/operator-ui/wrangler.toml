@@ -1,0 +1,6 @@
+name = "brandvx-operator-ui"
+pages_build_output_dir = "dist"
+compatibility_date = "2024-09-01"
+
+# Optional: specify account_id via env CLOUDFLARE_ACCOUNT_ID or wrangler whoami
+

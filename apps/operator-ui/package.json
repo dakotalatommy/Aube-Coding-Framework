@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview --host 127.0.0.1 --port 5176",
     "test:e2e": "playwright test --reporter=line",
-    "auto:continue": "playwright test tests-e2e/auto-continue.spec.ts --reporter=line"
+    "auto:continue": "playwright test tests-e2e/auto-continue.spec.ts --reporter=line",
+    "deploy:pages": "npm run build && wrangler pages deploy dist --project-name=${CF_PAGES_PROJECT:-brandvx-operator-ui} --branch=${CF_PAGES_BRANCH:-main} --commit-dirty=true"
   },
   "dependencies": {
     "@floating-ui/react-dom-interactions": "^0.13.3",
