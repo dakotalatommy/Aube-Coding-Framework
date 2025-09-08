@@ -2726,6 +2726,7 @@ class ChatRawRequest(BaseModel):
     tenant_id: str
     messages: List[ChatMessage]
     session_id: Optional[str] = None
+    mode: Optional[str] = None
 
 class ChatSessionSummaryRequest(BaseModel):
     tenant_id: str
@@ -3112,6 +3113,23 @@ async def ai_chat_raw(
         brand_profile_text = ""
     # Compose BrandVX voice system prompt with enriched context
     system_prompt = BRAND_SYSTEM + "\nYou have direct access to the current tenant's workspace data via backend queries. Answer using provided context; do not claim you lack access. Keep responses concise and plain text."
+    # Mode preambles (support/train/analysis/messaging/scheduler/todo)
+    try:
+        mode = (req.mode or "").strip().lower()
+    except Exception:
+        mode = ""
+    if mode == "support":
+        system_prompt += "\n\n[Mode: Support]\nYou are BrandVX Support. Answer product questions concisely (2–4 sentences), point to exact UI locations, avoid internal jargon."
+    elif mode in {"train", "train_vx"}:
+        system_prompt += "\n\n[Mode: Train_VX]\nYou are Brand Coach. Help refine tone, brand profile, and goals. Keep edits short, concrete, and save‑ready."
+    elif mode == "analysis":
+        system_prompt += "\n\n[Mode: Analysis]\nAnalysis mode. Use read‑only data and return direct lists or single‑line facts. No assumptions."
+    elif mode == "messaging":
+        system_prompt += "\n\n[Mode: Messaging]\nMessaging mode. Draft consent‑first, brand‑aligned copy; prefer short, actionable outputs."
+    elif mode == "scheduler":
+        system_prompt += "\n\n[Mode: Scheduler]\nScheduling mode. Offer concrete times, avoid overbooking, and reconcile external calendars."
+    elif mode in {"todo", "notifications"}:
+        system_prompt += "\n\n[Mode: To‑Do]\nCreate concise, actionable tasks; avoid duplicates; summarize impact in one line."
     if brand_profile_text:
         system_prompt = system_prompt + "\n\nBrand profile (voice/tone):\n" + brand_profile_text
     # Enrich with tenant memories and global insights/faq
@@ -3362,6 +3380,43 @@ async def ai_chat_raw(
             )
     except Exception:
         pass
+    # Minimal retrieval for Support/Analysis (best-effort snippets)
+    try:
+        if mode in {"support", "analysis"}:
+            user_q = (req.messages[-1].content if req.messages else "")
+            qtext = (user_q or "").strip()
+            if qtext:
+                client = AIClient()
+                qv_list = await client.embed([qtext])
+                if qv_list:
+                    qvec = qv_list[0]
+                    rows = (
+                        db.query(dbm.Embedding)
+                        .filter(dbm.Embedding.tenant_id == ctx.tenant_id)
+                        .limit(400)
+                        .all()
+                    )
+                    def _dot(a, b):
+                        n = min(len(a), len(b))
+                        return sum((a[i] * b[i]) for i in range(n))
+                    scored = []
+                    for r in rows:
+                        try:
+                            v = json.loads(r.vector_json or "[]")
+                            s = _dot(qvec, v)
+                            if s and s > 0:
+                                txt = (r.text or "").strip()
+                                if txt:
+                                    scored.append((s, txt))
+                        except Exception:
+                            continue
+                    scored.sort(key=lambda x: x[0], reverse=True)
+                    if scored:
+                        top = [t for _, t in scored[:5]]
+                        system_prompt += "\n\nRetrieved docs (snippets):\n" + "\n".join([f"- {t[:220]}" for t in top])
+    except Exception:
+        pass
+
     # Call provider directly via Responses API only (no local fallbacks)
     reply_max_tokens = int(os.getenv("AI_CHAT_MAX_TOKENS", "1600"))
     base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
@@ -3823,6 +3878,7 @@ class ToolExecRequest(BaseModel):
     params: Dict[str, object] = {}
     require_approval: bool = False
     idempotency_key: Optional[str] = None
+    mode: Optional[str] = None
 
 
 class ToolQARequest(BaseModel):
@@ -3935,11 +3991,34 @@ async def ai_tool_execute(
                 return {"status": "forbidden"}
         except Exception:
             pass
+        # Per-mode allowlist enforcement (non-binding for owner_admin)
+        try:
+            mode = (req.mode or "").strip().lower()
+        except Exception:
+            mode = ""
+        if mode and ctx.role != "owner_admin":
+            per_mode: dict[str, set[str]] = {
+                "support": {
+                    "link.hubspot.signup","oauth.hubspot.connect","crm.hubspot.import","db.query.named","report.generate.csv","db.query.sql",
+                },
+                "train": {"safety_check","pii.audit","report.generate.csv"},
+                "train_vx": {"safety_check","pii.audit","report.generate.csv"},
+                "analysis": {"db.query.named","db.query.sql","report.generate.csv"},
+                "messaging": {
+                    "draft_message","messages.send","appointments.schedule_reminders","campaigns.dormant.preview","campaigns.dormant.start","propose_next_cadence_step","safety_check","pii.audit"
+                },
+                "scheduler": {"calendar.sync","calendar.merge","calendar.reschedule","calendar.cancel","oauth.refresh"},
+                "todo": {"todo.enqueue","report.generate.csv"},
+                "notifications": {"todo.enqueue","report.generate.csv"},
+            }
+            allow = per_mode.get(mode, set())
+            if allow and req.name not in allow:
+                return {"status": "forbidden", "reason": "tool_not_allowed_in_mode", "mode": mode}
         result = await execute_tool(req.name, dict(req.params or {}), db, ctx)
         # Normalize return shape minimally
         if not isinstance(result, dict) or "status" not in result:
             result = {"status": str(result)} if not isinstance(result, dict) else {**result, "status": result.get("status", "ok")}
-        emit_event("AIToolExecuted", {"tenant_id": req.tenant_id, "tool": req.name, "status": result.get("status")})
+        emit_event("AIToolExecuted", {"tenant_id": req.tenant_id, "tool": req.name, "status": result.get("status"), "mode": (mode or "")})
         try:
             TOOL_EXECUTED.labels(tenant_id=str(req.tenant_id), name=str(req.name), status=str(result.get("status","ok"))).inc()  # type: ignore
         except Exception:
@@ -5024,11 +5103,39 @@ def get_config() -> Dict[str, object]:
 
 
 @app.get("/ai/tools/schema", tags=["AI"])
-def ai_tools_schema() -> Dict[str, object]:
+def ai_tools_schema(mode: Optional[str] = None) -> Dict[str, object]:
     """Return tool registry with public/gated flags and basic param hints.
-    This enables a visible agentic system without external Agents.
+    Supports optional mode filtering (support, analysis, messaging, scheduler, train, todo).
     """
-    return tools_schema()
+    base = tools_schema()
+    m = (mode or "").strip().lower()
+    if not m:
+        return base
+    allow: set[str] = set()
+    if m == "support":
+        allow = {
+            "link.hubspot.signup","oauth.hubspot.connect","crm.hubspot.import",
+            "db.query.named","report.generate.csv","db.query.sql",
+        }
+    elif m in {"train","train_vx"}:
+        allow = {"safety_check","pii.audit","report.generate.csv"}
+    elif m == "analysis":
+        allow = {"db.query.named","db.query.sql","report.generate.csv"}
+    elif m == "messaging":
+        allow = {
+            "draft_message","messages.send","appointments.schedule_reminders",
+            "campaigns.dormant.preview","campaigns.dormant.start","propose_next_cadence_step",
+            "safety_check","pii.audit"
+        }
+    elif m == "scheduler":
+        allow = {"calendar.sync","calendar.merge","calendar.reschedule","calendar.cancel","oauth.refresh"}
+    elif m in {"todo","notifications"}:
+        allow = {"todo.enqueue","report.generate.csv"}
+    tools = base.get("tools", [])
+    if not allow:
+        return base
+    filtered = [t for t in tools if t.get("name") in allow]
+    return {**base, "tools": filtered}
 
 
 @app.get("/ai/schema/map", tags=["AI"])
@@ -8132,12 +8239,22 @@ def onboarding_status(
         import asyncio
 
         # Check connected accounts
-        connected_accounts = asyncio.run(
-            adapter.select(
-                "connected_accounts",
-                {"select": "platform,connected_at", "user_id": f"eq.{ctx.user_id}", "limit": "10"},
+        # Some Supabase schemas may not include user_id on connected_accounts.
+        # Fallback: detect any connected account for this tenant via platform presence.
+        try:
+            connected_accounts = asyncio.run(
+                adapter.select(
+                    "connected_accounts",
+                    {"select": "platform,connected_at", "user_id": f"eq.{ctx.user_id}", "limit": "10"},
+                )
             )
-        )
+        except Exception:
+            connected_accounts = asyncio.run(
+                adapter.select(
+                    "connected_accounts",
+                    {"select": "platform,connected_at", "limit": "10"},
+                )
+            )
         connected = bool(connected_accounts)
         # Lead status count as crude first-sync signal
         lead_rows = asyncio.run(adapter.get_lead_status(tenant_id))

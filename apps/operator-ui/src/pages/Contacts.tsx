@@ -174,7 +174,7 @@ export default function Contacts(){
             </div>
             <div className="text-xs text-slate-700">Selected: {expert.contact?.display_name || expert.contact?.contact_id}</div>
             <div className="mt-2 border rounded-md overflow-hidden" style={{height: '60vh'}}>
-              <iframe title="AskVX" src={`/ask?embed=1`} className="w-full h-full" />
+              <iframe title="AskVX" src={`/ask?embed=1&mode=support`} className="w-full h-full" />
             </div>
           </div>
         </div>

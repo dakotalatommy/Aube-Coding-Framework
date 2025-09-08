@@ -6,7 +6,7 @@ import Breadcrumbs from './components/Breadcrumbs';
 import { ToastProvider } from './components/ui/Toast';
 import { useLenis } from './hooks/useLenis';
 import { Provider as TooltipProvider } from '@radix-ui/react-tooltip';
-// import AskFloat from './components/AskFloat';
+import AskFloat from './components/AskFloat';
 import CommandBar from './components/CommandBar';
 import ActionDrawer from './components/ActionDrawer';
 import { initAnalytics, trackPage } from './lib/analytics';
@@ -169,6 +169,8 @@ function Shell() {
           {/* Command Mode: dockless AskVX (hide on landing, demos, billing, and auth routes) */}
           {!embed && !onAskPage && !onDemo && !onLanding && !onBilling && !onAuthRoute && <CommandBar />}
           {!embed && !onAskPage && !onDemo && !onLanding && !onBilling && !onAuthRoute && <ActionDrawer />}
+          {/* Compact side AskVX button */}
+          {!embed && !onAskPage && !onDemo && !onBilling && !onAuthRoute && <AskFloat />}
         </div>
       </div>
     </>

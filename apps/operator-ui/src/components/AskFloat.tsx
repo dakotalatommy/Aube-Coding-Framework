@@ -3,8 +3,77 @@
 // type Position = { x: number; y: number; w: number; h: number };
 
 // Legacy dock retained but returns null to avoid rendering; use CommandBar instead.
+import { useEffect, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
+
+type Position = { x: number; y: number; w: number; h: number };
+
 export default function AskFloat(){
-  return null;
+  const loc = useLocation();
+  const sp = new URLSearchParams(loc.search);
+  const onLanding = loc.pathname === '/brandvx' || loc.pathname === '/landing-v2' || loc.pathname === '/';
+  const onAskPage = loc.pathname.startsWith('/ask');
+  const onDemoRoute = loc.pathname.startsWith('/demo') || loc.pathname.startsWith('/ask-vx-demo');
+  const embed = sp.get('embed') === '1';
+  const [open, setOpen] = useState<boolean>(()=> localStorage.getItem('bvx-ask-open') === '1');
+  const [pos, setPos] = useState<Position>(()=> ({ x: 16, y: 16, w: 380, h: 520 }));
+  const drag = useRef<{ dx:number; dy:number; dragging:boolean }>({ dx:0, dy:0, dragging:false });
+
+  useEffect(()=>{ try{ localStorage.setItem('bvx-ask-open', open ? '1':'0'); }catch{} },[open]);
+
+  // Side button only (collapsed); expand to overlay card with iframe
+  if (embed || onAskPage || onDemoRoute) return null;
+
+  const onMouseDown = (e: React.MouseEvent) => {
+    drag.current.dragging = true;
+    drag.current.dx = e.clientX - pos.x;
+    drag.current.dy = e.clientY - pos.y;
+    window.addEventListener('mousemove', onMouseMove as any);
+    window.addEventListener('mouseup', onMouseUp as any, { once: true });
+  };
+  const onMouseMove = (e: MouseEvent) => {
+    if (!drag.current.dragging) return;
+    setPos(p=> ({ ...p, x: Math.max(8, e.clientX - drag.current.dx), y: Math.max(8, e.clientY - drag.current.dy) }));
+  };
+  const onMouseUp = () => {
+    drag.current.dragging = false;
+    window.removeEventListener('mousemove', onMouseMove as any);
+  };
+
+  const buttonSide = onLanding ? 'right' : 'right';
+  const modeParam = onLanding ? 'support' : '';
+
+  return (
+    <>
+      {!open && (
+        <button
+          onClick={()=> setOpen(true)}
+          aria-label="Open Ask VX"
+          className={`fixed z-40 bottom-4 ${buttonSide}-4 rounded-full shadow-lg bg-white border hover:shadow-md`}
+          style={{ width: 44, height: 44 }}
+        >
+          <span className="sr-only">Open Ask VX</span>
+          <svg width="20" height="20" viewBox="0 0 24 24" className="m-auto text-slate-700" fill="currentColor"><path d="M12 3a9 9 0 0 0-9 9c0 4.971 4.029 9 9 9 1.57 0 3.046-.402 4.336-1.108l3.828 1.023-1.023-3.828A8.96 8.96 0 0 0 21 12a9 9 0 0 0-9-9zm-1 5h2v6h-2V8zm1 10a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg>
+        </button>
+      )}
+      {open && (
+        <div
+          className="fixed z-[200] bottom-4 right-4 w-[min(92vw,420px)] h-[min(70vh,560px)] bg-white border shadow-xl rounded-2xl overflow-hidden"
+          role="dialog" aria-label="Ask VX"
+        >
+          <div className="flex items-center justify-between px-3 py-2 border-b" onMouseDown={onMouseDown}>
+            <div className="text-sm font-medium text-slate-900">Ask VX</div>
+            <div className="flex items-center gap-2">
+              <button className="px-2 py-1 text-xs rounded-md border bg-white hover:shadow-sm" onClick={()=> setOpen(false)}>Close</button>
+            </div>
+          </div>
+          <div className="w-full h-[calc(100%-40px)]">
+            <iframe title="AskVX" src={`/ask?embed=1${modeParam?`&mode=${modeParam}`:''}`} className="block w-full h-full" sandbox="allow-scripts allow-top-navigation-by-user-activation" />
+          </div>
+        </div>
+      )}
+    </>
+  );
 }
 /**
   const loc = useLocation();

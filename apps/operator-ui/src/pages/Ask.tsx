@@ -52,6 +52,9 @@ export default function Ask(){
   const [trainerSaving, setTrainerSaving] = useState<boolean>(false);
   const [sessionSummary, setSessionSummary] = useState<string>('');
   const [summarizing, setSummarizing] = useState<boolean>(false);
+  const [mode, setMode] = useState<string>(()=>{
+    try { const sp = new URLSearchParams(window.location.search); return (sp.get('mode')||'').toLowerCase(); } catch { return ''; }
+  });
   // removed getToolLabel
   const inputRef = useRef<HTMLTextAreaElement|null>(null);
   useEffect(()=>{ try{ inputRef.current?.focus(); } catch{} },[]);
@@ -79,6 +82,7 @@ export default function Ask(){
         tenant_id: await getTenant(),
         messages: next,
         session_id: sessionId,
+        mode: mode || undefined,
       }, { timeoutMs: 60000 });
       if (r?.error) { setMessages(curr => [...curr, { role:'assistant', content: `Error: ${String(r.detail||r.error)}` }]); setLoading(false); return; }
       const text = String(r?.text || '');
@@ -145,6 +149,7 @@ export default function Ask(){
         name: smartAction.tool,
         params: { tenant_id: await getTenant(), ...(smartAction.params||{}) },
         require_approval: false,
+        mode: mode || undefined,
       });
       setToolResult(r || { status: 'ok' });
       try { showToast({ title: 'Action executed', description: smartAction.label }); } catch {}
@@ -235,6 +240,17 @@ export default function Ask(){
         <div className="flex items-center justify-between">
           <h3 className="text-xl font-semibold" style={{fontFamily:'var(--font-display)'}}>Brand&nbsp;VX</h3>
           <div className="flex items-center gap-2">
+            <select className="text-xs border rounded-md px-2 py-1 bg-white" value={mode}
+              onChange={e=>{ setMode(e.target.value); try{ const u=new URL(window.location.href); if(e.target.value){ u.searchParams.set('mode', e.target.value);} else { u.searchParams.delete('mode'); } window.history.replaceState({}, '', u.toString()); }catch{} }}
+              aria-label="AskVX mode">
+              <option value="">Default</option>
+              <option value="support">Support</option>
+              <option value="train">Train_VX</option>
+              <option value="analysis">Analysis</option>
+              <option value="messaging">Messaging</option>
+              <option value="scheduler">Scheduler</option>
+              <option value="todo">To-Do</option>
+            </select>
             <div className="inline-flex rounded-full bg-white overflow-hidden shadow-sm">
               <button className={`px-3 py-1 text-sm ${pageIdx===0? 'bg-slate-900 text-white':'text-slate-700'}`} onClick={()=> setPageIdx(0)}>Chat</button>
               <button className={`px-3 py-1 text-sm ${pageIdx===1? 'bg-slate-900 text-white':'text-slate-700'}`} onClick={()=> setPageIdx(1)}>Train & Profile</button>
