@@ -12,6 +12,7 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "src.backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Force a safe worker count to avoid invalid WEB_CONCURRENCY values from host env
+CMD ["uvicorn", "src.backend.app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
 
 
