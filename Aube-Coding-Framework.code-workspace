@@ -20,9 +20,14 @@
 		},
 		{
 			"path": "../Downloads/brandvx-onboarding-starter (1)"
+		},
+		{
+			"path": "../Downloads/gemini photo"
 		}
 	],
 	"settings": {
-		"chatgpt.config": {}
+		"chatgpt.config": {
+
+		}
 	}
 }

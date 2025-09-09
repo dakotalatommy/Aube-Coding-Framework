@@ -41,7 +41,7 @@ export default function DemoFlow(){
         <ButtonLink href={`/signup?redirectTo=${encodeURIComponent(window.location.origin + '/onboarding?tour=1')}`}>Start your trial now</ButtonLink>
       </div>
       {step===0 && (
-        <div className="min-h-[60vh] grid place-items-center">
+        <div className="min-h-[70vh] grid place-items-center">
           <div className="w-full max-w-lg rounded-2xl border bg-white p-6 shadow-sm text-center">
             <h1 className="text-3xl font-semibold text-slate-900">BrandVX</h1>
             <p className="text-slate-600 mt-1">Answer a few quick questions to personalize your demo.</p>
@@ -72,7 +72,8 @@ export default function DemoFlow(){
       )}
 
       {step===1 && (
-        <section>
+        <section className="min-h-[70vh] grid place-items-center">
+          <div className="w-full max-w-xl rounded-2xl border bg-white p-6 shadow-sm">
           <StepHeader title="Your brand brief" subtitle="Creates a private brief to personalize this demo. Nothing is sent to your clients." />
           <div className="grid gap-3">
             <label className="grid gap-1">
@@ -89,11 +90,13 @@ export default function DemoFlow(){
           <div className="mt-4 flex gap-2">
             <Button onClick={()=> { track('intake_saved'); setStep(2); }}>Continue</Button>
           </div>
+          </div>
         </section>
       )}
 
       {step===2 && (
-        <section>
+        <section className="min-h-[70vh] grid place-items-center">
+          <div className="w-full max-w-xl rounded-2xl border bg-white p-6 shadow-sm">
           <StepHeader title="Preview your Day‑1 plan" subtitle="Nothing is sent in the demo—these are previews only." />
           <div className="rounded-2xl border bg-white p-4 shadow-sm">
             <div className="text-slate-900 font-medium">Plan for {brief.businessName || 'your business'}</div>
@@ -109,11 +112,13 @@ export default function DemoFlow(){
             <Button variant="outline" onClick={()=> setStep(1)}>Back</Button>
             <Button onClick={()=> { track('preview_viewed'); setStep(3); }}>Continue</Button>
           </div>
+          </div>
         </section>
       )}
 
       {step===3 && (
-        <section>
+        <section className="min-h-[70vh] grid place-items-center">
+          <div className="w-full max-w-xl rounded-2xl border bg-white p-6 shadow-sm">
           <StepHeader title="What just happened" subtitle="We built the plan, drafted previews in your tone, and calculated time saved." />
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="rounded-2xl border bg-white p-4 shadow-sm text-center">
@@ -132,6 +137,7 @@ export default function DemoFlow(){
           <div className="mt-4 flex gap-2">
             <ButtonLink href="/onboarding">Begin onboarding</ButtonLink>
             <Button variant="outline" onClick={()=> setStep(2)}>Back</Button>
+          </div>
           </div>
         </section>
       )}

@@ -47,12 +47,16 @@ def _gemini_key() -> str:
     return os.getenv("GEMINI_API_KEY", "")
 
 
-async def _gemini_generate(parts: list[dict], temperature: float = 0.2, timeout_s: int = 45) -> dict:
+async def _gemini_generate(parts: list[dict], temperature: float = 0.2, timeout_s: int = 45, response_mime: str | None = None) -> dict:
     key = _gemini_key()
     if not key:
         return {"status": "error", "detail": "missing_gemini_key"}
     url = f"{_gemini_base()}/v1beta/models/{_gemini_model()}:generateContent?key={key}"
-    payload = {"contents": [{"role": "user", "parts": parts}], "generationConfig": {"temperature": float(temperature)}}
+    gen_cfg: dict = {"temperature": float(temperature)}
+    if response_mime:
+        # Request an image response (e.g., image/png) when editing
+        gen_cfg["responseMimeType"] = response_mime
+    payload = {"contents": [{"role": "user", "parts": parts}], "generationConfig": gen_cfg}
     try:
         async with httpx.AsyncClient(timeout=timeout_s) as client:
             r = await client.post(url, json=payload)
@@ -255,9 +259,10 @@ async def tool_image_edit(
         return {"status": "error", "detail": "missing_image"}
     parts = [
         img_obj,
-        {"text": f"Edit instruction: {prompt}. Keep skin texture; no body morphing; match undertone."},
+        {"text": f"Edit instruction: {prompt}. Preserve original resolution and aspect ratio. Keep skin texture; no body morphing; match undertone."},
     ]
-    res = await _gemini_generate(parts, temperature=0.2)
+    # Request an image response directly from Gemini (prevents 'no image returned')
+    res = await _gemini_generate(parts, temperature=0.2, response_mime="image/png")
     if res.get("status") == "error":
         # Retry once on server errors
         if "http_5" in str(res.get("detail", "")):
@@ -280,7 +285,7 @@ async def tool_image_edit(
         data_b64 = ""
     if not data_b64:
         return {"status": "error", "detail": "no_image_returned"}
-    # Persist to share_reports and return a link
+    # Persist to share_reports and return a link (and data_url for immediate preview)
     token = _secrets.token_urlsafe(16)
     filename = f"brandvx_edit.{ 'png' if 'png' in mime else ('jpg' if 'jpeg' in mime else 'img')}"
     data_url = f"data:{mime};base64,{data_b64}"
@@ -296,7 +301,7 @@ async def tool_image_edit(
         return {"status": "error", "detail": f"persist_failed: {str(e)[:120]}"}
     base_api = os.getenv("BACKEND_BASE_URL", "").rstrip("/")
     url = f"{base_api}/reports/download/{token}" if base_api else f"/reports/download/{token}"
-    return {"status": "ok", "preview_url": url, "mime": mime}
+    return {"status": "ok", "preview_url": url, "data_url": data_url, "mime": mime}
 
 
 # ---------------------- Brand Vision (Instagram-driven) ----------------------

@@ -55,7 +55,7 @@ export default function Vision(){
   };
 
   const analyze = async () => {
-    if (!b64) return;
+    if (!b64 && !srcUrl) return;
     setLoading(true);
     setOutput('');
     try{
@@ -87,11 +87,12 @@ export default function Vision(){
       const r = await api.post('/ai/tools/execute', {
         tenant_id: await getTenant(),
         name: 'image.edit',
-        params: { tenant_id: await getTenant(), mode: 'edit', prompt: p, ...(b64?{ inputImageBase64: b64, inputMime: mime }:{ imageUrl: srcUrl }), outputFormat: 'png' },
+        params: { tenant_id: await getTenant(), mode: 'edit', prompt: `${p}${notes?`\nAdditional notes: ${notes}`:''}`, ...(b64?{ inputImageBase64: b64, inputMime: mime }:{ imageUrl: srcUrl }), outputFormat: 'png' },
         require_approval: false,
       });
-      if (r?.preview_url) {
-        setPreview(r.preview_url);
+      if (r?.data_url || r?.preview_url) {
+        const next = String(r?.data_url || r?.preview_url || '');
+        if (next) setPreview(next);
         setOutput('Edit complete.');
         try { trackEvent('ask.smart_action.run', { tool: 'image.edit' }); } catch {}
       } else {
@@ -187,9 +188,8 @@ export default function Vision(){
         <div className="flex gap-2">
           <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm" onClick={pick} data-guide="upload">Upload</button>
           <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.dng,image/*" className="hidden" onChange={onFile} />
-          <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={!b64 || loading} onClick={analyze} data-guide="analyze">{loading ? 'Analyzing…' : 'Analyze'}</button>
-          <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={!b64 || loading} onClick={()=> runEdit(editPrompt)} data-guide="edit">{loading ? 'Editing…' : 'Run Edit'}</button>
-          <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={loading} onClick={analyzeBrand}>Analyze Brand</button>
+          <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={(!b64 && !srcUrl) || loading} onClick={analyze} data-guide="analyze">{loading ? 'Analyzing…' : 'Analyze Photo'}</button>
+          <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={(!b64 && !srcUrl) || loading} onClick={()=> runEdit(editPrompt)} data-guide="edit">{loading ? 'Editing…' : 'Run Edit'}</button>
           <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={loading} onClick={importInstagram}>Import IG</button>
         </div>
 
@@ -223,20 +223,7 @@ export default function Vision(){
           ))}
         </div>
       )}
-      {preview && (
-        <div className="mt-3 flex items-center gap-2">
-          <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm" onClick={async()=>{
-            try{
-              setOutput('');
-              const tid = await getTenant();
-              const prompt = 'Touch up skin texture gently; keep lighting natural; increase color depth slightly.';
-              const r = await api.post('/ai/tools/execute', { name: 'image.edit', params: { tenant_id: tid, mode: 'edit', prompt, imageUrl: preview, outputFormat: 'data_url' } })
-              const url = (r?.output?.[0]?.url || r?.data_url || '');
-              if (url) setOutput(url);
-            }catch(e:any){ setOutput('Failed: ' + String(e?.message||e)); }
-          }}>Quick edit</button>
-        </div>
-      )}
+      {/* Quick edit removed for simplified flow */}
     </div>
   );
 }
