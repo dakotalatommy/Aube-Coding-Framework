@@ -4,7 +4,7 @@ const LABELS: Record<string, string> = {
   '': 'Home',
   'dashboard': 'Dashboard',
   'messages': 'Messages',
-  'contacts': 'Contacts',
+  'contacts': 'Clients',
   'cadences': 'Cadences',
   'approvals': 'Approvals',
   'integrations': 'Settings',

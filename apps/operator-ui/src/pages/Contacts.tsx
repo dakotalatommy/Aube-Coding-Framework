@@ -83,7 +83,7 @@ export default function Contacts(){
   return (
     <div className="space-y-3">
       <div className="flex items-center px-1 py-1">
-        <h3 className="text-lg font-semibold">Contacts</h3>
+        <h3 className="text-lg font-semibold">Clients</h3>
       </div>
       <div className="grid gap-4">
         {/* Who to reach out to */}

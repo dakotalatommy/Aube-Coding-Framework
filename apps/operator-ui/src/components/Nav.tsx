@@ -6,7 +6,7 @@ import * as Tooltip from '@radix-ui/react-tooltip';
 const tabs = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/messages', label: 'Messages' },
-  { to: '/contacts', label: 'Contacts' },
+  { to: '/contacts', label: 'Clients' },
   { to: '/cadences', label: 'Cadences' },
   { to: '/approvals', label: 'Approvals' },
   { to: '/integrations', label: 'Settings' },

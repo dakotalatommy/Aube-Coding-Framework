@@ -24,8 +24,7 @@ export default function Dashboard(){
   const [queue, setQueue] = useState<any>({ items: [] });
   // funnel state removed
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string>('');
-  const [errorTimer, setErrorTimer] = useState<number|undefined>(undefined);
+  const [_error, setError] = useState<string>('');
   const [nudgesMode, setNudgesMode] = useState<string>(()=> localStorage.getItem('bvx_nudges_mode') || 'on');
   useEffect(()=>{ try{ localStorage.setItem('bvx_nudges_mode', nudgesMode); }catch{} }, [nudgesMode]);
   // Chart removed on dashboard
@@ -48,6 +47,22 @@ export default function Dashboard(){
     let mounted = true;
     const abort = new AbortController();
     (async()=>{
+      // Post-onboarding quickstart sequence
+      try {
+        if (localStorage.getItem('bvx_post_onboarding_quickstart') === '1') {
+          localStorage.removeItem('bvx_post_onboarding_quickstart');
+          setTimeout(()=>{ try{ window.location.assign('/vision'); }catch{} }, 500);
+          setTimeout(()=>{ try{ window.location.assign('/contacts'); }catch{} }, 1800);
+          setTimeout(async()=>{
+            try{
+              const tid = await getTenant();
+              await api.post('/ai/tools/execute', { tenant_id: tid, name: 'contacts.import.square', params: { tenant_id: tid }, require_approval: false });
+            } catch {}
+          }, 2200);
+          setTimeout(()=>{ try{ window.location.assign('/ask?train=1'); }catch{} }, 3200);
+        }
+      } catch {}
+
       if (isDemo) {
         // Friendly demo placeholders (no red error state)
         setMetrics({ messages_sent: 128, time_saved_minutes: 372, revenue_uplift: 1240, referrals_30d: 9 });
@@ -83,15 +98,8 @@ export default function Dashboard(){
         }
         // analysis timestamp not shown in compact dashboard
         const failed = [mRes,qRes,fRes].some(r=>r.status==='rejected');
-        if (failed && !isDemo) {
-          if (!errorTimer) {
-            const t = window.setTimeout(()=> setError('Some widgets failed to load. Retrying soon…'), 1200) as unknown as number;
-            setErrorTimer(t);
-          }
-        } else {
-          if (errorTimer) { window.clearTimeout(errorTimer as unknown as number); setErrorTimer(undefined); }
-          setError('');
-        }
+        // Do not show a banner; retry silently below. Keep error state for diagnostics only.
+        if (!failed) setError('');
         // plan notice currently unused in decluttered UI
         // Gentle retry for failed widgets without blocking UI
         if (failed) {
@@ -117,7 +125,7 @@ export default function Dashboard(){
       } catch(e:any){ if (mounted) setError(String(e?.message||e)); }
       finally{ if (mounted) setLoading(false); }
     })();
-    return ()=> { mounted = false; try{ abort.abort(); }catch{}; if (errorTimer) { try{ window.clearTimeout(errorTimer as unknown as number); }catch{}; setErrorTimer(undefined); } };
+    return ()=> { mounted = false; try{ abort.abort(); }catch{} };
   },[isDemo]);
 
   // Chart prefetch/observer removed
@@ -256,7 +264,7 @@ export default function Dashboard(){
       <Skeleton className="h-48" />
     </div>
   );
-  const softError = !isDemo && !!error;
+  const softError = false; // banner suppressed per UX request
 
   // Pager removed
 
@@ -282,7 +290,7 @@ export default function Dashboard(){
           </div>
         </section>
       )}
-      {softError && (
+      {false && softError && (
         <section className="rounded-2xl p-3 border bg-amber-50 border-amber-200 text-amber-900">
           <div className="text-sm">Some widgets failed to load. We’ll retry in the background.</div>
         </section>
@@ -395,11 +403,11 @@ export default function Dashboard(){
       {/* Micro-wins and quick wins CTAs removed per UI trim */}
       {/* Quick Start 3 WorkStyles (stacked vertically) */}
       <section className="rounded-2xl p-2 bg-white border border-white/60 shadow-sm" data-guide="quickstart">
-        <h4 className="text-base md:text-[17px] font-semibold text-slate-900 text-center">Quick Start · 3 WorkStyles</h4>
+        <h4 className="text-base md:text-[17px] font-semibold text-slate-900 text-center">Quick Start</h4>
         <div className="mt-2 max-w-sm mx-auto grid gap-2">
-          <Button size="sm" variant="outline" className="w-full" onClick={()=> runUIAction('workflows.run.reminders')}>Fill your week: gentle appointment reminders</Button>
-          <Button size="sm" variant="outline" className="w-full" onClick={()=> runUIAction('workflows.run.reengage_30')}>Check‑in at 30 days: “Ready for a refresh?”</Button>
-          <Button size="sm" variant="outline" className="w-full" onClick={()=> runUIAction('workflows.run.winback_45')}>Win‑back list: 6+ weeks love note</Button>
+          <Button size="sm" variant="outline" className="w-full" onClick={()=> window.location.assign('/vision')}>Brand Vision</Button>
+          <Button size="sm" variant="outline" className="w-full" onClick={async()=>{ window.location.assign('/contacts'); try{ const tid = await getTenant(); await api.post('/ai/tools/execute',{ tenant_id: tid, name:'contacts.import.square', params:{ tenant_id: tid }, require_approval: false }); }catch{} }}>Import Clients</Button>
+          <Button size="sm" variant="outline" className="w-full" onClick={()=> window.location.assign('/ask?train=1')}>Train VX</Button>
         </div>
       </section>
       {/* Today strip: one primary CTA */}

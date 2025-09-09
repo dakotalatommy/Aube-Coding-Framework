@@ -61,11 +61,31 @@ async def _gemini_generate(parts: list[dict], temperature: float = 0.2, timeout_
         async with httpx.AsyncClient(timeout=timeout_s) as client:
             r = await client.post(url, json=payload)
             if r.status_code >= 400:
-                # Map rare upstream non-standard codes (e.g., 600) to retriable errors
+                # Include upstream body and selected headers for diagnosis
+                ct = r.headers.get("content-type", "")
+                rid = r.headers.get("x-request-id") or r.headers.get("x-goog-request-id") or ""
+                body_text = (r.text or "")[:2000]
+                # Print once to logs for backend visibility
+                try:
+                    print(f"[gemini] HTTP {r.status_code} ct={ct} rid={rid} body={body_text}")
+                except Exception:
+                    pass
+                # Try to parse structured error message if JSON
+                err_json = None
+                try:
+                    if ct.startswith("application/json"):
+                        err_json = r.json()
+                except Exception:
+                    err_json = None
                 detail = f"gemini_http_{r.status_code}"
-                return {"status": "error", "detail": detail, "body": r.text[:200]}
+                return {"status": "error", "detail": detail, "body": body_text, "rid": rid, "content_type": ct, "error_json": err_json}
             return r.json()
     except httpx.HTTPError as e:
+        # Network/timeout level errors
+        try:
+            print(f"[gemini] HTTPError: {str(e)}")
+        except Exception:
+            pass
         return {"status": "error", "detail": str(e)}
 
 
@@ -267,12 +287,25 @@ async def tool_image_edit(
     # Request an image response directly from Gemini (prevents 'no image returned')
     res = await _gemini_generate(parts, temperature=0.2, response_mime="image/png")
     if res.get("status") == "error":
-        # Retry once on server errors
+        # Emit a detailed event for diagnosis
+        try:
+            from .events import emit_event
+            emit_event("GeminiEditError", {
+                "tenant_id": tenant_id,
+                "detail": res.get("detail"),
+                "rid": res.get("rid"),
+                "content_type": res.get("content_type"),
+                "body": (res.get("body") or "")[:500],
+                "preserveDims": preserveDims,
+            })
+        except Exception:
+            pass
+        # Retry once only for 5xx
         if "http_5" in str(res.get("detail", "")):
-            res = await _gemini_generate(parts, temperature=0.2)
-            if res.get("status") == "error":
-                return res
-        else:
+            res2 = await _gemini_generate(parts, temperature=0.2, response_mime="image/png")
+            if res2.get("status") != "error":
+                res = res2
+        if res.get("status") == "error":
             return res
     # Locate inline image data in candidates
     data_b64 = ""

@@ -3,13 +3,10 @@ import { listActions, getAction } from '../lib/actions';
 import { track } from '../lib/analytics';
 import ConfirmDialog from './ui/ConfirmDialog';
 
-type CommandResult = { id: string; status: 'ok' | 'error'; message?: string; time: number };
-
 export default function CommandBar(){
   const [query, setQuery] = useState('');
   const [confirm, setConfirm] = useState<{ open: boolean; actionId?: string; args?: any[] }>({ open: false });
   const [busy, setBusy] = useState(false);
-  const [lastResult, setLastResult] = useState<CommandResult|null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const allActionIds = useMemo(()=> listActions(), []);
@@ -32,7 +29,6 @@ export default function CommandBar(){
     try{
       const action = getAction(id);
       if (!action) {
-        setLastResult({ id, status:'error', message:'Unknown action', time: Date.now() });
         return;
       }
       if (requiresApproval(id)) {
@@ -43,11 +39,9 @@ export default function CommandBar(){
       try { track('ui_action_start', { id }); } catch {}
       const r = await Promise.resolve(action.run(...args));
       try { track('ui_action_result', { id, status:'ok' }); } catch {}
-      setLastResult({ id, status:'ok', time: Date.now(), message: typeof r === 'string' ? r : undefined });
       try { window.dispatchEvent(new CustomEvent('bvx:action-log', { detail: { id, status:'ok', at: Date.now(), result: r } })); } catch {}
     } catch(e:any){
       try { track('ui_action_result', { id, status:'error', error:String(e?.message||e) }); } catch {}
-      setLastResult({ id, status:'error', time: Date.now(), message: String(e?.message||e) });
       try { window.dispatchEvent(new CustomEvent('bvx:action-log', { detail: { id, status:'error', at: Date.now(), error: String(e?.message||e) } })); } catch {}
     } finally {
       setBusy(false);
@@ -77,7 +71,7 @@ export default function CommandBar(){
               onClick={()=>{ try{ window.location.assign('/workspace?pane=askvx'); } catch { window.location.href='/workspace?pane=askvx'; } }}
               aria-label="Open Ask VX"
             >Ask VX</button>
-            <div className="text-[11px] text-slate-500">{busy? 'Working…' : lastResult? (lastResult.status==='ok'?'Ready':'Check') : 'Ready'}</div>
+            {busy && <div className="text-[11px] text-slate-500">Working…</div>}
           </div>
         </div>
         {suggestions.length>0 && (
