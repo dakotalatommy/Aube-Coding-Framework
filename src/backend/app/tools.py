@@ -22,6 +22,7 @@ from sqlalchemy import text as _sql_text
 from .metrics_counters import DB_QUERY_TOOL_USED
 import base64 as _b64
 import json as _json
+import urllib.parse as _urlparse
 _DEFAULT_HTTP_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -411,6 +412,15 @@ async def _vertex_try_image_edit(img_obj: dict, prompt: str, preserve_dims: bool
         input_b64 = inline.get("data", "")
         if not input_b64:
             return None
+        # Upload the image to GCS as this model expects fileData (not inlineData)
+        bucket = os.getenv("GCS_BUCKET", "").strip()
+        if not bucket:
+            return {"error": "gcs_bucket_missing"}
+        object_name = f"brandvzn/tmp/{_secrets.token_urlsafe(8)}.jpg"
+        try:
+            gs_uri = await _gcs_upload_base64(bucket, object_name, input_b64, input_mime, token)
+        except Exception as e:
+            return {"error": f"gcs_upload_failed:{str(e)[:80]}"}
         preserve_clause = " Preserve original resolution and aspect ratio." if preserve_dims else ""
         url = (
             f"https://aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/"
@@ -421,7 +431,7 @@ async def _vertex_try_image_edit(img_obj: dict, prompt: str, preserve_dims: bool
                 {
                     "role": "user",
                     "parts": [
-                        {"inlineData": {"mimeType": input_mime, "data": input_b64}},
+                        {"fileData": {"mimeType": input_mime, "fileUri": gs_uri}},
                         {"text": f"Edit instruction: {prompt}.{preserve_clause} Keep skin texture; no body morphing; match undertone."},
                     ],
                 }
@@ -439,21 +449,54 @@ async def _vertex_try_image_edit(img_obj: dict, prompt: str, preserve_dims: bool
                     print(f"[vertex] HTTP {r.status_code} ct={ct} rid={rid} body={body_text}")
                 except Exception:
                     pass
+                # Best-effort cleanup of temp object
+                try:
+                    await _gcs_delete_object(bucket, object_name, token)
+                except Exception:
+                    pass
                 return {"error": f"vertex_http_{r.status_code}", "body": body_text, "rid": rid}
             j = r.json()
             try:
                 parts = ((j.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
                 for p in parts:
                     if p.get("inlineData") and p["inlineData"].get("data"):
+                        # Cleanup temp object after success
+                        try:
+                            await _gcs_delete_object(bucket, object_name, token)
+                        except Exception:
+                            pass
                         return {
                             "data": p["inlineData"]["data"],
                             "mime": p["inlineData"].get("mimeType", "image/png"),
                         }
             except Exception:
+                try:
+                    await _gcs_delete_object(bucket, object_name, token)
+                except Exception:
+                    pass
                 return None
         return None
     except Exception:
         return None
+
+
+async def _gcs_upload_base64(bucket: str, object_name: str, b64: str, mime: str, bearer_token: str) -> str:
+    """Upload base64-encoded bytes to GCS using JSON API; return gs:// URI."""
+    data = _b64.b64decode(b64)
+    url = f"https://storage.googleapis.com/upload/storage/v1/b/{bucket}/o?uploadType=media&name={_urlparse.quote(object_name, safe='')}"
+    headers = {"Authorization": f"Bearer {bearer_token}", "Content-Type": mime or "application/octet-stream"}
+    async with httpx.AsyncClient(timeout=60) as client:
+        r = await client.post(url, headers=headers, content=data)
+        if r.status_code >= 400:
+            raise RuntimeError(f"gcs_http_{r.status_code}: {r.text[:200]}")
+    return f"gs://{bucket}/{object_name}"
+
+
+async def _gcs_delete_object(bucket: str, object_name: str, bearer_token: str) -> None:
+    url = f"https://storage.googleapis.com/storage/v1/b/{bucket}/o/{_urlparse.quote(object_name, safe='')}"
+    headers = {"Authorization": f"Bearer {bearer_token}"}
+    async with httpx.AsyncClient(timeout=20) as client:
+        await client.delete(url, headers=headers)
 
 
 # ---------------------- Brand Vision (Instagram-driven) ----------------------
