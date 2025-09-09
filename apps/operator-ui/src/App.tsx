@@ -157,7 +157,8 @@ function Shell() {
       <div className="relative h-[100dvh] overflow-hidden">
         {!embed && (
           <div aria-hidden className="absolute inset-0 -z-10" style={{
-            background: onLanding ? '#F7CBDD' : 'radial-gradient(1200px 400px at 10% -10%, rgba(236,72,153,0.14), transparent), radial-gradient(900px 300px at 90% -20%, rgba(99,102,241,0.12), transparent)'
+            // Respect runtime variable for landing page background while preserving current default
+            background: onLanding ? 'var(--bvx-landing-bg, #F7CBDD)' : 'radial-gradient(1200px 400px at 10% -10%, rgba(236,72,153,0.14), transparent), radial-gradient(900px 300px at 90% -20%, rgba(99,102,241,0.12), transparent)'
           }} />
         )}
         <div className="px-6 pt-4 md:pt-6 h-full overflow-hidden box-border">

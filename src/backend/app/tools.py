@@ -321,7 +321,16 @@ async def tool_image_edit(
     except Exception:
         data_b64 = ""
     if not data_b64:
-        return {"status": "error", "detail": "no_image_returned"}
+        # Fallback: try Vertex Images (Gemini 2.5 Flash Image) if configured
+        try:
+            inline = await _vertex_try_image_edit(img_obj, prompt, preserve)
+        except Exception:
+            inline = None
+        if inline and inline.get("data"):
+            data_b64 = inline["data"]
+            mime = inline.get("mime", "image/png")
+        else:
+            return {"status": "error", "detail": "no_image_returned"}
     # Persist to share_reports and return a link (and data_url for immediate preview)
     token = _secrets.token_urlsafe(16)
     filename = f"brandvx_edit.{ 'png' if 'png' in mime else ('jpg' if 'jpeg' in mime else 'img')}"
@@ -344,6 +353,100 @@ async def tool_image_edit(
     ).rstrip("/")
     url = f"{base_api}/reports/download/{token}" if base_api else f"/reports/download/{token}"
     return {"status": "ok", "preview_url": url, "data_url": data_url, "mime": mime}
+
+
+# ---------------------- Vertex Images Fallback ----------------------
+
+def _vertex_project() -> str:
+    return os.getenv("VERTEX_PROJECT", "").strip()
+
+
+def _vertex_location() -> str:
+    return os.getenv("VERTEX_LOCATION", "us-central1").strip() or "us-central1"
+
+
+def _vertex_sa_token() -> str:
+    """Return an OAuth2 bearer token using the service account JSON from env.
+    Expects VERTEX_SA_JSON_B64 to contain the base64-encoded JSON key.
+    """
+    try:
+        enc = os.getenv("VERTEX_SA_JSON_B64", "")
+        if not enc:
+            return ""
+        data = _b64.b64decode(enc)
+        info = _json.loads(data.decode("utf-8"))
+        # Import lazily so local dev without google-auth still works
+        from google.oauth2 import service_account as _gsa  # type: ignore
+        from google.auth.transport.requests import Request as _GARequest  # type: ignore
+
+        creds = _gsa.Credentials.from_service_account_info(
+            info,
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        )
+        creds.refresh(_GARequest())
+        return str(creds.token or "")
+    except Exception:
+        return ""
+
+
+async def _vertex_try_image_edit(img_obj: dict, prompt: str, preserve_dims: bool) -> dict | None:
+    """Attempt image edit via Vertex Images (Gemini 2.5 Flash Image).
+    Returns {data: base64, mime: str} on success, else None.
+    """
+    project = _vertex_project()
+    if not project:
+        return None
+    token = _vertex_sa_token()
+    if not token:
+        return None
+    location = _vertex_location()
+    try:
+        inline = (img_obj or {}).get("inlineData", {})
+        input_mime = inline.get("mimeType", "image/jpeg")
+        input_b64 = inline.get("data", "")
+        if not input_b64:
+            return None
+        preserve_clause = " Preserve original resolution and aspect ratio." if preserve_dims else ""
+        url = (
+            f"https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/"
+            "publishers/google/models/gemini-2.5-flash-image-preview:generateContent"
+        )
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {"inlineData": {"mimeType": input_mime, "data": input_b64}},
+                        {"text": f"Edit instruction: {prompt}.{preserve_clause} Keep skin texture; no body morphing; match undertone."},
+                    ],
+                }
+            ],
+            "generationConfig": {"responseMimeType": "image/png"},
+        }
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.post(url, headers=headers, json=payload)
+            if r.status_code >= 400:
+                # Log once for diagnostics, but return None to let caller show prior error
+                try:
+                    print(f"[vertex] HTTP {r.status_code} body={(r.text or '')[:300]}")
+                except Exception:
+                    pass
+                return None
+            j = r.json()
+            try:
+                parts = ((j.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
+                for p in parts:
+                    if p.get("inlineData") and p["inlineData"].get("data"):
+                        return {
+                            "data": p["inlineData"]["data"],
+                            "mime": p["inlineData"].get("mimeType", "image/png"),
+                        }
+            except Exception:
+                return None
+        return None
+    except Exception:
+        return None
 
 
 # ---------------------- Brand Vision (Instagram-driven) ----------------------

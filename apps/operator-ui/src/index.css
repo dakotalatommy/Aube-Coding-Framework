@@ -35,6 +35,12 @@
 	text-rendering: optimizeLegibility;
 	-webkit-font-smoothing: antialiased;
 	-moz-osx-font-smoothing: grayscale;
+
+	/* BrandVX runtime hooks (safe defaults) */
+	--bvx-landing-bg: #F7CBDD;              /* Landing page background (BrandVX) */
+	--bvx-surface-bg: #ffffff;              /* Default solid surface background */
+	--bvx-surface-fg: #0f172a;              /* Default solid surface text color */
+	--bvx-surface-border: #e2e8f0;          /* Default solid surface border */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -140,3 +146,29 @@ tbody tr:hover { background: #fff7fb; }
 
 /* Utility */
 .muted { color: var(--muted); }
+
+/* ------------------------------------------------------------------
+   Utilities: brandVX helpers for solid surfaces and scroll containers
+   ------------------------------------------------------------------ */
+
+/* Force an element to render as an opaque surface, bypassing any
+   backdrop/blur translucency from parents. Use on modals/popups that
+   must not show underlying page color. */
+.bvx-solid {
+  background: var(--bvx-surface-bg, #ffffff) !important;
+  color: var(--bvx-surface-fg, #0f172a);
+  border-color: var(--bvx-surface-border, #e2e8f0);
+  isolation: isolate !important;
+  mix-blend-mode: normal !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+/* Scroll container helper to avoid overflow traps in 100dvh shells. */
+.bvx-scroll-panel {
+  display: block;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  min-height: 0; /* allow flex/grid children to size */
+}
