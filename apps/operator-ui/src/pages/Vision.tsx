@@ -93,7 +93,39 @@ export default function Vision(){
       });
       if (r?.data_url || r?.preview_url) {
         const next = String(r?.data_url || r?.preview_url || '');
-        if (next) setPreview(next);
+        if (next) {
+          setPreview(next);
+          // Iterative refinement: if we received a data URL, use it as the next input
+          try {
+            if (next.startsWith('data:')) {
+              const comma = next.indexOf(',');
+              const head = next.slice(0, comma);
+              const body = next.slice(comma + 1);
+              const m = (() => { try { return head.slice(5, head.indexOf(';')) || 'image/png'; } catch { return 'image/png'; }})();
+              setB64(body);
+              setMime(m);
+              setSrcUrl('');
+            } else {
+              // Convert preview URL to data URL so subsequent edits refine the latest image
+              const resp = await fetch(next);
+              const blob = await resp.blob();
+              const reader = new FileReader();
+              const dataUrl: string = await new Promise((resolve, reject) => {
+                reader.onerror = () => reject(new Error('read failed'));
+                reader.onloadend = () => resolve(String(reader.result || ''));
+                reader.readAsDataURL(blob);
+              });
+              const comma = dataUrl.indexOf(',');
+              const head = dataUrl.slice(0, comma);
+              const body = dataUrl.slice(comma + 1);
+              const m = (() => { try { return head.slice(5, head.indexOf(';')) || (blob.type || 'image/png'); } catch { return blob.type || 'image/png'; }})();
+              setPreview(dataUrl);
+              setB64(body);
+              setMime(m);
+              setSrcUrl('');
+            }
+          } catch {}
+        }
         setOutput('Edit complete.');
         try { trackEvent('ask.smart_action.run', { tool: 'image.edit' }); } catch {}
       } else {
