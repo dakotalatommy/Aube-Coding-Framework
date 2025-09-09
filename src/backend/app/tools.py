@@ -23,6 +23,11 @@ from .metrics_counters import DB_QUERY_TOOL_USED
 import base64 as _b64
 import json as _json
 import urllib.parse as _urlparse
+from typing import Tuple as _Tuple
+try:
+    from PIL import Image as _PILImage  # type: ignore
+except Exception:
+    _PILImage = None  # Pillow optional; guarded at runtime
 _DEFAULT_HTTP_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -279,8 +284,28 @@ async def tool_image_edit(
     img_obj = await _load_image_as_inline(imageUrl, inputImageBase64 or None, inputMime)
     if not img_obj:
         return {"status": "error", "detail": "missing_image"}
+    # Determine original dimensions if Pillow is available
+    orig_w: int | None = None
+    orig_h: int | None = None
+    try:
+        if _PILImage is not None:
+            b64 = (img_obj.get("inlineData") or {}).get("data")
+            if b64:
+                _raw = _b64.b64decode(b64)
+                with _PILImage.open(io.BytesIO(_raw)) as _im:
+                    orig_w, orig_h = _im.size
+    except Exception:
+        orig_w = orig_h = None
     preserve = True if preserveDims is None else bool(preserveDims)
-    preserve_clause = " Preserve original resolution and aspect ratio." if preserve else ""
+    preserve_clause = ""
+    if preserve:
+        if orig_w and orig_h:
+            preserve_clause = (
+                f" Keep canvas exactly {orig_w}x{orig_h} px;"
+                " no upscaling, no cropping, no zoom; preserve aspect as captured."
+            )
+        else:
+            preserve_clause = " Preserve original resolution and aspect ratio."
     parts = [
         img_obj,
         {"text": f"Edit instruction: {prompt}.{preserve_clause} Keep skin texture; no body morphing; match undertone."},
@@ -335,6 +360,28 @@ async def tool_image_edit(
             if isinstance(inline, dict) and inline.get("error"):
                 return {"status": "error", "detail": inline.get("error"), "body": inline.get("body"), "rid": inline.get("rid")}
             return {"status": "error", "detail": "no_image_returned"}
+    # Enforce original dimensions if requested and we know them
+    if preserve and orig_w and orig_h and _PILImage is not None:
+        try:
+            _decoded = _b64.b64decode(data_b64)
+            with _PILImage.open(io.BytesIO(_decoded)) as _im2:
+                w2, h2 = _im2.size
+                if (w2, h2) != (orig_w, orig_h):
+                    # Fit with padding (transparent) to avoid distortion
+                    scale = min(orig_w / w2, orig_h / h2)
+                    new_w = max(1, int(round(w2 * scale)))
+                    new_h = max(1, int(round(h2 * scale)))
+                    _im_resized = _im2.resize((new_w, new_h), (_PILImage.LANCZOS if hasattr(_PILImage, 'LANCZOS') else _PILImage.BICUBIC))
+                    canvas = _PILImage.new("RGBA", (orig_w, orig_h), (0, 0, 0, 0))
+                    off_x = (orig_w - new_w) // 2
+                    off_y = (orig_h - new_h) // 2
+                    canvas.paste(_im_resized, (off_x, off_y))
+                    buf = io.BytesIO()
+                    canvas.save(buf, format="PNG")
+                    data_b64 = _b64.b64encode(buf.getvalue()).decode("ascii")
+                    mime = "image/png"
+        except Exception:
+            pass
     # Persist to share_reports and return a link (and data_url for immediate preview)
     token = _secrets.token_urlsafe(16)
     filename = f"brandvx_edit.{ 'png' if 'png' in mime else ('jpg' if 'jpeg' in mime else 'img')}"
