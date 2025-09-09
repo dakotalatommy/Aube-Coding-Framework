@@ -402,7 +402,9 @@ async def _vertex_try_image_edit(img_obj: dict, prompt: str, preserve_dims: bool
     token = _vertex_sa_token()
     if not token:
         return {"error": "vertex_token_missing"}
-    location = _vertex_location()
+    # The Gemini 2.5 Flash Image (preview) model is exposed under locations/global
+    # per Vertex docs; use global regardless of regional env.
+    location = "global"
     try:
         inline = (img_obj or {}).get("inlineData", {})
         input_mime = inline.get("mimeType", "image/jpeg")
@@ -411,7 +413,7 @@ async def _vertex_try_image_edit(img_obj: dict, prompt: str, preserve_dims: bool
             return None
         preserve_clause = " Preserve original resolution and aspect ratio." if preserve_dims else ""
         url = (
-            f"https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/"
+            f"https://aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/"
             "publishers/google/models/gemini-2.5-flash-image-preview:generateContent"
         )
         payload = {
@@ -424,7 +426,6 @@ async def _vertex_try_image_edit(img_obj: dict, prompt: str, preserve_dims: bool
                     ],
                 }
             ],
-            "generationConfig": {"responseMimeType": "image/png"},
         }
         headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
         async with httpx.AsyncClient(timeout=60) as client:
