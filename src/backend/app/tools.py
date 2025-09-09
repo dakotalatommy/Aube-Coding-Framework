@@ -284,8 +284,9 @@ async def tool_image_edit(
         img_obj,
         {"text": f"Edit instruction: {prompt}.{preserve_clause} Keep skin texture; no body morphing; match undertone."},
     ]
-    # Request an image response directly from Gemini (prevents 'no image returned')
-    res = await _gemini_generate(parts, temperature=0.2, response_mime="image/png")
+    # Gemini's generateContent currently restricts response_mime_type to text/* & application/*.
+    # For image edits, omit responseMimeType and parse inlineData returned by the model.
+    res = await _gemini_generate(parts, temperature=0.2)
     if res.get("status") == "error":
         # Emit a detailed event for diagnosis
         try:
@@ -302,7 +303,7 @@ async def tool_image_edit(
             pass
         # Retry once only for 5xx
         if "http_5" in str(res.get("detail", "")):
-            res2 = await _gemini_generate(parts, temperature=0.2, response_mime="image/png")
+            res2 = await _gemini_generate(parts, temperature=0.2)
             if res2.get("status") != "error":
                 res = res2
         if res.get("status") == "error":
@@ -335,7 +336,12 @@ async def tool_image_edit(
             )
     except Exception as e:
         return {"status": "error", "detail": f"persist_failed: {str(e)[:120]}"}
-    base_api = os.getenv("BACKEND_BASE_URL", "").rstrip("/")
+    # Ensure preview links are absolute so the frontend on app.brandvx.io can fetch
+    # them even if BACKEND_BASE_URL is not set in the environment.
+    base_api = os.getenv(
+        "BACKEND_BASE_URL",
+        os.getenv("PUBLIC_API_BASE_URL", "https://api.brandvx.io"),
+    ).rstrip("/")
     url = f"{base_api}/reports/download/{token}" if base_api else f"/reports/download/{token}"
     return {"status": "ok", "preview_url": url, "data_url": data_url, "mime": mime}
 

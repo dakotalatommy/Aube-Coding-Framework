@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { track } from '../lib/analytics';
 import BackdropFX from '../components/BackdropFX';
+import './landing-v2-fixes.css';
 
 // Metrics line removed
 
@@ -277,5 +278,4 @@ export default function LandingV2(){
     </div>
   );
 }
-
 

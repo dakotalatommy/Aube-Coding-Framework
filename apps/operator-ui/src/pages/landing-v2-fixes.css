@@ -1,0 +1,25 @@
+/* Scoped overrides to ensure BrandVX Landing V2 tiles remain pure white.
+   These styles are intentionally specific and low-risk. */
+
+#bvx-squares-anchor [role="button"] {
+  /* Force a solid white backdrop inside each tile */
+  background: #ffffff !important;
+  isolation: isolate !important;
+  mix-blend-mode: normal !important;
+}
+
+#bvx-squares-anchor [role="button"]::before {
+  /* Create an inner white layer that sits beneath tile content */
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: #ffffff;
+  z-index: 0;
+}
+
+#bvx-squares-anchor [role="button"] > * {
+  /* Ensure all children render above the white base */
+  position: relative;
+  z-index: 1;
+}
+

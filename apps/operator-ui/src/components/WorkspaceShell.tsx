@@ -110,6 +110,32 @@ export default function WorkspaceShell(){
           if (!demo && (forceWelcome || (doneLocal && !seenSession))) {
             setTimeout(()=> setShowWelcome(true), 200);
           }
+          // Booking nudge: highlight left-rail Book onboarding button once after onboarding
+          try {
+            const nudge = localStorage.getItem('bvx_booking_nudge') === '1';
+            if (nudge && BOOKING_URL) {
+              localStorage.removeItem('bvx_booking_nudge');
+              setTimeout(()=>{
+                try{
+                  const target = document.querySelector('[data-tour="book-onboarding"]') as HTMLElement | null;
+                  if (!target) return;
+                  const tip = document.createElement('div');
+                  tip.setAttribute('role','dialog');
+                  tip.style.position = 'fixed';
+                  const rect = target.getBoundingClientRect();
+                  tip.style.left = `${rect.left}px`;
+                  tip.style.top = `${Math.max(8, rect.top - 44)}px`;
+                  tip.style.zIndex = '9999';
+                  tip.className = 'pointer-events-auto';
+                  tip.innerHTML = `<a href="${BOOKING_URL}" target="_blank" rel="noreferrer" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border bg-white shadow text-sm text-slate-900">Click here to book a one‑on‑one onboarding for Brand VX</a>`;
+                  document.body.appendChild(tip);
+                  const remove = ()=>{ try{ document.body.removeChild(tip); }catch{} };
+                  setTimeout(remove, 6000);
+                  tip.addEventListener('click', remove, { once: true } as any);
+                } catch {}
+              }, 600);
+            }
+          } catch {}
           // Do not auto-open demo welcome unless demo mode is on
           if (demo) setShowDemoWelcome(false);
         } catch {}

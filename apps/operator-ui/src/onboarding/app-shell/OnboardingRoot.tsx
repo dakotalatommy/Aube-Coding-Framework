@@ -100,6 +100,7 @@ export default function OnboardingRoot(){
   const finish = () => {
     try { localStorage.setItem('bvx_onboarding_done', '1') } catch {}
     try { localStorage.setItem('bvx_post_onboarding_quickstart','1') } catch {}
+    try { if (BOOKING_URL) localStorage.setItem('bvx_booking_nudge','1') } catch {}
     try { (window as any).posthog?.capture?.('onboarding_complete'); } catch {}
     navigate('/workspace?pane=dashboard')
   }
@@ -152,13 +153,6 @@ export default function OnboardingRoot(){
           </AnimatePresence>
         </main>
       </CenteredCard>
-      {BOOKING_URL && state.step === 'review' && (
-        <div className="mt-3 text-center">
-          <a href={BOOKING_URL} target="_blank" rel="noreferrer" className="inline-flex px-4 py-2 rounded-full border bg-white hover:shadow-sm text-slate-900">
-            Click here to book a one‑on‑one onboarding for Brand VX
-          </a>
-        </div>
-      )}
     </div>
   )
 }
