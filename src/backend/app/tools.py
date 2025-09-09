@@ -245,6 +245,7 @@ async def tool_image_edit(
     outputFormat: _Optional[str] = None,
     imageUrl: _Optional[str] = None,
     inputMime: _Optional[str] = None,
+    preserveDims: Optional[bool] = None,
 ) -> Dict[str, Any]:
     _require_tenant(ctx, tenant_id)
     try:
@@ -257,9 +258,11 @@ async def tool_image_edit(
     img_obj = await _load_image_as_inline(imageUrl, inputImageBase64 or None, inputMime)
     if not img_obj:
         return {"status": "error", "detail": "missing_image"}
+    preserve = True if preserveDims is None else bool(preserveDims)
+    preserve_clause = " Preserve original resolution and aspect ratio." if preserve else ""
     parts = [
         img_obj,
-        {"text": f"Edit instruction: {prompt}. Preserve original resolution and aspect ratio. Keep skin texture; no body morphing; match undertone."},
+        {"text": f"Edit instruction: {prompt}.{preserve_clause} Keep skin texture; no body morphing; match undertone."},
     ]
     # Request an image response directly from Gemini (prevents 'no image returned')
     res = await _gemini_generate(parts, temperature=0.2, response_mime="image/png")
@@ -1259,6 +1262,7 @@ async def _dispatch_extended(name: str, params: Dict[str, Any], db: Session, ctx
             outputFormat=params.get("outputFormat"),
             imageUrl=(str(params.get("imageUrl")) if params.get("imageUrl") else None),
             inputMime=params.get("inputMime"),
+            preserveDims=(bool(params.get("preserveDims")) if params.get("preserveDims") is not None else None),
         )
     if name == "brand.vision.analyze":
         return await tool_brand_vision_analyze(

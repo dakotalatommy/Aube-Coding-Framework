@@ -17,6 +17,7 @@ export default function Vision(){
   const [igItems, setIgItems] = useState<string[]>([]);
   const [contactId, setContactId] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
+  const [preserveDims, setPreserveDims] = useState<boolean>(true);
   const [saving, setSaving] = useState(false);
   // const [tryPrimary] = useState<string>('Soft glam: satin skin; neutral-peach blush; soft brown wing; keep freckles.');
   // const [tryDay] = useState<string>('No-makeup makeup: sheer base, correct under-eye only, groom brows, clear gloss.');
@@ -87,7 +88,7 @@ export default function Vision(){
       const r = await api.post('/ai/tools/execute', {
         tenant_id: await getTenant(),
         name: 'image.edit',
-        params: { tenant_id: await getTenant(), mode: 'edit', prompt: `${p}${notes?`\nAdditional notes: ${notes}`:''}`, ...(b64?{ inputImageBase64: b64, inputMime: mime }:{ imageUrl: srcUrl }), outputFormat: 'png' },
+        params: { tenant_id: await getTenant(), mode: 'edit', prompt: `${p}${notes?`\nAdditional notes: ${notes}`:''}`, ...(b64?{ inputImageBase64: b64, inputMime: mime }:{ imageUrl: srcUrl }), outputFormat: 'png', preserveDims },
         require_approval: false,
       });
       if (r?.data_url || r?.preview_url) {
@@ -102,28 +103,7 @@ export default function Vision(){
     finally { setLoading(false); }
   };
 
-  const analyzeBrand = async () => {
-    setLoading(true);
-    setOutput('');
-    try {
-      const r = await api.post('/ai/tools/execute', {
-        tenant_id: await getTenant(),
-        name: 'brand.vision.analyze',
-        params: { tenant_id: await getTenant(), sample: 12 },
-        require_approval: false,
-      });
-      const a = r?.analysis || {};
-      const parts: string[] = [];
-      if (a.summary) parts.push(String(a.summary));
-      if (a.tone) parts.push(`Tone: ${a.tone}`);
-      if (a.palette) parts.push(`Palette: ${Array.isArray(a.palette)?a.palette.join(', '):a.palette}`);
-      if (a.strengths) parts.push(`Strengths: ${(a.strengths||[]).join('; ')}`);
-      if (a.weaknesses) parts.push(`Weaknesses: ${(a.weaknesses||[]).join('; ')}`);
-      if (a.cadence) parts.push(`Cadence: ${a.cadence}`);
-      setOutput(parts.join('\n'));
-    } catch(e:any){ setOutput(String(e?.message||e)); }
-    finally { setLoading(false); }
-  };
+  // Brand analysis available on Instagram tab (flows added separately)
 
   const importInstagram = async () => {
     setLoading(true);
@@ -205,6 +185,10 @@ export default function Vision(){
               <input className="border rounded-md px-3 py-2" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Lighting edit, version A…" />
             </label>
           </div>
+          <label className="inline-flex items-center gap-2">
+            <input type="checkbox" checked={preserveDims} onChange={e=>setPreserveDims(e.target.checked)} />
+            <span className="text-xs text-slate-600">Preserve Original Dimensions</span>
+          </label>
           <div className="flex gap-2">
             <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={saving || !preview} onClick={saveToLibrary}>{saving ? 'Saving…' : 'Save to Library'}</button>
             <button className="border rounded-md px-3 py-2 bg-white hover:shadow-sm disabled:opacity-50" disabled={loading} onClick={loadLibrary}>My Images</button>
