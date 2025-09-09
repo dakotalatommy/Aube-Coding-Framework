@@ -25,6 +25,7 @@ export default function Dashboard(){
   // funnel state removed
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
+  const [errorTimer, setErrorTimer] = useState<number|undefined>(undefined);
   const [nudgesMode, setNudgesMode] = useState<string>(()=> localStorage.getItem('bvx_nudges_mode') || 'on');
   useEffect(()=>{ try{ localStorage.setItem('bvx_nudges_mode', nudgesMode); }catch{} }, [nudgesMode]);
   // Chart removed on dashboard
@@ -82,7 +83,15 @@ export default function Dashboard(){
         }
         // analysis timestamp not shown in compact dashboard
         const failed = [mRes,qRes,fRes].some(r=>r.status==='rejected');
-        if (failed && !isDemo) setError('Some widgets failed to load. Retrying soon…');
+        if (failed && !isDemo) {
+          if (!errorTimer) {
+            const t = window.setTimeout(()=> setError('Some widgets failed to load. Retrying soon…'), 1200) as unknown as number;
+            setErrorTimer(t);
+          }
+        } else {
+          if (errorTimer) { window.clearTimeout(errorTimer as unknown as number); setErrorTimer(undefined); }
+          setError('');
+        }
         // plan notice currently unused in decluttered UI
         // Gentle retry for failed widgets without blocking UI
         if (failed) {
@@ -108,7 +117,7 @@ export default function Dashboard(){
       } catch(e:any){ if (mounted) setError(String(e?.message||e)); }
       finally{ if (mounted) setLoading(false); }
     })();
-    return ()=> { mounted = false; try{ abort.abort(); }catch{} };
+    return ()=> { mounted = false; try{ abort.abort(); }catch{}; if (errorTimer) { try{ window.clearTimeout(errorTimer as unknown as number); }catch{}; setErrorTimer(undefined); } };
   },[isDemo]);
 
   // Chart prefetch/observer removed

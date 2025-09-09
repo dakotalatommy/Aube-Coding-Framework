@@ -806,6 +806,32 @@ export default function Integrations(){
             <div className="mt-2 text-xs text-slate-600">Set <code>VITE_FEATURE_SOCIAL=1</code> to enable.</div>
           </section>
         )}
+        {SOCIAL_ON && shouldShow('facebook') && (
+          <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="font-semibold text-slate-900">Facebook Login</div>
+                <div className="text-sm text-slate-600">Grant Page access (required for IG Business data)</div>
+              </div>
+              <div className="flex items-center gap-2">
+                <StatusBadge status={isConnected('facebook') ? 'connected' : (settings.providers_live?.facebook ? 'configured' : 'pending')} warn={expSoon('facebook')} />
+                <label className="inline-flex items-center gap-1 text-[11px]">
+                  <span className={`${settings.providers_live?.facebook ? 'text-emerald-700' : 'text-slate-600'}`}>{settings.providers_live?.facebook ? 'Live' : 'Demo'}</span>
+                  <input type="checkbox" checked={!!settings.providers_live?.facebook} onChange={e=> setProviderLive('facebook', e.target.checked)} />
+                </label>
+              </div>
+            </div>
+            <div className="mt-3 flex gap-2 items-center flex-wrap">
+              <Button variant="outline" disabled={busy || connecting.facebook || onboarding?.providers?.facebook===false} onClick={()=> connect('facebook')}>{connecting.facebook ? 'Connecting…' : connectLabel('facebook')}</Button>
+              <Button variant="outline" disabled={busy} onClick={()=> refresh('facebook')}>{UI_STRINGS.ctas.secondary.refresh}</Button>
+              {providerStatus?.facebook?.last_sync && (
+                <span className="text-[11px] text-slate-600">Last sync: {fmtTs(providerStatus.facebook.last_sync)}</span>
+              )}
+              {expSoon('facebook') && <span className="text-[11px] text-amber-700">Token expiring soon</span>}
+            </div>
+            {(onboarding?.providers?.facebook===false) && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Facebook Login to enable.</div>}
+          </section>
+        )}
       </div>
 
       {/* Troubleshooting (dev helpers) */}
@@ -889,5 +915,4 @@ export default function Integrations(){
     </div>
   );
 }
-
 

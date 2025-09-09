@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import Button from '../../components/ui/Button'
+import CenteredCard from '../../components/ui/CenteredCard'
 import { useToast } from '../../components/ui/Toast'
 import { saveStep, loadLocalSnapshot } from '../../sdk/onboardingClient'
 import { startOAuth } from '../../sdk/connectionsClient'
@@ -118,17 +119,11 @@ export default function OnboardingRoot(){
   })()
 
   return (
-    <div className="relative min-h-[100dvh] w-full overflow-hidden grid place-items-center px-4 py-8">
+    <div className="relative min-h-[100dvh] w-full overflow-hidden px-4 py-8">
       <div aria-hidden className="pointer-events-none absolute inset-0" style={{
         background: 'radial-gradient(900px 320px at 10% -10%, rgba(236,72,153,0.08), transparent), radial-gradient(700px 240px at 90% -20%, rgba(99,102,241,0.08), transparent)'
       }} />
-      <div className="relative w-full max-w-[720px] group rounded-2xl border-[3px] border-white/60 shadow-[0_24px_48px_-22px_rgba(0,0,0,0.25)] bg-white/80 backdrop-blur px-6 py-6 md:px-8 md:py-7 overflow-visible">
-        <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 w-full h-[120px] md:h-[140px] rounded-2xl blur-md opacity-70" style={{
-          background: 'radial-gradient(60% 140px at 20% 20%, rgba(236,72,153,0.14), transparent 70%), radial-gradient(60% 140px at 80% 20%, rgba(99,102,241,0.12), transparent 72%)'
-        }} />
-        <div aria-hidden className="pointer-events-none absolute -inset-2 rounded-2xl blur-md opacity-0 transition group-hover:opacity-100" style={{
-          background: 'radial-gradient(420px 180px at 20% -10%, rgba(236,72,153,0.18), transparent 60%), radial-gradient(480px 200px at 80% -15%, rgba(99,102,241,0.18), transparent 65%)'
-        }} />
+      <CenteredCard maxWidthClass="max-w-[720px]" minHeightClass="min-h-[560px]">
         <header className="relative z-10">
           <div className="flex items-center justify-between">
             <div>
@@ -154,7 +149,7 @@ export default function OnboardingRoot(){
             </motion.div>
           </AnimatePresence>
         </main>
-      </div>
+      </CenteredCard>
     </div>
   )
 }
