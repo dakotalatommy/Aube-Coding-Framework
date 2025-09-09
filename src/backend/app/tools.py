@@ -324,12 +324,15 @@ async def tool_image_edit(
         # Fallback: try Vertex Images (Gemini 2.5 Flash Image) if configured
         try:
             inline = await _vertex_try_image_edit(img_obj, prompt, preserve)
-        except Exception:
-            inline = None
+        except Exception as e:
+            inline = {"error": f"vertex_exception:{str(e)[:120]}"}
         if inline and inline.get("data"):
             data_b64 = inline["data"]
             mime = inline.get("mime", "image/png")
         else:
+            # Bubble up vertex error details if present for debugging
+            if isinstance(inline, dict) and inline.get("error"):
+                return {"status": "error", "detail": inline.get("error"), "body": inline.get("body"), "rid": inline.get("rid")}
             return {"status": "error", "detail": "no_image_returned"}
     # Persist to share_reports and return a link (and data_url for immediate preview)
     token = _secrets.token_urlsafe(16)
@@ -395,10 +398,10 @@ async def _vertex_try_image_edit(img_obj: dict, prompt: str, preserve_dims: bool
     """
     project = _vertex_project()
     if not project:
-        return None
+        return {"error": "vertex_not_configured"}
     token = _vertex_sa_token()
     if not token:
-        return None
+        return {"error": "vertex_token_missing"}
     location = _vertex_location()
     try:
         inline = (img_obj or {}).get("inlineData", {})
@@ -427,12 +430,15 @@ async def _vertex_try_image_edit(img_obj: dict, prompt: str, preserve_dims: bool
         async with httpx.AsyncClient(timeout=60) as client:
             r = await client.post(url, headers=headers, json=payload)
             if r.status_code >= 400:
-                # Log once for diagnostics, but return None to let caller show prior error
+                # Return structured error so client can display it
+                ct = r.headers.get("content-type", "")
+                rid = r.headers.get("x-request-id") or r.headers.get("x-goog-request-id") or ""
+                body_text = (r.text or "")[:2000]
                 try:
-                    print(f"[vertex] HTTP {r.status_code} body={(r.text or '')[:300]}")
+                    print(f"[vertex] HTTP {r.status_code} ct={ct} rid={rid} body={body_text}")
                 except Exception:
                     pass
-                return None
+                return {"error": f"vertex_http_{r.status_code}", "body": body_text, "rid": rid}
             j = r.json()
             try:
                 parts = ((j.get("candidates") or [{}])[0].get("content") or {}).get("parts") or []
