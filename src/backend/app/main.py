@@ -3923,8 +3923,6 @@ def ops_health(db: Session = Depends(get_db), ctx: UserContext = Depends(require
     except Exception:
         out["contexts_count"] = 0
     return out
-    except Exception as e:
-        return {"status": "error", "detail": str(e)[:200]}
 
 # --- Edge Function Proxies (Gateway model) ---
 class EdgeProxyRequest(BaseModel):

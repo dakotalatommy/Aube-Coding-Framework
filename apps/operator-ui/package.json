@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5174",
     "build": "tsc -b && vite build | tee build.log",
+    "bundle:zip": "npm run build && cd dist && zip -r ../operator-ui-dist.zip .",
     "bundle:guard": "node scripts/bundle-guard.cjs",
     "lint": "eslint .",
     "preview": "vite preview --host 127.0.0.1 --port 5176",
