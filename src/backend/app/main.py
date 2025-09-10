@@ -2793,7 +2793,7 @@ def ai_chat_save_summary(
             with engine.begin() as conn:
                 # Per-session summary key
                 conn.execute(
-                    _sql_text("UPDATE ai_memories SET value=:v, tags=:tg, updated_at=NOW() WHERE tenant_id = CAST(:t AS uuid) AND key=:k"),
+                    _sql_text("UPDATE ai_memories SET value=to_jsonb(:v::text), tags=to_jsonb(:tg::text), updated_at=NOW() WHERE tenant_id = CAST(:t AS uuid) AND key=:k"),
                     {"t": req.tenant_id, "k": f"session:{req.session_id}:summary", "v": req.summary, "tg": "session,summary"},
                 )
                 conn.execute(
@@ -2802,7 +2802,7 @@ def ai_chat_save_summary(
                 )
                 # Rolling pointer to the last session summary
                 conn.execute(
-                    _sql_text("UPDATE ai_memories SET value=:v, tags=:tg, updated_at=NOW() WHERE tenant_id = CAST(:t AS uuid) AND key='last_session_summary'"),
+                    _sql_text("UPDATE ai_memories SET value=to_jsonb(:v::text), tags=to_jsonb(:tg::text), updated_at=NOW() WHERE tenant_id = CAST(:t AS uuid) AND key='last_session_summary'"),
                     {"t": req.tenant_id, "v": req.summary, "tg": "rolling,summary"},
                 )
                 conn.execute(
@@ -2968,6 +2968,11 @@ async def ai_chat(
         scaffolds_text=scaffolds_text,
         brand_profile_text=brand_profile_text,
     )
+    try:
+        if chosen_mode:
+            ph_capture("llm.context", distinct_id=str(ctx.tenant_id), properties={"mode": chosen_mode})
+    except Exception:
+        pass
     # Lightweight data context: enrich for common analytical asks without explicit tool calls
     try:
         user_q = (req.messages[-1].content if req.messages else "").lower()
