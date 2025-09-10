@@ -803,28 +803,32 @@ async def tool_draft_message(
 async def tool_connectors_cleanup(db: Session, ctx: UserContext, tenant_id: str) -> Dict[str, Any]:
     _require_tenant(ctx, tenant_id)
     base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
-    async with httpx.AsyncClient(timeout=30) as client:
+    headers = {"X-User-Id": str(getattr(ctx, 'user_id', 'user') or 'user'), "X-Role": str(getattr(ctx, 'role', 'owner_admin') or 'owner_admin'), "X-Tenant-Id": str(tenant_id)}
+    async with httpx.AsyncClient(timeout=30, headers=headers) as client:
         r = await client.post(f"{base_api}/integrations/connectors/cleanup", json={"tenant_id": tenant_id})
         return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
 
 async def tool_connectors_normalize(db: Session, ctx: UserContext, tenant_id: str) -> Dict[str, Any]:
     _require_tenant(ctx, tenant_id)
     base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
-    async with httpx.AsyncClient(timeout=60) as client:
+    headers = {"X-User-Id": str(getattr(ctx, 'user_id', 'user') or 'user'), "X-Role": str(getattr(ctx, 'role', 'owner_admin') or 'owner_admin'), "X-Tenant-Id": str(tenant_id)}
+    async with httpx.AsyncClient(timeout=60, headers=headers) as client:
         r = await client.post(f"{base_api}/integrations/connectors/normalize", json={"tenant_id": tenant_id, "migrate_legacy": True, "dedupe": True})
         return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
 
 async def tool_calendar_sync(db: Session, ctx: UserContext, tenant_id: str, provider: Optional[str] = None) -> Dict[str, Any]:
     _require_tenant(ctx, tenant_id)
     base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
-    async with httpx.AsyncClient(timeout=30) as client:
+    headers = {"X-User-Id": str(getattr(ctx, 'user_id', 'user') or 'user'), "X-Role": str(getattr(ctx, 'role', 'owner_admin') or 'owner_admin'), "X-Tenant-Id": str(tenant_id)}
+    async with httpx.AsyncClient(timeout=30, headers=headers) as client:
         r = await client.post(f"{base_api}/calendar/sync", json={"tenant_id": tenant_id, "provider": provider or "auto"})
         return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
 
 async def tool_calendar_merge(db: Session, ctx: UserContext, tenant_id: str) -> Dict[str, Any]:
     _require_tenant(ctx, tenant_id)
     base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
-    async with httpx.AsyncClient(timeout=30) as client:
+    headers = {"X-User-Id": str(getattr(ctx, 'user_id', 'user') or 'user'), "X-Role": str(getattr(ctx, 'role', 'owner_admin') or 'owner_admin'), "X-Tenant-Id": str(tenant_id)}
+    async with httpx.AsyncClient(timeout=30, headers=headers) as client:
         r = await client.post(f"{base_api}/calendar/merge", json={"tenant_id": tenant_id})
         return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
 
@@ -832,7 +836,8 @@ async def tool_calendar_reschedule(db: Session, ctx: UserContext, tenant_id: str
     _require_tenant(ctx, tenant_id)
     base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
     payload = {"tenant_id": tenant_id, "external_ref": external_ref, "provider": provider, "provider_event_id": provider_event_id, "start_ts": int(start_ts), "end_ts": (int(end_ts) if end_ts else None)}
-    async with httpx.AsyncClient(timeout=30) as client:
+    headers = {"X-User-Id": str(getattr(ctx, 'user_id', 'user') or 'user'), "X-Role": str(getattr(ctx, 'role', 'owner_admin') or 'owner_admin'), "X-Tenant-Id": str(tenant_id)}
+    async with httpx.AsyncClient(timeout=30, headers=headers) as client:
         r = await client.post(f"{base_api}/calendar/reschedule", json=payload)
         return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
 
@@ -840,21 +845,24 @@ async def tool_calendar_cancel(db: Session, ctx: UserContext, tenant_id: str, ex
     _require_tenant(ctx, tenant_id)
     base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
     payload = {"tenant_id": tenant_id, "external_ref": external_ref, "provider": provider, "provider_event_id": provider_event_id}
-    async with httpx.AsyncClient(timeout=30) as client:
+    headers = {"X-User-Id": str(getattr(ctx, 'user_id', 'user') or 'user'), "X-Role": str(getattr(ctx, 'role', 'owner_admin') or 'owner_admin'), "X-Tenant-Id": str(tenant_id)}
+    async with httpx.AsyncClient(timeout=30, headers=headers) as client:
         r = await client.post(f"{base_api}/calendar/cancel", json=payload)
         return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
 
 async def tool_oauth_refresh(db: Session, ctx: UserContext, tenant_id: str, provider: str) -> Dict[str, Any]:
     _require_tenant(ctx, tenant_id)
     base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
-    async with httpx.AsyncClient(timeout=30) as client:
+    headers = {"X-User-Id": str(getattr(ctx, 'user_id', 'user') or 'user'), "X-Role": str(getattr(ctx, 'role', 'owner_admin') or 'owner_admin'), "X-Tenant-Id": str(tenant_id)}
+    async with httpx.AsyncClient(timeout=30, headers=headers) as client:
         r = await client.post(f"{base_api}/oauth/refresh", json={"tenant_id": tenant_id, "provider": provider})
         return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
 
 async def tool_square_backfill(db: Session, ctx: UserContext, tenant_id: str) -> Dict[str, Any]:
     _require_tenant(ctx, tenant_id)
     base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
-    async with httpx.AsyncClient(timeout=60) as client:
+    headers = {"X-User-Id": str(getattr(ctx, 'user_id', 'user') or 'user'), "X-Role": str(getattr(ctx, 'role', 'owner_admin') or 'owner_admin'), "X-Tenant-Id": str(tenant_id)}
+    async with httpx.AsyncClient(timeout=60, headers=headers) as client:
         r = await client.post(f"{base_api}/integrations/booking/square/backfill-metrics", json={"tenant_id": tenant_id})
         return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
 async def tool_twilio_provision(db: Session, ctx: UserContext, tenant_id: str, area_code: str = "") -> Dict[str, Any]:

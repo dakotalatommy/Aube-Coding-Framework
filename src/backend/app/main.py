@@ -3230,18 +3230,30 @@ async def ai_chat_raw(
         mode = (req.mode or "").strip().lower()
     except Exception:
         mode = ""
-    # Heuristic: switch to support if the user expresses confusion and no explicit mode was given
+    # Heuristic + detector: set mode when user expresses confusion or when detector is confident
     if not mode:
         try:
             last = (req.messages[-1].content or "").lower() if req.messages else ""
-            confusion_markers = [
-                "i'm confused", "im confused", "i am confused",
-                "i don't understand", "i dont understand", "do not understand",
-                "this is confusing", "help me understand", "not sure what to do",
-                "where do i start", "what do i do", "how do i start",
-            ]
-            if any(k in last for k in confusion_markers):
-                mode = "support"
+            # detector
+            det = detect_mode(last)
+            if det.get("mode") and float(det.get("confidence", 0)) >= 0.7:
+                mode = str(det.get("mode"))
+                try:
+                    ph_capture("context.detected", distinct_id=str(ctx.tenant_id), properties={
+                        "mode": mode, "confidence": float(det.get("confidence", 0.0)),
+                        "reasons": ",".join(det.get("reasons", [])) if isinstance(det.get("reasons", []), list) else ""
+                    })
+                except Exception:
+                    pass
+            else:
+                confusion_markers = [
+                    "i'm confused", "im confused", "i am confused",
+                    "i don't understand", "i dont understand", "do not understand",
+                    "this is confusing", "help me understand", "not sure what to do",
+                    "where do i start", "what do i do", "how do i start",
+                ]
+                if any(k in last for k in confusion_markers):
+                    mode = "support"
         except Exception:
             pass
     if mode == "support":
@@ -3258,6 +3270,11 @@ async def ai_chat_raw(
         system_prompt += "\n\n[Mode: To‑Do]\nCreate concise, actionable tasks; avoid duplicates; summarize impact in one line."
     if brand_profile_text:
         system_prompt = system_prompt + "\n\nBrand profile (voice/tone):\n" + brand_profile_text
+    try:
+        if mode:
+            ph_capture("llm.context", distinct_id=str(ctx.tenant_id), properties={"mode": mode})
+    except Exception:
+        pass
     # Enrich with tenant memories and global insights/faq
     try:
         mems = _load_tenant_memories(db, ctx.tenant_id, limit=20)
@@ -3847,6 +3864,53 @@ def ai_costs(tenant_id: str, ctx: UserContext = Depends(get_user_context)):
             "global_cost_usd_today": round(g_cost, 4),
             "caps": caps,
         }
+
+
+@app.get("/ops/health", tags=["Health"])
+def ops_health(db: Session = Depends(get_db)) -> Dict[str, object]:
+    """Aggregate health snapshot for ops dashboards: DB, Redis, OpenAI, PostHog, Sentry, Tools/Contexts."""
+    out: Dict[str, object] = {"status": "ok"}
+    # DB probe
+    try:
+        db.execute(_sql_text("SELECT 1"))
+        out["db"] = "ok"
+    except Exception as e:
+        out["db"] = {"status": "error", "detail": str(e)[:120]}
+        out["status"] = "degraded"
+    # Redis
+    try:
+        client = _get_redis()
+        if client is None:
+            out["redis"] = "disabled"
+        else:
+            pong = client.ping()  # type: ignore
+            out["redis"] = "ok" if pong else "error"
+            if not pong:
+                out["status"] = "degraded"
+    except Exception as e:
+        out["redis"] = {"status": "error", "detail": str(e)[:120]}
+        out["status"] = "degraded"
+    # OpenAI config
+    try:
+        out["openai"] = {
+            "model": os.getenv("OPENAI_MODEL", ""),
+            "has_key": bool(os.getenv("OPENAI_API_KEY", "").strip()),
+        }
+    except Exception:
+        out["openai"] = {"has_key": False}
+    # PostHog/Sentry present
+    out["posthog"] = bool(os.getenv("POSTHOG_API_KEY", "").strip())
+    out["sentry"] = bool(os.getenv("SENTRY_DSN", "").strip())
+    # Tools/contexts
+    try:
+        out["tools_count"] = len(tools_schema().get("tools", []))
+    except Exception:
+        out["tools_count"] = 0
+    try:
+        out["contexts_count"] = len(contexts_schema().get("contexts", []))
+    except Exception:
+        out["contexts_count"] = 0
+    return out
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
 
