@@ -18,7 +18,7 @@ services:
       name: brandvx-db
       property: connectionString
   - key: ENABLE_PG_RLS
-    value: "0"
+    value: "1"
   - key: BACKEND_BASE_URL
     value: https://api.brandvx.io
   - key: FRONTEND_BASE_URL
@@ -43,6 +43,20 @@ services:
     value: "1"
   - key: SCHEDULER_INTERVAL_SECS
     value: "60"
+  - key: DB_POOL_SIZE
+    value: "10"
+  - key: DB_MAX_OVERFLOW
+    value: "10"
+  - key: DB_POOL_TIMEOUT
+    value: "10"
+  - key: DB_POOL_RECYCLE_SECONDS
+    value: "900"
+  - key: PG_STATEMENT_TIMEOUT_MS
+    value: "12000"
+  - key: PG_LOCK_TIMEOUT_MS
+    value: "3000"
+  - key: PG_IDLE_IN_TXN_TIMEOUT_MS
+    value: "10000"
   - key: POSTHOG_API_KEY
     sync: false
   - key: POSTHOG_HOST
