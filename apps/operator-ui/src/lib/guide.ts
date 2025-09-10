@@ -1,24 +1,21 @@
 export type GuideStep = { element?: string; popover: { title: string; description: string } };
-import { driver } from 'driver.js';
 import { track } from './analytics';
 import 'driver.js/dist/driver.css';
 
 const registry: Record<string, GuideStep[]> = {
   workspace_intro: [
-    // Follow visible sidebar order with simple, beauty‑friendly language
-    { element: '[data-tour="nav-dashboard"]', popover: { title: 'Dashboard', description: 'Your at‑a‑glance wins and quick actions live here.' } },
-    { element: '[data-tour="nav-askvx"]', popover: { title: 'Ask VX', description: 'Ask anything or run a step. You approve changes first.' } },
-    { element: '[data-tour="nav-vision"]', popover: { title: 'brandVZN', description: 'Analyze and lightly edit photos; pull social previews.' } },
-    { element: '[data-tour="nav-messages"]', popover: { title: 'Messages', description: 'Preview copy now; sending enables after setup.' } },
-    { element: '[data-tour="nav-contacts"]', popover: { title: 'Contacts', description: 'Import from booking/CRM and manage consent simply.' } },
-    { element: '[data-tour="nav-calendar"]', popover: { title: 'Calendar', description: 'Unified view from Google/Apple plus Square/Acuity.' } },
-    { element: '[data-tour="nav-cadences"]', popover: { title: 'Follow‑ups', description: 'Friendly check‑ins that respect quiet hours.' } },
-    { element: '[data-tour="nav-inventory"]', popover: { title: 'Inventory', description: 'Spot low/out‑of‑stock and restock quickly.' } },
-    { element: '[data-tour="nav-workflows"]', popover: { title: 'WorkStyles', description: 'Guided playbooks like 14‑day Social and 10‑Minute Wow.' } },
-    { element: '[data-tour="nav-approvals"]', popover: { title: 'To‑Do', description: 'When a step needs your OK, it appears here.' } },
-    { element: '[data-tour="nav-integrations"]', popover: { title: 'Settings', description: 'Connect Square, Instagram, and more in one place.' } },
-    // Helpful extras
-    { element: '#bvx-commandbar', popover: { title: 'Quick command', description: 'Type to navigate or run actions fast.' } },
+    { element: '[data-tour="nav-dashboard"]', popover: { title: 'Dashboard', description: 'KPIs up top, quick actions, and setup progress.' } },
+    { element: '[data-tour="nav-askvx"]', popover: { title: 'Ask VX', description: 'Chat in your brand voice. Safe smart actions — you approve first.' } },
+    { element: '[data-tour="nav-vision"]', popover: { title: 'brandVZN', description: 'Upload and try subtle edits with before/after. Dimensions preserved.' } },
+    { element: '[data-tour="nav-messages"]', popover: { title: 'Messages', description: 'Draft now and respect quiet hours. Sending unlocks after setup.' } },
+    { element: '[data-tour="nav-contacts"]', popover: { title: 'Clients', description: 'Import from booking. Clean names and consent at a glance.' } },
+    { element: '[data-tour="nav-calendar"]', popover: { title: 'Calendar', description: 'Unified view (Google/Apple) plus bookings for the week.' } },
+    { element: '[data-tour="nav-cadences"]', popover: { title: 'Follow‑ups', description: 'Human‑feel check‑ins; respects approvals and quiet hours.' } },
+    { element: '[data-tour="nav-inventory"]', popover: { title: 'Inventory', description: 'See low/out‑of‑stock; restock fast.' } },
+    { element: '[data-tour="nav-workflows"]', popover: { title: 'WorkStyles', description: 'Top plays pre‑wired: Social plan, reminders, low stock.' } },
+    { element: '[data-tour="nav-approvals"]', popover: { title: 'To‑Do', description: 'Anything needing your OK appears here.' } },
+    { element: '[data-tour="nav-integrations"]', popover: { title: 'Settings', description: 'Link booking/messaging and workspace preferences.' } },
+    { element: '#bvx-commandbar', popover: { title: 'Quick command', description: 'Type / to jump or run an action quickly.' } },
   ],
   onboarding: [
     { element: '[data-tour="steps"]', popover: { title: 'Steps', description: 'Quick 5 steps — you can jump around anytime.' } },
@@ -193,20 +190,28 @@ export function startGuide(page: string, opts?: { step?: number }) {
           const steps = demoStepsMap[key] || [];
           try { sessionStorage.setItem(`bvx_tour_seen_${key}_session`, '1'); } catch {}
           try { track('tour_start', { page: key }); } catch {}
-          const d = driver({ showProgress: true, steps } as any);
-          d.drive();
+          (async()=>{
+            const mod2: any = await import('driver.js');
+            const drv2 = (mod2 && (mod2 as any).driver) ? (mod2 as any).driver : (mod2 as any);
+            const d = drv2({ showProgress: true, steps } as any);
+            d.drive();
+          })();
           const next = idx + 1;
           setTimeout(() => {
             if (next >= seq.length) {
               // Final: highlight demo Sign up button
               try {
-                const d2 = driver({
-                  showProgress: true,
-                  steps: [
-                    { element: '[data-guide="demo-signup"]', popover: { title: 'Create your BrandVX', description: 'Ready to continue? Tap Sign up to start your live workspace.' } }
-                  ],
-                } as any);
-                d2.drive();
+                (async()=>{
+                  const mod3: any = await import('driver.js');
+                  const drv3 = (mod3 && (mod3 as any).driver) ? (mod3 as any).driver : (mod3 as any);
+                  const d2 = drv3({
+                    showProgress: true,
+                    steps: [
+                      { element: '[data-guide="demo-signup"]', popover: { title: 'Create your BrandVX', description: 'Ready to continue? Tap Sign up to start your live workspace.' } }
+                    ],
+                  } as any);
+                  d2.drive();
+                })();
               } catch {}
               return;
             }
@@ -228,22 +233,26 @@ export function startGuide(page: string, opts?: { step?: number }) {
     startAt = Math.max(0, (fromOpts || fromUrl || 0) - 1);
   } catch { startAt = 0; }
   const stepsToRun = Array.isArray(steps) ? steps.slice(startAt) : steps;
-  const d = driver({
-    showProgress: true,
-    nextBtnText: 'Next',
-    prevBtnText: 'Back',
-    doneBtnText: 'Done',
-    steps: stepsToRun,
-  } as any);
-  d.drive();
-  try {
-    // Notify workspace when the intro finishes so onboarding prompt can trigger
-    if (page === 'workspace_intro' && typeof (d as any).on === 'function') {
-      (d as any).on('destroyed', () => {
-        try { window.dispatchEvent(new CustomEvent('bvx:guide:workspace_intro:done')); } catch {}
-      });
-    }
-  } catch {}
+  (async()=>{
+    const mod: any = await import('driver.js');
+    const drv = (mod && (mod as any).driver) ? (mod as any).driver : (mod as any);
+    const d = drv({
+      showProgress: true,
+      nextBtnText: 'Next',
+      prevBtnText: 'Back',
+      doneBtnText: 'Done',
+      steps: stepsToRun,
+    } as any);
+    d.drive();
+    try {
+      // Notify workspace when the intro finishes so onboarding prompt can trigger
+      if (page === 'workspace_intro' && typeof (d as any).on === 'function') {
+        (d as any).on('destroyed', () => {
+          try { window.dispatchEvent(new CustomEvent('bvx:guide:workspace_intro:done')); } catch {}
+        });
+      }
+    } catch {}
+  })();
 }
 
 
@@ -262,8 +271,10 @@ export async function startWorkflowGuide(name: string) {
     if (first?.panel) {
       window.location.href = `/workspace?pane=${first.panel}`;
       // Allow route transition
-      setTimeout(() => {
-        const d = driver({
+      setTimeout(async () => {
+        const mod: any = await import('driver.js');
+        const drv = (mod && (mod as any).driver) ? (mod as any).driver : (mod as any);
+        const d = drv({
           showProgress: true,
           steps: steps.map((s:any) => ({ element: s.selector, popover: { title: s.title, description: s.desc } }))
         } as any);

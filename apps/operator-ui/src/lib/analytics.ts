@@ -14,20 +14,28 @@ export type AnalyticsEvent =
   | 'todo.reject'
   | 'ask.smart_action.run'
   | 'vision.save_to_client'
+  | 'vision.upload'
+  | 'vision.run_edit'
+  | 'vision.analyze'
   | 'cadences.start'
   | 'cadences.reminders.next_week'
   | 'cadences.reminders.reengage_30d'
   | 'cadences.reminders.winback_45d'
   | 'billing.success'
   | 'billing.modal.open'
-  | 'referral.copy';
+  | 'referral.copy'
+  | 'messages.filter.change'
+  | 'messages.save_quiet_hours'
+  | 'messages.draft'
+  | 'contacts.import_booking';
 
 export function initAnalytics() {
   if (initialized) return;
   const key = import.meta.env.VITE_POSTHOG_KEY;
+  // Force US cloud host unless explicitly overridden
   const host = import.meta.env.VITE_POSTHOG_HOST || 'https://us.i.posthog.com';
   if (!key) return; // silently no-op without key
-  posthog.init(key, { api_host: host, capture_pageview: false });
+  posthog.init(key, { api_host: host, capture_pageview: false, autocapture: false });
   initialized = true;
 }
 
@@ -68,7 +76,6 @@ export function setFeatureFlag(key: string, value: boolean) {
     }
   } catch {}
 }
-
 
 
 

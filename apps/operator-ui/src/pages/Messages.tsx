@@ -6,10 +6,13 @@ import Input from '../components/ui/Input';
 import { Table, THead, TR, TH, TD } from '../components/ui/Table';
 import { startGuide } from '../lib/guide';
 import Skeleton from '../components/ui/Skeleton';
+import InlineStatus from '../components/ui/InlineStatus';
 // import EmptyState from '../components/ui/EmptyState';
 import Pager from '../components/ui/Pager';
 import { useToast } from '../components/ui/Toast';
 import { UI_STRINGS } from '../lib/strings';
+import { trackEvent } from '../lib/analytics';
+import * as Sentry from '@sentry/react';
 // import { Link } from 'react-router-dom';
 
 export default function Messages(){
@@ -29,6 +32,11 @@ export default function Messages(){
   const [selectedRecipient, setSelectedRecipient] = useState<{ id:string; name:string }|null>(null);
   const [suggestions, setSuggestions] = useState<Array<{id:string;name:string}>>([]);
   const [showSug, setShowSug] = useState(false);
+  const [inboxFilter, setInboxFilter] = useState<'all'|'unread'|'needs_reply'|'scheduled'|'failed'>(()=>{
+    try{ return (localStorage.getItem('bvx_messages_filter') as any) || 'all'; }catch{ return 'all'; }
+  });
+  const [showSlash, setShowSlash] = useState(false);
+  const [slashQuery, setSlashQuery] = useState('');
 
   const format12h = (hhmm?: string) => {
     try{
@@ -79,6 +87,8 @@ export default function Messages(){
     try{ const sp = new URLSearchParams(window.location.search); if (sp.get('tour')==='1') startGuide('messages'); } catch {}
   },[]);
   useEffect(()=>{ (async()=>{ try{ const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() }); if (a?.summary?.ts) setLastAnalyzed(Number(a.summary.ts)); } catch{} })(); },[]);
+  useEffect(()=>{ try{ localStorage.setItem('bvx_messages_filter', inboxFilter); }catch{} }, [inboxFilter]);
+  useEffect(()=>{ try{ localStorage.setItem('bvx_messages_recipient', JSON.stringify(selectedRecipient||null)); }catch{} }, [selectedRecipient]);
 
   // simulate kept for dev; currently unused after UI simplification
   // simulate removed entirely in simplified UI
@@ -97,12 +107,20 @@ export default function Messages(){
   const draftSmart = async () => {
     try{
       if (!selectedRecipient?.id) { setStatus('Pick a client first.'); showToast({ title:'Choose a client', description:'Search and select a client to draft for.' }); return; }
+      const span = Sentry.startInactiveSpan?.({ name: 'messages.draft' });
+      const t0 = performance.now();
+      try{ trackEvent('ask.smart_action.run', { tool: 'draft_message', contact_id: selectedRecipient.id }); } catch{}
       const r = await api.post('/ai/tools/execute', {
         tenant_id: await getTenant(),
         name: 'draft_message',
         params: { tenant_id: await getTenant(), contact_id: selectedRecipient.id, channel: 'sms' },
         require_approval: false,
       });
+      try {
+        const ms = Math.round(performance.now() - t0);
+        trackEvent('messages.draft', { ms });
+        span?.end?.();
+      } catch {}
       const body = String(r?.draft || r?.text || r?.message || '').trim();
       if (body) {
         setSend(s=> ({ ...s, body, contact_id: selectedRecipient.id, channel: 'sms' }));
@@ -113,6 +131,24 @@ export default function Messages(){
     } catch(e:any){ setStatus(String(e?.message||e)); }
   };
 
+  const matchesFilter = (r:any): boolean => {
+    const st = String(r?.status||'').toLowerCase();
+    switch (inboxFilter) {
+      case 'unread':
+        return st.includes('unread') || st.includes('new') || st.includes('received');
+      case 'needs_reply':
+        return st.includes('await') || st.includes('no_reply') || st.includes('pending') || st.includes('needs');
+      case 'scheduled':
+        return st.includes('scheduled') || st.includes('queued') || st.includes('delayed');
+      case 'failed':
+        return st.includes('fail') || st.includes('error') || st.includes('bounce');
+      default:
+        return true;
+    }
+  };
+  const itemsFiltered = (items||[]).filter(matchesFilter);
+  const slashOptions = presets.filter(p=> (p.label+p.body).toLowerCase().includes(slashQuery.toLowerCase()));
+
   // copyRecipients removed in simplified draft-only mode
 
   // copyMessage removed in simplified draft-only mode
@@ -122,11 +158,17 @@ export default function Messages(){
   // markAsSent removed in simplified draft-only mode
 
   return (
+    <>
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center px-1 py-1">
-        <h3 className="text-lg font-semibold">Messages</h3>
-        <Button variant="outline" className="ml-auto" onClick={()=> startGuide('messages')} aria-label={UI_STRINGS.a11y.buttons.guideMessages}>{UI_STRINGS.ctas.tertiary.guideMe}</Button>
+      {/* Sticky primary action bar */}
+      <div className="sticky top-0 z-20 bg-white/80 backdrop-blur border-b border-slate-200">
+        <div className="max-w-6xl mx-auto px-2 sm:px-3 py-2 flex items-center gap-3">
+          <h3 className="text-sm font-semibold">Messages</h3>
+          <div className="ml-auto flex items-center gap-2">
+            <InlineStatus state={loading ? 'loading':'idle'} message={loading ? 'Loading messages…' : ''} />
+            <Button variant="outline" onClick={()=> startGuide('messages')} aria-label={UI_STRINGS.a11y.buttons.guideMessages}>{UI_STRINGS.ctas.tertiary.guideMe}</Button>
+          </div>
+        </div>
       </div>
       {loading && (
         <div className="space-y-3">
@@ -144,6 +186,7 @@ export default function Messages(){
 
           <div className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm" data-guide="compose">
             <div className="font-semibold mb-2">Compose</div>
+            <div className="text-[11px] text-slate-600 mb-1">Coach: pick a client → Draft for me → tweak message → save quiet hours.</div>
             <div className="mb-2 text-xs">
               <Button variant="outline" size="sm" onClick={draftSmart}>Draft for me</Button>
             </div>
@@ -152,7 +195,7 @@ export default function Messages(){
               <div className="mb-2 text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-md px-2 py-1 inline-block" data-guide="quiet">Quiet hours: {format12h(quiet.start)}–{format12h(quiet.end)}. Sending will be disabled during this window.</div>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" role="form" aria-label="Send message form">
-              <div className="relative">
+              <div className="relative" role="combobox" aria-expanded={showSug} aria-owns="recipient-listbox" aria-haspopup="listbox">
                 {/* Recipient chip */}
                 {selectedRecipient && (
                   <div className="mb-2 flex flex-wrap gap-2">
@@ -162,11 +205,11 @@ export default function Messages(){
                     </span>
                   </div>
                 )}
-                <Input placeholder="Search client" value={selectedRecipient ? '' : recipientQuery} onFocus={()=>setShowSug(true)} onBlur={()=> setTimeout(()=>setShowSug(false), 120)} onChange={e=>{ setRecipientQuery(e.target.value); setSelectedRecipient(null); }} />
+                <Input placeholder="Search client" value={selectedRecipient ? '' : recipientQuery} onFocus={()=>setShowSug(true)} onBlur={()=> setTimeout(()=>setShowSug(false), 120)} onChange={e=>{ setRecipientQuery(e.target.value); setSelectedRecipient(null); }} aria-autocomplete="list" aria-controls="recipient-listbox" aria-label="Search client" />
                 {showSug && suggestions.length > 0 && (
-                  <div className="absolute z-10 mt-1 max-h-40 overflow-auto bg-white border rounded-md shadow-sm text-xs w-full">
-                    {suggestions.map(s => (
-                      <button key={s.id} className="block w-full text-left px-2 py-1 hover:bg-slate-50" onMouseDown={(ev)=>{ ev.preventDefault(); setSelectedRecipient(s); setSend({...send, contact_id: s.id, channel:'sms' }); setShowSug(false); }}>
+                  <div id="recipient-listbox" role="listbox" className="absolute z-10 mt-1 max-h-40 overflow-auto bg-white border rounded-md shadow-sm text-xs w-full">
+                    {suggestions.map((s) => (
+                      <button role="option" aria-selected={false} key={s.id} className="block w-full text-left px-2 py-1 hover:bg-slate-50" onMouseDown={(ev)=>{ ev.preventDefault(); setSelectedRecipient(s); setSend({...send, contact_id: s.id, channel:'sms' }); setShowSug(false); }}>
                         {s.name || 'Client'}
                       </button>
                     ))}
@@ -174,14 +217,52 @@ export default function Messages(){
                 )}
               </div>
               <div className="text-xs text-slate-600">Channel: SMS</div>
-              <div className="sm:col-span-2">
-                <textarea className="w-full min-h-[120px] border rounded-md px-3 py-2" placeholder="Type your message or tap Draft for me" value={send.body} onChange={e=>setSend({...send, body: e.target.value})} />
+              <div className="sm:col-span-2 relative">
+                <textarea
+                  className="w-full min-h-[120px] border rounded-md px-3 py-2"
+                  placeholder="Type your message or type / for templates"
+                  value={send.body}
+                  onChange={e=>setSend({...send, body: e.target.value})}
+                  onKeyDown={(e)=>{
+                    if (e.key === '/') { setShowSlash(true); setSlashQuery(''); return; }
+                    if (showSlash && e.key === 'Escape') { setShowSlash(false); return; }
+                    if (showSlash && e.key === 'Backspace') { setSlashQuery(q=> q.slice(0, -1)); return; }
+                    if (showSlash && e.key === 'Enter') {
+                      e.preventDefault();
+                      const pick = slashOptions[0];
+                      if (pick) setSend(s=> ({ ...s, body: pick.body }));
+                      setShowSlash(false);
+                      return;
+                    }
+                    if (showSlash && e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+                      setSlashQuery(q=> q + e.key.toLowerCase());
+                      return;
+                    }
+                  }}
+                  aria-label="Message body"
+                />
+                <div className="mt-2 flex gap-2">
+                  <Button variant="outline" size="sm" onClick={async()=>{ try{ await navigator.clipboard.writeText(send.body||''); showToast({ title:'Copied', description:'Message copied to clipboard' }); }catch{} }}>Copy</Button>
+                </div>
+                {showSlash && (
+                  <div role="listbox" className="absolute z-10 left-0 right-0 mt-1 max-h-40 overflow-auto bg-white border rounded-md shadow-sm text-xs">
+                    {slashOptions.length === 0 && (
+                      <div className="px-2 py-1 text-slate-500">No matches</div>
+                    )}
+                    {slashOptions.map((p)=> (
+                      <button role="option" key={p.label} className="block w-full text-left px-2 py-1 hover:bg-slate-50" onMouseDown={(ev)=>{ ev.preventDefault(); setSend(s=> ({ ...s, body: p.body })); setShowSlash(false); }}>
+                        <span className="font-medium mr-2">/{p.label}</span>
+                        <span className="text-slate-500 truncate inline-block max-w-[60%] align-middle">{p.body}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
             <div className="mt-2 text-xs text-slate-700 flex flex-wrap items-center gap-2">
               <span className="font-medium">Quiet hours:</span>
               <Button variant="outline" size="sm" onClick={()=> setQuiet({ start:'21:00', end:'08:00' })}>Suggest 9:00 PM–8:00 AM</Button>
-              <Button variant="outline" size="sm" onClick={async()=>{ try { await api.post('/settings', { tenant_id: await getTenant(), quiet_hours: quiet }); } catch{} }} aria-label={UI_STRINGS.a11y.buttons.saveQuietHours}>{UI_STRINGS.ctas.secondary.save}</Button>
+              <Button variant="outline" size="sm" onClick={async()=>{ try { await api.post('/settings', { tenant_id: await getTenant(), quiet_hours: quiet }); trackEvent('integrations.guide.open', { area: 'messages.save_quiet_hours' }); } catch{} }} aria-label={UI_STRINGS.a11y.buttons.saveQuietHours}>{UI_STRINGS.ctas.secondary.save}</Button>
             </div>
             <div className="mt-2 text-[11px] font-medium text-slate-700">Client Messaging Templates</div>
             <div className="mt-1 flex flex-wrap gap-2 text-xs" data-guide="presets">
@@ -195,13 +276,19 @@ export default function Messages(){
           </div>
 
           <pre className="whitespace-pre-wrap text-sm text-slate-700" data-guide="status" aria-live="polite">{status}</pre>
-          {items.length === 0 ? null : (
+          {/* Inbox filters */}
+          <div className="mt-2 flex flex-wrap items-center gap-1 text-xs" data-guide="filters">
+            {(['all','unread','needs_reply','scheduled','failed'] as const).map((f)=> (
+              <button key={f} onClick={()=> { setInboxFilter(f); try{ trackEvent('messages.filter.change', { filter: f }); }catch{} }} className={`px-2 py-1 rounded border ${inboxFilter===f? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50'}`} aria-pressed={inboxFilter===f} aria-label={`Filter ${f.replace('_',' ')}`}>{f.replace('_',' ')}</button>
+            ))}
+          </div>
+          {itemsFiltered.length === 0 ? null : (
             <Table data-guide="list">
               <THead>
                 <TR><TH>ID</TH><TH>Contact</TH><TH>Channel</TH><TH>Status</TH><TH>Template</TH><TH>Time</TH></TR>
               </THead>
               <tbody className="divide-y">
-                {items.slice((page-1)*pageSize, page*pageSize).map((r:any)=> (
+                {itemsFiltered.slice((page-1)*pageSize, page*pageSize).map((r:any)=> (
                   <TR key={r.id}>
                     <TD>{r.id}</TD>
                     <TD><span className="truncate inline-block max-w-[10rem]" title={r.contact_id}>{r.contact_id}</span></TD>
@@ -214,13 +301,21 @@ export default function Messages(){
               </tbody>
             </Table>
           )}
-          {items.length>0 && (
-            <Pager page={page} pageSize={pageSize} total={items.length} onPrev={()=> setPage(p=> Math.max(1, p-1))} onNext={()=> setPage(p=> (p*pageSize<items.length? p+1: p))} />
+          {itemsFiltered.length>0 && (
+            <Pager page={page} pageSize={pageSize} total={itemsFiltered.length} onPrev={()=> setPage(p=> Math.max(1, p-1))} onNext={()=> setPage(p=> (p*pageSize<itemsFiltered.length? p+1: p))} />
           )}
           {/* badges row moved to top; counters removed */}
         </>
       )}
     </div>
+    {/* Mobile bottom toolbar */}
+    <div className="fixed md:hidden left-0 right-0 bottom-[calc(var(--bvx-commandbar-height,64px)+env(safe-area-inset-bottom,0px))] z-30">
+      <div className="mx-3 mb-2 rounded-xl border bg-white/95 backdrop-blur shadow flex items-center justify-between px-2 py-2">
+        <Button variant="outline" size="sm" onClick={draftSmart} aria-label="Draft for me">Draft</Button>
+        <Button variant="outline" size="sm" onClick={async()=>{ try { await api.post('/settings', { tenant_id: await getTenant(), quiet_hours: quiet }); trackEvent('integrations.guide.open', { area: 'messages.save_quiet_hours' }); } catch{} }} aria-label="Save quiet hours">Save quiet</Button>
+      </div>
+    </div>
+    </>
   );
 }
 

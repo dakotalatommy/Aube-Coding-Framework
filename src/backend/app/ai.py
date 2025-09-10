@@ -4,6 +4,13 @@ import asyncio
 import random
 from typing import Dict, Any, List, Optional
 import base64
+import time
+
+try:
+    from .analytics import ph_capture
+except Exception:  # pragma: no cover
+    def ph_capture(*a, **k):  # type: ignore
+        return
 
 
 class AIClient:
@@ -25,9 +32,21 @@ class AIClient:
         self.agents_url = os.getenv("OPENAI_AGENTS_URL", f"{self.base_url}/responses")
 
     async def generate(self, system: str, messages: List[Dict[str, str]], max_tokens: int = 512) -> str:
+        t0 = time.time()
+        model_used = self.model
+        status = "error"
+        err_msg: Optional[str] = None
         # Resolve API key fresh at request time to avoid stale env reads after redeploys
         live_key = (os.getenv("OPENAI_API_KEY", "") or self.api_key or "").strip()
         if not live_key:
+            err_msg = "missing_openai_key"
+            ph_capture("llm.request", distinct_id="server", properties={
+                "provider": "openai",
+                "model": model_used,
+                "status": status,
+                "error": err_msg,
+                "latency_ms": int((time.time() - t0) * 1000),
+            })
             return "AI not configured. Add OPENAI_API_KEY to enable chat and message generation."
         headers = {"Authorization": f"Bearer {live_key}", "Content-Type": "application/json"}
         # Optional project scoping header for project keys
@@ -45,6 +64,14 @@ class AIClient:
             # Try primary via Responses
             text = await self._generate_via_responses(system, messages, max_tokens)
             if text:
+                status = "ok"
+                ph_capture("llm.request", distinct_id="server", properties={
+                    "provider": "openai",
+                    "model": model_used,
+                    "status": status,
+                    "latency_ms": int((time.time() - t0) * 1000),
+                    "path": "responses",
+                })
                 return text
             # Try fallbacks via Responses
             for fb in self.fallback_models:
@@ -53,6 +80,14 @@ class AIClient:
                     self.model = fb
                     text_fb = await self._generate_via_responses(system, messages, max_tokens)
                     if text_fb:
+                        status = "ok"
+                        ph_capture("llm.request", distinct_id="server", properties={
+                            "provider": "openai",
+                            "model": self.model,
+                            "status": status,
+                            "latency_ms": int((time.time() - t0) * 1000),
+                            "path": "responses_fallback",
+                        })
                         return text_fb
                 finally:
                     self.model = m_prev
@@ -88,7 +123,16 @@ class AIClient:
                                 last_error_message = r.text
                         r.raise_for_status()
                         data = r.json()
-                        return data["choices"][0]["message"]["content"].strip()
+                        out = data["choices"][0]["message"]["content"].strip()
+                        status = "ok"
+                        ph_capture("llm.request", distinct_id="server", properties={
+                            "provider": "openai",
+                            "model": model_name,
+                            "status": status,
+                            "latency_ms": int((time.time() - t0) * 1000),
+                            "path": "chat_completions",
+                        })
+                        return out
                 except httpx.HTTPError as e:
                     last_error_message = str(e)
                     if attempt < 2:
@@ -97,7 +141,15 @@ class AIClient:
                         continue
                     # give next model a chance
                     break
-        return last_error_message or "AI is temporarily busy. Please try again in a moment."
+        err_msg = last_error_message or "AI is temporarily busy. Please try again in a moment."
+        ph_capture("llm.request", distinct_id="server", properties={
+            "provider": "openai",
+            "model": model_used,
+            "status": status,
+            "error": err_msg[:200] if isinstance(err_msg, str) else str(err_msg),
+            "latency_ms": int((time.time() - t0) * 1000),
+        })
+        return err_msg
 
     async def _generate_via_agents(self, system: str, messages: List[Dict[str, str]], max_tokens: int) -> Optional[str]:
         if not self.api_key or not self.agent_id:
@@ -480,5 +532,4 @@ class AIClient:
                     backoff_seconds *= 2
                     continue
         return None
-
 

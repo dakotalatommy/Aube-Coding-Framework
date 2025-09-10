@@ -165,6 +165,7 @@ export default function Dashboard(){
   const [trialDaysLeft, setTrialDaysLeft] = useState<number>(0);
   // wfProgress removed from Quick Start compact view
   const [foundingMember, setFoundingMember] = useState<boolean>(false);
+  const [quiet, setQuiet] = useState<{ start?: string; end?: string }>({});
   const [shareUrl] = useState<string>('');
   // removed copied state in streamlined share flow
   const [shareOpen, setShareOpen] = useState<boolean>(false);
@@ -215,6 +216,7 @@ export default function Dashboard(){
           const fm = Boolean(r?.data?.founding_member) || localStorage.getItem('bvx_founding_member') === '1';
           setFoundingMember(fm);
         } catch {}
+        try { setQuiet(r?.data?.quiet_hours||{}); } catch {}
       } catch {}
     })();
   },[]);
@@ -265,11 +267,20 @@ export default function Dashboard(){
     </div>
   );
   const softError = false; // banner suppressed per UX request
+  const socialPlanReady = (()=>{ try{ return localStorage.getItem('bvx_social_plan_ready') === '1'; }catch{ return false; }})();
 
   // Pager removed
 
   return (
     <div className="space-y-3">
+      {socialPlanReady && (
+        <section className="rounded-2xl p-3 border bg-sky-50 border-sky-200 text-sky-900">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-sm">Your 14‑day social plan is ready.</div>
+            <Button size="sm" variant="outline" onClick={()=>{ try{ localStorage.removeItem('bvx_social_plan_ready'); }catch{}; window.location.assign('/workflows'); }}>Open</Button>
+          </div>
+        </section>
+      )}
       {/* Post-onboarding banner removed; replaced by post-tour modal in WorkspaceShell */}
       {/* Founders banner temporarily hidden to reduce clutter on first paint */}
       {false && (
@@ -385,16 +396,16 @@ export default function Dashboard(){
         <div className="h-full grid place-items-center">
           <div className="max-w-5xl mx-auto grid grid-cols-4 place-items-center gap-6 px-3 py-6">
             <div className="flex-shrink-0" style={{ width: 'clamp(150px, 19vw, 200px)' }}>
-              <KpiAnimated title="Messages sent" value={Number(metrics?.messages_sent||0)} />
+              <KpiAnimated title="Messages sent" value={Number(metrics?.messages_sent||0)} onClick={()=> nav('/messages')} />
             </div>
             <div className="flex-shrink-0" style={{ width: 'clamp(150px, 19vw, 200px)' }}>
-              <TimeSavedAnimated title="Time saved" minutes={Number(timeSavedLive||0)} />
+              <TimeSavedAnimated title="Time saved" minutes={Number(timeSavedLive||0)} onClick={()=> nav('/cadences')} />
             </div>
             <div className="flex-shrink-0" style={{ width: 'clamp(150px, 19vw, 200px)' }}>
-              <KpiAnimated title="Rebook rate (30d)" value={Number(Math.round((metrics?.rebook_rate_30d||0)))} prefix="%" />
+              <KpiAnimated title="Rebook rate (30d)" value={Number(Math.round((metrics?.rebook_rate_30d||0)))} prefix="%" onClick={()=> nav('/calendar')} />
             </div>
             <div className="flex-shrink-0" style={{ width: 'clamp(150px, 19vw, 200px)' }}>
-              <KpiAnimated title="Revenue uplift" value={Number(metrics?.revenue_uplift||0)} prefix="$" />
+              <KpiAnimated title="Revenue uplift" value={Number(metrics?.revenue_uplift||0)} prefix="$" onClick={()=> nav('/billing')} />
             </div>
           </div>
         </div>
@@ -410,6 +421,42 @@ export default function Dashboard(){
           <Button size="sm" variant="outline" className="w-full" onClick={()=> window.location.assign('/ask?train=1')}>Train VX</Button>
         </div>
       </section>
+      {/* Setup Progress */}
+      {(() => {
+        try{
+          const connected = (onboarding?.connectedMap || onboarding?.connected || {}) as Record<string,string>;
+          const isGoogle = String(connected?.google || '') === 'connected';
+          const hasClients = Number(metrics?.contacts_count || 0) > 0 || (queue?.items||[]).length > 0;
+          const hasQuiet = Boolean(quiet?.start && quiet?.end);
+          const trained = Number(metrics?.messages_sent||0) > 0; // proxy
+          const steps = [
+            { label: 'Connect Google', done: isGoogle, action: () => window.location.assign('/integrations') },
+            { label: 'Import Clients', done: hasClients, action: async () => { const tid = await getTenant(); try{ await api.post('/ai/tools/execute',{ tenant_id: tid, name:'contacts.import.square', params:{ tenant_id: tid }, require_approval:false }); }catch{} window.location.assign('/contacts'); } },
+            { label: 'Set Quiet Hours', done: hasQuiet, action: () => window.location.assign('/messages') },
+            { label: 'Train VX', done: trained, action: () => window.location.assign('/ask?train=1') },
+          ];
+          const completed = steps.filter(s=> s.done).length;
+          const pct = Math.round((completed/steps.length)*100);
+          return (
+            <section className="rounded-2xl p-3 bg-white border border-white/60 shadow-sm" data-guide="setup">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-slate-900">Setup Progress</div>
+                <div className="text-xs text-slate-600">{pct}%</div>
+              </div>
+              <div className="mt-2 h-2 rounded bg-slate-100 overflow-hidden"><div className="h-full bg-pink-500" style={{ width: `${pct}%` }} /></div>
+              <div className="mt-3 grid sm:grid-cols-2 gap-2">
+                {steps.map((s,i)=> (
+                  <Button key={i} variant={s.done? 'outline' : 'outline'} className={`justify-start ${s.done? '!bg-emerald-50 !border-emerald-200 !text-emerald-800' : ''}`} onClick={s.action} aria-pressed={s.done} aria-label={s.label}>
+                    <span className="text-sm">{s.label}</span>
+                    {s.done && <span className="ml-2 text-[11px]">✓</span>}
+                  </Button>
+                ))}
+              </div>
+            </section>
+          );
+        } catch { return null; }
+      })()}
+
       {/* Today strip: one primary CTA */}
       <section className="rounded-2xl p-3 bg-white border border-white/60 shadow-sm" data-guide="primary">
         <div className="flex items-center justify-between">
@@ -443,7 +490,7 @@ export default function Dashboard(){
 // old KPI components removed in favor of animated versions above
 
 // Animated counters for top KPIs
-function KpiAnimated({ title, value, prefix='' }:{ title:string; value:number; prefix?:string }){
+function KpiAnimated({ title, value, prefix='', onClick }:{ title:string; value:number; prefix?:string; onClick?: ()=>void }){
   const [display, setDisplay] = useState<number>(0);
   useEffect(()=>{
     const target = Math.max(0, Math.round(value||0));
@@ -460,11 +507,12 @@ function KpiAnimated({ title, value, prefix='' }:{ title:string; value:number; p
   }, [value]);
   return (
     <motion.div
-      className="relative overflow-hidden rounded-2xl p-3 bg-white shadow-md aspect-[4/3] grid place-items-center border border-slate-200"
+      className="relative overflow-hidden rounded-2xl p-3 bg-white shadow-md aspect-[4/3] grid place-items-center border border-slate-200 cursor-pointer"
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
       whileHover={{ y: -2, boxShadow: '0 8px 24px rgba(236,72,153,0.12)' }}
+      onClick={onClick}
     >
       <div className="absolute inset-0 -z-10" style={{ background: 'radial-gradient(600px 220px at 20% -20%, rgba(236,72,153,0.12), transparent)' }} />
       <div className="text-center">
@@ -475,7 +523,7 @@ function KpiAnimated({ title, value, prefix='' }:{ title:string; value:number; p
   );
 }
 
-function TimeSavedAnimated({ title, minutes }:{ title:string; minutes:number }){
+function TimeSavedAnimated({ title, minutes, onClick }:{ title:string; minutes:number; onClick?: ()=>void }){
   const hours = Math.floor((minutes||0)/60);
   const [display, setDisplay] = useState<number>(0);
   useEffect(()=>{
@@ -493,11 +541,12 @@ function TimeSavedAnimated({ title, minutes }:{ title:string; minutes:number }){
   }, [hours]);
   return (
     <motion.div
-      className="relative overflow-hidden rounded-2xl p-3 bg-white shadow-md aspect-[4/3] grid place-items-center border border-slate-200"
+      className="relative overflow-hidden rounded-2xl p-3 bg-white shadow-md aspect-[4/3] grid place-items-center border border-slate-200 cursor-pointer"
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
       whileHover={{ y: -2, boxShadow: '0 8px 24px rgba(236,72,153,0.12)' }}
+      onClick={onClick}
       aria-label={`${title}: ${display}h`}
     >
       <div className="absolute inset-0 -z-10" style={{ background: 'radial-gradient(600px 220px at 80% -20%, rgba(99,102,241,0.12), transparent)' }} />

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import CenteredCard from '../components/ui/CenteredCard';
+import Button from '../components/ui/Button';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -56,18 +57,18 @@ export default function Login() {
           placeholder="••••••••"
         />
       </div>
-        <button disabled={loading} aria-label="Sign in" className="relative w-full py-4 rounded-full bg-gradient-to-b from-pink-500 to-violet-500 text-white text-[18px] md:text-[20px] hover:from-pink-600 hover:to-violet-600 transition shadow-[inset_0_2px_0_rgba(255,255,255,.35),0_40px_80px_-32px_rgba(192,132,252,.35)]">
-          <span className="absolute inset-x-0 -top-1 h-1.5 bg-white/40 blur-[2px] pointer-events-none" aria-hidden />
+        <Button disabled={loading} aria-label="Sign in" className="w-full !rounded-full !py-4 !text-[18px] md:!text-[20px]">
           {loading ? 'Signing in…' : 'Sign in'}
-        </button>
+        </Button>
       </form>
       <p className="text-sm text-slate-600 mt-4 pl:[10px]">
         No account? <Link to="/signup" className="text-pink-600 hover:underline">Create one</Link>
       </p>
       <div className="my-4">
-        <button
+        <Button
+          variant="outline"
           disabled={loading}
-          className="w-full h-12 md:h-14 rounded-xl border border-slate-300/60 bg-white hover:bg-slate-50"
+          className="w-full h-12 md:h-14 !rounded-xl"
           onClick={async()=>{
             try{ localStorage.setItem('bvx_offer_pending','1'); }catch{}
             try{
@@ -79,7 +80,7 @@ export default function Login() {
               if (data && (data as any).url) window.location.assign((data as any).url as string);
             } catch(e:any){ alert(String(e?.message||e)); }
           }}
-        >Continue with Google</button>
+        >Continue with Google</Button>
       </div>
     </CenteredCard>
   );

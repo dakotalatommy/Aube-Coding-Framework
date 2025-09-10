@@ -10,6 +10,8 @@ import AskFloat from './components/AskFloat';
 import CommandBar from './components/CommandBar';
 import ActionDrawer from './components/ActionDrawer';
 import { initAnalytics, trackPage } from './lib/analytics';
+import { supabase } from './lib/supabase';
+import QuietBadge from './components/ui/QuietBadge';
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Messages = lazy(() => import('./pages/Messages'));
 const Contacts = lazy(() => import('./pages/Contacts'));
@@ -135,6 +137,20 @@ function Shell() {
     }
   }, [onLanding, loc.search]);
 
+  // If user is authenticated, strip demo=1 from the URL to avoid demo fallbacks
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const session = (await supabase.auth.getSession()).data.session;
+        if (session && qs.get('demo') === '1') {
+          const clean = new URL(window.location.href);
+          clean.searchParams.delete('demo');
+          window.history.replaceState({}, '', clean.toString());
+        }
+      } catch {}
+    })();
+  }, [loc.search]);
+
   // Keyboard shortcut: Cmd/Ctrl+K focuses Ask VX (navigates to /ask)
   useEffect(()=>{
     const onKey = (e: KeyboardEvent) => {
@@ -173,6 +189,7 @@ function Shell() {
           {!embed && !onAskPage && !onDemo && !onLanding && !onBilling && !onAuthRoute && !onOnboarding && <ActionDrawer />}
           {/* Compact side AskVX button */}
           {!embed && !onAskPage && !onDemo && !onBilling && !onAuthRoute && !onOnboarding && <AskFloat />}
+          {!embed && !onAskPage && !onDemo && !onBilling && !onAuthRoute && !onOnboarding && <QuietBadge />}
         </div>
       </div>
     </>

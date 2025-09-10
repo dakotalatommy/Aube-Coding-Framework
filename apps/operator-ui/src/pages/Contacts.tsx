@@ -10,6 +10,7 @@ import Pager from '../components/ui/Pager';
 import { startGuide } from '../lib/guide';
 import { useToast } from '../components/ui/Toast';
 import { UI_STRINGS } from '../lib/strings';
+import { trackEvent } from '../lib/analytics';
 
 export default function Contacts(){
   const loc = useLocation();
@@ -92,7 +93,7 @@ export default function Contacts(){
         <section className="border rounded-xl p-3 bg-white shadow-sm" data-guide="list">
           <div className="flex items-center gap-2 mb-2">
             <div className="font-semibold">Clients</div>
-            <Button variant="outline" size="sm" disabled={busy} onClick={async()=>{ if (isDemo) { setStatus('Demo: import disabled.'); return; } await run(async()=>api.post('/calendar/sync',{ tenant_id: await getTenant(), provider: 'auto' })); try{ showToast({ title:'Import queued', description:'Booking' }); }catch{} }}>Import from booking</Button>
+            <Button variant="outline" size="sm" disabled={busy} onClick={async()=>{ if (isDemo) { setStatus('Demo: import disabled.'); return; } try{ trackEvent('contacts.import_booking'); }catch{} await run(async()=>api.post('/calendar/sync',{ tenant_id: await getTenant(), provider: 'auto' })); try{ showToast({ title:'Import queued', description:'Booking' }); }catch{} }}>Import from booking</Button>
             <Button variant="outline" size="sm" disabled={listBusy} onClick={()=> loadList()}>Refresh</Button>
           </div>
           <div className="overflow-auto rounded-md border" style={{ maxHeight: 'calc(100dvh - var(--bvx-commandbar-height,64px) - 220px)' }}>
@@ -114,7 +115,7 @@ export default function Contacts(){
                     <td className="px-2 py-1 font-medium text-slate-900">
                       <div className="flex items-center gap-2">
                         <button className="underline truncate max-w-[14rem]" title={nameOf(r)} onClick={()=> setExpert({open:true, contact:r})}>{nameOf(r)}</button>
-                        <button className="ml-1 px-2 py-0.5 border rounded-md" onClick={async()=>{
+                        <Button variant="outline" size="sm" className="ml-1" aria-label="Text client" onClick={async()=>{
                           try{
                             const tid = await getTenant();
                             const resp = await api.post('/messages/send',{ tenant_id: tid, contact_id: r.contact_id, channel: 'sms', body: 'Hi! Just checking in—would you like to book your next appointment?' });
@@ -124,8 +125,8 @@ export default function Contacts(){
                               showToast({ title:'SMS sent', description:'If messaging is enabled' });
                             }
                           }catch(e:any){ setStatus(String(e?.message||e)); }
-                        }}>Text</button>
-                        <button className="px-2 py-0.5 border rounded-md" onClick={async()=>{
+                        }}>Text</Button>
+                        <Button variant="outline" size="sm" aria-label="Email client" onClick={async()=>{
                           try{
                             const tid = await getTenant();
                             const resp = await api.post('/messages/send',{ tenant_id: tid, contact_id: r.contact_id, channel: 'email', subject: 'Quick check‑in', body: '<p>Would you like to book your next visit?</p>' });
@@ -135,7 +136,7 @@ export default function Contacts(){
                               showToast({ title:'Email sent', description:'If email is enabled' });
                             }
                           }catch(e:any){ setStatus(String(e?.message||e)); }
-                        }}>Email</button>
+                        }}>Email</Button>
                       </div>
                     </td>
                     <td className="px-2 py-1">{fmtTs(r.first_visit)}</td>

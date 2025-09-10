@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5174",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build | tee build.log",
+    "bundle:guard": "node scripts/bundle-guard.cjs",
     "lint": "eslint .",
     "preview": "vite preview --host 127.0.0.1 --port 5176",
     "test:e2e": "playwright test --reporter=line",

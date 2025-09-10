@@ -1,6 +1,7 @@
 import React, { Suspense, lazy, useMemo, useRef, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
+import Button from './ui/Button';
 import { Home, MessageSquare, Users, Calendar, Layers, Package2, Plug, CheckCircle2, MessageCircle, Eye } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { api, getTenant } from '../lib/api';
@@ -44,6 +45,32 @@ export default function WorkspaceShell(){
   const [showWelcome, setShowWelcome] = useState(false);
   const [showOnboardingPrompt, setShowOnboardingPrompt] = useState(false);
 
+  const startQuickstartSequence = async () => {
+    try {
+      localStorage.setItem('bvx_post_onboarding_quickstart','1');
+    } catch {}
+    // Vision → Contacts (import) → AskVX train → Dashboard (generate 14‑day plan)
+    try { nav('/vision'); } catch { window.location.href = '/vision'; }
+    setTimeout(async()=>{
+      try { nav('/contacts'); } catch { window.location.href = '/contacts'; }
+      setTimeout(async()=>{
+        try {
+          const tid = await getTenant();
+          await api.post('/ai/tools/execute',{ tenant_id: tid, name:'contacts.import.square', params:{ tenant_id: tid }, require_approval: false });
+        } catch {}
+        try { nav('/ask?train=1'); } catch { window.location.href = '/ask?train=1'; }
+        setTimeout(async()=>{
+          try {
+            const tid = await getTenant();
+            await api.post('/ai/tools/execute',{ tenant_id: tid, name:'social.schedule.14days', params:{ tenant_id: tid }, require_approval: true });
+            try { localStorage.setItem('bvx_social_plan_ready','1'); } catch {}
+          } catch {}
+          try { nav('/dashboard'); } catch { window.location.href = '/dashboard'; }
+        }, 1500);
+      }, 1500);
+    }, 900);
+  };
+
   // Workspace billing gate: open modal if not trialing/active
   useEffect(()=>{
     (async()=>{
@@ -69,6 +96,7 @@ export default function WorkspaceShell(){
           try { track('billing_success'); } catch {}
           try { localStorage.setItem('bvx_billing_dismissed','1'); } catch {}
           setBillingOpen(false);
+          try { startQuickstartSequence(); } catch {}
           return;
         }
         // Determine whether to show welcome based on onboarding status (or forced)
@@ -380,10 +408,10 @@ export default function WorkspaceShell(){
 
   return (
     <div className="max-w-6xl mx-auto">
-      <div className="h-[100dvh] grid grid-cols-[theme(spacing.56)_1fr] gap-4 md:gap-5 overflow-hidden pb-[calc(var(--bvx-commandbar-height,64px)+env(safe-area-inset-bottom,0px))] relative md:[--sticky-offset:88px] [--sticky-offset:70px]">
+      <div className="h-[100dvh] grid grid-cols-[theme(spacing.64)_1fr] gap-4 md:gap-5 overflow-hidden pb-[calc(var(--bvx-commandbar-height,64px)+env(safe-area-inset-bottom,0px))] relative md:[--sticky-offset:88px] [--sticky-offset:70px]">
         {/* Left dock */}
         <aside className="h-full min-h-0 bg-white/70 backdrop-blur border border-b-0 rounded-2xl p-0 flex flex-col relative" aria-label="Primary navigation">
-          <nav className="flex flex-col gap-[2px] mt-[2px] px-[3px]" role="tablist" aria-orientation="vertical" onKeyDown={onKeyDown}>
+          <nav className="flex flex-col gap-1 mt-[2px] px-[3px]" role="tablist" aria-orientation="vertical" onKeyDown={onKeyDown}>
             {items.map((p, i) => {
               const active = pane===p.key;
               return (
@@ -396,11 +424,10 @@ export default function WorkspaceShell(){
                   aria-current={active ? 'page' : undefined}
                   title={`${p.label}  •  ${i+1}`}
                   data-tour={`nav-${p.key}`}
-                  className={`relative w-full flex items-center gap-3 pl-6 pr-4 py-3 rounded-full border border-brand-400 bg-brand-300 text-black [font-family:var(--font-display)] shadow-sm transition hover:shadow-md hover:bg-brand-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white ${active?'shadow ring-1 ring-brand-500 bg-brand-400':''}`}
+                  className={`relative w-full flex items-center gap-3 pl-5 pr-4 py-2.5 rounded-full border [font-family:var(--font-display)] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white ${active ? 'bg-slate-900 text-white border-slate-900 shadow-sm' : 'bg-white text-slate-900 border-slate-200 hover:bg-slate-50 hover:shadow-sm'}`}
                 >
-                  {active && <span aria-hidden className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-pink-400 to-violet-400 rounded-l-xl" />}
-                  <span className="shrink-0 w-5 text-brand-900">{p.icon}</span>
-                  <span className="text-sm text-black">{p.label}</span>
+                  <span className="shrink-0 w-5 text-current">{p.icon}</span>
+                  <span className="text-sm">{p.label}</span>
                   {p.key==='approvals' && approvalsCount>0 && (
                     <span aria-label={`${approvalsCount} pending`} className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] text-[10px] px-1 rounded-full bg-amber-100 text-amber-900 border border-amber-200">{approvalsCount}</span>
                   )}
@@ -415,11 +442,12 @@ export default function WorkspaceShell(){
           {/* Anchored footer */}
           <div className="absolute left-[3px] right-[3px]" style={{ bottom: 'calc(var(--bvx-commandbar-height,64px) + env(safe-area-inset-bottom,0px) + 18px)' }}>
             {demo && (
-              <button
-                className={`mb-[2px] inline-flex w-full items-center justify-center px-3 py-2 rounded-full border bg-amber-50 text-amber-800 border-amber-200`}
+              <Button
+                variant="outline"
+                className="mb-[2px] w-full !rounded-full bg-amber-50 text-amber-800 border-amber-200"
                 onClick={toggleDemo}
                 data-tour="demo-toggle"
-              >Demo mode: on</button>
+              >Demo mode: on</Button>
             )}
             {BOOKING_URL && (
               <a
@@ -430,8 +458,9 @@ export default function WorkspaceShell(){
                 data-tour="book-onboarding"
               >Book onboarding</a>
             )}
-            <button
-              className="w-full pl-4 pr-3 py-2 rounded-full border bg-white text-slate-900 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60 text-left [font-family:var(--font-display)]"
+            <Button
+              variant="outline"
+              className="w-full !rounded-full !py-2 text-left"
               data-guide={new URLSearchParams(loc.search).get('demo')==='1' ? 'demo-signup' : undefined}
               data-tour="signup"
               onClick={async()=>{
@@ -446,7 +475,7 @@ export default function WorkspaceShell(){
                 try { localStorage.removeItem('bvx_tenant'); localStorage.removeItem('bvx_demo_profile'); localStorage.removeItem('bvx_demo_preferences'); } catch {}
                 window.location.href = '/brandvx';
               }}
-            >{new URLSearchParams(loc.search).get('demo')==='1' ? UI_STRINGS.ctas.demoOnly.signUp : UI_STRINGS.ctas.liveOnly.signOut}</button>
+            >{new URLSearchParams(loc.search).get('demo')==='1' ? UI_STRINGS.ctas.demoOnly.signUp : UI_STRINGS.ctas.liveOnly.signOut}</Button>
           </div>
         </aside>
         {/* Canvas */}
@@ -543,7 +572,7 @@ export default function WorkspaceShell(){
                 <div className="font-medium">$97 today → $97/mo (Founding price)</div>
                 <div className="text-slate-600 text-xs">Lock in $97/mo now; recurring thereafter.</div>
               </button>
-              <button className="w-full rounded-xl border bg-white px-4 py-2 text-sm" onClick={()=>{ setBillingOpen(false); try{ localStorage.setItem('bvx_billing_dismissed','1'); }catch{} }}>Skip for now</button>
+              <button className="w-full rounded-xl border bg-white px-4 py-2 text-sm" onClick={()=>{ setBillingOpen(false); try{ localStorage.setItem('bvx_billing_dismissed','1'); }catch{}; try{ startQuickstartSequence(); }catch{} }}>Skip for now</button>
             </div>
             <div className="text-[11px] text-slate-500 mt-2">Status: {billingStatus||'unavailable'}</div>
           </div>
