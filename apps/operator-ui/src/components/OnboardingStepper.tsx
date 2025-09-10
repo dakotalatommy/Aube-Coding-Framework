@@ -140,7 +140,7 @@ export default function OnboardingStepper(){
     <div className="h-full grid grid-rows-[auto_1fr_auto]" aria-labelledby="onb-title" role="region">
       <div className="p-4 border-b bg-white/80 backdrop-blur">
         <div className="text-slate-900 text-lg font-semibold" id="onb-title">Getting set up</div>
-        <div className="text-slate-600 text-sm">5 quick steps — progress is saved automatically</div>
+        <div className="text-slate-600 text-sm">Personalize your BrandVX — progress is saved automatically</div>
         <div className="mt-3 flex flex-wrap gap-2" role="tablist" aria-label="Onboarding steps">
           {steps.map((s, i)=>{
             const done = !!completed[s.key];

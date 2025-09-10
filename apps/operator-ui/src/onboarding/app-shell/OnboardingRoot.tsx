@@ -130,7 +130,7 @@ export default function OnboardingRoot(){
         <header className="relative z-10">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="font-semibold tracking-tight text-slate-900 text-xl" style={{ fontFamily: 'Space Grotesk, Inter, system-ui' }}>Onboarding — 5 quick steps</h1>
+              <h1 className="font-semibold tracking-tight text-slate-900 text-xl" style={{ fontFamily: 'Space Grotesk, Inter, system-ui' }}>Onboarding — Personalize your BrandVX</h1>
               <p className="text-slate-600 text-sm">Beauty pros • Gentle setup • Your voice • Your clients</p>
               <p className="text-slate-600/90 text-[12px] mt-1">You can finish anytime in Settings / Connections.</p>
             </div>

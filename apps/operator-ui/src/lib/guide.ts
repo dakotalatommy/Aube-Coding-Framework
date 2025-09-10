@@ -18,7 +18,7 @@ const registry: Record<string, GuideStep[]> = {
     { element: '#bvx-commandbar', popover: { title: 'Quick command', description: 'Type / to jump or run an action quickly.' } },
   ],
   onboarding: [
-    { element: '[data-tour="steps"]', popover: { title: 'Steps', description: 'Quick 5 steps — you can jump around anytime.' } },
+    { element: '[data-tour="steps"]', popover: { title: 'Steps', description: 'Personalize your BrandVX — you can jump around anytime.' } },
     { element: '[data-tour="connect"]', popover: { title: 'Connect tools', description: 'Link booking, messages, payments, and CRM. We keep it human.' } },
     { element: '[data-tour="analyze"]', popover: { title: 'Analyze', description: 'Run a quick analysis to see what’s configured.' } },
     { element: '[data-tour="cta"]', popover: { title: 'Ready when you are', description: 'White‑glove or self-serve — you approve everything.' } },
@@ -165,7 +165,7 @@ export function startGuide(page: string, opts?: { step?: number }) {
           { element: '[data-guide="table"]', popover: { title: 'Approvals', description: 'Risky or bulk actions wait here for your OK.' } },
         ],
         onboarding: [
-          { popover: { title: 'Onboarding', description: 'In live, you’ll start here — 5 quick steps to get going.' } },
+          { popover: { title: 'Onboarding', description: 'In live, you’ll start here — personalize your BrandVX.' } },
         ],
       };
       const seq: Array<{ path: string; key: string }> = [

@@ -17,7 +17,6 @@ const tabs = [
   { to: '/ask', label: 'Ask VX' },
   { to: '/workflows', label: 'WorkStyles' },
   { to: '/vision', label: 'Vision' },
-  { to: '/onboarding', label: 'Onboarding' },
   { to: '/admin', label: 'Admin' },
   { to: '/agent', label: 'Agent' },
 ];
@@ -86,7 +85,7 @@ export default function Nav(){
         <div className="flex items-center gap-2">
           <span className="h-6 w-px bg-slate-200/70 mx-1" aria-hidden />
           <Link to="/login" className="px-3 py-2 rounded-lg border border-slate-200 bg-white text-slate-900 hover:bg-slate-50 shadow-sm font-medium">Sign in</Link>
-          <Link to="/onboarding" className="px-3 py-2 rounded-lg text-white shadow hover:shadow-md bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600 font-medium">Get started</Link>
+          {/* Removed direct onboarding link from header */}
           <div className="relative">
             <select
               aria-label="Theme"
