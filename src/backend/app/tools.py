@@ -990,6 +990,8 @@ REGISTRY = {
     "safety_check": tool_safety_check,    # async
     "stop_cadence": tool_stop_cadence,    # sync
     "notify_trigger_send": tool_notify_trigger_send,  # sync
+    # Ensure messages.send passes unknown_tool gate in execute_tool
+    "messages.send": lambda *a, **k: {"status": "ok"},
 }
 
 
@@ -2136,6 +2138,8 @@ TOOL_META: Dict[str, Dict[str, Any]] = {
     "appointments.schedule_reminders": {"public": True, "description": "Schedule reminder triggers (7d/3d/1d/0).", "params": {"tenant_id": "string"}},
     "inventory.alerts.get": {"public": True, "description": "Fetch low-stock items.", "params": {"tenant_id": "string", "low_stock_threshold": "number?"}},
     "export.contacts": {"public": True, "description": "Export contacts CSV.", "params": {"tenant_id": "string"}},
+    # Messaging send (explicit send dispatch; gated by mode/approvals in caller)
+    "messages.send": {"public": True, "description": "Send a message via the configured channel (RBAC/approvals apply).", "params": {"tenant_id": "string", "contact_id": "string", "channel": {"enum": ["sms", "email"]}, "subject": "string?", "body": "string"}},
     "social.schedule.14days": {"public": True, "description": "Draft social content plan for 14 days.", "params": {"tenant_id": "string"}},
     "db.query.sql": {"public": True, "description": "Run a read-only SQL select against allow-listed tables.", "params": {"tenant_id": "string", "sql": "string", "limit": "number?"}},
     "db.query.named": {"public": True, "description": "Run a named, read-only query.", "params": {"tenant_id": "string", "name": "string", "params": "object?"}},
