@@ -2863,11 +2863,31 @@ async def ai_chat(
         pass
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"text": "forbidden"}
-    # Dynamic capability injection: reflect current enabled surfaces/tools
-    cap = {
-        "features": app.openapi().get("tags", []),
-        "tools": ai_tools_schema().get("tools", []),
-    }
+    # Dynamic capability injection: reflect current enabled surfaces/tools (per context when known)
+    try:
+        __chosen_mode = (req.mode or "").strip().lower()
+    except Exception:
+        __chosen_mode = ""
+    if not __chosen_mode:
+        try:
+            _last = req.messages[-1].content if req.messages else ""
+            _det = detect_mode(_last)
+            if _det.get("mode") and float(_det.get("confidence", 0)) >= 0.7:
+                __chosen_mode = str(_det.get("mode"))
+                try:
+                    ph_capture("context.detected", distinct_id=str(ctx.tenant_id), properties={
+                        "mode": __chosen_mode, "confidence": float(_det.get("confidence", 0.0)),
+                        "reasons": ",".join(_det.get("reasons", [])) if isinstance(_det.get("reasons", []), list) else ""
+                    })
+                except Exception:
+                    pass
+        except Exception:
+            __chosen_mode = ""
+    try:
+        __tools = ai_tools_schema(__chosen_mode).get("tools", []) if __chosen_mode else ai_tools_schema().get("tools", [])
+    except Exception:
+        __tools = ai_tools_schema().get("tools", [])
+    cap = {"features": app.openapi().get("tags", []), "tools": __tools}
     try:
         import json as _json
         capabilities_text = _json.dumps(cap, ensure_ascii=False)

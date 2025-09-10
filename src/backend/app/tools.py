@@ -659,51 +659,20 @@ def tool_memories_upsert(
                 conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
             except Exception:
                 pass
-            # Discover column types to tolerate json/jsonb schemas in Supabase
-            vtype = "text"
-            ttype = "text"
-            try:
-                row = conn.execute(
-                    _sql_text(
-                        """
-                        SELECT lower(data_type) FROM information_schema.columns
-                        WHERE table_schema='public' AND table_name='ai_memories' AND column_name='value'
-                        """
-                    )
-                ).fetchone()
-                if row and row[0]:
-                    vtype = str(row[0] or "text").lower()
-            except Exception:
-                vtype = "text"
-            try:
-                row2 = conn.execute(
-                    _sql_text(
-                        """
-                        SELECT lower(data_type) FROM information_schema.columns
-                        WHERE table_schema='public' AND table_name='ai_memories' AND column_name='tags'
-                        """
-                    )
-                ).fetchone()
-                if row2 and row2[0]:
-                    ttype = str(row2[0] or "text").lower()
-            except Exception:
-                ttype = "text"
-
-            val_expr = "to_jsonb(:v::text)" if ("json" in vtype) else ":v"
-            tag_expr = "to_jsonb(:tg::text)" if ("json" in ttype) else ":tg"
-
+            # Write as JSONB universally; works when column is json/jsonb. If column is TEXT in a dev env,
+            # callers can use report endpoint or migration to switch. Production expects JSON.
             upd = _sql_text(
-                f"UPDATE ai_memories SET value={val_expr}, tags={tag_expr}, updated_at=NOW() "
+                "UPDATE ai_memories SET value=to_jsonb(:v::text), tags=to_jsonb(:tg::text), updated_at=NOW() "
                 "WHERE tenant_id = CAST(:t AS uuid) AND key=:k"
             )
-            conn.execute(upd, {"t": tenant_id, "k": key, "v": value, "tg": (tags or None)})
+            conn.execute(upd, {"t": tenant_id or str(ctx.tenant_id), "k": key, "v": value, "tg": (tags or None)})
 
             ins = _sql_text(
-                f"INSERT INTO ai_memories (tenant_id, key, value, tags) "
-                f"SELECT CAST(:t AS uuid), :k, {val_expr}, {tag_expr} "
+                "INSERT INTO ai_memories (tenant_id, key, value, tags) "
+                "SELECT CAST(:t AS uuid), :k, to_jsonb(:v::text), to_jsonb(:tg::text) "
                 "WHERE NOT EXISTS (SELECT 1 FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key=:k)"
             )
-            conn.execute(ins, {"t": tenant_id, "k": key, "v": value, "tg": (tags or None)})
+            conn.execute(ins, {"t": tenant_id or str(ctx.tenant_id), "k": key, "v": value, "tg": (tags or None)})
         return {"status": "ok"}
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
