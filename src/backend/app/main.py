@@ -52,6 +52,9 @@ from .scheduler import run_tick
 from .ai import AIClient
 from .brand_prompts import BRAND_SYSTEM, cadence_intro_prompt, chat_system_prompt
 from .tools import execute_tool, tools_schema
+from .contexts import contexts_schema, context_allowlist
+from .contexts_detector import detect_mode
+from .analytics import ph_capture
 from .rate_limit import check_and_increment
 from .metrics_counters import TOOL_EXECUTED  # type: ignore
 from .marts import recompute_funnel_daily, recompute_time_saved
@@ -3718,12 +3721,44 @@ def ai_memories_upsert(req: MemoryUpsertRequest, db: Session = Depends(get_db), 
         return {"status": "forbidden"}
     try:
         with engine.begin() as conn:
+            # Respect RLS policies via per-transaction GUCs
+            try:
+                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+            except Exception:
+                pass
+            # Detect column types to support json/jsonb or text schemas
+            vtype = "text"; ttype = "text"
+            try:
+                row = conn.execute(
+                    _sql_text("SELECT lower(data_type) FROM information_schema.columns WHERE table_schema='public' AND table_name='ai_memories' AND column_name='value'")
+                ).fetchone()
+                if row and row[0]: vtype = str(row[0]).lower()
+            except Exception:
+                vtype = "text"
+            try:
+                row2 = conn.execute(
+                    _sql_text("SELECT lower(data_type) FROM information_schema.columns WHERE table_schema='public' AND table_name='ai_memories' AND column_name='tags'")
+                ).fetchone()
+                if row2 and row2[0]: ttype = str(row2[0]).lower()
+            except Exception:
+                ttype = "text"
+            val_expr = "to_jsonb(:v::text)" if ("json" in vtype) else ":v"
+            tag_expr = "to_jsonb(:tg::text)" if ("json" in ttype) else ":tg"
+            # Upsert (update-then-insert-if-missing)
             conn.execute(
-                _sql_text("UPDATE ai_memories SET value=:v, tags=:tg, updated_at=NOW() WHERE tenant_id = CAST(:t AS uuid) AND key=:k"),
+                _sql_text(
+                    f"UPDATE ai_memories SET value={val_expr}, tags={tag_expr}, updated_at=NOW() "
+                    "WHERE tenant_id = CAST(:t AS uuid) AND key=:k"
+                ),
                 {"t": req.tenant_id, "k": req.key, "v": req.value, "tg": (req.tags or None)},
             )
             conn.execute(
-                _sql_text("INSERT INTO ai_memories (tenant_id, key, value, tags) SELECT CAST(:t AS uuid), :k, :v, :tg WHERE NOT EXISTS (SELECT 1 FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key=:k)"),
+                _sql_text(
+                    f"INSERT INTO ai_memories (tenant_id, key, value, tags) "
+                    f"SELECT CAST(:t AS uuid), :k, {val_expr}, {tag_expr} "
+                    "WHERE NOT EXISTS (SELECT 1 FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key=:k)"
+                ),
                 {"t": req.tenant_id, "k": req.key, "v": req.value, "tg": (req.tags or None)},
             )
         return {"status": "ok"}
