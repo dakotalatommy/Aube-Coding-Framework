@@ -1008,71 +1008,18 @@ REGISTRY = {
     "safety_check": tool_safety_check,    # async
     "stop_cadence": tool_stop_cadence,    # sync
     "notify_trigger_send": tool_notify_trigger_send,  # sync
-    # Ensure messages.send passes unknown_tool gate in execute_tool
-    "messages.send": lambda *a, **k: {"status": "ok"},
 }
 
 
 async def execute_tool(name: str, params: Dict[str, Any], db: Session, ctx: UserContext) -> Dict[str, Any]:
     # Prefer extended tools first so registry presence doesn't block routing
+    from .metrics_counters import TOOL_LATENCY_SEC  # type: ignore
     ext = await _dispatch_extended(name, params, db, ctx)
     if ext is not None:
         return ext
-    fn = REGISTRY.get(name)
-    if not fn:
-        return {"status": "unknown_tool"}
-    try:
-        if name == "draft_message":
-            return await fn(
-                db,
-                ctx,
-                tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
-                contact_id=str(params.get("contact_id", "")),
-                channel=str(params.get("channel", "sms")),
-                service=params.get("service"),
-            )
-        if name == "safety_check":
-            return await fn(
-                db,
-                ctx,
-                tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
-                text=str(params.get("text", "")),
-            )
-        # sync tools
-        if name == "propose_next_cadence_step":
-            return fn(
-                db,
-                ctx,
-                tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
-                contact_id=str(params.get("contact_id", "")),
-                cadence_id=str(params.get("cadence_id", "")),
-            )
-        if name == "pricing_model":
-            return fn(
-                db,
-                ctx,
-                tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
-                price=float(params.get("price", 0)),
-                product_cost=float(params.get("product_cost", 0)),
-                service_time_minutes=float(params.get("service_time_minutes", 0)),
-            )
-        if name == "stop_cadence":
-            return fn(
-                db,
-                ctx,
-                tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
-                contact_id=str(params.get("contact_id", "")),
-                cadence_id=str(params.get("cadence_id", "")),
-            )
-        if name == "notify_trigger_send":
-            return fn(
-                db,
-                ctx,
-                tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
-                max_candidates=int(params.get("max_candidates", 5)),
-                message_template=params.get("message_template"),
-            )
-        if name == "messages.send":
+    # Handle built-in tools that bypass REGISTRY mapping
+    if name == "messages.send":
+        with TOOL_LATENCY_SEC.labels(name=name).time():  # type: ignore
             return send_message(
                 db,
                 tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
@@ -1081,6 +1028,66 @@ async def execute_tool(name: str, params: Dict[str, Any], db: Session, ctx: User
                 template_id=str(params.get("template_id") or ""),
                 body=str(params.get("body") or ""),
                 subject=str(params.get("subject") or ""),
+            )
+    fn = REGISTRY.get(name)
+    if not fn:
+        return {"status": "unknown_tool"}
+    try:
+        if name == "draft_message":
+            with TOOL_LATENCY_SEC.labels(name=name).time():  # type: ignore
+                return await fn(
+                db,
+                ctx,
+                tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
+                contact_id=str(params.get("contact_id", "")),
+                channel=str(params.get("channel", "sms")),
+                service=params.get("service"),
+            )
+        if name == "safety_check":
+            with TOOL_LATENCY_SEC.labels(name=name).time():  # type: ignore
+                return await fn(
+                db,
+                ctx,
+                tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
+                text=str(params.get("text", "")),
+            )
+        # sync tools
+        if name == "propose_next_cadence_step":
+            with TOOL_LATENCY_SEC.labels(name=name).time():  # type: ignore
+                return fn(
+                db,
+                ctx,
+                tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
+                contact_id=str(params.get("contact_id", "")),
+                cadence_id=str(params.get("cadence_id", "")),
+            )
+        if name == "pricing_model":
+            with TOOL_LATENCY_SEC.labels(name=name).time():  # type: ignore
+                return fn(
+                db,
+                ctx,
+                tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
+                price=float(params.get("price", 0)),
+                product_cost=float(params.get("product_cost", 0)),
+                service_time_minutes=float(params.get("service_time_minutes", 0)),
+            )
+        if name == "stop_cadence":
+            with TOOL_LATENCY_SEC.labels(name=name).time():  # type: ignore
+                return fn(
+                db,
+                ctx,
+                tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
+                contact_id=str(params.get("contact_id", "")),
+                cadence_id=str(params.get("cadence_id", "")),
+            )
+        if name == "notify_trigger_send":
+            with TOOL_LATENCY_SEC.labels(name=name).time():  # type: ignore
+                return fn(
+                db,
+                ctx,
+                tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
+                max_candidates=int(params.get("max_candidates", 5)),
+                message_template=params.get("message_template"),
             )
         # CRM helpers
         if name == "contacts.list.top_ltv":

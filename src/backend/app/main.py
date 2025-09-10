@@ -3827,6 +3827,17 @@ def ai_memories_list(tenant_id: str, limit: int = 20, db: Session = Depends(get_
     except Exception:
         return {"items": []}
 
+@app.delete("/ai/memories/{key}", tags=["AI"])
+def ai_memories_delete(key: str, tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    try:
+        with engine.begin() as conn:
+            n = conn.execute(_sql_text("DELETE FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key = :k"), {"t": tenant_id, "k": key}).rowcount
+        return {"status": "ok", "deleted": int(n or 0)}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
+
 @app.get("/ai/diag", tags=["AI"])
 def ai_diag():
     try:

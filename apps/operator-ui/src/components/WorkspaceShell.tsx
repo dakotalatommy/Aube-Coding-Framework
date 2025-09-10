@@ -424,10 +424,10 @@ export default function WorkspaceShell(){
                   aria-current={active ? 'page' : undefined}
                   title={`${p.label}  •  ${i+1}`}
                   data-tour={`nav-${p.key}`}
-                  className={`relative w-full flex items-center gap-3 pl-5 pr-4 py-2.5 rounded-full border [font-family:var(--font-display)] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white ${active ? 'bg-slate-900 text-white border-slate-900 shadow-sm' : 'bg-white text-slate-900 border-slate-200 hover:bg-slate-50 hover:shadow-sm'}`}
+                  className={`relative w-full h-11 flex items-center gap-3 pl-4 pr-4 rounded-full border [font-family:var(--font-display)] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white ${active ? 'bg-slate-900 text-white border-slate-900 shadow-sm' : 'bg-pink-50 text-slate-900 border-pink-200 hover:bg-pink-100 shadow-[inset_0_1px_0_rgba(255,255,255,.6)]'}`}
                 >
-                  <span className="shrink-0 w-5 text-current">{p.icon}</span>
-                  <span className="text-sm">{p.label}</span>
+                  <span className={`inline-flex items-center justify-center shrink-0 w-7 h-7 rounded-full border ${active ? 'border-white/40 bg-white/20 text-white' : 'border-pink-200 bg-white/60 text-pink-700'} overflow-hidden`}>{p.icon}</span>
+                  <span className="text-[15px] leading-none">{p.label}</span>
                   {p.key==='approvals' && approvalsCount>0 && (
                     <span aria-label={`${approvalsCount} pending`} className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] text-[10px] px-1 rounded-full bg-amber-100 text-amber-900 border border-amber-200">{approvalsCount}</span>
                   )}
@@ -595,5 +595,4 @@ const LazyWorkflows = lazy(()=> import('../pages/Workflows'));
 const LazyAsk = lazy(()=> import('../pages/Ask'));
 const LazyVision = lazy(()=> import('../pages/Vision'));
 // Onboarding is now a standalone route (not a workspace pane)
-
 
