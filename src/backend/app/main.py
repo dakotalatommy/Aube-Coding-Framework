@@ -2915,9 +2915,29 @@ async def ai_chat(
         "Features → 3 bullets → exact next step → CTA.\n"
         "Getting started → connect calendar, Re‑analyze, send 15/10/5 with scripts → CTA."
     )
+    # Determine context mode (switch to support if user expresses confusion)
+    chosen_mode = ""
+    try:
+        chosen_mode = (req.mode or "").strip().lower()
+    except Exception:
+        chosen_mode = ""
+    if not chosen_mode:
+        try:
+            last_msg = (req.messages[-1].content or "").lower() if req.messages else ""
+            confusion_markers = [
+                "i'm confused", "im confused", "i am confused",
+                "i don't understand", "i dont understand", "do not understand",
+                "this is confusing", "help me understand", "not sure what to do",
+                "where do i start", "what do i do", "how do i start",
+            ]
+            if any(k in last_msg for k in confusion_markers):
+                chosen_mode = "support"
+        except Exception:
+            pass
+
     system_prompt = chat_system_prompt(
         capabilities_text,
-        mode=(req.mode or "sales_onboarding"),
+        mode=(chosen_mode or "sales_onboarding"),
         policy_text=policy_text,
         benefits_text=benefits_text,
         integrations_text=integrations_text,
@@ -3182,6 +3202,20 @@ async def ai_chat_raw(
         mode = (req.mode or "").strip().lower()
     except Exception:
         mode = ""
+    # Heuristic: switch to support if the user expresses confusion and no explicit mode was given
+    if not mode:
+        try:
+            last = (req.messages[-1].content or "").lower() if req.messages else ""
+            confusion_markers = [
+                "i'm confused", "im confused", "i am confused",
+                "i don't understand", "i dont understand", "do not understand",
+                "this is confusing", "help me understand", "not sure what to do",
+                "where do i start", "what do i do", "how do i start",
+            ]
+            if any(k in last for k in confusion_markers):
+                mode = "support"
+        except Exception:
+            pass
     if mode == "support":
         system_prompt += "\n\n[Mode: Support]\nYou are BrandVX Support. Answer product questions concisely (2–4 sentences), point to exact UI locations, avoid internal jargon."
     elif mode in {"train", "train_vx"}:
@@ -4107,21 +4141,7 @@ async def ai_tool_execute(
         except Exception:
             mode = ""
         if mode and ctx.role != "owner_admin":
-            per_mode: dict[str, set[str]] = {
-                "support": {
-                    "link.hubspot.signup","oauth.hubspot.connect","crm.hubspot.import","db.query.named","report.generate.csv","db.query.sql",
-                },
-                "train": {"safety_check","pii.audit","report.generate.csv"},
-                "train_vx": {"safety_check","pii.audit","report.generate.csv"},
-                "analysis": {"db.query.named","db.query.sql","report.generate.csv"},
-                "messaging": {
-                    "draft_message","messages.send","appointments.schedule_reminders","campaigns.dormant.preview","campaigns.dormant.start","propose_next_cadence_step","safety_check","pii.audit"
-                },
-                "scheduler": {"calendar.sync","calendar.merge","calendar.reschedule","calendar.cancel","oauth.refresh"},
-                "todo": {"todo.enqueue","report.generate.csv"},
-                "notifications": {"todo.enqueue","report.generate.csv"},
-            }
-            allow = per_mode.get(mode, set())
+            allow = set(context_allowlist(mode))
             if allow and req.name not in allow:
                 return {"status": "forbidden", "reason": "tool_not_allowed_in_mode", "mode": mode}
         result = await execute_tool(req.name, dict(req.params or {}), db, ctx)
@@ -7472,52 +7492,10 @@ def get_config() -> Dict[str, object]:
     }
 
 
-@app.get("/ai/tools/schema", tags=["AI"])
-def ai_tools_schema() -> Dict[str, object]:
-    """Return tool registry with public/gated flags and basic param hints.
-    This enables a visible agentic system without external Agents.
-    """
-    return {
-        "version": "v1",
-        "tools": [
-            {
-                "name": "draft_message",
-                "public": True,
-                "description": "Draft a first outreach message respecting consent and tone.",
-                "params": {
-                    "tenant_id": "string",
-                    "contact_id": "string",
-                    "channel": {"enum": ["sms", "email"]},
-                    "service": "string?"
-                }
-            },
-            {
-                "name": "pricing_model",
-                "public": True,
-                "description": "Compute effective hourly and margin from inputs.",
-                "params": {
-                    "tenant_id": "string",
-                    "price": "number",
-                    "product_cost": "number",
-                    "service_time_minutes": "number"
-                }
-            },
-            {
-                "name": "safety_check",
-                "public": True,
-                "description": "Review text for compliance/PII and suggest safe rewrites.",
-                "params": {"tenant_id": "string", "text": "string"}
-            },
-            {
-                "name": "vision_analyze",
-                "public": True,
-                "description": "Analyze an uploaded image and return actionable feedback.",
-                "params": {"tenant_id": "string", "image_b64": "string", "prompt": "string?"}
-            },
-            {
-                "name": "propose_next_cadence_step",
-                "public": True,
-                "description": "Propose the next cadence step for a contact.",
+@app.get("/ai/contexts/schema", tags=["AI"])
+def ai_contexts_schema() -> Dict[str, object]:
+    """Return contexts manifest: per-context preamble and allowlisted tools."""
+    return contexts_schema()
                 "params": {
                     "tenant_id": "string",
                     "contact_id": "string",

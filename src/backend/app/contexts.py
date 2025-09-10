@@ -5,7 +5,10 @@ from typing import Dict, List
 CONTEXTS: List[Dict[str, object]] = [
     {
         "id": "support",
-        "preamble": "Support mode. Answer concisely (2–4 sentences), point to exact UI locations, avoid jargon.",
+        "preamble": (
+            "Support mode. Answer‑first in 2–4 sentences, point to exact UI locations (page → section → control), avoid jargon. "
+            "If the user expresses confusion (e.g., 'i'm confused', 'i dont understand', 'not sure what to do'), orient them with the next two steps and the exact place to click."
+        ),
         "tools": [
             "link.hubspot.signup", "oauth.hubspot.connect", "crm.hubspot.import",
             "db.query.named", "db.query.sql", "report.generate.csv",
@@ -60,4 +63,3 @@ def context_allowlist(mode: str) -> List[str]:
         if c["id"] == m:
             return list(c.get("tools", []))  # type: ignore
     return []
-
