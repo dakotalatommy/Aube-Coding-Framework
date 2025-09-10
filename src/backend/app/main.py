@@ -172,7 +172,12 @@ try:
     import sentry_sdk as _sentry
     _dsn = os.getenv("SENTRY_DSN", "").strip()
     if _dsn:
-        _sentry.init(dsn=_dsn, traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.05")))
+        _sentry.init(
+            dsn=_dsn,
+            traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.05")),
+            release=os.getenv("SENTRY_RELEASE", None),
+            environment=os.getenv("SENTRY_ENVIRONMENT", os.getenv("ENVIRONMENT", None)),
+        )
 except Exception:
     pass
 # Dev-only: ensure tables exist when using local SQLite without Alembic.
@@ -1547,8 +1552,6 @@ def connected_accounts_list(
     ctx: UserContext = Depends(get_user_context),
 ):
     try:
-        if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
-            return JSONResponse({"error": "forbidden"}, status_code=403)
         cols = _connected_accounts_columns(db)
         name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
         ts_col = 'connected_at' if 'connected_at' in cols else ('created_at' if 'created_at' in cols else None)
@@ -2341,8 +2344,6 @@ STATE: Dict[str, Dict] = {
 @app.get("/health", tags=["Health"])
 def health() -> Dict[str, str]:
     return {"status": "ok"}
-
-
 @app.get("/ready", tags=["Health"])
 def ready() -> Dict[str, str]:
     # minimal DB check
@@ -3867,7 +3868,7 @@ def ai_costs(tenant_id: str, ctx: UserContext = Depends(get_user_context)):
 
 
 @app.get("/ops/health", tags=["Health"])
-def ops_health(db: Session = Depends(get_db)) -> Dict[str, object]:
+def ops_health(db: Session = Depends(get_db), ctx: UserContext = Depends(require_role("owner_admin"))) -> Dict[str, object]:
     """Aggregate health snapshot for ops dashboards: DB, Redis, OpenAI, PostHog, Sentry, Tools/Contexts."""
     out: Dict[str, object] = {"status": "ok"}
     # DB probe
@@ -3995,8 +3996,6 @@ def ai_chat_sessions(
     db: Session = Depends(get_db),
     ctx: UserContext = Depends(get_user_context),
 ):
-    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
-        return {"items": []}
     # Distinct sessions ordered by last activity
     try:
         # Subquery: max id per session (SQLite-friendly)
@@ -4777,8 +4776,6 @@ def get_metrics(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext 
         "rebook_rate_30d": rebook_rate,
     })
     return base
-
-
 @app.get("/admin/kpis", tags=["Health"])
 def get_admin_kpis(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
     if ctx.role != "owner_admin" and ctx.tenant_id != tenant_id:
@@ -5016,10 +5013,47 @@ def update_settings(
 ):
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
-    # Use latest row for deterministic updates
-    _row = db.execute(_sql_text("SELECT id, data_json FROM settings WHERE tenant_id = :tid ORDER BY id DESC LIMIT 1"), {"tid": req.tenant_id}).fetchone()
-    data = {}
-    row_id = None
+    # Write under tenant RLS via SET LOCAL and upsert semantics
+    import json as _json
+    from sqlalchemy import text as __t
+    payload = {
+        "tone": req.tone,
+        "services": req.services,
+        "preferences": req.preferences,
+        "brand_profile": req.brand_profile,
+        "completed": req.completed,
+        "providers_live": req.providers_live,
+        "wf_progress": req.wf_progress,
+        "tour_completed": req.tour_completed,
+        "onboarding_step": req.onboarding_step,
+        "onboarding_completed": req.onboarding_completed,
+        "welcome_seen": req.welcome_seen,
+        "guide_done": req.guide_done,
+        "user_timezone": req.user_timezone,
+        "developer_mode": req.developer_mode,
+        "master_prompt": req.master_prompt,
+        "rate_limit_multiplier": req.rate_limit_multiplier,
+        "ai_share_insights": req.ai_share_insights,
+    }
+    # Drop Nones
+    payload = {k: v for k, v in payload.items() if v is not None}
+    with engine.begin() as conn:
+        try:
+            conn.execute(__t("SET LOCAL app.role = 'owner_admin'"))
+            conn.execute(__t("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+        except Exception:
+            pass
+        row = conn.execute(__t("SELECT id, data_json FROM settings WHERE tenant_id = CAST(:t AS uuid) ORDER BY id DESC LIMIT 1"), {"t": req.tenant_id}).fetchone()
+        if row and row[0]:
+            try:
+                current = _json.loads(row[1] or "{}")
+            except Exception:
+                current = {}
+            current.update(payload)
+            conn.execute(__t("UPDATE settings SET data_json=:d WHERE id=:id"), {"d": _json.dumps(current), "id": row[0]})
+        else:
+            conn.execute(__t("INSERT INTO settings(tenant_id, data_json) VALUES (CAST(:t AS uuid), :d)"), {"t": req.tenant_id, "d": _json.dumps(payload or {})})
+    return {"status": "ok"}
     if _row:
         try:
             row_id = _row[0]
@@ -5525,8 +5559,6 @@ def guide_manifest() -> Dict[str, object]:
             ],
         },
     }
-
-
 @app.get("/ui/contract")
 def ui_contract() -> Dict[str, object]:
     return {
@@ -6309,8 +6341,6 @@ class HubspotImportRequest(BaseModel):
 
 class SquareSyncContactsRequest(BaseModel):
     tenant_id: str
-
-
 @app.post("/crm/hubspot/import", tags=["Integrations"])
 def hubspot_import(req: HubspotImportRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
@@ -7085,8 +7115,6 @@ def get_admin_kpis(tenant_id: str, db: Session = Depends(get_db), ctx: UserConte
 
 class TimeAnalysisRequest(BaseModel):
     tenant_id: str
-
-
 @app.get("/analysis/time", tags=["Analytics"])  # simple computation based on settings + Metrics
 def analysis_time(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
@@ -9441,8 +9469,6 @@ async def integrations_check_expiry(
         pass
     emit_event("AppointmentRescheduled", {"tenant_id": req.tenant_id, "ref": req.external_ref or req.provider_event_id or row.external_ref})
     return {"status": "ok"}
-
-
 class ApptCancelRequest(BaseModel):
     tenant_id: str
     external_ref: str | None = None
