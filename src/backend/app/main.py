@@ -158,6 +158,45 @@ def onboarding_progress(tenant_id: str, db: Session = Depends(get_db), ctx: User
         return {"steps": []}
 
 
+@app.get("/onboarding/progress/status", tags=["Plans"])
+def onboarding_progress_status(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    """
+    Returns a compact status view for key onboarding steps with timestamps (epoch seconds) and percent complete.
+    Keys: connect_google, connect_booking, contacts_imported, quiet_hours, train_vx, plan_generated (optional).
+    """
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    try:
+        rows = db.execute(
+            _sql_text(
+                "SELECT step_key, EXTRACT(EPOCH FROM completed_at)::bigint AS ts FROM onboarding_progress WHERE tenant_id = CAST(:t AS uuid) ORDER BY completed_at ASC"
+            ),
+            {"t": tenant_id},
+        ).fetchall()
+        ts_map: Dict[str, int] = {}
+        for r in rows:
+            try:
+                k = str(r[0])
+                ts = int(r[1] or 0)
+                # keep latest timestamp per key
+                ts_map[k] = ts
+            except Exception:
+                continue
+        keys = ["connect_google", "connect_booking", "contacts_imported", "quiet_hours", "train_vx", "plan_generated"]
+        out: Dict[str, Dict[str, object]] = {}
+        done_count = 0
+        for k in keys:
+            d = k in ts_map
+            if d:
+                done_count += 1
+            out[k] = {"done": d, "ts": (ts_map.get(k) if d else None)}
+        total = len(keys)
+        percent = int(round((done_count / total) * 100)) if total else 0
+        return {"status": "ok", "percent": percent, "items": out}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
+
+
 # ----------------------- 14‑day Plan -----------------------
 class PlanDayComplete(BaseModel):
     tenant_id: str
@@ -1562,7 +1601,7 @@ def create_customer(ctx: UserContext = Depends(get_user_context)):
                 else:
                     payload = {"tenant_id": ctx.tenant_id, "data_json": _json.dumps(data), "created_at": int(_time.time())}
                     db.execute(
-                        _sql_text("INSERT INTO settings(tenant_id, data_json, created_at) VALUES (:tenant_id, :data_json, :created_at)"),
+                        _sql_text("INSERT INTO settings(tenant_id, data_json, created_at) VALUES (:tenant_id, :data_json, NOW())"),
                         payload,
                     )
                 db.commit()
@@ -1720,7 +1759,7 @@ async def stripe_webhook(request: Request):
                     # Create a minimal row if none exists (rare)
                     d = dict(t_update)
                     d["stripe_customer_id"] = cust_id
-                    db.execute(_sql_text("INSERT INTO settings(tenant_id, data_json, created_at) VALUES (:tid, :dj, EXTRACT(epoch FROM now())::bigint)"), {"tid": resolved_tenant, "dj": _json.dumps(d)})
+                    db.execute(_sql_text("INSERT INTO settings(tenant_id, data_json, created_at) VALUES (:tid, :dj, NOW())"), {"tid": resolved_tenant, "dj": _json.dumps(d)})
                     db.commit()
             else:
                 # Fallback: scan a limited window to match by customer id
@@ -5432,7 +5471,7 @@ def update_settings(
             current.update(payload)
             conn.execute(__t("UPDATE settings SET data_json=:d WHERE id=:id"), {"d": _json.dumps(current), "id": row[0]})
         else:
-            conn.execute(__t("INSERT INTO settings(tenant_id, data_json, created_at) VALUES (CAST(:t AS uuid), :d, EXTRACT(epoch FROM now())::bigint)"), {"t": req.tenant_id, "d": _json.dumps(payload or {})})
+            conn.execute(__t("INSERT INTO settings(tenant_id, data_json, created_at) VALUES (CAST(:t AS uuid), :d, NOW())"), {"t": req.tenant_id, "d": _json.dumps(payload or {})})
     # Mark onboarding progress based on keys present
     try:
         if req.quiet_hours and isinstance(req.quiet_hours, dict):

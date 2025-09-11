@@ -52,27 +52,68 @@ export default function Integrations(){
 
   // Setup Progress (moved from Dashboard)
   const [setupPct, setSetupPct] = useState<number>(0);
-  const [setupList, setSetupList] = useState<Array<{label:string;done:boolean;action?:()=>void}>>([]);
+  const [setupList, setSetupList] = useState<Array<{label:string;done:boolean;doneTs?:number;action?:()=>void}>>([]);
+  const fmtRelative = (ts?: number) => {
+    try{
+      if (!ts) return '';
+      const d = new Date(ts*1000);
+      const now = new Date();
+      const sameDay = d.toDateString() === now.toDateString();
+      const yest = new Date(now); yest.setDate(now.getDate()-1);
+      const isYest = d.toDateString() === yest.toDateString();
+      const t = d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+      if (sameDay) return `Today ${t}`;
+      if (isYest) return `Yesterday ${t}`;
+      return `${d.toLocaleDateString()} ${t}`;
+    } catch { return ''; }
+  };
   const computeSetup = async () => {
     try{
       const tid = await getTenant();
-      const prog = await api.get(`/onboarding/progress?tenant_id=${encodeURIComponent(tid)}`);
-      const steps: string[] = Array.isArray(prog?.steps) ? prog.steps.map((s:any)=> String(s.step_key)) : [];
+      // Prefer compact status view with percent and timestamps
+      let statusPercent = 0;
+      let statusItems: any = {};
+      try{
+        const stat = await api.get(`/onboarding/progress/status?tenant_id=${encodeURIComponent(tid)}`);
+        statusPercent = Number(stat?.percent||0);
+        statusItems = stat?.items || {};
+      } catch {}
+      // Fallback: expand from full progress list
+      let tsMap: Record<string, number> = {};
+      try{
+        if (!statusItems || Object.keys(statusItems).length===0){
+          const prog = await api.get(`/onboarding/progress?tenant_id=${encodeURIComponent(tid)}`);
+          tsMap = (()=>{
+            try{
+              const m: Record<string, number> = {};
+              for (const s of (prog?.steps||[])){
+                const k = String(s.step_key||'');
+                const t = Date.parse(String(s.completed_at||''));
+                if (k && isFinite(t)) m[k] = Math.floor(t/1000);
+              }
+              return m;
+            } catch { return {}; }
+          })();
+        }
+      } catch {}
+      // Provider states (for immediate connected badge)
       const connected = (onboarding?.connectedMap || onboarding?.connected || {}) as Record<string,string>;
       const isGoogle = String(connected?.google||'')==='connected';
       const isSquare = String(connected?.square||'')==='connected';
       const isAcuity = String(connected?.acuity||'')==='connected';
       const hasQuiet = !!(settings?.quiet_hours?.start && settings?.quiet_hours?.end);
-      const imported = steps.includes('import_contacts') || steps.includes('import_booking') || steps.includes('contacts_imported');
-      const trained = steps.includes('train_vx') || steps.includes('profile_saved');
+      const imported = Boolean(statusItems?.contacts_imported?.done);
+      const trained  = Boolean(statusItems?.train_vx?.done);
+      // Timestamp map (prefer status items)
+      tsMap = Object.keys(statusItems||{}).reduce((acc:any,k:string)=>{ const ts = Number(statusItems[k]?.ts||0); if (ts) acc[k]=ts; return acc; }, tsMap||{});
       const items = [
-        { label: 'Connect Google Calendar', done: isGoogle, action: () => window.location.assign('/workspace?pane=integrations&provider=google') },
-        { label: 'Connect booking (Square or Acuity)', done: (isSquare || isAcuity), action: () => window.location.assign('/workspace?pane=integrations&provider=square') },
-        { label: 'Import clients', done: imported, action: async ()=>{ await api.post('/ai/tools/execute',{ tenant_id: await getTenant(), name:'contacts.import.square', params:{ tenant_id: await getTenant() }, require_approval: true }); } },
-        { label: 'Set quiet hours', done: hasQuiet, action: () => {} },
-        { label: 'Train VX', done: trained, action: () => window.location.assign('/ask?train=1') },
+        { label: 'Connect Google Calendar', done: Boolean(statusItems?.connect_google?.done) || isGoogle, doneTs: tsMap['connect_google'], action: () => window.location.assign('/workspace?pane=integrations&provider=google') },
+        { label: 'Connect booking (Square or Acuity)', done: Boolean(statusItems?.connect_booking?.done) || (isSquare || isAcuity), doneTs: tsMap['connect_booking'], action: () => window.location.assign('/workspace?pane=integrations&provider=square') },
+        { label: 'Import clients', done: imported, doneTs: tsMap['contacts_imported'], action: async ()=>{ await api.post('/ai/tools/execute',{ tenant_id: await getTenant(), name:'contacts.import.square', params:{ tenant_id: await getTenant() }, require_approval: true }); } },
+        { label: 'Set quiet hours', done: Boolean(statusItems?.quiet_hours?.done) || hasQuiet, doneTs: tsMap['quiet_hours'], action: () => {} },
+        { label: 'Train VX', done: trained, doneTs: tsMap['train_vx'], action: () => window.location.assign('/ask?train=1') },
       ];
-      const pct = Math.round((items.filter(i=>i.done).length / items.length)*100);
+      const pct = statusPercent || Math.round((items.filter(i=>i.done).length / items.length)*100);
       setSetupList(items);
       setSetupPct(pct);
     } catch {}
@@ -566,9 +607,12 @@ export default function Integrations(){
           <div className="mt-2 h-2 rounded bg-slate-100 overflow-hidden"><div className="h-full bg-pink-500" style={{ width: `${setupPct}%` }} /></div>
           <div className="mt-3 grid sm:grid-cols-2 gap-2">
             {setupList.map((s,i)=> (
-              <Button key={i} variant={s.done? 'outline' : 'outline'} className={`justify-start ${s.done? '!bg-emerald-50 !border-emerald-200 !text-emerald-800' : ''}`} onClick={s.action} aria-pressed={s.done} aria-label={s.label}>
+              <Button key={i} variant={s.done? 'outline' : 'outline'} className={`justify-start items-center ${s.done? '!bg-emerald-50 !border-emerald-200 !text-emerald-800' : ''}`} onClick={s.action} aria-pressed={s.done} aria-label={s.label}>
                 <span className="text-sm">{s.label}</span>
                 {s.done && <span className="ml-2 text-[11px]">✓</span>}
+                {s.done && s.doneTs && (
+                  <span className="ml-auto text-[11px] text-slate-500">{fmtRelative(s.doneTs)}</span>
+                )}
               </Button>
             ))}
           </div>
