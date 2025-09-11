@@ -94,7 +94,19 @@ export default function Contacts(){
           <div className="flex items-center gap-2 mb-2">
             <div className="font-semibold">Clients</div>
             <Button variant="outline" size="sm" disabled={busy} onClick={async()=>{ if (isDemo) { setStatus('Demo: import disabled.'); return; } try{ trackEvent('contacts.import_booking'); }catch{} await run(async()=>api.post('/calendar/sync',{ tenant_id: await getTenant(), provider: 'auto' })); try{ showToast({ title:'Import queued', description:'Booking' }); }catch{} }}>Import from booking</Button>
-            <Button variant="outline" size="sm" disabled={listBusy} onClick={()=> loadList()}>Refresh</Button>
+            <Button variant="outline" size="sm" disabled={listBusy} onClick={async()=>{
+              try{
+                setListBusy(true);
+                // Detect provider
+                const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() });
+                const connected = (a?.summary?.connected || {}) as Record<string,string>;
+                const provider = String(connected.square||'')==='connected' ? 'square' : (String(connected.acuity||'')==='connected' ? 'acuity' : 'square');
+                await api.post('/integrations/refresh', { tenant_id: await getTenant(), provider });
+                await loadList();
+                try { showToast({ title:'Refreshed', description: provider.toUpperCase() }); } catch {}
+              } catch(e:any){ setStatus(String(e?.message||e)); }
+              finally { setListBusy(false); }
+            }}>Refresh</Button>
           </div>
           <div className="overflow-auto rounded-md border" style={{ maxHeight: 'calc(100dvh - var(--bvx-commandbar-height,64px) - 220px)' }}>
             <table className="min-w-full text-xs">
@@ -117,24 +129,35 @@ export default function Contacts(){
                         <button className="underline truncate max-w-[14rem]" title={nameOf(r)} onClick={()=> setExpert({open:true, contact:r})}>{nameOf(r)}</button>
                         <Button variant="outline" size="sm" className="ml-1" aria-label="Text client" onClick={async()=>{
                           try{
-                            const tid = await getTenant();
-                            const resp = await api.post('/messages/send',{ tenant_id: tid, contact_id: r.contact_id, channel: 'sms', body: 'Hi! Just checking in—would you like to book your next appointment?' });
-                            if (resp?.status === 'rate_limited') {
-                              showToast({ title:'Daily SMS limit reached', description:'Try again tomorrow or upgrade plan.' });
-                            } else {
-                              showToast({ title:'SMS sent', description:'If messaging is enabled' });
-                            }
+                            // Build a friendly, tone-only draft (no explicit numbers)
+                            const name = nameOf(r).split(' ')[0] || 'there';
+                            const now = Math.floor(Date.now()/1000);
+                            const daysSince = r.last_visit ? Math.max(0, Math.floor((now - Number(r.last_visit))/86400)) : 0;
+                            const recency = daysSince > 60 ? "It's been a while — " : daysSince > 30 ? "Just a quick check‑in — " : "";
+                            const draft = `Hi ${name}! ${recency}I have a couple openings coming up and thought of you. Want me to send a few times?`;
+                            try{ await navigator.clipboard.writeText(draft); } catch {}
+                            // Best effort: try to fetch phone via search (may be masked in this environment)
+                            try{
+                              const tid = await getTenant();
+                              const s = await api.get(`/contacts/search?tenant_id=${encodeURIComponent(tid)}&q=${encodeURIComponent(r.contact_id)}&limit=1`);
+                              const phone = String((s?.items||[])[0]?.phone||'').trim();
+                              if (phone) { try{ await navigator.clipboard.writeText(phone); showToast({ title:'Phone copied' }); } catch {} }
+                            } catch {}
+                            const qs = new URLSearchParams({ cid: r.contact_id, body: draft });
+                            window.location.assign(`/messages?${qs.toString()}`);
                           }catch(e:any){ setStatus(String(e?.message||e)); }
                         }}>Text</Button>
                         <Button variant="outline" size="sm" aria-label="Email client" onClick={async()=>{
                           try{
-                            const tid = await getTenant();
-                            const resp = await api.post('/messages/send',{ tenant_id: tid, contact_id: r.contact_id, channel: 'email', subject: 'Quick check‑in', body: '<p>Would you like to book your next visit?</p>' });
-                            if (resp?.status === 'rate_limited') {
-                              showToast({ title:'Daily email limit reached', description:'Try again tomorrow or upgrade plan.' });
-                            } else {
-                              showToast({ title:'Email sent', description:'If email is enabled' });
-                            }
+                            // Try to fetch email (may be masked); copy if present
+                            let copied = false;
+                            try{
+                              const tid = await getTenant();
+                              const s = await api.get(`/contacts/search?tenant_id=${encodeURIComponent(tid)}&q=${encodeURIComponent(r.contact_id)}&limit=1`);
+                              const email = String((s?.items||[])[0]?.email||'').trim();
+                              if (email) { await navigator.clipboard.writeText(email); copied = true; }
+                            } catch {}
+                            showToast({ title: copied ? 'Email copied' : 'Email copied', description: copied ? undefined : 'Best‑effort: address may be masked.' });
                           }catch(e:any){ setStatus(String(e?.message||e)); }
                         }}>Email</Button>
                       </div>
@@ -183,5 +206,4 @@ export default function Contacts(){
     </div>
   );
 }
-
 

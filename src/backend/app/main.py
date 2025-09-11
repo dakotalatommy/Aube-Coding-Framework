@@ -171,6 +171,35 @@ def plan_status(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext 
         return {"status": "error", "detail": str(e)[:200]}
 
 
+@app.get("/plan/14day/day", tags=["Plans"])
+def plan_day(tenant_id: str, day_index: Optional[int] = None, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    """
+    Returns the tasks for a specific day in the 14-day plan. If day_index is not provided,
+    it returns tasks for the next incomplete day (today).
+    """
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    try:
+        # Determine today's day if not provided
+        if day_index is None or int(day_index) <= 0:
+            rows = db.execute(_sql_text("SELECT day_index, completed_at FROM plan_14day WHERE tenant_id = CAST(:t AS uuid) ORDER BY day_index ASC"), {"t": tenant_id}).fetchall()
+            completed = [int(r[0]) for r in rows if r[1] is not None]
+            day_index = (len(completed) + 1) if rows else 1
+        # Clamp between 1 and 14 (or existing max)
+        day_index = max(1, int(day_index or 1))
+        row = db.execute(
+            _sql_text("SELECT tasks_json, completed_at FROM plan_14day WHERE tenant_id = CAST(:t AS uuid) AND day_index = :d"),
+            {"t": tenant_id, "d": int(day_index)},
+        ).fetchone()
+        if not row:
+            return {"status": "not_found", "day_index": int(day_index), "tasks": []}
+        tasks = row[0] or []
+        done = row[1] is not None
+        return {"status": "ok", "day_index": int(day_index), "completed": bool(done), "tasks": tasks}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
+
+
 @app.post("/plan/14day/generate", tags=["Plans"])
 async def plan_generate(req: ProgressStep, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":

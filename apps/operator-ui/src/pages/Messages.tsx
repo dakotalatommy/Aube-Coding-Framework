@@ -68,11 +68,14 @@ export default function Messages(){
   // legacy local draft maker kept for reference (unused after smart draft)
 
   const load = async () => {
-    const qs = filterContact ? `&contact_id=${encodeURIComponent(filterContact)}` : '';
-    const res = await api.get(`/messages/list?tenant_id=${encodeURIComponent(await getTenant())}${qs}`);
+    const qs = [
+      filterContact ? `contact_id=${encodeURIComponent(filterContact)}` : '',
+      inboxFilter ? `filter=${encodeURIComponent(inboxFilter)}` : '',
+    ].filter(Boolean).join('&');
+    const res = await api.get(`/messages/list?tenant_id=${encodeURIComponent(await getTenant())}${qs ? '&'+qs : ''}`);
     setItems(res.items || []);
   };
-  useEffect(()=>{ (async()=>{ try { setLoading(true); await load(); } finally { setLoading(false); } })(); },[]);
+  useEffect(()=>{ (async()=>{ try { setLoading(true); await load(); setPage(1); } finally { setLoading(false); } })(); }, [inboxFilter]);
   useEffect(()=>{ (async()=>{ try { const r = await api.get(`/settings?tenant_id=${encodeURIComponent(await getTenant())}`); setQuiet(r?.data?.quiet_hours||{}); } catch{} })(); },[]);
   // Preload clients for local typeahead (first 500)
   useEffect(()=>{ (async()=>{
@@ -318,5 +321,4 @@ export default function Messages(){
     </>
   );
 }
-
 

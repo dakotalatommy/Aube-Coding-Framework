@@ -48,6 +48,8 @@ try {
       replaysSessionSampleRate: 0.0,
       replaysOnErrorSampleRate: 1.0,
       integrations: [Sentry.browserTracingIntegration?.(), Sentry.replayIntegration?.()].filter(Boolean) as any,
+      release: (import.meta.env as any).VITE_SENTRY_RELEASE as string | undefined,
+      environment: (import.meta.env as any).VITE_SENTRY_ENVIRONMENT as string | (string | undefined),
       beforeSend: (event) => {
         try {
           const tid = localStorage.getItem('bvx_tenant') || undefined

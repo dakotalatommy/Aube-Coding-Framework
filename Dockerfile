@@ -10,9 +10,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Build-time sanity checks: fail the build on syntax/import errors
-RUN python -m compileall -q src/backend/app && \
-    python -c "from uvicorn.importer import import_from_string as ifs; ifs('src.backend.app.main:app'); print('Import check OK')"
+# Build-time sanity check: syntax only (import check runs at container start)
+RUN python -m compileall -q src/backend/app
 
 EXPOSE 8000
 

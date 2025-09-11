@@ -422,17 +422,7 @@ export default function Vision(){
             )}
             <InlineStatus state={loading ? 'loading' : lastError ? 'error' : 'idle'} message={loading ? (output||'Working…') : lastError || ''} onRetry={loading ? undefined : ()=> runEdit(editPrompt)} />
           </div>
-          <div className="flex items-center gap-2">
-            <Button onClick={() => runEdit(editPrompt)} disabled={!canRun} aria-label="Run edit">
-              {loading ? 'Editing…' : 'Run Edit'}
-            </Button>
-            <Button variant="outline" onClick={() => runEdit(editPrompt)} disabled={!canRun || !lastEditAt} title={!lastEditAt ? 'Run an edit first' : 'Refine using the same prompt'} aria-label="Refine again">
-              Refine again
-            </Button>
-            {lastError && (
-              <Button variant="outline" onClick={revertToLastGood} title="Revert to the last good version" aria-label="Use last good version">Use last good version</Button>
-            )}
-          </div>
+          <div className="flex items-center gap-2" />
         </div>
       </div>
       <h3 className="text-lg font-semibold">brandVZN</h3>
@@ -464,12 +454,19 @@ export default function Vision(){
           <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.dng,image/*" className="hidden" onChange={onFile} />
           <Button variant="outline" disabled={(!b64 && !srcUrl) || loading} onClick={analyze} data-guide="analyze" aria-label="Analyze photo">{loading ? 'Analyzing…' : 'Analyze Photo'}</Button>
           <Button variant="outline" disabled={(!b64 && !srcUrl) || loading} onClick={()=> runEdit(editPrompt)} data-guide="edit" aria-label="Run edit">{loading ? 'Editing…' : 'Run Edit'}</Button>
+          <Button variant="outline" onClick={() => runEdit(editPrompt)} disabled={!canRun || !lastEditAt} title={!lastEditAt ? 'Run an edit first' : 'Refine using the same prompt'} aria-label="Refine again">
+            Refine again
+          </Button>
           <div className="flex items-center gap-2 text-xs text-slate-600">
             <span>Intensity</span>
             <input type="range" min={10} max={100} value={intensity} onChange={e=> setIntensity(parseInt(e.target.value))} aria-label="Refinement intensity" />
             <span>{intensity}</span>
           </div>
           {/* Import IG temporarily removed */}
+          <div className="flex items-center gap-2 ml-auto">
+            <Button variant="outline" disabled={saving || !preview} onClick={saveToLibrary}>{saving ? 'Saving…' : 'Save to Library'}</Button>
+            <Button variant="outline" disabled={loading} onClick={loadLibrary}>My Images</Button>
+          </div>
         </div>
 
           <textarea className="w-full border rounded-md px-3 py-2" rows={3} value={editPrompt} onChange={e=>setEditPrompt(e.target.value)} />
@@ -518,10 +515,7 @@ export default function Vision(){
               </select>
             </label>
           </div>
-          <div className="flex gap-2">
-            <Button variant="outline" disabled={saving || !preview} onClick={saveToLibrary}>{saving ? 'Saving…' : 'Save to Library'}</Button>
-            <Button variant="outline" disabled={loading} onClick={loadLibrary}>My Images</Button>
-          </div>
+          {/* Save/My Images moved to top control row */}
           {/* Version stack */}
           {versions.length > 0 && (
             <div className="pt-2">
@@ -568,14 +562,7 @@ export default function Vision(){
 
       <div className="border rounded-xl bg-white shadow-sm p-3 min-h-24 whitespace-pre-wrap text-sm">{output}</div>
 
-      {/* Mobile bottom toolbar for primary actions */}
-      <div className="fixed md:hidden left-0 right-0 bottom-[calc(var(--bvx-commandbar-height,64px)+env(safe-area-inset-bottom,0px))] z-30">
-        <div className="mx-3 mb-2 rounded-xl border bg-white/95 backdrop-blur shadow flex items-center justify-between px-2 py-2">
-          <Button variant="outline" onClick={pick} aria-label="Upload image">Upload</Button>
-          <Button variant="outline" disabled={(!b64 && !srcUrl) || loading} onClick={analyze} aria-label="Analyze photo">Analyze</Button>
-          <Button onClick={()=> runEdit(editPrompt)} disabled={!canRun} aria-label="Run edit">{loading?'Editing…':'Run Edit'}</Button>
-        </div>
-      </div>
+      {/* Mobile bottom toolbar removed to avoid duplicate controls */}
 
       {igItems.length > 0 && (
         <div className="mt-2 grid grid-cols-6 gap-2">

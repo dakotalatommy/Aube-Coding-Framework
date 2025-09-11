@@ -167,7 +167,34 @@ try {
       id: 'nav.integrations',
       run: async () => { try { window.location.assign('/workspace?pane=integrations'); } catch { window.location.href = '/workspace?pane=integrations'; } return { status:'ok' }; },
       description: 'Open Settings/Connections'
+    },
+    // Quick actions for Command Bar
+    'quick.import_bookings': {
+      id: 'quick.import_bookings',
+      run: async () => {
+        try { const tid = await getTenant(); return await api.post('/ai/tools/execute', { tenant_id: tid, name: 'contacts.import.square', params: { tenant_id: tid }, require_approval: true }); } catch { return { status: 'error' }; }
+      },
+      description: 'Import booking data (Square)'
+    },
+    'nav.connect_google_calendar': {
+      id: 'nav.connect_google_calendar',
+      run: async () => { try { window.location.assign('/workspace?pane=integrations&provider=google'); } catch { window.location.href = '/workspace?pane=integrations&provider=google'; } return { status:'ok' }; },
+      description: 'Connect Google Calendar'
+    },
+    'nav.open_brandvzn_demo': {
+      id: 'nav.open_brandvzn_demo',
+      run: async () => { try { window.location.assign('/vision?demo=1'); } catch { window.location.href = '/vision?demo=1'; } return { status:'ok' }; },
+      description: 'Open brandVZN demo'
+    },
+    'nav.open_todo': {
+      id: 'nav.open_todo',
+      run: async () => { try { window.location.assign('/workspace?pane=approvals'); } catch { window.location.href = '/workspace?pane=approvals'; } return { status:'ok' }; },
+      description: 'Open To‑Do'
+    },
+    'nav.view_14day_plan': {
+      id: 'nav.view_14day_plan',
+      run: async () => { try { window.location.assign('/dashboard'); } catch { window.location.href = '/dashboard'; } return { status:'ok' }; },
+      description: 'View 14‑day Plan'
     }
   });
 } catch {}
-

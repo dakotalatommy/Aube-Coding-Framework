@@ -87,9 +87,9 @@ export default function Inventory(){
       <div className="flex gap-2">
         <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>syncNow('shopify')}>Sync now (Shopify)</button>
         <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>syncNow('square')}>Sync now (Square)</button>
-        <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>syncNow('manual')}>Recompute (Manual)</button>
+        <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>syncNow('manual')}>Refresh (Manual)</button>
         <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={mergeNow}>Merge duplicates</button>
-        <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={mapNow}>Apply mapping</button>
+        {/* Hide mapping until data model finalized */}
       </div>
       <div className="text-[11px] text-amber-700">Some actions may require approval when auto-approve is off. Review in Approvals.</div>
       {items.length === 0 ? (
@@ -137,5 +137,4 @@ function Stat({label, value}:{label:string;value:any}){
     </div>
   );
 }
-
 

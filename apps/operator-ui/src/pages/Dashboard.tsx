@@ -174,6 +174,34 @@ export default function Dashboard(){
   // Single page dashboard (pager removed)
   const [onboarding, setOnboarding] = useState<any>(null);
 
+  // Plan: Next Best Steps
+  const [planLoading, setPlanLoading] = useState<boolean>(false);
+  const [planStatus, setPlanStatus] = useState<{ day_today?: number; days_total?: number }|null>(null);
+  const [planTasks, setPlanTasks] = useState<string[]>([]);
+  const [sessionSummary, setSessionSummary] = useState<string>('');
+  const loadPlan = async () => {
+    try{
+      setPlanLoading(true);
+      const tid = await getTenant();
+      const status = await api.get(`/plan/14day/status?tenant_id=${encodeURIComponent(tid)}`);
+      setPlanStatus({ day_today: Number(status?.day_today||1), days_total: Number(status?.days_total||14) });
+      // Load tasks for today
+      try { const day = await api.get(`/plan/14day/day?tenant_id=${encodeURIComponent(tid)}`); setPlanTasks(Array.isArray(day?.tasks) ? day.tasks : []); } catch {}
+      // Load last_session_summary memory as a short next-actions summary
+      try{
+        const mems = await api.get(`/ai/memories/list?tenant_id=${encodeURIComponent(tid)}&limit=10`);
+        const last = (Array.isArray(mems?.items) ? mems.items : []).find((it:any)=> String(it?.key||'')==='last_session_summary');
+        if (last && last.value) {
+          const val = typeof last.value === 'string' ? last.value : (typeof last.value?.toString === 'function' ? last.value.toString() : '');
+          setSessionSummary(String(val||''));
+        }
+      } catch {}
+    } finally {
+      setPlanLoading(false);
+    }
+  };
+  useEffect(()=>{ (async()=>{ try{ await loadPlan(); } catch{} })(); }, []);
+
   // Reanalyze action removed with micro-wins trim
 
   // Live Time Saved ticker (gentle optimistic counter)
@@ -421,41 +449,36 @@ export default function Dashboard(){
           <Button size="sm" variant="outline" className="w-full" onClick={()=> window.location.assign('/ask?train=1')}>Train VX</Button>
         </div>
       </section>
-      {/* Setup Progress */}
-      {(() => {
-        try{
-          const connected = (onboarding?.connectedMap || onboarding?.connected || {}) as Record<string,string>;
-          const isGoogle = String(connected?.google || '') === 'connected';
-          const hasClients = Number(metrics?.contacts_count || 0) > 0 || (queue?.items||[]).length > 0;
-          const hasQuiet = Boolean(quiet?.start && quiet?.end);
-          const trained = Number(metrics?.messages_sent||0) > 0; // proxy
-          const steps = [
-            { label: 'Connect Google', done: isGoogle, action: () => window.location.assign('/integrations') },
-            { label: 'Import Clients', done: hasClients, action: async () => { const tid = await getTenant(); try{ await api.post('/ai/tools/execute',{ tenant_id: tid, name:'contacts.import.square', params:{ tenant_id: tid }, require_approval:false }); }catch{} window.location.assign('/contacts'); } },
-            { label: 'Set Quiet Hours', done: hasQuiet, action: () => window.location.assign('/messages') },
-            { label: 'Train VX', done: trained, action: () => window.location.assign('/ask?train=1') },
-          ];
-          const completed = steps.filter(s=> s.done).length;
-          const pct = Math.round((completed/steps.length)*100);
-          return (
-            <section className="rounded-2xl p-3 bg-white border border-white/60 shadow-sm" data-guide="setup">
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-semibold text-slate-900">Setup Progress</div>
-                <div className="text-xs text-slate-600">{pct}%</div>
-              </div>
-              <div className="mt-2 h-2 rounded bg-slate-100 overflow-hidden"><div className="h-full bg-pink-500" style={{ width: `${pct}%` }} /></div>
-              <div className="mt-3 grid sm:grid-cols-2 gap-2">
-                {steps.map((s,i)=> (
-                  <Button key={i} variant={s.done? 'outline' : 'outline'} className={`justify-start ${s.done? '!bg-emerald-50 !border-emerald-200 !text-emerald-800' : ''}`} onClick={s.action} aria-pressed={s.done} aria-label={s.label}>
-                    <span className="text-sm">{s.label}</span>
-                    {s.done && <span className="ml-2 text-[11px]">✓</span>}
-                  </Button>
-                ))}
-              </div>
-            </section>
-          );
-        } catch { return null; }
-      })()}
+      {/* Next Best Steps (Day N/14 + today's tasks) */}
+      <section className="rounded-2xl p-3 bg-white border border-white/60 shadow-sm" data-guide="next-best-steps">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-semibold text-slate-900">Next Best Steps</div>
+          {planStatus?.day_today && (
+            <div className="text-xs text-slate-600">Day {Number(planStatus.day_today||1)}/{Number(planStatus.days_total||14)}</div>
+          )}
+        </div>
+        <div className="mt-2 text-sm text-slate-700">
+          {planLoading ? (
+            <div>Loading plan…</div>
+          ) : planTasks.length > 0 ? (
+            <ul className="list-disc ml-5">
+              {planTasks.slice(0,4).map((t,i)=> <li key={i}>{String(t)}</li>)}
+            </ul>
+          ) : (
+            <div className="text-slate-600">No plan yet. Generate a 14‑day plan to get started.</div>
+          )}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={async()=>{ try{ await api.post('/plan/14day/generate', { tenant_id: await getTenant(), step_key: 'init' }); } catch{} await loadPlan(); }}>Generate 14‑day plan</Button>
+          <Button size="sm" variant="outline" onClick={()=> window.location.assign('/ask')}>Open AskVX</Button>
+        </div>
+        {!!sessionSummary && (
+          <div className="mt-3 rounded-md border bg-slate-50 p-2">
+            <div className="text-xs text-slate-600">Last session summary</div>
+            <div className="text-sm text-slate-800 whitespace-pre-wrap mt-1">{sessionSummary}</div>
+          </div>
+        )}
+      </section>
 
       {/* Today strip: one primary CTA */}
       <section className="rounded-2xl p-3 bg-white border border-white/60 shadow-sm" data-guide="primary">
