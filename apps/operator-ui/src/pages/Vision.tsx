@@ -196,11 +196,11 @@ export default function Vision(){
     setOutput(''); setLastError('');
     try{
       try { trackEvent('vision.analyze', { hasB64: !!b64, mime }); } catch {}
-      const span = Sentry.startInactiveSpan?.({ name: 'vision.analyze' });
+      const span = Sentry.startInactiveSpan?.({ name: 'vision.analyze.gpt5' });
       const r = await api.post('/ai/tools/execute', {
         tenant_id: await getTenant(),
-        name: 'vision.inspect',
-        params: { tenant_id: await getTenant(), ...(b64?{ inputImageBase64: b64, inputMime: mime }:{ imageUrl: srcUrl }), return: ['faces','lighting','colors','qualityFlags','safeSearch'] },
+        name: 'vision.analyze.gpt5',
+        params: { tenant_id: await getTenant(), ...(b64?{ inputImageBase64: b64, inputMime: mime }:{ imageUrl: srcUrl }), question: (notes||'').trim() || undefined },
         require_approval: false,
       });
       try { span?.end?.(); } catch {}
@@ -212,7 +212,7 @@ export default function Vision(){
         setOutput(text.slice(0, i));
         if (i >= text.length) window.clearInterval(timer);
       }, 20);
-      try { trackEvent('integrations.reanalyze.click', { area: 'brandvx.analyze' }); } catch {}
+      try { trackEvent('integrations.reanalyze.click', { area: 'brandvx.analyze.gpt5' }); } catch {}
     } catch(e:any){
       try { Sentry.captureException(e); } catch {}
       setLastError(humanizeError(e));

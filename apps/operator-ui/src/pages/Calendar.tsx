@@ -201,6 +201,15 @@ export default function Calendar(){
           <option value="square">Square</option>
           <option value="acuity">Acuity</option>
         </select>
+        {String(connected['google']||'')==='connected' && (
+          <button className="px-3 py-1.5 rounded-md border bg-white hover:shadow-sm" onClick={async()=>{
+            try{
+              setActionBusy(true);
+              const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'calendar.push.google', params:{ tenant_id: await getTenant() }, require_approval: true });
+              showToast({ title: 'Push started', description: `${Number(r?.pushed||0)} events mirrored` });
+            } catch(e:any){ showToast({ title:'Push failed', description:String(e?.message||e) }); } finally{ setActionBusy(false); }
+          }}>Push to Google</button>
+        )}
       </div>
       <div className="rounded-xl border bg-white p-3 shadow-sm" data-guide="list">
         {events.length === 0 ? (

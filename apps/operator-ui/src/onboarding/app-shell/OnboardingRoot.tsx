@@ -102,7 +102,8 @@ export default function OnboardingRoot(){
     try { localStorage.setItem('bvx_post_onboarding_quickstart','1') } catch {}
     try { if (BOOKING_URL) localStorage.setItem('bvx_booking_nudge','1') } catch {}
     try { (window as any).posthog?.capture?.('onboarding_complete'); } catch {}
-    navigate('/workspace?pane=dashboard')
+    // Nudge payment after onboarding: open billing CTA unless already covered
+    navigate('/workspace?pane=dashboard&billing=prompt')
   }
 
   const sceneProps = { state, next, back, save, startOAuth }
@@ -156,5 +157,4 @@ export default function OnboardingRoot(){
     </div>
   )
 }
-
 

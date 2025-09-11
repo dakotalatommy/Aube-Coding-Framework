@@ -1540,9 +1540,9 @@ def create_customer(ctx: UserContext = Depends(get_user_context)):
                         {"dj": _json.dumps(data), "sid": row_id},
                     )
                 else:
-                    payload = {"tenant_id": ctx.tenant_id, "data_json": _json.dumps(data)}
+                    payload = {"tenant_id": ctx.tenant_id, "data_json": _json.dumps(data), "created_at": int(_time.time())}
                     db.execute(
-                        _sql_text("INSERT INTO settings(tenant_id, data_json) VALUES (:tenant_id, :data_json)"),
+                        _sql_text("INSERT INTO settings(tenant_id, data_json, created_at) VALUES (:tenant_id, :data_json, :created_at)"),
                         payload,
                     )
                 db.commit()
@@ -1700,7 +1700,7 @@ async def stripe_webhook(request: Request):
                     # Create a minimal row if none exists (rare)
                     d = dict(t_update)
                     d["stripe_customer_id"] = cust_id
-                    db.execute(_sql_text("INSERT INTO settings(tenant_id, data_json) VALUES (:tid, :dj)"), {"tid": resolved_tenant, "dj": _json.dumps(d)})
+                    db.execute(_sql_text("INSERT INTO settings(tenant_id, data_json, created_at) VALUES (:tid, :dj, EXTRACT(epoch FROM now())::bigint)"), {"tid": resolved_tenant, "dj": _json.dumps(d)})
                     db.commit()
             else:
                 # Fallback: scan a limited window to match by customer id
@@ -5405,7 +5405,7 @@ def update_settings(
             current.update(payload)
             conn.execute(__t("UPDATE settings SET data_json=:d WHERE id=:id"), {"d": _json.dumps(current), "id": row[0]})
         else:
-            conn.execute(__t("INSERT INTO settings(tenant_id, data_json) VALUES (CAST(:t AS uuid), :d)"), {"t": req.tenant_id, "d": _json.dumps(payload or {})})
+            conn.execute(__t("INSERT INTO settings(tenant_id, data_json, created_at) VALUES (CAST(:t AS uuid), :d, EXTRACT(epoch FROM now())::bigint)"), {"t": req.tenant_id, "d": _json.dumps(payload or {})})
     return {"status": "ok"}
 
 
@@ -6906,12 +6906,12 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                                 INSERT INTO contacts (
                                   tenant_id, contact_id, email_hash, phone_hash, consent_sms, consent_email,
                                   square_customer_id, birthday, creation_source, email_subscription_status, instant_profile,
-                                  first_name, last_name, display_name
+                                  first_name, last_name, display_name, created_at
                                 )
                                 VALUES (
                                   CAST(:t AS uuid), :cid, :eh, :ph, :csms, :cemail,
                                   :sqcid, :bday, :csrc, :esub, :ip,
-                                  :fname, :lname, :dname
+                                  :fname, :lname, :dname, EXTRACT(epoch FROM now())::bigint
                                 )
                                 """
                             ),

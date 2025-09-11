@@ -851,6 +851,50 @@ async def tool_calendar_cancel(db: Session, ctx: UserContext, tenant_id: str, ex
         r = await client.post(f"{base_api}/calendar/cancel", json=payload)
         return r.json() if r.headers.get("content-type", "").startswith("application/json") else {"status": r.status_code}
 
+async def tool_calendar_push_google(db: Session, ctx: UserContext, tenant_id: str) -> Dict[str, Any]:
+    """Create Google Calendar events for upcoming non-Google events (7-day window),
+    avoiding duplicates by title+start match.
+    """
+    _require_tenant(ctx, tenant_id)
+    now = int(time.time())
+    week_end = now + 7*86400
+    # Load existing google events map by (title, start_ts)
+    g_events = (
+        db.query(dbm.CalendarEvent)
+        .filter(dbm.CalendarEvent.tenant_id == tenant_id, dbm.CalendarEvent.provider == 'google', dbm.CalendarEvent.start_ts >= now, dbm.CalendarEvent.start_ts <= week_end)
+        .all()
+    )
+    gkeys = {(str(r.title or '').strip(), int(r.start_ts or 0)) for r in g_events}
+    # Candidates: non-google events in the same window
+    src_events = (
+        db.query(dbm.CalendarEvent)
+        .filter(dbm.CalendarEvent.tenant_id == tenant_id, dbm.CalendarEvent.provider != 'google', dbm.CalendarEvent.start_ts >= now, dbm.CalendarEvent.start_ts <= week_end)
+        .order_by(dbm.CalendarEvent.start_ts.asc())
+        .all()
+    )
+    pushed = 0
+    errors: List[Dict[str,str]] = []
+    for ev in src_events:
+        key = (str(ev.title or '').strip(), int(ev.start_ts or 0))
+        if key in gkeys:
+            continue
+        try:
+            desc = f"Mirrored from {ev.provider or 'source'} via BrandVX"
+            res = cal_google.create_event(str(tenant_id), ev.title or 'Appointment', int(ev.start_ts or now), int(ev.end_ts or (int(ev.start_ts or now)+3600)), desc)
+            if res.get('status') == 'ok':
+                # Persist a mirror row for unified view
+                db.add(dbm.CalendarEvent(tenant_id=tenant_id, event_id=res.get('id') or None, title=ev.title or 'Appointment', start_ts=int(ev.start_ts or now), end_ts=(int(ev.end_ts or 0) or None), provider='google', status='confirmed'))
+                db.commit()
+                gkeys.add(key)
+                pushed += 1
+            else:
+                errors.append({'title': ev.title or '', 'error': str(res.get('error') or res.get('detail') or 'push_failed')})
+        except Exception as e:
+            try: db.rollback()
+            except Exception: pass
+            errors.append({'title': ev.title or '', 'error': str(e)[:160]})
+    return {'status': 'ok', 'pushed': pushed, 'errors': errors[:5]}
+
 async def tool_oauth_refresh(db: Session, ctx: UserContext, tenant_id: str, provider: str) -> Dict[str, Any]:
     _require_tenant(ctx, tenant_id)
     base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
@@ -1108,7 +1152,56 @@ async def execute_tool(name: str, params: Dict[str, Any], db: Session, ctx: User
     except ToolError as te:
         return {"status": str(te)}
     except Exception:
-        return {"status": "error"}
+    return {"status": "error"}
+
+async def tool_vision_analyze_gpt5(
+    db: Session,
+    ctx: UserContext,
+    tenant_id: str,
+    inputImageBase64: _Optional[str] = None,
+    imageUrl: _Optional[str] = None,
+    inputMime: _Optional[str] = None,
+    question: _Optional[str] = None,
+) -> Dict[str, Any]:
+    """Analyze a beauty image and return a short, beauty‑friendly brief.
+    Uses Gemini inspect for structured cues (if image provided), then GPT‑5 to compose a concise answer.
+    """
+    _require_tenant(ctx, tenant_id)
+    details: Dict[str, Any] = {}
+    brief_seed = ""
+    try:
+        # Try a lightweight vision inspect first for grounding
+        res = await tool_vision_inspect(db, ctx, tenant_id, image_url=imageUrl, inputImageBase64=inputImageBase64, inputMime=inputMime, ret=["faces","lighting","colors","qualityFlags"])
+        if res.get('status') == 'ok':
+            details = res.get('details') or {}
+            brief_seed = res.get('brief') or ''
+    except Exception:
+        details = {}
+    client = AIClient()
+    system = (
+        "You are a concise beauty photo analyst. Provide a short, friendly analysis for a beauty professional. "
+        "Focus on lighting, color, skin texture, and practical improvements. Keep it under 90 words."
+    )
+    user_parts: List[Dict[str, str]] = []
+    if details:
+        user_parts.append({"role": "user", "content": f"Context (JSON): {json_dumps_safe(details)}"})
+    q = (question or "Analyze this photo for portfolio‑quality best practices.").strip()
+    user_parts.append({"role": "user", "content": q})
+    try:
+        text = await client.generate(system, user_parts, max_tokens=220)
+        out = text or brief_seed or "Analysis ready."
+        return {"status": "ok", "brief": out}
+    except Exception as e:
+        return {"status": "ok", "brief": (brief_seed or str(e)[:140] or "Analysis ready.")}
+
+def json_dumps_safe(obj: Any) -> str:
+    try:
+        return _json.dumps(obj, ensure_ascii=False)
+    except Exception:
+        try:
+            return str(obj)
+        except Exception:
+            return "{}"
 
 
 # ---------------------- Additional high-ROI tools ----------------------
@@ -1397,6 +1490,7 @@ REGISTRY.update(
         "calendar.merge": tool_calendar_merge,
         "calendar.reschedule": tool_calendar_reschedule,
         "calendar.cancel": tool_calendar_cancel,
+        "calendar.push.google": tool_calendar_push_google,
         "oauth.refresh": tool_oauth_refresh,
         "square.backfill": tool_square_backfill,
         "integrations.twilio.provision": tool_twilio_provision,
@@ -1404,6 +1498,7 @@ REGISTRY.update(
         "vision.inspect": tool_vision_inspect,
         "image.edit": tool_image_edit,
         "brand.vision.analyze": tool_brand_vision_analyze,
+        "vision.analyze.gpt5": tool_vision_analyze_gpt5,
         "memories.remember": tool_memories_upsert,
         "social.fetch_profile": tool_social_fetch_profile,
         "social.scrape_posts": tool_social_scrape_posts,
@@ -1500,6 +1595,8 @@ async def _dispatch_extended(name: str, params: Dict[str, Any], db: Session, ctx
             provider=params.get("provider"),
             provider_event_id=params.get("provider_event_id"),
         )
+    if name == "calendar.push.google":
+        return await tool_calendar_push_google(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)))
     if name == "oauth.refresh":
         return await tool_oauth_refresh(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)), provider=str(params.get("provider", "")))
     if name == "contacts.import.square":
@@ -1537,6 +1634,16 @@ async def _dispatch_extended(name: str, params: Dict[str, Any], db: Session, ctx
             ctx,
             tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
             sample=int(params.get("sample", 12)),
+        )
+    if name == "vision.analyze.gpt5":
+        return await tool_vision_analyze_gpt5(
+            db,
+            ctx,
+            tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
+            inputImageBase64=(str(params.get("inputImageBase64")) if params.get("inputImageBase64") else None),
+            imageUrl=(str(params.get("imageUrl")) if params.get("imageUrl") else None),
+            inputMime=params.get("inputMime"),
+            question=str(params.get("question", "")) or None,
         )
     if name == "social.fetch_profile":
         return await tool_social_fetch_profile(
