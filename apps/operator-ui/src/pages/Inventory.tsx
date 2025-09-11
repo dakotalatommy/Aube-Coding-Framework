@@ -41,13 +41,6 @@ export default function Inventory(){
     const m = await api.get(`/inventory/metrics?tenant_id=${encodeURIComponent(await getTenant())}`);
     setSummary(m?.summary||{}); setLastSync(m?.last_sync||{}); setItems(m?.items||[]); setLastUpdated(Date.now());
   };
-  const mapNow = async () => {
-    const example = { sku_map: { 'SKU-PLACEHOLDER': 'SKU-CANONICAL' } };
-    const r = await api.post('/inventory/map', { tenant_id: await getTenant(), ...example });
-    setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })());
-    const m = await api.get(`/inventory/metrics?tenant_id=${encodeURIComponent(await getTenant())}`);
-    setSummary(m?.summary||{}); setLastSync(m?.last_sync||{}); setItems(m?.items||[]); setLastUpdated(Date.now());
-  };
   if (loading) return <div>Loading…</div>;
   return (
     <div className="space-y-3">
@@ -137,4 +130,3 @@ function Stat({label, value}:{label:string;value:any}){
     </div>
   );
 }
-

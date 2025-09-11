@@ -10,9 +10,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Build-time sanity check: syntax only (import check runs at container start)
-RUN python -m compileall -q src/backend/app
-
 EXPOSE 8000
 
 # Run syntax/import checks (must pass), then migrations (best-effort), then start the app

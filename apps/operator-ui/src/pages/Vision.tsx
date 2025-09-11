@@ -18,7 +18,7 @@ export default function Vision(){
   // const [linkContactId] = useState<string>('');
   const [editPrompt, setEditPrompt] = useState<string>('Reduce specular highlights on T-zone; keep texture; neutralize warm cast.');
   const [igItems, setIgItems] = useState<string[]>([]);
-  const [contactId, setContactId] = useState<string>('');
+  // const [contactId, setContactId] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [preserveDims, setPreserveDims] = useState<boolean>(true);
   const [policy, setPolicy] = useState<'pad'|'crop'|'scale-down'>(()=>{
@@ -55,10 +55,10 @@ export default function Vision(){
         if (q.length < 2) { setClientSuggestions([]); return; }
         const tid = await getTenant();
         const r = await api.get(`/contacts/search?tenant_id=${encodeURIComponent(tid)}&q=${encodeURIComponent(q)}&limit=8`);
-        const items = (r?.items||[]).map((it:any)=> ({ contact_id: String(it.contact_id||''), display_name: String(it.display_name||'Client')}));
+        const items = (r?.items||[]).map((it: any)=> ({ contact_id: String(it.contact_id||''), display_name: String(it.display_name||'Client')}));
         setClientSuggestions(items);
         // auto-select if exact match
-        const exact = items.find(it=> it.display_name.toLowerCase() === q.toLowerCase());
+        const exact = items.find((it: { contact_id: string; display_name: string }) => it.display_name.toLowerCase() === q.toLowerCase());
         setSelectedContactId(exact ? exact.contact_id : '');
       } catch { setClientSuggestions([]); }
     }, 220);
@@ -304,25 +304,7 @@ export default function Vision(){
 
   // Brand analysis available on Instagram tab (flows added separately)
 
-  const importInstagram = async () => {
-    setLoading(true);
-    setOutput('');
-    try {
-      const j = await api.get(`/instagram/media?tenant_id=${encodeURIComponent(await getTenant())}&limit=12`);
-      const items = (j?.items || []).map((it:any)=> String(it?.url||'' )).filter(Boolean);
-      setIgItems(items);
-      if (items.length) {
-        setPreview(items[0]);
-        setBaselinePreview(items[0]);
-        setSrcUrl(items[0]);
-        setB64('');
-        setOutput('Imported first image. Click another thumbnail to switch.');
-      } else {
-        setOutput('No Instagram media found.');
-      }
-    } catch(e:any){ setOutput(String(e?.message||e)); }
-    finally { setLoading(false); }
-  };
+  // const importInstagram = async () => {};
 
   const saveToLibrary = async () => {
     try{
@@ -374,41 +356,7 @@ export default function Vision(){
     } catch { return 'Edit failed. Please try again.'; }
   }
 
-  const revertToLastGood = async () => {
-    try {
-      if (versions.length > 0) {
-        const v = versions[0];
-        setPreview(v); setBaselinePreview(v);
-        if (v.startsWith('data:')) {
-          const comma = v.indexOf(','); const body = v.slice(comma+1);
-          const m = v.slice(5, v.indexOf(';')) || 'image/png';
-          setB64(body); setMime(m); setSrcUrl('');
-        } else {
-          const resp = await fetch(v); const blob = await resp.blob();
-          const reader = new FileReader();
-          const dataUrl: string = await new Promise((resolve, reject) => {
-            reader.onerror = () => reject(new Error('read failed'));
-            reader.onloadend = () => resolve(String(reader.result || ''));
-            reader.readAsDataURL(blob);
-          });
-          const comma = dataUrl.indexOf(','); const body = dataUrl.slice(comma+1);
-          const m = (()=>{ try{ return dataUrl.slice(5, dataUrl.indexOf(';')) || (blob.type||'image/png'); }catch{ return blob.type||'image/png'; }})();
-          setPreview(dataUrl); setB64(body); setMime(m); setSrcUrl('');
-        }
-        setLastError('');
-        return;
-      }
-      if (baselinePreview) {
-        setPreview(baselinePreview);
-        if (baselinePreview.startsWith('data:')) {
-          const comma = baselinePreview.indexOf(','); const body = baselinePreview.slice(comma+1);
-          const m = baselinePreview.slice(5, baselinePreview.indexOf(';')) || 'image/png';
-          setB64(body); setMime(m); setSrcUrl('');
-        }
-        setLastError('');
-      }
-    } catch {}
-  };
+  // revertToLastGood removed from header; history controls remain
 
   return (
     <div className="space-y-4">

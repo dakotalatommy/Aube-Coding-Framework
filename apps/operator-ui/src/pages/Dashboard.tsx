@@ -165,7 +165,7 @@ export default function Dashboard(){
   const [trialDaysLeft, setTrialDaysLeft] = useState<number>(0);
   // wfProgress removed from Quick Start compact view
   const [foundingMember, setFoundingMember] = useState<boolean>(false);
-  const [quiet, setQuiet] = useState<{ start?: string; end?: string }>({});
+  // const [quiet, setQuiet] = useState<{ start?: string; end?: string }>({});
   const [shareUrl] = useState<string>('');
   // removed copied state in streamlined share flow
   const [shareOpen, setShareOpen] = useState<boolean>(false);
@@ -244,7 +244,7 @@ export default function Dashboard(){
           const fm = Boolean(r?.data?.founding_member) || localStorage.getItem('bvx_founding_member') === '1';
           setFoundingMember(fm);
         } catch {}
-        try { setQuiet(r?.data?.quiet_hours||{}); } catch {}
+        // Quiet hours are not displayed on Dashboard in this pass
       } catch {}
     })();
   },[]);
