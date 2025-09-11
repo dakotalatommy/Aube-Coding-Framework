@@ -10,6 +10,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Build-time sanity checks: fail the build on syntax/import errors
+RUN python -m compileall -q src/backend/app && \
+    python - <<'PY'
+from uvicorn.importer import import_from_string as ifs
+ifs('src.backend.app.main:app')
+print('Import check OK')
+PY
+
 EXPOSE 8000
 
 # Run syntax/import checks (must pass), then migrations (best-effort), then start the app

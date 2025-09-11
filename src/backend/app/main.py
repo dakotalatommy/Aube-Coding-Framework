@@ -1514,7 +1514,7 @@ def create_customer(ctx: UserContext = Depends(get_user_context)):
                         {"dj": _json.dumps(data), "sid": row_id},
                     )
                 else:
-                    payload = {"tenant_id": ctx.tenant_id, "data_json": _json.dumps(data)}
+                payload = {"tenant_id": ctx.tenant_id, "data_json": _json.dumps(data)}
                     db.execute(
                         _sql_text("INSERT INTO settings(tenant_id, data_json) VALUES (:tenant_id, :data_json)"),
                         payload,
@@ -1680,21 +1680,21 @@ async def stripe_webhook(request: Request):
                     db.commit()
             else:
                 # Fallback: scan a limited window to match by customer id
-                rows = db.execute(_sql_text("SELECT tenant_id, data_json, id FROM settings ORDER BY id DESC LIMIT 200")).fetchall()
-                for tenant_id, data_json, sid in rows:
+            rows = db.execute(_sql_text("SELECT tenant_id, data_json, id FROM settings ORDER BY id DESC LIMIT 200")).fetchall()
+            for tenant_id, data_json, sid in rows:
+                try:
+                    d = _json.loads(data_json or "{}")
+                except Exception:
+                    d = {}
+                if d.get("stripe_customer_id") == cust_id:
+                    d.update(t_update)
+                    db.execute(_sql_text("UPDATE settings SET data_json = :dj WHERE id = :sid"), {"dj": _json.dumps(d), "sid": sid})
+                    db.commit()
                     try:
-                        d = _json.loads(data_json or "{}")
+                        emit_event("BillingUpdated", {"tenant_id": tenant_id, "status": d.get("subscription_status", "unknown")})
                     except Exception:
-                        d = {}
-                    if d.get("stripe_customer_id") == cust_id:
-                        d.update(t_update)
-                        db.execute(_sql_text("UPDATE settings SET data_json = :dj WHERE id = :sid"), {"dj": _json.dumps(d), "sid": sid})
-                        db.commit()
-                        try:
-                            emit_event("BillingUpdated", {"tenant_id": tenant_id, "status": d.get("subscription_status", "unknown")})
-                        except Exception:
-                            pass
-                        break
+                        pass
+                    break
     except Exception:
         pass
     return JSONResponse({"status": "ok"})
@@ -2498,7 +2498,7 @@ def oauth_refresh(req: OAuthRefreshRequest, db: Session = Depends(get_db), ctx: 
             except Exception:
                 row_v2 = None
             if not row_v2:
-                return {"status": "not_found"}
+            return {"status": "not_found"}
             # Extract RT and refresh
             try:
                 rt_val_v2 = decrypt_text(str(row_v2[1] or "")) or ""
@@ -5379,7 +5379,7 @@ def update_settings(
                 current = {}
             current.update(payload)
             conn.execute(__t("UPDATE settings SET data_json=:d WHERE id=:id"), {"d": _json.dumps(current), "id": row[0]})
-        else:
+    else:
             conn.execute(__t("INSERT INTO settings(tenant_id, data_json) VALUES (CAST(:t AS uuid), :d)"), {"t": req.tenant_id, "d": _json.dumps(payload or {})})
     return {"status": "ok"}
 
@@ -6908,9 +6908,9 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                                 "lname": last_name,
                                 "dname": display_name,
                             },
-                        )
-                        created_total += 1
-                    else:
+                    )
+                    created_total += 1
+                else:
                         res = _conn.execute(
                             _sql_text(
                                 """
@@ -8751,12 +8751,12 @@ def onboarding_status(
         # Some Supabase schemas may not include user_id on connected_accounts.
         # Fallback: detect any connected account for this tenant via platform presence.
         try:
-            connected_accounts = asyncio.run(
-                adapter.select(
-                    "connected_accounts",
-                    {"select": "platform,connected_at", "user_id": f"eq.{ctx.user_id}", "limit": "10"},
-                )
+        connected_accounts = asyncio.run(
+            adapter.select(
+                "connected_accounts",
+                {"select": "platform,connected_at", "user_id": f"eq.{ctx.user_id}", "limit": "10"},
             )
+        )
         except Exception:
             connected_accounts = asyncio.run(
                 adapter.select(
