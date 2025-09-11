@@ -4089,41 +4089,48 @@ def ai_memories_upsert(req: MemoryUpsertRequest, db: Session = Depends(get_db), 
                 conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
             except Exception:
                 pass
-            # Try JSON-first write (covers json/jsonb schemas). If it fails, fall back to plain text.
+            # Detect column types precisely (json vs jsonb vs text)
+            def _col_type(col: str) -> str:
+                try:
+                    row = conn.execute(
+                        _sql_text(
+                            "SELECT lower(data_type) FROM information_schema.columns "
+                            "WHERE table_schema='public' AND table_name='ai_memories' AND column_name=:c"
+                        ),
+                        {"c": col},
+                    ).fetchone()
+                    return str(row[0]).lower() if row and row[0] else "text"
+                except Exception:
+                    return "text"
+            vtype = _col_type("value")
+            ttype = _col_type("tags")
+            def _expr(typ: str, param: str) -> str:
+                if typ == "jsonb":
+                    return f"to_jsonb(:{param}::text)"
+                if typ == "json":
+                    return f"to_json(:{param}::text)"
+                return f":{param}"
+            val_expr = _expr(vtype, "v")
+            tag_expr = _expr(ttype, "tg")
+
             params = {"t": req.tenant_id, "k": req.key, "v": req.value, "tg": (req.tags or None)}
-            try:
-                conn.execute(
-                    _sql_text(
-                        "UPDATE ai_memories SET value=to_jsonb(:v::text), tags=to_jsonb(:tg::text), updated_at=NOW() "
-                        "WHERE tenant_id = CAST(:t AS uuid) AND key=:k"
-                    ),
-                    params,
-                )
-                conn.execute(
-                    _sql_text(
-                        "INSERT INTO ai_memories (tenant_id, key, value, tags) "
-                        "SELECT CAST(:t AS uuid), :k, to_jsonb(:v::text), to_jsonb(:tg::text) "
-                        "WHERE NOT EXISTS (SELECT 1 FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key=:k)"
-                    ),
-                    params,
-                )
-            except Exception:
-                # Fallback for legacy schemas where columns are TEXT
-                conn.execute(
-                    _sql_text(
-                        "UPDATE ai_memories SET value=:v, tags=:tg, updated_at=NOW() "
-                        "WHERE tenant_id = CAST(:t AS uuid) AND key=:k"
-                    ),
-                    params,
-                )
-                conn.execute(
-                    _sql_text(
-                        "INSERT INTO ai_memories (tenant_id, key, value, tags) "
-                        "SELECT CAST(:t AS uuid), :k, :v, :tg "
-                        "WHERE NOT EXISTS (SELECT 1 FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key=:k)"
-                    ),
-                    params,
-                )
+
+            # Upsert (update then insert if missing) with type-aware expressions
+            conn.execute(
+                _sql_text(
+                    f"UPDATE ai_memories SET value={val_expr}, tags={tag_expr}, updated_at=NOW() "
+                    "WHERE tenant_id = CAST(:t AS uuid) AND key=:k"
+                ),
+                params,
+            )
+            conn.execute(
+                _sql_text(
+                    f"INSERT INTO ai_memories (tenant_id, key, value, tags) "
+                    f"SELECT CAST(:t AS uuid), :k, {val_expr}, {tag_expr} "
+                    "WHERE NOT EXISTS (SELECT 1 FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key=:k)"
+                ),
+                params,
+            )
         return {"status": "ok"}
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
