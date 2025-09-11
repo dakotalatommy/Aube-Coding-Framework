@@ -4285,6 +4285,27 @@ def ai_memories_delete(key: str, tenant_id: str, db: Session = Depends(get_db), 
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
 
+# ------------------------ Admin: Run DB Sweep ------------------------
+@app.post("/admin/db/sweep", tags=["Admin"])
+def admin_db_sweep(ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+    if ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    try:
+        base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        sweep_path = os.path.join(base_dir, "db", "migrations", "2025-09-11_brandvx_sweep.sql")
+        with open(sweep_path, "r", encoding="utf-8") as f:
+            sql_script = f.read()
+        from sqlalchemy import text as __t
+        with engine.begin() as conn:
+            try:
+                conn.execute(__t("SET LOCAL app.role = 'owner_admin'"))
+            except Exception:
+                pass
+            conn.exec_driver_sql(sql_script)
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
+
 @app.get("/ai/diag", tags=["AI"])
 def ai_diag():
     try:
