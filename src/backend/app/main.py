@@ -4374,6 +4374,45 @@ def ai_costs(tenant_id: str, ctx: UserContext = Depends(get_user_context)):
         return {"status": "error", "detail": str(e)[:200]}
 
 
+@app.get("/limits/status", tags=["AI"])
+def limits_status(tenant_id: str, ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    # Daily usage (same counters as /ai/costs)
+    try:
+        import datetime as _dt
+        def _today_key(prefix: str, tid: str = "global") -> str:
+            return f"{prefix}:{tid}:{_dt.datetime.utcnow().strftime('%Y%m%d')}"
+        t_tokens = int(cache_get(_today_key("ai_tokens", tenant_id)) or 0)
+        t_cost = float(cache_get(_today_key("ai_cost_usd", tenant_id)) or 0.0)
+    except Exception:
+        t_tokens = 0
+        t_cost = 0.0
+    # Limits from DB
+    daily_usd_cap = 0.0
+    monthly_usd_cap = 0.0
+    try:
+        row = db.query(dbm.UsageLimit).filter(dbm.UsageLimit.tenant_id == tenant_id).first()
+        if row:
+            daily_usd_cap = float((row.ai_daily_cents_cap or 0) / 100.0)
+            monthly_usd_cap = float((row.ai_monthly_cents_cap or 0) / 100.0)
+    except Exception:
+        pass
+    warnings: Dict[str, bool] = {}
+    try:
+        daily_soft = (daily_usd_cap > 0) and (t_cost >= 0.8 * daily_usd_cap) and (t_cost < daily_usd_cap)
+        daily_over = (daily_usd_cap > 0) and (t_cost >= daily_usd_cap)
+        warnings = {"daily_soft": bool(daily_soft), "daily_over": bool(daily_over)}
+    except Exception:
+        warnings = {}
+    return {
+        "tenant_id": tenant_id,
+        "usage": {"daily_tokens": int(t_tokens), "daily_usd": round(t_cost, 4)},
+        "caps": {"daily_usd": round(daily_usd_cap, 4), "monthly_usd": round(monthly_usd_cap, 4)},
+        "warnings": warnings,
+    }
+
+
 @app.get("/ops/health", tags=["Health"])
 def ops_health(db: Session = Depends(get_db), ctx: UserContext = Depends(require_role("owner_admin"))) -> Dict[str, object]:
     """Aggregate health snapshot for ops dashboards: DB, Redis, OpenAI, PostHog, Sentry, Tools/Contexts."""
