@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { startOAuth } from '../../sdk/connectionsClient'
 import { api, getTenant } from '../../lib/api'
 
-export default function SceneConnections({ next, back, save }: any){
+export default function SceneConnections({ next, back }: any){
   const [busy, setBusy] = useState<boolean>(false)
   const [status, setStatus] = useState<string>('')
   const [error, setError] = useState<string>('')
