@@ -105,6 +105,325 @@ try:
     app.openapi_tags = tags_metadata  # type: ignore[attr-defined]
 except Exception:
     pass
+
+# ----------------------- Onboarding Progress -----------------------
+class ProgressStep(BaseModel):
+    tenant_id: str
+    step_key: str
+    context: Optional[Dict[str, Any]] = None
+
+
+@app.post("/onboarding/complete_step", tags=["Plans"])
+def onboarding_complete_step(req: ProgressStep, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    try:
+        with engine.begin() as conn:
+            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": req.tenant_id})
+            conn.execute(_sql_text("INSERT INTO onboarding_progress(tenant_id, step_key, context_json) VALUES (CAST(:t AS uuid), :k, :c)"), {"t": req.tenant_id, "k": req.step_key, "c": _json.dumps(req.context or {})})
+        return {"status": "ok", "step_key": req.step_key}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
+
+
+@app.get("/onboarding/progress", tags=["Plans"])
+def onboarding_progress(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"steps": []}
+    try:
+        rows = db.execute(_sql_text("SELECT step_key, completed_at FROM onboarding_progress WHERE tenant_id = CAST(:t AS uuid) ORDER BY completed_at ASC"), {"t": tenant_id}).fetchall()
+        return {"steps": [{"step_key": r[0], "completed_at": str(r[1])} for r in rows]}
+    except Exception:
+        return {"steps": []}
+
+
+# ----------------------- 14‑day Plan -----------------------
+class PlanDayComplete(BaseModel):
+    tenant_id: str
+    day_index: int
+
+
+@app.post("/plan/14day/complete_day", tags=["Plans"])
+def plan_complete_day(req: PlanDayComplete, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    try:
+        with engine.begin() as conn:
+            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": req.tenant_id})
+            conn.execute(_sql_text("UPDATE plan_14day SET completed_at = now() WHERE tenant_id = CAST(:t AS uuid) AND day_index = :d"), {"t": req.tenant_id, "d": int(req.day_index)})
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
+
+
+@app.get("/plan/14day/status", tags=["Plans"])
+def plan_status(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    try:
+        days = db.execute(_sql_text("SELECT day_index, tasks_json, completed_at FROM plan_14day WHERE tenant_id = CAST(:t AS uuid) ORDER BY day_index ASC"), {"t": tenant_id}).fetchall()
+        completed = [int(r[0]) for r in days if r[2] is not None]
+        today = len(completed) + 1 if len(days) >= 1 else 1
+        return {"status": "ok", "day_today": today, "days_completed": completed, "days_total": max(len(days), 14)}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
+
+
+@app.post("/plan/14day/generate", tags=["Plans"])
+async def plan_generate(req: ProgressStep, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    # Try AI; fall back to scaffold
+    try:
+        client = AIClient()
+        prompt = (
+            "Create a 14‑day strategy plan for a solo beauty professional to increase bookings and retention. "
+            "Use the tenant’s recent revenue, client cadence, and BrandVZN (photo edits) as levers. Each day: 2–4 concrete actions; keep under 80 words."
+        )
+        body = await client.generate(BRAND_SYSTEM, [{"role": "user", "content": prompt}], max_tokens=600)
+        # Simple split into days; if LLM returns structured, client can parse richer
+        lines = [l.strip("- •\t ") for l in body.split("\n") if l.strip()]
+        chunks: List[List[str]] = []
+        chunk: List[str] = []
+        for l in lines:
+            if len(chunk) >= 3:
+                chunks.append(chunk); chunk = []
+            chunk.append(l)
+        if chunk: chunks.append(chunk)
+        while len(chunks) < 14:
+            chunks.append(["Reach out to 3 dormant clients with a warm check‑in.", "Post one BrandVZN edit before/after."])
+        with engine.begin() as conn:
+            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": req.tenant_id})
+            conn.execute(_sql_text("DELETE FROM plan_14day WHERE tenant_id = CAST(:t AS uuid)"), {"t": req.tenant_id})
+            for i, arr in enumerate(chunks[:14], start=1):
+                conn.execute(
+                    _sql_text("INSERT INTO plan_14day (tenant_id, day_index, tasks_json) VALUES (CAST(:t AS uuid), :d, :j)"),
+                    {"t": req.tenant_id, "d": i, "j": _json.dumps(arr)},
+                )
+        # Also write last_session_summary memory
+        try:
+            with engine.begin() as conn:
+                conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+                conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": req.tenant_id})
+                summary = "14‑day plan generated. Day 1: " + "; ".join(chunks[0][:2])
+                conn.execute(_sql_text("UPDATE ai_memories SET value=:v, tags='rolling,summary', updated_at=now() WHERE tenant_id = CAST(:t AS uuid) AND key='last_session_summary'"), {"t": req.tenant_id, "v": summary})
+                conn.execute(_sql_text("INSERT INTO ai_memories (tenant_id, key, value, tags) SELECT CAST(:t AS uuid), 'last_session_summary', :v, 'rolling,summary' WHERE NOT EXISTS (SELECT 1 FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key='last_session_summary')"), {"t": req.tenant_id, "v": summary})
+        except Exception:
+            pass
+        return {"status": "ok", "days": 14}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
+
+
+# ----------------------- Referral & Plan Switch -----------------------
+class ReferralPayload(BaseModel):
+    tenant_id: str
+    referral_link: Optional[str] = None
+    file_url: Optional[str] = None
+
+
+@app.post("/billing/referral/upload", tags=["Billing"])
+def billing_referral_upload(req: ReferralPayload, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    try:
+        with engine.begin() as conn:
+            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": req.tenant_id})
+            conn.execute(_sql_text("INSERT INTO referrals(tenant_id, referral_link, uploaded_proof_url, plan_before, plan_after, processed_at) VALUES (CAST(:t AS uuid), :rl, :u, '147', '127', now())"), {"t": req.tenant_id, "rl": (req.referral_link or ''), "u": (req.file_url or '')})
+        # TODO: switch Stripe subscription price (requires price IDs and customer id mapping)
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
+
+
+# ----------------------- Chat Sessions & History -----------------------
+class NewSessionRequest(BaseModel):
+    tenant_id: str
+
+
+@app.post("/ai/chat/session/new", tags=["AI"])
+def ai_chat_new_session(req: NewSessionRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    sid = "s_" + _secrets.token_urlsafe(8)
+    try:
+        with engine.begin() as conn:
+            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": req.tenant_id})
+            conn.execute(_sql_text("INSERT INTO chat_sessions(tenant_id, session_id) VALUES (CAST(:t AS uuid), :sid)"), {"t": req.tenant_id, "sid": sid})
+        return {"status": "ok", "session_id": sid}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
+
+
+@app.get("/ai/chat/sessions", tags=["AI"])
+def ai_chat_sessions(tenant_id: str, limit: int = 20, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"items": []}
+    try:
+        rows = db.execute(_sql_text("SELECT session_id, started_at, ended_at FROM chat_sessions WHERE tenant_id = CAST(:t AS uuid) ORDER BY started_at DESC LIMIT :lim"), {"t": tenant_id, "lim": max(1, min(int(limit or 20), 200))}).fetchall()
+        return {"items": [{"session_id": r[0], "started_at": str(r[1]), "ended_at": (str(r[2]) if r[2] else None)} for r in rows]}
+    except Exception:
+        return {"items": []}
+
+
+@app.get("/ai/chat/history", tags=["AI"])
+def ai_chat_history(tenant_id: str, session_id: str, limit: int = 200, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"items": []}
+    try:
+        rows = db.execute(_sql_text("SELECT role, content, created_at FROM chat_logs WHERE tenant_id = CAST(:t AS uuid) AND session_id = :sid ORDER BY id ASC LIMIT :lim"), {"t": tenant_id, "sid": session_id, "lim": max(1, min(int(limit or 200), 500))}).fetchall()
+        return {"items": [{"role": r[0], "content": r[1], "created_at": int(r[2] or 0)} for r in rows]}
+    except Exception:
+        return {"items": []}
+
+
+# ----------------------- Contacts Search -----------------------
+@app.get("/contacts/search", tags=["Contacts"])
+def contacts_search(tenant_id: str, q: str = "", limit: int = 12, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"items": []}
+    try:
+        like = f"%{q.strip()}%" if q else "%"
+        rows = db.execute(
+            _sql_text("SELECT contact_id::text, COALESCE(display_name, CONCAT(COALESCE(first_name,''),' ',COALESCE(last_name,''))) AS name, email_hash, phone_hash FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND (display_name ILIKE :q OR first_name ILIKE :q OR last_name ILIKE :q) ORDER BY name ASC LIMIT :lim"),
+            {"t": tenant_id, "q": like, "lim": max(1, min(int(limit or 12), 50))},
+        ).fetchall()
+        return {"items": [{"contact_id": r[0], "display_name": r[1] or "Client", "email": r[2] or "", "phone": r[3] or ""} for r in rows]}
+    except Exception:
+        return {"items": []}
+
+
+# ----------------------- Follow‑ups -----------------------
+@app.get("/followups/candidates", tags=["Cadences"])
+def followups_candidates(tenant_id: str, scope: str = "this_week", db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"items": []}
+    try:
+        # Heuristic scopes based on appointments/last_visit
+        if scope == "tomorrow":
+            q = _sql_text("SELECT contact_id::text FROM appointments WHERE tenant_id = CAST(:t AS uuid) AND start_ts >= EXTRACT(EPOCH FROM now() + interval '1 day')::bigint AND start_ts < EXTRACT(EPOCH FROM now() + interval '2 day')::bigint")
+            rows = db.execute(q, {"t": tenant_id}).fetchall()
+            items = [{"contact_id": r[0], "reason": "appt_tomorrow"} for r in rows]
+            return {"items": items}
+        if scope == "this_week":
+            q = _sql_text("SELECT contact_id::text FROM appointments WHERE tenant_id = CAST(:t AS uuid) AND start_ts >= EXTRACT(EPOCH FROM date_trunc('week', now()))::bigint AND start_ts < EXTRACT(EPOCH FROM date_trunc('week', now()) + interval '7 day')::bigint")
+            rows = db.execute(q, {"t": tenant_id}).fetchall()
+            items = [{"contact_id": r[0], "reason": "appt_this_week"} for r in rows]
+            return {"items": items}
+        if scope == "reengage_30d":
+            q = _sql_text("SELECT contact_id::text FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND (last_visit IS NULL OR last_visit < (EXTRACT(EPOCH FROM now())::bigint - 30*86400)) ORDER BY last_visit NULLS FIRST LIMIT 200")
+            rows = db.execute(q, {"t": tenant_id}).fetchall()
+            items = [{"contact_id": r[0], "reason": "no_visit_30d"} for r in rows]
+            return {"items": items}
+        if scope == "winback_45d":
+            q = _sql_text("SELECT contact_id::text FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND (last_visit IS NULL OR last_visit < (EXTRACT(EPOCH FROM now())::bigint - 45*86400)) ORDER BY last_visit NULLS FIRST LIMIT 200")
+            rows = db.execute(q, {"t": tenant_id}).fetchall()
+            items = [{"contact_id": r[0], "reason": "no_visit_45d"} for r in rows]
+            return {"items": items}
+        return {"items": []}
+    except Exception:
+        return {"items": []}
+
+
+class FollowupsEnqueue(BaseModel):
+    tenant_id: str
+    contact_ids: List[str]
+    cadence_id: str = "never_answered"
+
+
+@app.post("/followups/enqueue", tags=["Cadences"])
+def followups_enqueue(req: FollowupsEnqueue, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    try:
+        with engine.begin() as conn:
+            for cid in req.contact_ids:
+                conn.execute(_sql_text("INSERT INTO cadence_states (tenant_id, contact_id, cadence_id, step_index, next_action_epoch, created_at) VALUES (CAST(:t AS uuid), :c, :cid, 0, extract(epoch from now())::int, now()) ON CONFLICT DO NOTHING"), {"t": req.tenant_id, "c": cid, "cid": req.cadence_id})
+        return {"status": "ok", "enqueued": len(req.contact_ids)}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
+
+
+# ----------------------- Unified To‑Do -----------------------
+@app.get("/todo/list", tags=["Plans"])
+def todo_list(tenant_id: str, status: str = "pending", type: Optional[str] = None, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"items": []}
+    try:
+        params: Dict[str, Any] = {"t": tenant_id, "s": status}
+        sql = "SELECT id, type, status, title, details_json, created_at FROM todo_items WHERE tenant_id = CAST(:t AS uuid)"
+        if status and status != "all":
+            sql += " AND status = :s"
+        if type:
+            sql += " AND type = :ty"; params["ty"] = type
+        sql += " ORDER BY created_at DESC LIMIT 200"
+        rows = db.execute(_sql_text(sql), params).fetchall()
+        return {"items": [{"id": r[0], "type": r[1], "status": r[2], "title": r[3], "details": r[4], "created_at": str(r[5])} for r in rows]}
+    except Exception:
+        return {"items": []}
+
+
+class TodoAdd(BaseModel):
+    tenant_id: str
+    type: str
+    title: str
+    details: Optional[Dict[str, Any]] = None
+
+
+@app.post("/todo/add", tags=["Plans"])
+def todo_add(req: TodoAdd, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    try:
+        with engine.begin() as conn:
+            conn.execute(_sql_text("INSERT INTO todo_items (tenant_id, type, title, details_json) VALUES (CAST(:t AS uuid), :ty, :ti, :dj)"), {"t": req.tenant_id, "ty": req.type, "ti": req.title, "dj": _json.dumps(req.details or {})})
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
+
+
+class TodoAck(BaseModel):
+    tenant_id: str
+    id: int
+
+
+@app.post("/todo/ack", tags=["Plans"])
+def todo_ack(req: TodoAck, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    try:
+        with engine.begin() as conn:
+            conn.execute(_sql_text("UPDATE todo_items SET status='resolved', resolved_at=now() WHERE tenant_id = CAST(:t AS uuid) AND id=:id"), {"t": req.tenant_id, "id": int(req.id)})
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
+
+
+# ----------------------- Provider Refresh -----------------------
+class ProviderRefresh(BaseModel):
+    tenant_id: str
+    provider: str  # 'square'|'acuity'
+
+
+@app.post("/integrations/refresh", tags=["Integrations"])
+def integrations_refresh(req: ProviderRefresh, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    # For now, trigger calendar and connectors backfill paths
+    try:
+        base = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
+        with httpx.Client(timeout=30) as client:
+            # Calendar sync
+            client.post(f"{base}/calendar/sync", json={"tenant_id": req.tenant_id, "provider": req.provider})
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
+
 @app.get("/limits/status", tags=["Health"])
 def limits_status(tenant_id: str, keys: str = "msg:sms,msg:email,ai.chat,db.query.named"):
     try:
@@ -3770,40 +4089,41 @@ def ai_memories_upsert(req: MemoryUpsertRequest, db: Session = Depends(get_db), 
                 conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
             except Exception:
                 pass
-            # Detect column types to support json/jsonb or text schemas
-            vtype = "text"; ttype = "text"
+            # Try JSON-first write (covers json/jsonb schemas). If it fails, fall back to plain text.
+            params = {"t": req.tenant_id, "k": req.key, "v": req.value, "tg": (req.tags or None)}
             try:
-                row = conn.execute(
-                    _sql_text("SELECT lower(data_type) FROM information_schema.columns WHERE table_schema='public' AND table_name='ai_memories' AND column_name='value'")
-                ).fetchone()
-                if row and row[0]: vtype = str(row[0]).lower()
+                conn.execute(
+                    _sql_text(
+                        "UPDATE ai_memories SET value=to_jsonb(:v::text), tags=to_jsonb(:tg::text), updated_at=NOW() "
+                        "WHERE tenant_id = CAST(:t AS uuid) AND key=:k"
+                    ),
+                    params,
+                )
+                conn.execute(
+                    _sql_text(
+                        "INSERT INTO ai_memories (tenant_id, key, value, tags) "
+                        "SELECT CAST(:t AS uuid), :k, to_jsonb(:v::text), to_jsonb(:tg::text) "
+                        "WHERE NOT EXISTS (SELECT 1 FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key=:k)"
+                    ),
+                    params,
+                )
             except Exception:
-                vtype = "text"
-            try:
-                row2 = conn.execute(
-                    _sql_text("SELECT lower(data_type) FROM information_schema.columns WHERE table_schema='public' AND table_name='ai_memories' AND column_name='tags'")
-                ).fetchone()
-                if row2 and row2[0]: ttype = str(row2[0]).lower()
-            except Exception:
-                ttype = "text"
-            val_expr = "to_jsonb(:v::text)" if ("json" in vtype) else ":v"
-            tag_expr = "to_jsonb(:tg::text)" if ("json" in ttype) else ":tg"
-            # Upsert (update-then-insert-if-missing)
-            conn.execute(
-                _sql_text(
-                    f"UPDATE ai_memories SET value={val_expr}, tags={tag_expr}, updated_at=NOW() "
-                    "WHERE tenant_id = CAST(:t AS uuid) AND key=:k"
-                ),
-                {"t": req.tenant_id, "k": req.key, "v": req.value, "tg": (req.tags or None)},
-            )
-            conn.execute(
-                _sql_text(
-                    f"INSERT INTO ai_memories (tenant_id, key, value, tags) "
-                    f"SELECT CAST(:t AS uuid), :k, {val_expr}, {tag_expr} "
-                    "WHERE NOT EXISTS (SELECT 1 FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key=:k)"
-                ),
-                {"t": req.tenant_id, "k": req.key, "v": req.value, "tg": (req.tags or None)},
-            )
+                # Fallback for legacy schemas where columns are TEXT
+                conn.execute(
+                    _sql_text(
+                        "UPDATE ai_memories SET value=:v, tags=:tg, updated_at=NOW() "
+                        "WHERE tenant_id = CAST(:t AS uuid) AND key=:k"
+                    ),
+                    params,
+                )
+                conn.execute(
+                    _sql_text(
+                        "INSERT INTO ai_memories (tenant_id, key, value, tags) "
+                        "SELECT CAST(:t AS uuid), :k, :v, :tg "
+                        "WHERE NOT EXISTS (SELECT 1 FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key=:k)"
+                    ),
+                    params,
+                )
         return {"status": "ok"}
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
@@ -5266,6 +5586,7 @@ def list_messages(
     tenant_id: str,
     contact_id: Optional[str] = None,
     limit: int = 50,
+    filter: Optional[str] = None,  # unread|needs_reply|scheduled|failed|all
     db: Session = Depends(get_db),
     ctx: UserContext = Depends(get_user_context),
 ):
@@ -5274,6 +5595,19 @@ def list_messages(
     q = db.query(dbm.Message).filter(dbm.Message.tenant_id == tenant_id)
     if contact_id:
         q = q.filter(dbm.Message.contact_id == contact_id)
+    # Simple filters: relies on status + direction
+    f = (filter or "").strip().lower()
+    if f == "unread":
+        q = q.filter(dbm.Message.status == "unread")
+    elif f == "failed":
+        q = q.filter(dbm.Message.status.ilike("fail%"))
+    elif f == "scheduled":
+        q = q.filter(dbm.Message.status.ilike("sched%"))
+    elif f == "needs_reply":
+        # last inbound without newer outbound for same contact
+        # (approximate: filter inbound, then exclude if a newer outbound exists)
+        sub = db.query(dbm.Message.contact_id, dbm.Message.id).filter(dbm.Message.tenant_id == tenant_id, dbm.Message.direction == "outbound").subquery()
+        q = q.filter(dbm.Message.direction == "inbound").outerjoin(sub, (sub.c.contact_id == dbm.Message.contact_id) & (sub.c.id > dbm.Message.id)).filter(sub.c.id == None)  # noqa: E711
     rows = q.order_by(dbm.Message.id.desc()).limit(max(1, min(limit, 200))).all()
     items = []
     for r in rows:
