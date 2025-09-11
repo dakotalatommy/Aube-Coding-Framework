@@ -4757,19 +4757,22 @@ async def ai_tool_execute(
                 db.rollback()
             except Exception:
                 pass
-        # Auto-approve toggle from settings
+        # Auto-approve toggle from settings + pause_automations safety
         auto_approve = False
+        pause_automations = False
         try:
             row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == req.tenant_id).first()
             if row:
                 data = json.loads(row.data_json or "{}")
                 auto_approve = bool(data.get("auto_approve_all", False))
+                pause_automations = bool(data.get("pause_automations", False))
         except Exception:
             try:
                 db.rollback()
             except Exception:
                 pass
             auto_approve = False
+            pause_automations = False
         # Idempotency: if provided, reserve or short-circuit duplicate
         if req.idempotency_key:
             try:
@@ -4782,6 +4785,17 @@ async def ai_tool_execute(
                 except Exception:
                     pass
                 return {"status": "duplicate"}
+        # Global pause: any risky or non-trivial tools should be routed to approvals when paused
+        # We treat any tool that isn't explicitly safe as requiring approval while paused
+        if pause_automations and ctx.role != "owner_admin":
+            try:
+                from .tools import TOOL_META  # type: ignore
+            except Exception:
+                TOOL_META = {}
+            meta = TOOL_META.get(req.name, {})
+            is_safe = bool(meta.get("safe", False)) or req.name in {"db.query.named","db.query.sql","report.generate.csv","safety_check","pii.audit"}
+            if not is_safe:
+                req.require_approval = True
         if req.require_approval and not auto_approve:
             db.add(
                 dbm.Approval(
@@ -5529,6 +5543,8 @@ class SettingsRequest(BaseModel):
     rate_limit_multiplier: Optional[int] = None
     # AI insights sharing (opt-in)
     ai_share_insights: Optional[bool] = None
+    # Global safety switch: when true, route risky tools to Approvals
+    pause_automations: Optional[bool] = None
 @app.get("/settings", tags=["Integrations"])
 def get_settings(
     tenant_id: Optional[str] = None,
@@ -5596,6 +5612,7 @@ def update_settings(
         "master_prompt": req.master_prompt,
         "rate_limit_multiplier": req.rate_limit_multiplier,
         "ai_share_insights": req.ai_share_insights,
+        "pause_automations": req.pause_automations,
     }
     # Drop Nones
     payload = {k: v for k, v in payload.items() if v is not None}
@@ -7825,6 +7842,8 @@ class SettingsRequest(BaseModel):
     developer_mode: Optional[bool] = None
     master_prompt: Optional[str] = None  # stored under ai.master_prompt
     rate_limit_multiplier: Optional[int] = None
+    # Global safety switch
+    pause_automations: Optional[bool] = None
 
 
 @app.get("/settings", tags=["Integrations"])
@@ -7912,6 +7931,8 @@ def update_settings(
             data["rate_limit_multiplier"] = max(1, int(req.rate_limit_multiplier))
         except Exception:
             data["rate_limit_multiplier"] = 1
+    if req.pause_automations is not None:
+        data["pause_automations"] = bool(req.pause_automations)
     if not row:
         row = dbm.Settings(tenant_id=req.tenant_id, data_json=json.dumps(data))
         db.add(row)

@@ -187,7 +187,25 @@ async function request(path: string, options: RequestInit = {}) {
 
 export const api = {
   get: (path: string, opts?: RequestInit & { timeoutMs?: number }) => request(path, opts),
-  post: (path: string, body: unknown, opts?: RequestInit & { timeoutMs?: number }) => request(path, { method: 'POST', body: JSON.stringify(body), ...(opts||{}) }),
+  post: (path: string, body: any, opts?: RequestInit & { timeoutMs?: number }) => {
+    try {
+      // Normalize idempotency_key for tool executions if not provided
+      if (typeof path === 'string' && path.startsWith('/ai/tools/execute')) {
+        const b = (body||{}) as any;
+        if (!b.idempotency_key) {
+          const tid = (typeof window !== 'undefined' ? (localStorage.getItem('bvx_tenant')||'') : '') || 'anon';
+          const name = String(b?.name||'tool');
+          const paramsStr = JSON.stringify(b?.params||{});
+          let hash = 0;
+          for (let i = 0; i < paramsStr.length; i++) { hash = ((hash << 5) - hash + paramsStr.charCodeAt(i)) | 0; }
+          const bucket = Math.floor(Date.now() / 10000); // 10s bucket
+          b.idempotency_key = `${tid}:${name}:${hash}:${bucket}`;
+          body = b;
+        }
+      }
+    } catch {}
+    return request(path, { method: 'POST', body: JSON.stringify(body), ...(opts||{}) });
+  },
 };
 
 // Utility to merge multiple AbortSignals (first to abort wins)

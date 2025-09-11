@@ -94,6 +94,23 @@ export default function Contacts(){
           <div className="flex items-center gap-2 mb-2">
             <div className="font-semibold">Clients</div>
             <Button variant="outline" size="sm" disabled={busy} onClick={async()=>{ if (isDemo) { setStatus('Demo: import disabled.'); return; } try{ trackEvent('contacts.import_booking'); }catch{} await run(async()=>api.post('/calendar/sync',{ tenant_id: await getTenant(), provider: 'auto' })); try{ showToast({ title:'Import queued', description:'Booking' }); }catch{} }}>Import from booking</Button>
+            <Button variant="outline" size="sm" onClick={async()=>{
+              try{
+                const tid = await getTenant();
+                const url = `${API_BASE}/exports/contacts?tenant_id=${encodeURIComponent(tid)}`;
+                const sess = (await supabase.auth.getSession()).data.session;
+                const res = await fetch(url, { headers: sess?.access_token ? { Authorization: `Bearer ${sess.access_token}` } : {} });
+                const text = await res.text();
+                const blob = new Blob([text], { type: 'text/csv;charset=utf-8;' });
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'contacts.csv';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                try { showToast({ title: 'Export ready', description: 'contacts.csv downloaded' }); } catch {}
+              } catch(e:any){ setStatus(String(e?.message||e)); }
+            }}>Export CSV</Button>
             <Button variant="outline" size="sm" disabled={listBusy} onClick={async()=>{
               try{
                 setListBusy(true);

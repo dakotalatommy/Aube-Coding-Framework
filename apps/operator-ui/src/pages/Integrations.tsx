@@ -20,7 +20,8 @@ export default function Integrations(){
   const SOCIAL_ON = (import.meta as any).env?.VITE_FEATURE_SOCIAL === '1';
   const SHOW_REDIRECT_URIS = ((import.meta as any).env?.VITE_SHOW_REDIRECT_URIS === '1') || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('dev'));
   const DEV_MODE = (()=>{ try{ return new URLSearchParams(window.location.search).has('dev'); } catch { return false; } })();
-  const [settings, setSettings] = useState<any>({ tone:'helpful', services:['sms','email'], auto_approve_all:false, quiet_hours:{ start:'21:00', end:'08:00' }, brand_profile:{ name:'', voice:'', about:'' }, metrics:{ monthly_revenue:'', avg_service_price:'', avg_service_time:'', rent:'' }, goals:{ primary_goal:'' }, preferences:{} });
+  const [settings, setSettings] = useState<any>({ tone:'helpful', services:['sms','email'], auto_approve_all:false, pause_automations:false, quiet_hours:{ start:'21:00', end:'08:00' }, brand_profile:{ name:'', voice:'', about:'' }, metrics:{ monthly_revenue:'', avg_service_price:'', avg_service_time:'', rent:'' }, goals:{ primary_goal:'' }, preferences:{} });
+  const [statusPill, setStatusPill] = useState<{providers:Record<string,{linked:boolean;status?:string;last_sync?:number}>; loaded:boolean}>({ providers:{}, loaded:false });
   const isDemo = (()=>{ try{ return new URLSearchParams(window.location.search).get('demo')==='1'; } catch { return false; } })();
   const [status, setStatus] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -174,6 +175,11 @@ export default function Integrations(){
           } catch {}
         }
       }catch{}
+      try{
+        const tid = await getTenant();
+        const st = await api.get(`/integrations/status?tenant_id=${encodeURIComponent(tid)}`);
+        setStatusPill({ providers: (st?.providers||{}) as any, loaded:true });
+      }catch{ setStatusPill({ providers:{}, loaded:false }); }
     } catch(e:any){ setStatus(String(e?.message||e)); }
   };
 
@@ -598,6 +604,18 @@ export default function Integrations(){
         </div>
       )}
       <div className="grid gap-3 max-w-xl">
+        {/* System Status pill */}
+        <section className="rounded-2xl p-2 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
+          <div className="flex items-center gap-2 text-[11px]">
+            <span className="text-slate-700">System status:</span>
+            {['google','square','acuity'].map((p)=>{
+              const s = (statusPill.providers as any)[p] || {} as any;
+              const linked = !!s.linked;
+              const st = linked ? 'connected' : 'pending';
+              return <StatusBadge key={p} status={st as any} label={`${p}: ${linked? 'Connected':'Needs auth'}`} />
+            })}
+          </div>
+        </section>
         {/* Setup Progress */}
         <section className="rounded-2xl p-3 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
           <div className="flex items-center justify-between">
@@ -633,9 +651,15 @@ export default function Integrations(){
         <div className="text-[11px] text-slate-600">Preview: {fmt12(settings.quiet_hours?.start||'21:00')} – {fmt12(settings.quiet_hours?.end||'08:00')}</div>
         <div className="flex items-center gap-2 text-sm">
           <label className="flex items-center gap-2"> Auto-approve risky tools
-            <input type="checkbox" checked={!!settings.auto_approve_all} onChange={e=>setSettings({...settings, auto_approve_all: e.target.checked})} />
+            <input type="checkbox" checked={!!settings.auto_approve_all} onChange={async(e)=>{ const v=e.target.checked; setSettings({...settings, auto_approve_all: v}); try{ await api.post('/settings',{ tenant_id: await getTenant(), auto_approve_all: v }); }catch{} }} />
           </label>
           <span className="text-[11px] text-slate-600" title="Examples: send message, reschedule/cancel, start campaign, bulk import">(?)</span>
+        </div>
+        <div className="flex items-center gap-2 text-sm">
+          <label className="flex items-center gap-2"> Pause automations
+            <input type="checkbox" checked={!!settings.pause_automations} onChange={async(e)=>{ const v=e.target.checked; setSettings({...settings, pause_automations: v}); try{ await api.post('/settings',{ tenant_id: await getTenant(), pause_automations: v }); }catch{} }} />
+          </label>
+          <span className="text-[11px] text-slate-600" title="When on, risky tool actions go to To‑Do for approval.">(?)</span>
         </div>
         <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Some actions may require approval when auto-approve is off. Review in <a className="underline" href="/workspace?pane=approvals">To‑Do</a>.</div>
         {/* Save/Send test buttons removed per spec */}

@@ -156,13 +156,13 @@ export default function Agent() {
       </section>
 
       <section className="border rounded-xl p-3 bg-white shadow-sm">
-        <div className="font-semibold mb-2">Recent Audit</div>
+        <div className="font-semibold mb-2">Recent Tool Audit</div>
         <div className="overflow-hidden rounded-md border">
           <table className="min-w-full">
-            <thead className="bg-slate-50"><tr><Th>ID</Th><Th>Action</Th><Th>Entity</Th><Th>Actor</Th></tr></thead>
+            <thead className="bg-slate-50"><tr><Th>Time</Th><Th>Tool</Th><Th>Status</Th></tr></thead>
             <tbody className="divide-y">
               {(audit||[]).map((r:any)=> (
-                <tr key={r.id} className="hover:bg-slate-50"><Td>{r.id}</Td><Td>{r.action}</Td><Td>{r.entity_ref}</Td><Td>{r.actor_id}</Td></tr>
+                <tr key={r.id} className="hover:bg-slate-50"><Td>{new Date((Number(r.ts)||0)*1000).toLocaleString()}</Td><Td>{r.action||r.tool}</Td><Td>{r.status||'-'}</Td></tr>
               ))}
             </tbody>
           </table>

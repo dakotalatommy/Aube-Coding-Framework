@@ -482,6 +482,20 @@ export default function Dashboard(){
         <div className="mt-2 flex flex-wrap gap-2">
           <Button size="sm" variant="outline" onClick={async()=>{ try{ await api.post('/plan/14day/generate', { tenant_id: await getTenant(), step_key: 'init' }); } catch{} await loadPlan(); }}>Generate 14‑day plan</Button>
           <Button size="sm" variant="outline" onClick={()=> window.location.assign('/ask')}>Open AskVX</Button>
+          {planStatus?.day_today && (
+            <Button
+              size="sm"
+              onClick={async()=>{
+                try{
+                  const tid = await getTenant();
+                  const day = Number(planStatus?.day_today||1);
+                  await api.post('/plan/14day/complete_day', { tenant_id: tid, day_index: day });
+                  try { showToast({ title: 'Marked complete', description: `Day ${day} done` }); } catch {}
+                  await loadPlan();
+                } catch {}
+              }}
+            >Mark day complete</Button>
+          )}
         </div>
         {!!sessionSummary && (
           <div className="mt-3 rounded-md border bg-slate-50 p-2">
