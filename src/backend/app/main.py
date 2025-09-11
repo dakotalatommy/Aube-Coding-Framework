@@ -209,7 +209,7 @@ async def plan_generate(req: ProgressStep, db: Session = Depends(get_db), ctx: U
         client = AIClient()
         prompt = (
             "Create a 14‑day strategy plan for a solo beauty professional to increase bookings and retention. "
-            "Use the tenant’s recent revenue, client cadence, and BrandVZN (photo edits) as levers. Each day: 2–4 concrete actions; keep under 80 words."
+            "Use the tenant's recent revenue, client cadence, and BrandVZN (photo edits) as levers. Each day: 2–4 concrete actions; keep under 80 words."
         )
         body = await client.generate(BRAND_SYSTEM, [{"role": "user", "content": prompt}], max_tokens=600)
         # Simple split into days; if LLM returns structured, client can parse richer
@@ -790,10 +790,7 @@ class TenantScopeMiddleware(BaseHTTPMiddleware):
             pass
         response = await call_next(request)
         return response
-
-
 app.add_middleware(TenantScopeMiddleware)
-
 # ---------- V2: Connected accounts storage bootstrap ----------
 def _ensure_connected_accounts_v2() -> None:
     try:
@@ -1543,7 +1540,7 @@ def create_customer(ctx: UserContext = Depends(get_user_context)):
                         {"dj": _json.dumps(data), "sid": row_id},
                     )
                 else:
-                payload = {"tenant_id": ctx.tenant_id, "data_json": _json.dumps(data)}
+                    payload = {"tenant_id": ctx.tenant_id, "data_json": _json.dumps(data)}
                     db.execute(
                         _sql_text("INSERT INTO settings(tenant_id, data_json) VALUES (:tenant_id, :data_json)"),
                         payload,
@@ -1562,8 +1559,6 @@ def create_setup_intent(ctx: UserContext = Depends(get_user_context_relaxed)):
     cust = create_customer(ctx)
     setup_intent = s.SetupIntent.create(customer=cust["customer_id"])  # type: ignore
     return {"client_secret": setup_intent["client_secret"]}
-
-
 @app.post("/billing/create-checkout-session", tags=["Integrations"])
 def create_checkout_session(req: dict, ctx: UserContext = Depends(get_user_context_relaxed)):
     s = _stripe_client()
@@ -1709,7 +1704,7 @@ async def stripe_webhook(request: Request):
                     db.commit()
             else:
                 # Fallback: scan a limited window to match by customer id
-            rows = db.execute(_sql_text("SELECT tenant_id, data_json, id FROM settings ORDER BY id DESC LIMIT 200")).fetchall()
+                rows = db.execute(_sql_text("SELECT tenant_id, data_json, id FROM settings ORDER BY id DESC LIMIT 200")).fetchall()
             for tenant_id, data_json, sid in rows:
                 try:
                     d = _json.loads(data_json or "{}")
@@ -2527,7 +2522,7 @@ def oauth_refresh(req: OAuthRefreshRequest, db: Session = Depends(get_db), ctx: 
             except Exception:
                 row_v2 = None
             if not row_v2:
-            return {"status": "not_found"}
+                return {"status": "not_found"}
             # Extract RT and refresh
             try:
                 rt_val_v2 = decrypt_text(str(row_v2[1] or "")) or ""
@@ -3125,7 +3120,6 @@ class ChatSessionSummaryRequest(BaseModel):
     tenant_id: str
     session_id: str
     summary: str
-
 @app.post("/ai/chat/session/summary", tags=["AI"])
 def ai_chat_save_summary(
     req: ChatSessionSummaryRequest,
@@ -4224,6 +4218,8 @@ def ai_costs(tenant_id: str, ctx: UserContext = Depends(get_user_context)):
             "global_cost_usd_today": round(g_cost, 4),
             "caps": caps,
         }
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
 
 
 @app.get("/ops/health", tags=["Health"])
@@ -5408,7 +5404,7 @@ def update_settings(
                 current = {}
             current.update(payload)
             conn.execute(__t("UPDATE settings SET data_json=:d WHERE id=:id"), {"d": _json.dumps(current), "id": row[0]})
-    else:
+        else:
             conn.execute(__t("INSERT INTO settings(tenant_id, data_json) VALUES (CAST(:t AS uuid), :d)"), {"t": req.tenant_id, "d": _json.dumps(payload or {})})
     return {"status": "ok"}
 
@@ -5932,8 +5928,6 @@ def ui_contract() -> Dict[str, object]:
 class ProviderWebhook(BaseModel):
     tenant_id: str
     payload: Dict[str, object] = {}
-
-
 class ProvisionSmsRequest(BaseModel):
     tenant_id: str
     area_code: Optional[str] = None  # attempt local number if provided
@@ -6938,48 +6932,48 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                                 "dname": display_name,
                             },
                     )
-                    created_total += 1
-                else:
+                        created_total += 1
+                    else:
                         res = _conn.execute(
                             _sql_text(
-                                """
-                                UPDATE contacts
-                                SET
-                                    email_hash = COALESCE(email_hash, :eh),
-                                    phone_hash = COALESCE(phone_hash, :ph),
-                                    consent_sms = (consent_sms OR :csms),
-                                    consent_email = (consent_email OR :cemail),
-                                    square_customer_id = COALESCE(square_customer_id, :sqcid),
-                                    birthday = COALESCE(birthday, :bday),
-                                    creation_source = COALESCE(creation_source, :csrc),
-                                    email_subscription_status = COALESCE(email_subscription_status, :esub),
-                                    instant_profile = (instant_profile OR :ip),
-                                    first_name = CASE WHEN first_name IS NULL OR first_name = '' THEN :fname ELSE first_name END,
-                                    last_name = CASE WHEN last_name IS NULL OR last_name = '' THEN :lname ELSE last_name END,
-                                    display_name = CASE
-                                      WHEN display_name IS NULL OR display_name = '' OR display_name ~ '^Client [0-9a-zA-Z]+'
-                                      THEN :dname
-                                      ELSE display_name
-                                    END,
-                                    updated_at = EXTRACT(epoch FROM now())::bigint
-                                WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid
-                                """
-                            ),
+                                    """
+                                    UPDATE contacts
+                                    SET
+                                        email_hash = COALESCE(email_hash, :eh),
+                                        phone_hash = COALESCE(phone_hash, :ph),
+                                        consent_sms = (consent_sms OR :csms),
+                                        consent_email = (consent_email OR :cemail),
+                                        square_customer_id = COALESCE(square_customer_id, :sqcid),
+                                        birthday = COALESCE(birthday, :bday),
+                                        creation_source = COALESCE(creation_source, :csrc),
+                                        email_subscription_status = COALESCE(email_subscription_status, :esub),
+                                        instant_profile = (instant_profile OR :ip),
+                                        first_name = CASE WHEN first_name IS NULL OR first_name = '' THEN :fname ELSE first_name END,
+                                        last_name = CASE WHEN last_name IS NULL OR last_name = '' THEN :lname ELSE last_name END,
+                                        display_name = CASE
+                                          WHEN display_name IS NULL OR display_name = '' OR display_name ~ '^Client [0-9a-zA-Z]+'
+                                          THEN :dname
+                                          ELSE display_name
+                                        END,
+                                        updated_at = EXTRACT(epoch FROM now())::bigint
+                                    WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid
+                                    """
+                                ),
                             {
-                                "t": req.tenant_id,
-                                "cid": contact_id,
-                                "eh": email,
-                                "ph": phone_norm,
-                                "csms": bool(phone_norm),
-                                "cemail": bool(email),
-                                "sqcid": sq_id,
-                                "bday": birthday,
-                                "csrc": creation_source,
-                                "esub": email_sub_status,
-                                "ip": bool(instant_profile),
-                                "fname": first_name,
-                                "lname": last_name,
-                                "dname": display_name,
+                                    "t": req.tenant_id,
+                                    "cid": contact_id,
+                                    "eh": email,
+                                    "ph": phone_norm,
+                                    "csms": bool(phone_norm),
+                                    "cemail": bool(email),
+                                    "sqcid": sq_id,
+                                    "bday": birthday,
+                                    "csrc": creation_source,
+                                    "esub": email_sub_status,
+                                    "ip": bool(instant_profile),
+                                    "fname": first_name,
+                                    "lname": last_name,
+                                    "dname": display_name,
                             },
                         )
                         try:
@@ -7443,8 +7437,6 @@ def analysis_time(tenant_id: str, db: Session = Depends(get_db), ctx: UserContex
         "inputs": {"hourly_rate": hourly_rate, "per_post_minutes": per_post_minutes},
         "sources": {"cadences_minutes": time_saved_minutes, "content_minutes": content_minutes, "messages_sent": messages_sent},
     }
-
-
 @app.get("/metrics/explain", tags=["Analytics"])  # human-friendly breakdown for Ask VX
 def metrics_explain(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
@@ -7462,14 +7454,17 @@ def metrics_explain(tenant_id: str, db: Session = Depends(get_db), ctx: UserCont
         f"Time Saved is {ts} minutes and Cost Saved is ${cost_saved:.2f}."
     )
     return {"explanation": text, "details": res}
-
 @app.post("/scheduler/tick", tags=["Cadences"])
 def scheduler_tick(tenant_id: Optional[str] = None, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
     if tenant_id and ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"processed": 0}
     return {"processed": run_tick(db, tenant_id)}
+
+
 class RecomputeRequest(BaseModel):
     tenant_id: str
+
+
 @app.post("/marts/recompute", tags=["Health"])
 def recompute_marts(
     req: RecomputeRequest,
@@ -7946,24 +7941,6 @@ def get_config() -> Dict[str, object]:
 def ai_contexts_schema() -> Dict[str, object]:
     """Return contexts manifest: per-context preamble and allowlisted tools."""
     return contexts_schema()
-                "params": {
-                    "tenant_id": "string",
-                    "contact_id": "string",
-                    "cadence_id": "string"
-                }
-            },
-            {"name": "contacts.dedupe", "public": True, "description": "Mark duplicate contacts as deleted by matching email/phone.", "params": {"tenant_id": "string"}},
-            {"name": "contacts.list.top_ltv", "public": True, "description": "List top contacts by lifetime value.", "params": {"tenant_id": "string", "limit": "number?"}},
-            {"name": "contacts.import.square", "public": True, "description": "Import contacts from Square.", "params": {"tenant_id": "string"}},
-            {"name": "square.backfill", "public": True, "description": "Backfill Square payments metrics to contacts.", "params": {"tenant_id": "string"}},
-            {"name": "crm.hubspot.import", "public": True, "description": "Import sample contacts from HubSpot.", "params": {"tenant_id": "string"}},
-            {"name": "oauth.refresh", "public": True, "description": "Refresh an OAuth provider token.", "params": {"tenant_id": "string", "provider": "string"}},
-            {"name": "connectors.cleanup", "public": True, "description": "Cleanup blank/invalid connector rows (v2).", "params": {"tenant_id": "string"}},
-            {"name": "connectors.normalize", "public": True, "description": "Migrate legacy connectors and dedupe v2.", "params": {"tenant_id": "string"}},
-            {"name": "calendar.sync", "public": True, "description": "Sync unified calendar (Google/Apple/bookings).", "params": {"tenant_id": "string", "provider": "string?"}},
-            {"name": "calendar.merge", "public": True, "description": "Merge duplicate calendar events by title/time.", "params": {"tenant_id": "string"}},
-        ]
-    }
 
 
 class WorkflowPlanRequest(BaseModel):
@@ -8780,7 +8757,7 @@ def onboarding_status(
         # Some Supabase schemas may not include user_id on connected_accounts.
         # Fallback: detect any connected account for this tenant via platform presence.
         try:
-        connected_accounts = asyncio.run(
+            connected_accounts = asyncio.run(
             adapter.select(
                 "connected_accounts",
                 {"select": "platform,connected_at", "user_id": f"eq.{ctx.user_id}", "limit": "10"},

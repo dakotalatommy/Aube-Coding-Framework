@@ -11,6 +11,7 @@ import Pager from '../components/ui/Pager';
 
 export default function Approvals(){
   const [items, setItems] = useState<any[]>([]);
+  const [todoItems, setTodoItems] = useState<any[]>([]);
   const [page, setPage] = useState(1);
   const pageSize = 6;
   const [status, setStatus] = useState('');
@@ -24,6 +25,9 @@ export default function Approvals(){
   const [labels, setLabels] = useState<Record<string,string>>({});
   const [authHint, setAuthHint] = useState<string>('');
   const [suggested, setSuggested] = useState<any[]>([]);
+  const [mode, setMode] = useState<'todo'|'legacy'>('todo');
+  const [todoStatus, setTodoStatus] = useState<'pending'|'all'>('pending');
+  const [todoType, setTodoType] = useState<string>('all');
   const loadSuggested = async () => {
     try{
       const tid = await getTenant();
@@ -42,7 +46,19 @@ export default function Approvals(){
       setStatus('');
     } catch(e:any){ setStatus('Unable to load approvals right now. Please retry.'); }
   };
-  useEffect(()=>{ (async()=>{ try { setLoading(true); await Promise.all([load(), loadSuggested()]); } finally { setLoading(false); } })(); },[]);
+  const loadTodo = async () => {
+    try{
+      const tid = await getTenant();
+      const qs = [
+        `status=${encodeURIComponent(todoStatus)}`,
+        (todoType && todoType !== 'all') ? `type=${encodeURIComponent(todoType)}` : ''
+      ].filter(Boolean).join('&');
+      const r = await api.get(`/todo/list?tenant_id=${encodeURIComponent(tid)}${qs? '&'+qs:''}`);
+      setTodoItems(Array.isArray(r?.items)? r.items : []);
+    } catch { setTodoItems([]); }
+  };
+  useEffect(()=>{ (async()=>{ try { setLoading(true); await Promise.all([load(), loadSuggested(), loadTodo()]); } finally { setLoading(false); } })(); },[]);
+  useEffect(()=>{ (async()=>{ try { setLoading(true); await loadTodo(); setPage(1);} finally { setLoading(false); } })(); }, [todoStatus, todoType]);
   useEffect(()=>{ (async()=>{ try { const s = await api.get('/ai/tools/schema_human'); const map:Record<string,string>={}; if (Array.isArray(s?.tools)) { for (const t of s.tools) { map[String(t?.id||t?.name||'')] = String(t?.label||t?.title||''); } } setLabels(map);} catch {} })(); },[]);
   const act = async (id:string, decision:'approve'|'reject') => {
     try{
@@ -79,6 +95,13 @@ export default function Approvals(){
   const humanTool = (r:any) => {
     const n = r.tool || r.tool_name || r.kind || r.type || 'tool';
     return labels[n] || n;
+  };
+  const ackTodo = async (id:number) => {
+    try{
+      const tid = await getTenant();
+      await api.post('/todo/ack', { tenant_id: tid, id });
+      await loadTodo();
+    } catch(e:any){ setStatus(String(e?.message||e)); }
   };
   const groupOf = (r:any): string => {
     try{
@@ -206,7 +229,11 @@ export default function Approvals(){
     <div className="space-y-3">
       <div className="flex items-center">
         <h3 className="text-lg font-semibold">To‑Do</h3>
-        <Button variant="outline" size="sm" className="ml-auto" onClick={()=> startGuide('approvals')}>Guide me</Button>
+        <div className="ml-auto inline-flex rounded-full bg-white overflow-hidden border">
+          <button className={`px-3 py-1 text-sm ${mode==='todo'?'bg-slate-900 text-white':'text-slate-700'}`} onClick={()=> setMode('todo')}>To‑Do</button>
+          <button className={`px-3 py-1 text-sm ${mode==='legacy'?'bg-slate-900 text-white':'text-slate-700'}`} onClick={()=> setMode('legacy')}>Legacy</button>
+        </div>
+        <Button variant="outline" size="sm" className="ml-2" onClick={()=> startGuide('approvals')}>Guide me</Button>
       </div>
       <div className="text-xs text-slate-600">When BrandVX needs your OK for an action, it shows up here. Review the details and Approve or Reject.</div>
       {authHint && (
@@ -274,12 +301,55 @@ export default function Approvals(){
           <Skeleton className="h-10" />
           <Skeleton className="h-32" />
         </div>
+      ) : mode==='todo' ? (
+        <>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+            <div className="inline-flex rounded-full bg-white overflow-hidden border">
+              {(['pending','all'] as const).map(s=> (
+                <button key={s} className={`px-3 py-1 ${todoStatus===s?'bg-slate-900 text-white':'text-slate-700'}`} onClick={()=> setTodoStatus(s)}>{s}</button>
+              ))}
+            </div>
+            <select className="text-xs border rounded-md px-2 py-1 bg-white" value={todoType} onChange={e=> setTodoType(e.target.value)} aria-label="Filter by type">
+              <option value="all">All types</option>
+              <option value="approval">Approval</option>
+              <option value="followup">Follow‑up</option>
+              <option value="import">Import</option>
+              <option value="calendar">Calendar</option>
+              <option value="billing">Billing</option>
+            </select>
+          </div>
+          {todoItems.length === 0 ? (
+            <div className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
+              <EmptyState title="Nothing pending" description="When VX needs your OK, items will appear here." />
+            </div>
+          ) : (
+            <>
+              <Table data-guide="table">
+                <THead>
+                  <TR><TH>ID</TH><TH>Type</TH><TH>Title</TH><TH>Created</TH><TH>Actions</TH></TR>
+                </THead>
+                <tbody className="divide-y">
+                  {todoItems.slice((page-1)*pageSize, page*pageSize).map((r:any)=> (
+                    <TR key={r.id}>
+                      <TD>{r.id}</TD>
+                      <TD>{r.type}</TD>
+                      <TD className="truncate max-w-[16rem]"><span title={r.title}>{r.title}</span></TD>
+                      <TD>{r.created_at ? new Date(r.created_at).toLocaleString() : ''}</TD>
+                      <TD><Button variant="outline" size="sm" onClick={()=> ackTodo(Number(r.id))}>Mark done</Button></TD>
+                    </TR>
+                  ))}
+                </tbody>
+              </Table>
+              <Pager page={page} pageSize={pageSize} total={todoItems.length} onPrev={()=> setPage(p=> Math.max(1, p-1))} onNext={()=> setPage(p=> (p*pageSize<todoItems.length? p+1: p))} />
+            </>
+          )}
+        </>
       ) : (
-      (items.filter(f=> (onlyPending ? (f.status||'pending')==='pending' : true) && (typeFilter==='all' ? true : groupOf(f)===typeFilter)).length === 0) ? (
-        <div className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
-          <EmptyState title="No To‑Do items" description="When VX needs your OK, items will appear here." />
-        </div>
-      ) : (
+        (items.filter(f=> (onlyPending ? (f.status||'pending')==='pending' : true) && (typeFilter==='all' ? true : groupOf(f)===typeFilter)).length === 0) ? (
+          <div className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
+            <EmptyState title="No To‑Do items" description="When VX needs your OK, items will appear here." />
+          </div>
+        ) : (
         <>
           <div className="flex items-center justify-end gap-2 text-xs mb-2">
             <button className="px-2 py-1 rounded-md border bg-white disabled:opacity-50" onClick={()=> setPage(p=> Math.max(0, p-1))} disabled={page<=0}>&larr; Prev</button>
@@ -332,4 +402,3 @@ export default function Approvals(){
     </div>
   );
 }
-

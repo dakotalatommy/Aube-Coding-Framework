@@ -8,7 +8,7 @@ const tabs = [
   { to: '/messages', label: 'Messages' },
   { to: '/contacts', label: 'Clients' },
   { to: '/cadences', label: 'Cadences' },
-  { to: '/approvals', label: 'Approvals' },
+  { to: '/approvals', label: 'To‑Do' },
   { to: '/integrations', label: 'Settings' },
   { to: '/calendar', label: 'Calendar' },
   { to: '/inventory', label: 'Inventory' },

@@ -50,6 +50,34 @@ export default function Integrations(){
     }catch{}
   };
 
+  // Setup Progress (moved from Dashboard)
+  const [setupPct, setSetupPct] = useState<number>(0);
+  const [setupList, setSetupList] = useState<Array<{label:string;done:boolean;action?:()=>void}>>([]);
+  const computeSetup = async () => {
+    try{
+      const tid = await getTenant();
+      const prog = await api.get(`/onboarding/progress?tenant_id=${encodeURIComponent(tid)}`);
+      const steps: string[] = Array.isArray(prog?.steps) ? prog.steps.map((s:any)=> String(s.step_key)) : [];
+      const connected = (onboarding?.connectedMap || onboarding?.connected || {}) as Record<string,string>;
+      const isGoogle = String(connected?.google||'')==='connected';
+      const isSquare = String(connected?.square||'')==='connected';
+      const isAcuity = String(connected?.acuity||'')==='connected';
+      const hasQuiet = !!(settings?.quiet_hours?.start && settings?.quiet_hours?.end);
+      const imported = steps.includes('import_contacts') || steps.includes('import_booking') || steps.includes('contacts_imported');
+      const trained = steps.includes('train_vx') || steps.includes('profile_saved');
+      const items = [
+        { label: 'Connect Google Calendar', done: isGoogle, action: () => window.location.assign('/workspace?pane=integrations&provider=google') },
+        { label: 'Connect booking (Square or Acuity)', done: (isSquare || isAcuity), action: () => window.location.assign('/workspace?pane=integrations&provider=square') },
+        { label: 'Import clients', done: imported, action: async ()=>{ await api.post('/ai/tools/execute',{ tenant_id: await getTenant(), name:'contacts.import.square', params:{ tenant_id: await getTenant() }, require_approval: true }); } },
+        { label: 'Set quiet hours', done: hasQuiet, action: () => {} },
+        { label: 'Train VX', done: trained, action: () => window.location.assign('/ask?train=1') },
+      ];
+      const pct = Math.round((items.filter(i=>i.done).length / items.length)*100);
+      setSetupList(items);
+      setSetupPct(pct);
+    } catch {}
+  };
+
   const isConnected = (provider: string): boolean => {
     try {
       const map = onboarding?.connectedMap || {};
@@ -171,6 +199,7 @@ export default function Integrations(){
       try{
         if (new URLSearchParams(window.location.search).has('dev')) await loadEvents();
       }catch{}
+      try { await computeSetup(); } catch {}
     })();
   },[]);
 
@@ -518,22 +547,7 @@ export default function Integrations(){
           Demo mode — external provider connections are off. Explore UI and previews here; enable Twilio/SendGrid after signup.
         </div>
       )}
-      {onboarding?.providers && (
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-700 bg-white/70 border border-white/70 rounded-md px-2 py-1 inline-block" aria-live="polite">
-            {(() => {
-              const entries = Object.entries(onboarding.providers as Record<string, boolean>);
-              const total = entries.length;
-              const configured = entries.filter(([,v]) => !!v).length;
-              const pending = total - configured;
-              return `Configured: ${configured}/${total} · Pending config: ${pending}`;
-            })()}
-          </span>
-          {onboarding?.last_analyzed && (
-            <span className="text-[11px] text-slate-500">Last analyzed: {new Date((onboarding as any).last_analyzed*1000).toLocaleString()}</span>
-          )}
-        </div>
-      )}
+      {/* Remove global configured/pending counts per spec */}
       {errorMsg && (
         <div className="text-xs text-rose-700 bg-rose-50 border border-rose-100 rounded-md px-2 py-1 inline-block">
           {errorMsg}
@@ -543,6 +557,22 @@ export default function Integrations(){
         </div>
       )}
       <div className="grid gap-3 max-w-xl">
+        {/* Setup Progress */}
+        <section className="rounded-2xl p-3 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="font-semibold text-slate-900">Setup Progress</div>
+            <div className="text-xs text-slate-600">{setupPct}%</div>
+          </div>
+          <div className="mt-2 h-2 rounded bg-slate-100 overflow-hidden"><div className="h-full bg-pink-500" style={{ width: `${setupPct}%` }} /></div>
+          <div className="mt-3 grid sm:grid-cols-2 gap-2">
+            {setupList.map((s,i)=> (
+              <Button key={i} variant={s.done? 'outline' : 'outline'} className={`justify-start ${s.done? '!bg-emerald-50 !border-emerald-200 !text-emerald-800' : ''}`} onClick={s.action} aria-pressed={s.done} aria-label={s.label}>
+                <span className="text-sm">{s.label}</span>
+                {s.done && <span className="ml-2 text-[11px]">✓</span>}
+              </Button>
+            ))}
+          </div>
+        </section>
         {/* Pending credentials and approval banners removed */}
         {lastCallback && (
           <div className="text-[11px] text-slate-600">Last OAuth callback: {new Date(Number(lastCallback?.ts||0)*1000).toLocaleString()} · {String(lastCallback?.action||'')}</div>
@@ -557,30 +587,13 @@ export default function Integrations(){
         </div>
         <div className="text-xs text-slate-600">{UI_STRINGS.quietHours.helper}</div>
         <div className="text-[11px] text-slate-600">Preview: {fmt12(settings.quiet_hours?.start||'21:00')} – {fmt12(settings.quiet_hours?.end||'08:00')}</div>
-        <label className="flex items-center gap-2 text-sm"> Auto-approve risky tools
-          <input type="checkbox" checked={!!settings.auto_approve_all} onChange={e=>setSettings({...settings, auto_approve_all: e.target.checked})} />
-        </label>
-        <label className="flex items-center gap-2 text-sm"> Share anonymized insights
-          <input type="checkbox" checked={!!(settings.ai?.share_insights)} onChange={e=>{
-            const ai = { ...(settings.ai||{}), share_insights: e.target.checked };
-            setSettings({ ...settings, ai });
-            (async()=>{ try{ await api.post('/settings', { tenant_id: await getTenant(), ai_share_insights: e.target.checked }); }catch{} })();
-          }} />
-        </label>
-        <div className="grid grid-cols-1 sm:grid-cols-3 items-center gap-2 text-sm">
-          <div className="text-slate-700">Names in chat</div>
-          <select className="border rounded-md px-2 py-1 bg-white" value={settings.ai?.chat_name_exposure||'masked'} onChange={async(e)=>{
-            const ai = { ...(settings.ai||{}), chat_name_exposure: e.target.value };
-            setSettings({ ...settings, ai });
-            try { await api.post('/settings', { tenant_id: await getTenant(), preferences: { chat_name_exposure: e.target.value } }); } catch {}
-          }}>
-            <option value="masked">Masked (privacy-first)</option>
-            <option value="first_name">First name only</option>
-            <option value="full_name">Full name</option>
-          </select>
-          <div className="text-[11px] text-slate-600">Controls how Ask VX references client names in chat.</div>
+        <div className="flex items-center gap-2 text-sm">
+          <label className="flex items-center gap-2"> Auto-approve risky tools
+            <input type="checkbox" checked={!!settings.auto_approve_all} onChange={e=>setSettings({...settings, auto_approve_all: e.target.checked})} />
+          </label>
+          <span className="text-[11px] text-slate-600" title="Examples: send message, reschedule/cancel, start campaign, bulk import">(?)</span>
         </div>
-        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Some actions may require approval when auto-approve is off. Review in <a className="underline" href="/workspace?pane=approvals">Approvals</a>.</div>
+        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Some actions may require approval when auto-approve is off. Review in <a className="underline" href="/workspace?pane=approvals">To‑Do</a>.</div>
         {/* Save/Send test buttons removed per spec */}
         <section className="rounded-2xl p-3 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
           {/* Train VX section removed per spec */}
@@ -915,4 +928,3 @@ export default function Integrations(){
     </div>
   );
 }
-

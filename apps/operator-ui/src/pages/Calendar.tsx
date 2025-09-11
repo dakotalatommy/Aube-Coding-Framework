@@ -22,6 +22,28 @@ export default function Calendar(){
   const [showApple, setShowApple] = useState<boolean>(false);
   const [lastUpdated, setLastUpdated] = useState<number>(0);
   const [actionBusy, setActionBusy] = useState<boolean>(false);
+  const isDemo = (()=>{ try{ return new URLSearchParams(window.location.search).get('demo')==='1'; } catch { return false; } })();
+  // Group events by local day for a weekly grid
+  const startOfWeek = (()=>{
+    const now = new Date();
+    const day = now.getDay();
+    const diffToMonday = (day === 0 ? -6 : 1) - day; // Monday start
+    const monday = new Date(now);
+    monday.setDate(now.getDate() + diffToMonday);
+    monday.setHours(0,0,0,0);
+    return monday;
+  })();
+  const days: Date[] = Array.from({length:7}, (_,i)=>{ const d = new Date(startOfWeek); d.setDate(startOfWeek.getDate()+i); return d; });
+  const byDay = (events||[]).reduce((acc:any, ev:any)=>{
+    try{
+      const raw = ev.start_ts; const ts = typeof raw==='number'? raw : Number(raw);
+      const dt = isFinite(ts) && ts>0 ? new Date(ts * (ts<1e12? 1000 : 1)) : null;
+      const key = dt ? new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()).toISOString().slice(0,10) : 'other';
+      (acc[key] = acc[key] || []).push(ev);
+    } catch { (acc.other = acc.other || []).push(ev); }
+    return acc;
+  }, {} as Record<string, any[]>);
+  const fmtTime = (raw:any)=>{ try{ const n = typeof raw==='number'? raw: Number(raw); const d = new Date(n*(n<1e12?1000:1)); return d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}); } catch { return String(raw||''); } };
   useEffect(()=>{
     (async()=>{ try{ const r = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`); setEvents(r?.events||[]); setLastSync(r?.last_sync||{}); setLastUpdated(Date.now()); } finally{ setLoading(false); } })();
   },[]);
@@ -154,29 +176,22 @@ export default function Calendar(){
           ))}
         </div>
       </div>
-      {/* Demo: 7-day recommendations view */}
-      <div className="rounded-xl border bg-white p-3" aria-label="7-day recommendations" data-guide="list">
-        <div className="text-sm font-medium text-slate-800 mb-2">Recommendations (demo)</div>
-        <div className="text-xs text-slate-600 mb-2">A 7‑day plan to get momentum quickly.</div>
-        <ul className="list-disc ml-5 text-sm text-slate-700">
-          <li>Day 1: Send 5 warm‑lead follow‑ups</li>
-          <li>Day 2: Confirm Friday appointments</li>
-          <li>Day 3: Post 1 service tip on Instagram</li>
-          <li>Day 4: Text no‑shows a friendly rebook link</li>
-          <li>Day 5: Share before/after from this week</li>
-          <li>Day 6: Message 2 dormant clients</li>
-          <li>Day 7: Review next week’s openings</li>
-        </ul>
-      </div>
-      {/* Live: first 3 days quick start */}
-      <div className="rounded-xl border bg-white p-3" aria-label="first 3 days" data-guide="first3">
-        <div className="text-sm font-medium text-slate-800 mb-2">Your first 3 days</div>
-        <ul className="list-disc ml-5 text-sm text-slate-700">
-          <li>Day 1 (10‑Minute Wow): confirm this week’s bookings</li>
-          <li>Day 2: send 3 warm‑lead follow‑ups</li>
-          <li>Day 3: draft next week’s social (14‑day plan ready)</li>
-        </ul>
-      </div>
+      {/* Demo-only recommendations */}
+      {isDemo && (
+        <div className="rounded-xl border bg-white p-3" aria-label="7-day recommendations" data-guide="list">
+          <div className="text-sm font-medium text-slate-800 mb-2">Recommendations (demo)</div>
+          <div className="text-xs text-slate-600 mb-2">A 7‑day plan to get momentum quickly.</div>
+          <ul className="list-disc ml-5 text-sm text-slate-700">
+            <li>Day 1: Send 5 warm‑lead follow‑ups</li>
+            <li>Day 2: Confirm Friday appointments</li>
+            <li>Day 3: Post 1 service tip on Instagram</li>
+            <li>Day 4: Text no‑shows a friendly rebook link</li>
+            <li>Day 5: Share before/after from this week</li>
+            <li>Day 6: Message 2 dormant clients</li>
+            <li>Day 7: Review next week’s openings</li>
+          </ul>
+        </div>
+      )}
       <div className="flex items-center gap-2 text-sm" data-guide="filters">
         <span className="text-slate-600">Filter:</span>
         <select className="border rounded-md px-2 py-1 bg-white" value={provider} onChange={e=>setProvider(e.target.value)}>
@@ -193,31 +208,50 @@ export default function Calendar(){
             <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>{ const isConn = String(connected['google']||'')==='connected'; isConn ? syncNow('google') : connectGoogle(); }}>{String(connected['google']||'')==='connected' ? UI_STRINGS.ctas.secondary.syncNowGoogle : 'Connect Google Calendar'}</button>
           </EmptyState>
         ) : (
-          <ul className="list-disc ml-5 text-sm text-slate-700">
-            {events.filter(e=> provider==='all' ? true : (e.provider||'')===provider).slice((page-1)*pageSize, page*pageSize).map((e,i)=> {
-              const raw = (e as any)?.start_ts;
-              const tsNum = typeof raw === 'number' ? raw : Number(raw);
-              const dateStr = isFinite(tsNum) && tsNum > 0 ? new Date(tsNum * (tsNum < 1e12 ? 1000 : 1)).toLocaleString() : String(raw||'');
+          <div className="hidden md:grid grid-cols-7 gap-2">
+            {days.map((d, i)=>{
+              const key = d.toISOString().slice(0,10);
+              const list = (byDay[key]||[]).filter((e:any)=> provider==='all'? true : (e.provider||'')===provider);
               return (
-                <li key={i} className="truncate flex items-center gap-2" title={`${e.title} — ${dateStr}`}>
-                  <span className="flex-1 min-w-0">{e.title} — {dateStr}{e.provider ? ` · ${e.provider}` : ''}</span>
-                  <button disabled={actionBusy} className="px-2 py-0.5 rounded-md border bg-white disabled:opacity-50" onClick={()=> reschedule(e, 15)}>+15m</button>
-                  <button disabled={actionBusy} className="px-2 py-0.5 rounded-md border bg-white disabled:opacity-50" onClick={()=> reschedule(e, -15)}>-15m</button>
-                  <button disabled={actionBusy} className="px-2 py-0.5 rounded-md border bg-white disabled:opacity-50" onClick={()=> cancel(e)}>Cancel</button>
-                </li>
+                <div key={i} className="min-h-[220px] border rounded-md bg-white">
+                  <div className="sticky top-0 z-10 px-2 py-1 text-xs font-medium border-b bg-slate-50">{d.toLocaleDateString(undefined,{weekday:'short', month:'short', day:'numeric'})}</div>
+                  <div className="p-2 space-y-1 text-sm">
+                    {list.length===0 ? <div className="text-slate-400 text-xs">No events</div> : list.map((e:any, idx:number)=> (
+                      <div key={idx} className="px-2 py-1 rounded border bg-white flex items-center justify-between gap-2" title={e.title}>
+                        <div className="truncate"><span className="text-slate-500 mr-1">{fmtTime(e.start_ts)}</span>{e.title}</div>
+                        <div className="flex items-center gap-1">
+                          <button disabled={actionBusy} className="px-1.5 py-0.5 rounded-md border bg-white disabled:opacity-50 text-[11px]" onClick={()=> reschedule(e, 15)}>+15</button>
+                          <button disabled={actionBusy} className="px-1.5 py-0.5 rounded-md border bg-white disabled:opacity-50 text-[11px]" onClick={()=> reschedule(e, -15)}>-15</button>
+                          <button disabled={actionBusy} className="px-1.5 py-0.5 rounded-md border bg-white disabled:opacity-50 text-[11px]" onClick={()=> cancel(e)}>X</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               );
             })}
-          </ul>
+          </div>
         )}
-        {events.filter(e=> provider==='all' ? true : (e.provider||'')===provider).length>pageSize && (
-          <Pager
-            page={page}
-            pageSize={pageSize}
-            total={events.filter(e=> provider==='all' ? true : (e.provider||'')===provider).length}
-            onPrev={()=> setPage(p=> Math.max(1, p-1))}
-            onNext={()=> setPage(p=> ((p*pageSize) < events.filter(e=> provider==='all' ? true : (e.provider||'')===provider).length ? p+1 : p))}
-          />
-        )}
+        {/* Mobile list */}
+        <div className="md:hidden">
+          {(events||[]).filter(e=> provider==='all' ? true : (e.provider||'')===provider).slice((page-1)*pageSize, page*pageSize).map((e,i)=>{
+            const raw = e.start_ts; const tsNum = typeof raw==='number'? raw: Number(raw);
+            const dateStr = isFinite(tsNum) && tsNum>0 ? new Date(tsNum*(tsNum<1e12?1000:1)).toLocaleString() : String(raw||'');
+            return (
+              <div key={i} className="px-2 py-1 rounded border bg-white flex items-center justify-between gap-2 mb-2" title={`${e.title} — ${dateStr}`}>
+                <div className="truncate"><span className="text-slate-500 mr-1">{fmtTime(e.start_ts)}</span>{e.title}</div>
+                <div className="flex items-center gap-1">
+                  <button disabled={actionBusy} className="px-1.5 py-0.5 rounded-md border bg-white disabled:opacity-50 text-[11px]" onClick={()=> reschedule(e, 15)}>+15</button>
+                  <button disabled={actionBusy} className="px-1.5 py-0.5 rounded-md border bg-white disabled:opacity-50 text-[11px]" onClick={()=> reschedule(e, -15)}>-15</button>
+                  <button disabled={actionBusy} className="px-1.5 py-0.5 rounded-md border bg-white disabled:opacity-50 text-[11px]" onClick={()=> cancel(e)}>X</button>
+                </div>
+              </div>
+            );
+          })}
+          {(events||[]).filter(e=> provider==='all' ? true : (e.provider||'')===provider).length>pageSize && (
+            <Pager page={page} pageSize={pageSize} total={events.filter(e=> provider==='all' ? true : (e.provider||'')===provider).length} onPrev={()=> setPage(p=> Math.max(1, p-1))} onNext={()=> setPage(p=> ((p*pageSize) < events.filter(e=> provider==='all' ? true : (e.provider||'')===provider).length ? p+1 : p))} />
+          )}
+        </div>
       </div>
       <div className="flex flex-wrap gap-2 text-xs text-slate-700">
         {Object.entries(lastSync).map(([prov, info])=> {
@@ -231,5 +265,3 @@ export default function Calendar(){
     </div>
   );
 }
-
-

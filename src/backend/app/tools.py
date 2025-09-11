@@ -20,6 +20,7 @@ import secrets as _secrets
 from .rate_limit import check_and_increment
 from sqlalchemy import text as _sql_text
 from .metrics_counters import DB_QUERY_TOOL_USED
+from .integrations import calendar_google as cal_google
 import base64 as _b64
 import json as _json
 import urllib.parse as _urlparse

@@ -148,3 +148,27 @@ def fetch_events(tenant_id: str) -> List[Dict[str, object]]:
 
 
 
+def create_event(tenant_id: str, summary: str, start_ts: int, end_ts: Optional[int] = None, description: Optional[str] = None) -> Dict[str, str]:
+    """Create a Google Calendar event on the primary calendar using stored OAuth.
+    Returns { status, id? , error? }.
+    """
+    at = _ensure_access_token(tenant_id)
+    if not at:
+        return {"status": "error", "error": "no_access_token"}
+    headers = {"Authorization": f"Bearer {at}", "Content-Type": "application/json"}
+    body: Dict[str, object] = {
+        "summary": summary or "Appointment",
+        "start": {"dateTime": _rfc3339(int(start_ts))},
+        "end": {"dateTime": _rfc3339(int(end_ts or (int(start_ts) + 3600)))},
+    }
+    if description:
+        body["description"] = description
+    try:
+        r = httpx.post("https://www.googleapis.com/calendar/v3/calendars/primary/events", headers=headers, json=body, timeout=20)
+        if r.status_code >= 400:
+            return {"status": "error", "error": f"google_http_{r.status_code}", "detail": (r.text or "")[:200]}
+        eid = str((r.json() or {}).get("id") or "")
+        return {"status": "ok", "id": eid}
+    except httpx.HTTPError as e:
+        return {"status": "error", "error": str(e)[:160]}
+

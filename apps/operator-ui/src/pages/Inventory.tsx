@@ -84,7 +84,7 @@ export default function Inventory(){
         <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={mergeNow}>Merge duplicates</button>
         {/* Hide mapping until data model finalized */}
       </div>
-      <div className="text-[11px] text-amber-700">Some actions may require approval when auto-approve is off. Review in Approvals.</div>
+      <div className="text-[11px] text-amber-700">Some actions may require approval when auto-approve is off. Review in To‑Do.</div>
       {items.length === 0 ? (
         <EmptyState title="No inventory yet" description="Connect Shopify/Square and sync to see items here." />
       ) : (

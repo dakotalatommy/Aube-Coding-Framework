@@ -93,7 +93,7 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-tour="wf-social"]', popover: { title: 'Draft 14‑day social', description: 'Creates a two‑week plan; you approve before scheduling.' } },
   ],
   approvals: [
-    { popover: { title: 'Approvals', description: 'When BrandVX needs your OK, items appear here.' } },
+    { popover: { title: 'To‑Do', description: 'When BrandVX needs your OK, items appear here.' } },
     { element: '[data-guide="filters"]', popover: { title: 'Filter & pending', description: 'Search and toggle pending-only.' } },
     { element: '[data-guide="table"]', popover: { title: 'Items', description: 'Click a row to view details.' } },
     { element: '[data-guide="details"]', popover: { title: 'Details', description: 'Human-readable summary and parameters.' } },
@@ -162,7 +162,7 @@ export function startGuide(page: string, opts?: { step?: number }) {
           { element: '[data-tour="wf-quick"]', popover: { title: 'WorkStyles', description: 'One place for common actions and impact steps.' } },
         ],
         approvals: [
-          { element: '[data-guide="table"]', popover: { title: 'Approvals', description: 'Risky or bulk actions wait here for your OK.' } },
+          { element: '[data-guide="table"]', popover: { title: 'To‑Do', description: 'Risky or bulk actions wait here for your OK.' } },
         ],
         onboarding: [
           { popover: { title: 'Onboarding', description: 'In live, you’ll start here — personalize your BrandVX.' } },
@@ -319,4 +319,3 @@ export function startDemoMegaTour() {
   };
   driveAt(0);
 }
-
