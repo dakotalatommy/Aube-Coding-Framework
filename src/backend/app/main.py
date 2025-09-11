@@ -10217,9 +10217,14 @@ def connectors_normalize(req: ConnectorsNormalizeRequest, db: Session = Depends(
                         if req.tenant_id:
                             where_tid = " WHERE tenant_id = CAST(:t AS uuid)"
                             params["t"] = req.tenant_id
+                        # Build safe select list for whatever columns exist
+                        at_sel = 'access_token_enc' if 'access_token_enc' in cols else ("access_token" if 'access_token' in cols else "NULL::text")
+                        rt_sel = 'refresh_token_enc' if 'refresh_token_enc' in cols else ("refresh_token" if 'refresh_token' in cols else "NULL::text")
+                        exp_sel = 'expires_at' if 'expires_at' in cols else "NULL"
+                        st_sel = "COALESCE(status,'connected')" if 'status' in cols else "'connected'"
                         rows = conn.execute(
                             _sql_text(
-                                f"SELECT tenant_id,{name_col}, access_token_enc, refresh_token_enc, expires_at, COALESCE(status,'connected') FROM connected_accounts{where_tid}"
+                                f"SELECT tenant_id,{name_col} AS provider, {at_sel} AS access_token_enc, {rt_sel} AS refresh_token_enc, {exp_sel} AS expires_at, {st_sel} AS status FROM connected_accounts{where_tid}"
                             ),
                             params,
                         ).fetchall()
