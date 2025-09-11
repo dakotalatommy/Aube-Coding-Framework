@@ -4191,9 +4191,17 @@ def ai_memories_upsert(req: MemoryUpsertRequest, db: Session = Depends(get_db), 
 
             def _expr(dtype: str, pname: str, nullable: bool = False) -> str:
                 if dtype == "jsonb":
-                    return ("CASE WHEN :{p} IS NULL THEN NULL ELSE to_jsonb(:{p}::text) END" if nullable else "to_jsonb(:{p}::text)").format(p=pname)
+                    return (
+                        "CASE WHEN :{p} IS NULL THEN NULL ELSE to_jsonb(CAST(:{p} AS text)) END".format(p=pname)
+                        if nullable
+                        else "to_jsonb(CAST(:{p} AS text))".format(p=pname)
+                    )
                 if dtype == "json":
-                    return ("CASE WHEN :{p} IS NULL THEN NULL ELSE to_json(:{p}::text) END" if nullable else "to_json(:{p}::text)").format(p=pname)
+                    return (
+                        "CASE WHEN :{p} IS NULL THEN NULL ELSE to_json(CAST(:{p} AS text)) END".format(p=pname)
+                        if nullable
+                        else "to_json(CAST(:{p} AS text))".format(p=pname)
+                    )
                 return ":{p}".format(p=pname)
 
             val_expr = _expr(vtype, "v", False)
