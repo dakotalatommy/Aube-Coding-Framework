@@ -4249,15 +4249,21 @@ def ai_memories_list(tenant_id: str, limit: int = 20, db: Session = Depends(get_
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"items": []}
     try:
-        rows = db.execute(
-            _sql_text(
-                "SELECT key, value, tags, EXTRACT(EPOCH FROM updated_at)::bigint FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) ORDER BY updated_at DESC LIMIT :lim"
-            ),
-            {"t": tenant_id, "lim": max(1, min(int(limit or 20), 200))},
-        ).fetchall()
-        items = [
-            {"key": r[0], "value": r[1], "tags": r[2], "updated_at": int(r[3] or 0)} for r in rows
-        ]
+        # Use GUC-backed connection to satisfy RLS
+        from sqlalchemy import text as __t
+        with engine.begin() as conn:
+            try:
+                conn.execute(__t("SET LOCAL app.role = 'owner_admin'"))
+                conn.execute(__t("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            except Exception:
+                pass
+            rows = conn.execute(
+                __t(
+                    "SELECT key, value, tags, EXTRACT(EPOCH FROM updated_at)::bigint FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) ORDER BY updated_at DESC LIMIT :lim"
+                ),
+                {"t": tenant_id, "lim": max(1, min(int(limit or 20), 200))},
+            ).fetchall()
+        items = [{"key": r[0], "value": r[1], "tags": r[2], "updated_at": int(r[3] or 0)} for r in rows]
         return {"items": items}
     except Exception:
         return {"items": []}
@@ -4267,8 +4273,14 @@ def ai_memories_delete(key: str, tenant_id: str, db: Session = Depends(get_db), 
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
     try:
+        from sqlalchemy import text as __t
         with engine.begin() as conn:
-            n = conn.execute(_sql_text("DELETE FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key = :k"), {"t": tenant_id, "k": key}).rowcount
+            try:
+                conn.execute(__t("SET LOCAL app.role = 'owner_admin'"))
+                conn.execute(__t("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            except Exception:
+                pass
+            n = conn.execute(__t("DELETE FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key = :k"), {"t": tenant_id, "k": key}).rowcount
         return {"status": "ok", "deleted": int(n or 0)}
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
