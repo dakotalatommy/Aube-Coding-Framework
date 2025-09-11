@@ -4172,39 +4172,51 @@ def ai_memories_upsert(req: MemoryUpsertRequest, db: Session = Depends(get_db), 
             except Exception:
                 pass
 
+            # Detect column types to avoid running invalid SQL inside a transaction
+            def _col_type(col: str) -> str:
+                try:
+                    r = conn.execute(
+                        _sql_text(
+                            "SELECT lower(data_type) FROM information_schema.columns "
+                            "WHERE table_schema='public' AND table_name='ai_memories' AND column_name=:c"
+                        ),
+                        {"c": col},
+                    ).fetchone()
+                    return str(r[0]).lower() if r and r[0] else "text"
+                except Exception:
+                    return "text"
+
+            vtype = _col_type("value")
+            ttype = _col_type("tags")
+
+            def _expr(dtype: str, pname: str, nullable: bool = False) -> str:
+                if dtype == "jsonb":
+                    return ("CASE WHEN :{p} IS NULL THEN NULL ELSE to_jsonb(:{p}::text) END" if nullable else "to_jsonb(:{p}::text)").format(p=pname)
+                if dtype == "json":
+                    return ("CASE WHEN :{p} IS NULL THEN NULL ELSE to_json(:{p}::text) END" if nullable else "to_json(:{p}::text)").format(p=pname)
+                return ":{p}".format(p=pname)
+
+            val_expr = _expr(vtype, "v", False)
+            tag_expr = _expr(ttype, "tg", True)
+
             params = {"t": req.tenant_id, "k": req.key, "v": req.value, "tg": (req.tags or None)}
 
-            def _upsert(val_expr: str, tag_expr: str):
-                conn.execute(
-                    _sql_text(
-                        f"UPDATE ai_memories SET value={val_expr}, tags={tag_expr}, updated_at=NOW() "
-                        "WHERE tenant_id = CAST(:t AS uuid) AND key=:k"
-                    ),
-                    params,
-                )
-                conn.execute(
-                    _sql_text(
-                        f"INSERT INTO ai_memories (tenant_id, key, value, tags) "
-                        f"SELECT CAST(:t AS uuid), :k, {val_expr}, {tag_expr} "
-                        "WHERE NOT EXISTS (SELECT 1 FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key=:k)"
-                    ),
-                    params,
-                )
-
-            # Try JSONB first (NULL-safe for tags), then JSON, then TEXT
-            try:
-                _upsert(
-                    "to_jsonb(:v::text)",
-                    "CASE WHEN :tg IS NULL THEN NULL ELSE to_jsonb(:tg::text) END",
-                )
-            except Exception:
-                try:
-                    _upsert(
-                        "to_json(:v::text)",
-                        "CASE WHEN :tg IS NULL THEN NULL ELSE to_json(:tg::text) END",
-                    )
-                except Exception:
-                    _upsert(":v", ":tg")
+            # Perform upsert with the correct expressions
+            conn.execute(
+                _sql_text(
+                    f"UPDATE ai_memories SET value={val_expr}, tags={tag_expr}, updated_at=NOW() "
+                    "WHERE tenant_id = CAST(:t AS uuid) AND key=:k"
+                ),
+                params,
+            )
+            conn.execute(
+                _sql_text(
+                    f"INSERT INTO ai_memories (tenant_id, key, value, tags) "
+                    f"SELECT CAST(:t AS uuid), :k, {val_expr}, {tag_expr} "
+                    "WHERE NOT EXISTS (SELECT 1 FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key=:k)"
+                ),
+                params,
+            )
         return {"status": "ok"}
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
