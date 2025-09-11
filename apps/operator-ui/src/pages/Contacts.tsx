@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { readNumberParam, syncParamToState } from '../lib/url';
-import { api, getTenant } from '../lib/api';
+import { api, getTenant, API_BASE } from '../lib/api';
+import { supabase } from '../lib/supabase';
 import Button from '../components/ui/Button';
 // import Input from '../components/ui/Input';
 import Skeleton from '../components/ui/Skeleton';
@@ -223,21 +224,3 @@ export default function Contacts(){
     </div>
   );
 }
-
-
-          <div className="absolute right-0 top-0 h-full w-full max-w-xl bg-white shadow-2xl border-l p-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="font-semibold">Client Expert</div>
-              <button className="text-slate-500 hover:text-slate-700" onClick={()=> setExpert({open:false})}>Close</button>
-            </div>
-            <div className="text-xs text-slate-700">Selected: {expert.contact?.display_name || expert.contact?.contact_id}</div>
-            <div className="mt-2 border rounded-md overflow-hidden" style={{height: '60vh'}}>
-              <iframe title="AskVX" src={`/ask?embed=1&mode=support`} className="w-full h-full" />
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-

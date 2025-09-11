@@ -610,17 +610,3 @@ function TimeSavedAnimated({ title, minutes, onClick }:{ title:string; minutes:n
 }
 
 // DynamicMicroWins removed per UI trim
-
-      <div className="absolute inset-0 -z-10" style={{ background: 'radial-gradient(600px 220px at 80% -20%, rgba(99,102,241,0.12), transparent)' }} />
-      <div className="text-center">
-        <div className="text-4xl font-extrabold text-slate-900 tracking-tight">{display}h</div>
-        <div className="mt-1 text-xs text-slate-500 flex items-center justify-center gap-2">
-          {title}
-          <span className="inline-flex w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" aria-hidden />
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
-// DynamicMicroWins removed per UI trim

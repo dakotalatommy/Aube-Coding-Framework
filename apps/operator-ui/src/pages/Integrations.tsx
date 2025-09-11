@@ -996,27 +996,3 @@ export default function Integrations(){
     </div>
   );
 }
-
-                <div key={i} className="py-1 border-b border-slate-100/70">
-                  <div className="text-slate-800">{e.name}</div>
-                  <div className="text-slate-500">{fmtTs(e.ts)}</div>
-                </div>
-              ))}
-              {events.length===0 && (
-                <div className="text-slate-500">No recent events</div>
-              )}
-            </div>
-            {events.length>pageSize && (
-              <div className="flex items-center justify-end gap-2 text-xs mt-2">
-                <button className="px-2 py-1 rounded-md border bg-white disabled:opacity-50" onClick={()=> set(Math.max(1, curPage-1))} disabled={curPage<=1}>&larr; Prev</button>
-                <button className="px-2 py-1 rounded-md border bg-white disabled:opacity-50" onClick={()=> set((curPage*pageSize)<events.length? curPage+1 : curPage)} disabled={(curPage*pageSize)>=events.length}>Next &rarr;</button>
-              </div>
-            )}
-          </section>
-        )
-      })()}
-      {/* Image generation for users is available on the Vision page; intentionally not exposed here to avoid changing app imagery. */}
-      <pre className="whitespace-pre-wrap mt-3 text-sm text-slate-700">{status}</pre>
-    </div>
-  );
-}
