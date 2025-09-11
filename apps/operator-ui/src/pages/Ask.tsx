@@ -25,7 +25,7 @@ export default function Ask(){
     const k = 'bvx_first_prompt_note';
     return localStorage.getItem(k) === '1';
   });
-  const [sessionId] = useState<string>(() => {
+  const [sessionId, setSessionId] = useState<string>(() => {
     const key = 'bvx_chat_session';
     const existing = localStorage.getItem(key);
     if (existing) return existing;
@@ -62,7 +62,7 @@ export default function Ask(){
   const loadHistory = async () => {
     try{
       const tid = await getTenant();
-      const r = await api.get(`/ai/chat/logs?tenant_id=${encodeURIComponent(tid)}&session_id=${encodeURIComponent(sessionId)}&limit=200`);
+      const r = await api.get(`/ai/chat/history?tenant_id=${encodeURIComponent(tid)}&session_id=${encodeURIComponent(sessionId)}&limit=200`);
       setHistory(r?.items||[]);
     } catch{}
   };
@@ -268,7 +268,19 @@ export default function Ask(){
       <div className={`grid ${embedded ? 'grid-cols-3' : 'grid-cols-3'} items-center gap-2 text-sm`} data-guide="toolbar">
         <div className="flex items-center gap-2" data-guide="history">
           <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ setHistoryOpen(h=>!h); if (!historyOpen) void loadHistory(); }}>{historyOpen ? 'Hide history' : 'Show history'}</button>
-          <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ const sid = 's_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('bvx_chat_session', sid); window.location.reload(); }}>New session</button>
+          <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{
+            try{
+              const tid = await getTenant();
+              const r = await api.post('/ai/chat/session/new', { tenant_id: tid });
+              const sid = String(r?.session_id || ('s_' + Math.random().toString(36).slice(2,10)));
+              localStorage.setItem('bvx_chat_session', sid);
+              setSessionId(sid);
+              setMessages([]);
+              setHistory([]);
+              setInput('');
+              try { track('ask_new_session'); } catch {}
+            } catch { /* fallback is to clear UI only */ setMessages([]); setHistory([]); setInput(''); }
+          }}>New session</button>
           {/* Sessions button removed */}
         </div>
         <div className="flex items-center">
@@ -281,8 +293,8 @@ export default function Ask(){
         <div className="rounded-xl bg-white shadow-sm p-3 max-h-40 overflow-auto text-xs text-slate-700 border">
           {history.length === 0 ? <div>No messages yet.</div> : (
             <ul className="space-y-1">
-              {history.map(h=> (
-                <li key={h.id}><span className="font-medium">{h.role}</span>: {h.content}</li>
+              {history.map((h, idx)=> (
+                <li key={idx}><span className="font-medium">{h.role}</span>: {h.content}</li>
               ))}
             </ul>
           )}
@@ -359,7 +371,7 @@ export default function Ask(){
       <div className="flex flex-wrap gap-2 text-xs">
         <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{ setInput('What can BrandVX do for me? Keep it concise and tailored to beauty pros.'); await Promise.resolve(); void send(); }}>What can BrandVX do?</button>
         <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{ setInput('How do I get started? Give me the first 3 actions and where to click.'); await Promise.resolve(); void send(); }}>How do I get started?</button>
-        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{ setInput('Create a 48‑hour plan to show quick wins. Ask me any intro questions you need first (services, avg ticket, schedule, audience, platform preference).'); await Promise.resolve(); void send(); }}>Create a 48‑hour plan</button>
+        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{ setInput('What was my revenue for last week?'); await Promise.resolve(); void send(); }}>What was my revenue for last week?</button>
       </div>
       )}
       {/* Last session summary moved to bottom and auto-populated */}
@@ -483,5 +495,4 @@ function ProfileEditor(){
     </div>
   );
 }
-
 

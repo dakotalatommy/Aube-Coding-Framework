@@ -54,13 +54,12 @@ function WorkflowRow() {
   const items: Array<{title:string; sub:string; proof?:string; icon: any}> = [
     { title:'Fill cancellations first', sub:'Text your waitlist first so open spots get taken in minutes.', proof:'Typical: +2–4 slots/week', icon:<IconPlug/> },
     { title:'Cut no‑shows', sub:'Friendly confirmations and day‑of nudges that keep clients on track.', proof:'Typical: 15–25% fewer no‑shows', icon:<IconClock/> },
-    { title:'Revive dormant clients', sub:'Warm check‑ins bring back clients who haven’t visited in 60+ days.', proof:'Typical: 1–3 reactivations/week', icon:<IconUser/> },
-    { title:'Faster replies, less time', sub:'Short, human replies in your voice—across SMS, IG, and email.', proof:'6.2h/week saved (median)', icon:<IconList/> },
-    { title:'Posts in your brand voice', sub:'IG captions drafted from your brand; you approve before anything goes live.', proof:'Stay consistent without sounding robotic', icon:<IconSpark/> },
+    { title:'Seamless professional photo edits', sub:'Polish before/afters with BrandVZN; preserve skin texture and natural tone.', icon:<IconUser/> },
+    { title:'Give your brand a voice', sub:'Short, on‑brand messages and captions — you approve before anything goes live.', icon:<IconSpark/> },
   ];
   return (
     <section className="my-auto mt-6 md:mt-8">
-      <div className="grid grid-cols-5 gap-4 md:gap-5 w-full max-md:overflow-x-auto max-md:[scrollbar-width:none] items-center">
+      <div className="grid grid-cols-4 gap-4 md:gap-5 w-full max-md:overflow-x-auto max-md:[scrollbar-width:none] items-center">
         {items.map(({title, sub, icon}, i) => (
           <div key={i} className="mx-auto aspect-square min-w-[160px] md:min-w-0" style={{ width: 'calc(86% + 14px)' }}>
             <div className="relative group h-full w-full">
@@ -278,4 +277,3 @@ export default function LandingV2(){
     </div>
   );
 }
-

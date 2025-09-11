@@ -41,9 +41,29 @@ export default function Vision(){
   const [recentPrompts, setRecentPrompts] = useState<string[]>([]);
   const starterPrompts = [
     'Change eye color to blue; keep iris texture; no halo.',
-    'Soften T‑zone hotspots; preserve skin texture; neutral tone.',
+    'Reduce forehead shine; preserve skin texture; neutral tone.',
     'Brighten background subtly; keep subject contrast natural.'
   ];
+
+  const [clientName, setClientName] = useState<string>('');
+  const [clientSuggestions, setClientSuggestions] = useState<Array<{contact_id:string; display_name:string}>>([]);
+  const [selectedContactId, setSelectedContactId] = useState<string>('');
+  useEffect(()=>{
+    const t = setTimeout(async()=>{
+      try{
+        const q = clientName.trim();
+        if (q.length < 2) { setClientSuggestions([]); return; }
+        const tid = await getTenant();
+        const r = await api.get(`/contacts/search?tenant_id=${encodeURIComponent(tid)}&q=${encodeURIComponent(q)}&limit=8`);
+        const items = (r?.items||[]).map((it:any)=> ({ contact_id: String(it.contact_id||''), display_name: String(it.display_name||'Client')}));
+        setClientSuggestions(items);
+        // auto-select if exact match
+        const exact = items.find(it=> it.display_name.toLowerCase() === q.toLowerCase());
+        setSelectedContactId(exact ? exact.contact_id : '');
+      } catch { setClientSuggestions([]); }
+    }, 220);
+    return ()=> clearTimeout(t);
+  }, [clientName]);
 
   // Hydrate recent prompts/history from localStorage
   useEffect(()=>{
@@ -309,7 +329,7 @@ export default function Vision(){
       if (!preview) { setOutput('Nothing to save — upload or import first.'); return; }
       setSaving(true);
       const tid = await getTenant();
-      const cid = (contactId || 'library').trim();
+      const cid = (selectedContactId || (clientName ? clientName : 'library')).trim();
       await api.post('/client-images/save', { tenant_id: tid, contact_id: cid, url: preview, notes });
       setOutput('Saved to library.');
     } catch(e:any){ setOutput(String(e?.message||e)); }
@@ -320,7 +340,7 @@ export default function Vision(){
     try{
       setLoading(true);
       const tid = await getTenant();
-      const cid = (contactId || 'library').trim();
+      const cid = (selectedContactId || (clientName ? clientName : 'library')).trim();
       const r = await api.get(`/client-images/list?tenant_id=${encodeURIComponent(tid)}&contact_id=${encodeURIComponent(cid)}`);
       const items = (r?.items || []).map((it:any)=> String(it?.url||'')).filter(Boolean);
       setIgItems(items);
@@ -449,7 +469,7 @@ export default function Vision(){
             <input type="range" min={10} max={100} value={intensity} onChange={e=> setIntensity(parseInt(e.target.value))} aria-label="Refinement intensity" />
             <span>{intensity}</span>
           </div>
-          <Button variant="outline" disabled={loading} onClick={importInstagram}>Import IG</Button>
+          {/* Import IG temporarily removed */}
         </div>
 
           <textarea className="w-full border rounded-md px-3 py-2" rows={3} value={editPrompt} onChange={e=>setEditPrompt(e.target.value)} />
@@ -468,8 +488,13 @@ export default function Vision(){
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end">
             <label className="grid gap-1">
-              <span className="text-xs text-slate-600">Contact ID (or "library")</span>
-              <input className="border rounded-md px-3 py-2" value={contactId} onChange={e=>setContactId(e.target.value)} placeholder="client_123 or library" />
+              <span className="text-xs text-slate-600">Client name</span>
+              <input list="client-suggest" className="border rounded-md px-3 py-2" value={clientName} onChange={e=>{ setClientName(e.target.value); }} placeholder="Jane Doe" />
+              <datalist id="client-suggest">
+                {clientSuggestions.map(s=> (
+                  <option key={s.contact_id} value={s.display_name} />
+                ))}
+              </datalist>
             </label>
             <label className="md:col-span-2 grid gap-1">
               <span className="text-xs text-slate-600">Notes (optional)</span>
