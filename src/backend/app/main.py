@@ -106,6 +106,26 @@ try:
 except Exception:
     pass
 
+# -------- Helper: mark onboarding step complete (idempotent) ---------
+def _complete_step(tenant_id: str, step_key: str, context: Optional[Dict[str, Any]] = None) -> None:
+    try:
+        with engine.begin() as conn:
+            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": tenant_id})
+            # Insert once; allow duplicates but they will simply show multiple rows; minimal overhead.
+            conn.execute(
+                _sql_text(
+                    "INSERT INTO onboarding_progress(tenant_id, step_key, context_json) VALUES (CAST(:t AS uuid), :k, :c)"
+                ),
+                {"t": tenant_id, "k": step_key, "c": _json.dumps(context or {})},
+            )
+    except Exception:
+        try:
+            # Avoid propagating to the user flow
+            pass
+        except Exception:
+            pass
+
 # ----------------------- Onboarding Progress -----------------------
 class ProgressStep(BaseModel):
     tenant_id: str
@@ -5318,6 +5338,8 @@ class SettingsRequest(BaseModel):
     services: Optional[List[str]] = None
     preferences: Optional[Dict[str, str]] = None
     brand_profile: Optional[Dict[str, str]] = None
+    quiet_hours: Optional[Dict[str, str]] = None  # { start:'21:00', end:'08:00' }
+    training_notes: Optional[str] = None
     completed: Optional[bool] = None
     providers_live: Optional[Dict[str, bool]] = None  # per-provider live-mode switch
     wf_progress: Optional[Dict[str, bool]] = None  # first 5 workflows progress flags
@@ -5374,6 +5396,8 @@ def update_settings(
         "services": req.services,
         "preferences": req.preferences,
         "brand_profile": req.brand_profile,
+        "quiet_hours": req.quiet_hours,
+        "training_notes": req.training_notes,
         "completed": req.completed,
         "providers_live": req.providers_live,
         "wf_progress": req.wf_progress,
@@ -5390,6 +5414,8 @@ def update_settings(
     }
     # Drop Nones
     payload = {k: v for k, v in payload.items() if v is not None}
+    wrote_quiet = False
+    wrote_train = False
     with engine.begin() as conn:
         try:
             conn.execute(__t("SET LOCAL app.role = 'owner_admin'"))
@@ -5402,11 +5428,22 @@ def update_settings(
                 current = _json.loads(row[1] or "{}")
             except Exception:
                 current = {}
+            # Merge new payload; drop None handled above
             current.update(payload)
             conn.execute(__t("UPDATE settings SET data_json=:d WHERE id=:id"), {"d": _json.dumps(current), "id": row[0]})
         else:
             conn.execute(__t("INSERT INTO settings(tenant_id, data_json, created_at) VALUES (CAST(:t AS uuid), :d, EXTRACT(epoch FROM now())::bigint)"), {"t": req.tenant_id, "d": _json.dumps(payload or {})})
-    return {"status": "ok"}
+    # Mark onboarding progress based on keys present
+    try:
+        if req.quiet_hours and isinstance(req.quiet_hours, dict):
+            wrote_quiet = True
+            _complete_step(req.tenant_id, 'quiet_hours', {"start": req.quiet_hours.get('start'), "end": req.quiet_hours.get('end')})
+        if (req.training_notes and str(req.training_notes).strip()) or (req.brand_profile and any((req.brand_profile or {}).values())):
+            wrote_train = True
+            _complete_step(req.tenant_id, 'train_vx', {"brand_profile": bool(req.brand_profile), "notes": bool(req.training_notes)})
+    except Exception:
+        pass
+    return {"status": "ok", "progress": {"quiet": wrote_quiet, "train": wrote_train}}
 
 
 class ProvisionCreatorRequest(BaseModel):
@@ -6621,6 +6658,16 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 "exchange_ok": exchange_ok,
                 "saved": True,
             })
+        # Mark onboarding step for provider connection
+        try:
+            if provider == 'google':
+                _complete_step(t_id, 'connect_google', {"provider": provider})
+            elif provider in ('square','acuity'):
+                _complete_step(t_id, 'connect_booking', {"provider": provider})
+            else:
+                _complete_step(t_id, f"connect_{provider}", {"provider": provider})
+        except Exception:
+            pass
         return RedirectResponse(url=f"{_frontend_base_url()}/integrations?connected=1&provider={provider}&step={step}&return=workspace")
     except Exception:
         return RedirectResponse(url=f"{_frontend_base_url()}/integrations?error=oauth_unexpected&provider={provider}")
@@ -6652,6 +6699,11 @@ def hubspot_import(req: HubspotImportRequest, db: Session = Depends(get_db), ctx
     emit_event("CrmImportCompleted", {"tenant_id": req.tenant_id, "system": "hubspot", "imported": created})
     try:
         invalidate_contacts_cache(req.tenant_id)
+    except Exception:
+        pass
+    try:
+        if created > 0:
+            _complete_step(req.tenant_id, 'contacts_imported', {"system": "hubspot", "count": int(created)})
     except Exception:
         pass
     return {"imported": created}
@@ -6722,6 +6774,11 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                     cursor = body.get("cursor") or body.get("next_cursor")
                     if not cursor:
                         break
+            try:
+                if imported > 0 and tenant_id:
+                    _complete_step(str(tenant_id), 'contacts_imported', {"system": "square", "count": int(imported)})
+            except Exception:
+                pass
             return {"imported": imported, "meta": {"mode": "v1_disabled", "base": base, "used_search": used_search_any, "samples": sample_ids}}
         except Exception as e:
             return {"imported": 0, "error": "internal_error", "detail": str(e)[:200], "meta": {"mode": "v1_disabled", "base": base}}
@@ -7569,6 +7626,8 @@ class SettingsRequest(BaseModel):
     services: Optional[List[str]] = None
     preferences: Optional[Dict[str, str]] = None
     brand_profile: Optional[Dict[str, str]] = None
+    quiet_hours: Optional[Dict[str, str]] = None
+    training_notes: Optional[str] = None
     completed: Optional[bool] = None
     providers_live: Optional[Dict[str, bool]] = None  # per-provider live-mode switch
     wf_progress: Optional[Dict[str, bool]] = None  # first 5 workflows progress flags
@@ -7659,6 +7718,10 @@ def update_settings(
         ai_cfg = dict(data.get("ai") or {})
         ai_cfg["master_prompt"] = req.master_prompt
         data["ai"] = ai_cfg
+    if req.quiet_hours is not None:
+        data["quiet_hours"] = req.quiet_hours
+    if req.training_notes is not None:
+        data["training_notes"] = str(req.training_notes)
     if req.rate_limit_multiplier is not None:
         try:
             data["rate_limit_multiplier"] = max(1, int(req.rate_limit_multiplier))
@@ -7671,6 +7734,13 @@ def update_settings(
         row.data_json = json.dumps(data)
     db.commit()
     emit_event("SettingsUpdated", {"tenant_id": req.tenant_id, "keys": list(data.keys())})
+    try:
+        if req.quiet_hours and isinstance(req.quiet_hours, dict):
+            _complete_step(req.tenant_id, 'quiet_hours', {"start": req.quiet_hours.get('start'), "end": req.quiet_hours.get('end')})
+        if (req.training_notes and str(req.training_notes).strip()) or (req.brand_profile and any((req.brand_profile or {}).values())):
+            _complete_step(req.tenant_id, 'train_vx', {"brand_profile": bool(req.brand_profile), "notes": bool(req.training_notes)})
+    except Exception:
+        pass
     return {"status": "ok"}
 
 

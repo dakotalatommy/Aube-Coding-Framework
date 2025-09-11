@@ -1152,7 +1152,7 @@ async def execute_tool(name: str, params: Dict[str, Any], db: Session, ctx: User
     except ToolError as te:
         return {"status": str(te)}
     except Exception:
-    return {"status": "error"}
+        return {"status": "error"}
 
 async def tool_vision_analyze_gpt5(
     db: Session,
