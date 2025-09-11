@@ -301,6 +301,10 @@ async def plan_generate(req: ProgressStep, db: Session = Depends(get_db), ctx: U
                 conn.execute(_sql_text("INSERT INTO ai_memories (tenant_id, key, value, tags) SELECT CAST(:t AS uuid), 'last_session_summary', :v, 'rolling,summary' WHERE NOT EXISTS (SELECT 1 FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key='last_session_summary')"), {"t": req.tenant_id, "v": summary})
         except Exception:
             pass
+        try:
+            _complete_step(req.tenant_id, 'plan_generated', {"days": 14})
+        except Exception:
+            pass
         return {"status": "ok", "days": 14}
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
@@ -4202,10 +4206,20 @@ def ai_memories_upsert(req: MemoryUpsertRequest, db: Session = Depends(get_db), 
                         if nullable
                         else "to_json(CAST(:{p} AS text))".format(p=pname)
                     )
+                if dtype == "array":
+                    return (
+                        "CASE WHEN :{p} IS NULL THEN NULL ELSE string_to_array(:{p}, ',') END".format(p=pname)
+                        if nullable
+                        else "string_to_array(:{p}, ',')".format(p=pname)
+                    )
                 return ":{p}".format(p=pname)
 
             val_expr = _expr(vtype, "v", False)
-            tag_expr = _expr(ttype, "tg", True)
+            # Force tags to jsonb array if column is json/jsonb; store comma-split list as array
+            if ttype in ("json", "jsonb"):
+                tag_expr = "CASE WHEN :tg IS NULL THEN NULL ELSE to_jsonb(string_to_array(:tg, ',')) END"
+            else:
+                tag_expr = _expr(ttype, "tg", True)
 
             params = {"t": req.tenant_id, "k": req.key, "v": req.value, "tg": (req.tags or None)}
 
