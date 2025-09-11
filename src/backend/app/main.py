@@ -9781,6 +9781,11 @@ def calendar_sync(req: SyncRequest, db: Session = Depends(get_db), ctx: UserCont
         return {"status": "forbidden"}
     prov = (req.provider or "auto").lower()
     now = int(_time.time())
+    # Ensure any stale failed transaction on this Session is cleared before use
+    try:
+        db.rollback()  # safe no-op if not in failed state
+    except Exception:
+        pass
     try:
         with next(get_db()) as _db:  # type: ignore
             _db.add(dbm.EventLedger(ts=now, tenant_id=req.tenant_id, name=f"sync.calendar.{prov}.queued", payload=json.dumps({"status":"queued"})))
@@ -9790,24 +9795,50 @@ def calendar_sync(req: SyncRequest, db: Session = Depends(get_db), ctx: UserCont
     emit_event("CalendarSyncRequested", {"tenant_id": req.tenant_id, "provider": prov})
     # Scaffold provider adapters: populate some sample events depending on provider and persist
     def _add_events(new_events: List[Dict[str, object]]):
-        seen_ids = {str(r.event_id) for r in db.query(dbm.CalendarEvent).filter(dbm.CalendarEvent.tenant_id == req.tenant_id, dbm.CalendarEvent.event_id.isnot(None)).all()}
+        try:
+            seen_ids = {str(r.event_id) for r in db.query(dbm.CalendarEvent).filter(dbm.CalendarEvent.tenant_id == req.tenant_id, dbm.CalendarEvent.event_id.isnot(None)).all()}
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            seen_ids = set()
         for e in new_events:
-            eid = str(e.get("id")) if e.get("id") is not None else None
-            if eid and eid in seen_ids:
+            try:
+                eid = str(e.get("id")) if e.get("id") is not None else None
+                if eid and eid in seen_ids:
+                    continue
+                db.add(dbm.CalendarEvent(
+                    tenant_id=req.tenant_id,
+                    event_id=eid,
+                    title=str(e.get("title") or e.get("service") or ""),
+                    start_ts=int(e.get("start_ts") or 0),
+                    end_ts=int(e.get("end_ts") or 0) or None,
+                    provider=str(e.get("provider") or req.provider or ""),
+                    status=str(e.get("status") or ""),
+                ))
+            except Exception:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
                 continue
-            db.add(dbm.CalendarEvent(
-                tenant_id=req.tenant_id,
-                event_id=eid,
-                title=str(e.get("title") or e.get("service") or ""),
-                start_ts=int(e.get("start_ts") or 0),
-                end_ts=int(e.get("end_ts") or 0) or None,
-                provider=str(e.get("provider") or req.provider or ""),
-                status=str(e.get("status") or ""),
-            ))
     if prov == "google":
-        _add_events(cal_google.fetch_events(req.tenant_id))
+        try:
+            _add_events(cal_google.fetch_events(req.tenant_id))
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:
+                pass
     elif prov == "apple":
-        _add_events(cal_apple.fetch_events(req.tenant_id))
+        try:
+            _add_events(cal_apple.fetch_events(req.tenant_id))
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:
+                pass
     else:
         # bookings merge (Square/Acuity)
         try:
@@ -9817,7 +9848,14 @@ def calendar_sync(req: SyncRequest, db: Session = Depends(get_db), ctx: UserCont
             _add_events(bk_acuity.fetch_bookings(req.tenant_id))
         except Exception:
             pass
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return {"status": "queued", "provider": prov}
     try:
         invalidate_calendar_cache(req.tenant_id)
     except Exception:
