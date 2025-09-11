@@ -172,3 +172,16 @@ tbody tr:hover { background: #fff7fb; }
   overscroll-behavior: contain;
   min-height: 0; /* allow flex/grid children to size */
 }
+
+/* Opaque modal card: strongest override to prevent any transparency/bleed */
+.bvx-modal-card {
+  background: #ffffff !important;
+  color: var(--bvx-surface-fg, #0f172a);
+  border-color: var(--bvx-surface-border, #e2e8f0);
+  isolation: isolate !important;
+  mix-blend-mode: normal !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18) !important;
+  z-index: 2000 !important;
+}

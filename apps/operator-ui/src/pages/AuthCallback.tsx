@@ -8,7 +8,14 @@ export default function AuthCallback() {
 
   useEffect(() => {
     const sp = new URLSearchParams(loc.search);
-    const next = sp.get('next') || '/onboarding';
+    let next = sp.get('next') || '';
+    const wantsWorkspace = sp.get('return') === 'workspace';
+    if (!next && wantsWorkspace) {
+      // Prefer returning into Settings/Integrations with postVerify marker
+      const p = sp.get('provider') || '';
+      next = `/workspace?pane=integrations${p?`&provider=${encodeURIComponent(p)}`:''}&connected=1&return=workspace&postVerify=1`;
+    }
+    if (!next) next = '/onboarding';
 
     // Broadcast to the opener/original tab that auth is ready
     const signalReady = () => {

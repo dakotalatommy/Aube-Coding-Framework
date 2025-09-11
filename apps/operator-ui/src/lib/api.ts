@@ -240,3 +240,21 @@ class AbortSignalAny implements AbortSignal {
     this.dispatchEvent = ctrl.signal.dispatchEvent.bind(ctrl.signal);
   }
 }
+
+        this.aborted = true;
+        this.reason = ev?.target?.reason || 'abort';
+        ctrl.abort(this.reason);
+        if (typeof this.onabort === 'function') {
+          try { this.onabort.call(this, ev); } catch {}
+        }
+      }
+    };
+    for (const s of signals) {
+      if (s.aborted) { onAbort({ target: s }); break; }
+      s.addEventListener('abort', onAbort, { once: true });
+    }
+    this.addEventListener = ctrl.signal.addEventListener.bind(ctrl.signal);
+    this.removeEventListener = ctrl.signal.removeEventListener.bind(ctrl.signal);
+    this.dispatchEvent = ctrl.signal.dispatchEvent.bind(ctrl.signal);
+  }
+}

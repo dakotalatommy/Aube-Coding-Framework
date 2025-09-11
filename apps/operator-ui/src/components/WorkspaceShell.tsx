@@ -516,12 +516,41 @@ export default function WorkspaceShell(){
       {showWelcome && createPortal(
         <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4" id="bvx-welcome-modal" style={{position:'fixed',top:0,left:0,right:0,bottom:0,zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center'}}>
           <div aria-hidden className="absolute inset-0 bg-black/30" onClick={async()=>{ setShowWelcome(false); try{ sessionStorage.setItem('bvx_welcome_seen','1'); }catch{}; try{ const tid = localStorage.getItem('bvx_tenant')||''; if (tid) await api.post('/settings', { tenant_id: tid, welcome_seen: true }); }catch{} }} />
-          <div className="relative inline-block max-w-md w-[min(92vw,420px)] rounded-2xl border bg-white p-6 shadow-xl text-center">
+          <div className="relative inline-block max-w-md w-[min(92vw,420px)] rounded-2xl border p-6 shadow-xl text-center bvx-modal-card" style={{ backgroundColor:'#fff' }}>
             <div className="text-lg font-semibold text-slate-900">Welcome to brandVX</div>
             <div className="text-slate-700 text-sm mt-1">Let’s briefly walk through your different views.</div>
             <div className="mt-4 flex items-center justify-center">
-              <button className="inline-flex rounded-full px-5 py-2 bg-slate-900 text-white" onClick={async()=>{ setShowWelcome(false); try{ sessionStorage.setItem('bvx_welcome_seen','1'); }catch{}; try{ const tid = localStorage.getItem('bvx_tenant')||''; if (tid) await api.post('/settings', { tenant_id: tid, welcome_seen: true }); }catch{}; try{ startGuide('workspace_intro'); }catch{} }}>Start</button>
-              <a className="ml-2 inline-flex rounded-full px-5 py-2 border bg-white" href="/onboarding">Go to onboarding</a>
+              <button className="inline-flex rounded-full px-5 py-2 bg-slate-900 text-white" onClick={async()=>{
+                setShowWelcome(false);
+                try{ sessionStorage.setItem('bvx_welcome_seen','1'); }catch{}
+                try{ const tid = localStorage.getItem('bvx_tenant')||''; if (tid) await api.post('/settings', { tenant_id: tid, welcome_seen: true }); }catch{}
+                try{
+                  const sp = new URLSearchParams(window.location.search);
+                  const returning = sp.get('postVerify') === '1' || sp.get('return') === 'workspace';
+                  if (returning) {
+                    // Cross‑panel sequence after OAuth return
+                    const seq = ['dashboard','messages','contacts','calendar','cadences','inventory','integrations','workflows','approvals'] as const;
+                    let i = 0;
+                    const drive = async()=>{
+                      if (i >= seq.length) return;
+                      const key = seq[i++];
+                      try { const u = new URL(window.location.href); u.searchParams.set('pane', key); window.history.replaceState({}, '', u.toString()); } catch { window.location.href = `/workspace?pane=${key}`; }
+                      setTimeout(drive, 1800);
+                    };
+                    drive();
+                  } else {
+                    startGuide('workspace_intro');
+                  }
+                }catch{}
+              }}>Start</button>
+              {(() => {
+                try{
+                  const sp = new URLSearchParams(window.location.search);
+                  const shouldHide = sp.get('postVerify') === '1' || sp.get('return') === 'workspace' || localStorage.getItem('bvx_onboarding_done') === '1';
+                  if (shouldHide) return null;
+                } catch {}
+                return <a className="ml-2 inline-flex rounded-full px-5 py-2 border bg-white" href="/onboarding">Go to onboarding</a>;
+              })()}
             </div>
           </div>
         </div>, document.body)

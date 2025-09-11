@@ -131,7 +131,7 @@ export default function OnboardingRoot(){
         <header className="relative z-10">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="font-semibold tracking-tight text-slate-900 text-xl" style={{ fontFamily: 'Space Grotesk, Inter, system-ui' }}>Onboarding — Personalize your BrandVX</h1>
+              <h1 className="font-semibold tracking-tight text-slate-900 text-xl" style={{ fontFamily: 'Space Grotesk, Inter, system-ui' }}>Onboarding — 5 quick steps</h1>
               <p className="text-slate-600 text-sm">Beauty pros • Gentle setup • Your voice • Your clients</p>
               <p className="text-slate-600/90 text-[12px] mt-1">You can finish anytime in Settings / Connections.</p>
             </div>
@@ -140,10 +140,11 @@ export default function OnboardingRoot(){
             </div>
           </div>
           <div className="mt-3 flex items-center gap-2" aria-label="Progress">
-            {order.map((s,i)=> (
-              <div key={s} aria-label={s} aria-current={i===idx ? 'step' : undefined} className={`h-2 rounded-full transition-all ${i===idx? 'bg-pink-500 w-8':'bg-slate-200 w-3'}`} />
+            {/* Lock visible progress to 5 steps that matter now */}
+            {Array.from({ length: 5 }).map((_,i)=> (
+              <div key={i} aria-label={`step-${i+1}`} aria-current={i===Math.min(idx,4) ? 'step' : undefined} className={`h-2 rounded-full transition-all ${i===Math.min(idx,4)? 'bg-pink-500 w-8':'bg-slate-200 w-3'}`} />
             ))}
-            <div className="ml-auto text-xs text-slate-500">Step {idx+1}/{order.length}</div>
+            <div className="ml-auto text-xs text-slate-500">Step {Math.min(idx+1,5)}/5</div>
           </div>
         </header>
         <main className="relative z-10 mt-4">

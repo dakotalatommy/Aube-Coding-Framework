@@ -10596,3 +10596,24 @@ def instagram_status(ctx: UserContext = Depends(get_user_context)):
             return {"status": "connected" if ok else "not_connected"}
     except Exception:
         return {"status": "unknown"}
+
+            url = data.get("square_booking_url", url)
+    except Exception:
+        pass
+    return {"url": url}
+
+@app.get("/oauth/instagram/status", tags=["Integrations"])
+def instagram_status(ctx: UserContext = Depends(get_user_context)):
+    try:
+        with next(get_db()) as db:  # type: ignore
+            row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == ctx.tenant_id).first()
+            providers = {}
+            if row and row.data_json:
+                try:
+                    providers = json.loads(row.data_json or '{}').get('providers_live') or {}
+                except Exception:
+                    providers = {}
+            ok = providers.get('instagram') is True
+            return {"status": "connected" if ok else "not_connected"}
+    except Exception:
+        return {"status": "unknown"}
