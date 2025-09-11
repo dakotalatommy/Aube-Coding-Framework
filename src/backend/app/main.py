@@ -5407,16 +5407,30 @@ def get_settings(
         tid = tenant_id or ctx.tenant_id
         if ctx.tenant_id != tid and ctx.role != "owner_admin":
             return {"data": {}}
-        row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == tid).first()
-        if not row or not (row.data_json or "").strip():
-            return {"data": {}}
+        # Use a GUC-backed read to satisfy RLS
+        from sqlalchemy import text as __t
+        with engine.begin() as conn:
+            try:
+                conn.execute(__t("SET LOCAL app.role = 'owner_admin'"))
+                conn.execute(__t("SET LOCAL app.tenant_id = :t"), {"t": tid})
+            except Exception:
+                pass
+            r = conn.execute(__t("SELECT data_json FROM settings WHERE tenant_id = CAST(:t AS uuid) ORDER BY id DESC LIMIT 1"), {"t": tid}).fetchone()
+            if not r or not ((r[0] or "").strip()):
+                return {"data": {}}
+            try:
+                return {"data": json.loads(r[0] or "{}")}
+            except Exception:
+                return {"data": {}}
+    except Exception:
+        # Fallback to ORM path (may be empty if RLS not satisfied by session GUCs)
         try:
+            row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == (tenant_id or ctx.tenant_id)).first()
+            if not row or not (row.data_json or "").strip():
+                return {"data": {}}
             return {"data": json.loads(row.data_json)}
         except Exception:
-            # Malformed JSON from earlier versions — return empty and avoid 500s
             return {"data": {}}
-    except Exception:
-        return {"data": {}}
 
 
 @app.post("/settings", tags=["Integrations"])

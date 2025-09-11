@@ -179,6 +179,7 @@ export default function Dashboard(){
   const [planStatus, setPlanStatus] = useState<{ day_today?: number; days_total?: number }|null>(null);
   const [planTasks, setPlanTasks] = useState<string[]>([]);
   const [sessionSummary, setSessionSummary] = useState<string>('');
+  const [setupPct, setSetupPct] = useState<number>(0);
   const loadPlan = async () => {
     try{
       setPlanLoading(true);
@@ -195,6 +196,11 @@ export default function Dashboard(){
           const val = typeof last.value === 'string' ? last.value : (typeof last.value?.toString === 'function' ? last.value.toString() : '');
           setSessionSummary(String(val||''));
         }
+      } catch {}
+      // Load setup percent for a small indicator
+      try{
+        const prog = await api.get(`/onboarding/progress/status?tenant_id=${encodeURIComponent(tid)}`);
+        setSetupPct(Number(prog?.percent||0));
       } catch {}
     } finally {
       setPlanLoading(false);
@@ -451,11 +457,16 @@ export default function Dashboard(){
       </section>
       {/* Next Best Steps (Day N/14 + today's tasks) */}
       <section className="rounded-2xl p-3 bg-white border border-white/60 shadow-sm" data-guide="next-best-steps">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <div className="text-sm font-semibold text-slate-900">Next Best Steps</div>
-          {planStatus?.day_today && (
-            <div className="text-xs text-slate-600">Day {Number(planStatus.day_today||1)}/{Number(planStatus.days_total||14)}</div>
-          )}
+          <div className="flex items-center gap-2 text-xs text-slate-600">
+            {typeof setupPct === 'number' && setupPct >= 0 && (
+              <span aria-label={`Setup ${setupPct}%`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border bg-white">Setup {setupPct}%</span>
+            )}
+            {planStatus?.day_today && (
+              <span>Day {Number(planStatus.day_today||1)}/{Number(planStatus.days_total||14)}</span>
+            )}
+          </div>
         </div>
         <div className="mt-2 text-sm text-slate-700">
           {planLoading ? (
