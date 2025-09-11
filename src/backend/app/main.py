@@ -4296,13 +4296,39 @@ def admin_db_sweep(ctx: UserContext = Depends(get_user_context)) -> Dict[str, ob
         with open(sweep_path, "r", encoding="utf-8") as f:
             sql_script = f.read()
         from sqlalchemy import text as __t
+        # Execute statement-by-statement to tolerate CREATE POLICY on older PG (no IF NOT EXISTS)
+        stmts: list[str] = []
+        buf: list[str] = []
+        for line in sql_script.splitlines():
+            buf.append(line)
+            if line.strip().endswith(";"):
+                stmts.append("\n".join(buf))
+                buf = []
+        if buf:
+            stmts.append("\n".join(buf))
+        applied = 0
+        skipped = 0
         with engine.begin() as conn:
             try:
                 conn.execute(__t("SET LOCAL app.role = 'owner_admin'"))
             except Exception:
                 pass
-            conn.exec_driver_sql(sql_script)
-        return {"status": "ok"}
+            for raw in stmts:
+                stmt = raw.strip()
+                if not stmt or stmt.startswith("--"):
+                    continue
+                # Drop IF NOT EXISTS for policies; swallow duplicate errors
+                to_run = stmt.replace("CREATE POLICY IF NOT EXISTS", "CREATE POLICY")
+                try:
+                    conn.exec_driver_sql(to_run)
+                    applied += 1
+                except Exception as e:
+                    msg = str(e)
+                    if "already exists" in msg or "duplicate" in msg or "policy \"" in msg:
+                        skipped += 1
+                        continue
+                    raise
+        return {"status": "ok", "applied": applied, "skipped": skipped}
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
 
