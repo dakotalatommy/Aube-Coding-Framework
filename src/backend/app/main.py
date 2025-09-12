@@ -66,6 +66,7 @@ from .adapters.supabase_adapter import SupabaseAdapter
 import json
 import os
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Query
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 import io
@@ -2311,6 +2312,12 @@ def _oauth_authorize_url(provider: str, tenant_id: Optional[str] = None, return_
         # Also cache tenant mapping in case state decode fails at callback
         t_cache = (tenant_id or "t1")
         cache_set(f"oauth_state_t:{_state}", t_cache, ttl=600)
+        # Cache return hint alongside state so callback can recover intent even if state decode fails
+        try:
+            if return_hint:
+                cache_set(f"oauth_state_r:{_state}", str(return_hint), ttl=600)
+        except Exception:
+            pass
     except Exception:
         pass
     if provider == "google":
@@ -6606,7 +6613,7 @@ def api_assist(req: AssistInput, ctx: UserContext = Depends(get_user_context)):
 
 
 @app.get("/api/oauth/{provider}/start", tags=["Integrations"])  # 302 to provider auth
-def api_oauth_start(provider: str, return_: Optional[str] = None, ctx: UserContext = Depends(get_user_context)):
+def api_oauth_start(provider: str, return_: Optional[str] = Query(None, alias="return"), ctx: UserContext = Depends(get_user_context)):
     try:
         url = _oauth_authorize_url(provider, tenant_id=ctx.tenant_id, return_hint=(return_ or None))
         if not url:
@@ -6626,7 +6633,7 @@ def api_oauth_start(provider: str, return_: Optional[str] = None, ctx: UserConte
 ## Removed legacy alias /api/oauth/{provider}/callback to avoid duplicate callback handling
 
 @app.get("/oauth/{provider}/login", tags=["Integrations"])  # single canonical login
-def oauth_login(provider: str, tenant_id: Optional[str] = None, return_: Optional[str] = None, ctx: UserContext = Depends(get_user_context)):
+def oauth_login(provider: str, tenant_id: Optional[str] = None, return_: Optional[str] = Query(None, alias="return"), ctx: UserContext = Depends(get_user_context)):
     # Gate v1 Square path if disabled
     if provider == "square" and os.getenv("INTEGRATIONS_V1_DISABLED", "0") == "1":
         return JSONResponse({"error": "gone", "message": "v1 square login disabled"}, status_code=410)
@@ -6711,16 +6718,29 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
     try:
         # Try to extract tenant from encoded state; fallback to cached state mapping
         t_id = "t1"
+        return_hint = None
         try:
             if state:
                 pad = '=' * (-len(state) % 4)
                 data = json.loads(_b64.urlsafe_b64decode((state + pad).encode()).decode())
                 t_id = str(data.get("t") or t_id)
+                try:
+                    rh = data.get("r")
+                    if isinstance(rh, str) and rh:
+                        return_hint = rh
+                except Exception:
+                    pass
         except Exception:
             try:
                 t_cached = cache_get(f"oauth_state_t:{state}") if state else None
                 if t_cached:
                     t_id = str(t_cached)
+                try:
+                    r_cached = cache_get(f"oauth_state_r:{state}") if state else None
+                    if r_cached:
+                        return_hint = str(r_cached)
+                except Exception:
+                    pass
             except Exception:
                 t_id = "t1"
         # Verify state marker to mitigate CSRF
@@ -6894,6 +6914,10 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 _complete_step(t_id, f"connect_{provider}", {"provider": provider})
         except Exception:
             pass
+        # Prefer returning to workspace/dashboard when onboarding initiated the connect
+        dest_return = request.query_params.get('return') or return_hint or 'workspace'
+        if dest_return == 'onboarding':
+            return RedirectResponse(url=f"{_frontend_base_url()}/onboarding?connected=1&provider={provider}")
         return RedirectResponse(url=f"{_frontend_base_url()}/integrations?connected=1&provider={provider}&step={step}&return=workspace")
     except Exception:
         return RedirectResponse(url=f"{_frontend_base_url()}/integrations?error=oauth_unexpected&provider={provider}")

@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import os
 import httpx
 from ..cache import breaker_allow, breaker_on_result
@@ -14,7 +14,7 @@ except Exception:  # pragma: no cover - import guard
     _NACL_AVAILABLE = False
 
 
-def sendgrid_send_email(to_email: str, subject: str, body_html: str, text_override: str | None = None) -> Dict[str, Any]:
+def sendgrid_send_email(to_email: str, subject: str, body_html: str, text_override: Optional[str] = None) -> Dict[str, Any]:
     api_key = os.getenv("SENDGRID_API_KEY", "")
     from_email = os.getenv("SENDGRID_FROM_EMAIL", "")
     if not (api_key and from_email and to_email):

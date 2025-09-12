@@ -51,9 +51,9 @@ function WorkflowRow() {
   ];
   return (
     <section className="my-auto mt-6 md:mt-8">
-      <div className="grid grid-cols-4 gap-3 md:gap-4 w-full max-md:overflow-x-auto max-md:[scrollbar-width:none] items-center">
+      <div className="grid grid-cols-4 gap-3 md:gap-4 w-full max-md:overflow-x-auto max-md:[scrollbar-width:none] items-center mt-[20px]">
         {items.map(({title, sub, icon}, i) => (
-          <div key={i} className="mx-auto aspect-square min-w-[140px] md:min-w-0" style={{ width: 'calc(72% + 10px)' }}>
+          <div key={i} className="mx-auto aspect-square min-w-[147px] md:min-w-0" style={{ width: 'calc(76% + 10px)' }}>
             <div className="relative group h-full w-full">
               <div role="button" tabIndex={0} aria-label={`${title}: ${sub}`} className="relative h-full w-full rounded-3xl p-5 md:p-6 bg-white border-[3px] border-white shadow-[0_24px_48px_-22px_rgba(0,0,0,0.28)] overflow-hidden transition will-change-transform hover:-translate-y-1.5 hover:shadow-[0_40px_80px_-32px_rgba(0,0,0,0.45)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] isolate mix-blend-normal">
               {/* Force isolation: solid white backdrop inside tile */}
@@ -155,7 +155,7 @@ export default function LandingV2(){
 
   return (
     <div className="relative w-full min-h-[100dvh]" style={{ backgroundColor: '#F7CBDD' }}>
-      <div className="mx-auto max-w-6xl relative z-10">
+      <div className="mx-auto max-w-6xl relative z-10 flex flex-col min-h-[100dvh]">
       {/* Use GLB copied to /public/spline */}
       <BackdropFX modelUrl="/spline/swirl.glb" />
       {/* Hairlines */}
@@ -166,7 +166,7 @@ export default function LandingV2(){
         {/* Header removed for now per design — hero remains primary */}
         <main ref={mainRef} className="min-h-full grid grid-rows-[auto_auto_1fr] overflow-visible relative">
           {/* Hero (words-only + single CTA) */}
-          <section className="relative pt-4 md:pt-6 pb-10 md:pb-12 mt-[7px]">
+          <section className="relative pt-6 md:pt-8 pb-10 md:pb-12 mt-[7px]">
             <div
               aria-hidden
               className="absolute inset-0 -z-10"
@@ -178,11 +178,18 @@ export default function LandingV2(){
 
             <div className="max-w-7xl mx-auto px-2 md:px-3">
               <div className="relative inline-block w-full">
+                <div className="w-full flex justify-center mb-2 md:mb-3">
+                  <img
+                    src="/assets/brandvx-logo.png"
+                    alt="brandVX logo"
+                    className="max-w-[140px] md:max-w-[180px] opacity-95"
+                  />
+                </div>
                 <SplitText
                   as="h1"
-                  text="intuitive ops — luxe client experience — brandVX"
+                  text="Book more clients. Fewer no‑shows. Less stress."
                   startDelayMs={0}
-                  className="text-[84px] md:text-[138px] leading-[1.02] tracking-tight text-center font-extrabold"/>
+                  className="text-[64px] md:text-[112px] leading-[1.06] tracking-tight text-center font-extrabold"/>
                 {/* Subtle hero shimmer sweep */}
                 <motion.div
                   aria-hidden
@@ -253,10 +260,10 @@ export default function LandingV2(){
             <WorkflowRow />
           </div>
         </main>
-        {/* Footer over pink background (no line) */}
-        <section className="pb-6">
-          <div className="mt-4 p-3 text-center text-[11px] text-slate-700">
-            © {new Date().getFullYear()} BrandVX · <a href="/privacy" className="underline">Privacy</a> · <a href="/terms" className="underline">Terms</a>
+        {/* Footer over pink background pinned to bottom */}
+        <section className="mt-auto pb-6">
+          <div className="p-3 text-center text-[11px] text-slate-700">
+            © {new Date().getFullYear()} brandVX · <a href="/privacy" className="underline">Privacy</a> · <a href="/terms" className="underline">Terms</a>
           </div>
         </section>
       </div>
