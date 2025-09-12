@@ -2128,7 +2128,11 @@ def _frontend_base_url() -> str:
 
 
 def _redirect_uri(provider: str) -> str:
-    return f"{_backend_base_url()}/oauth/{provider}/callback"
+    base = _backend_base_url()
+    # Square/Acuity: honor legacy /api/oauth path to match previously registered redirect URIs
+    if provider in ("square", "acuity"):
+        return f"{base}/api/oauth/{provider}/callback"
+    return f"{base}/oauth/{provider}/callback"
 
 
 # --- Supabase Edge Functions S2S helpers ---
