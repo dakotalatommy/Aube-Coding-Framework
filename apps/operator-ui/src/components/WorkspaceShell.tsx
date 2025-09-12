@@ -231,7 +231,7 @@ export default function WorkspaceShell(){
                   tip.style.top = `${Math.max(8, rect.top - 44)}px`;
                   tip.style.zIndex = '9999';
                   tip.className = 'pointer-events-auto';
-                  tip.innerHTML = `<a href="${BOOKING_URL}" target="_blank" rel="noreferrer" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border bg-white shadow text-sm text-slate-900">Click here to book a one‑on‑one onboarding for Brand VX</a>`;
+                  tip.innerHTML = `<a href="${BOOKING_URL}" target="_blank" rel="noreferrer" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border bg-white shadow text-sm text-slate-900">Click here to book a one‑on‑one onboarding for brand VX</a>`;
                   document.body.appendChild(tip);
                   const remove = ()=>{ try{ document.body.removeChild(tip); }catch{} };
                   setTimeout(remove, 6000);
@@ -487,13 +487,25 @@ export default function WorkspaceShell(){
     return () => window.removeEventListener('bvx:guide:workspace_intro:done', handler as any);
   }, []);
 
-  // Billing prompt: open modal when guide issues an event, without URL churn
+  // Billing prompt: open modal when guide/issues event, idempotent and re-usable
   useEffect(()=>{
     try {
-      const onBilling = () => {
-        try { setBillingOpen(true); localStorage.setItem('bvx_billing_dismissed',''); } catch {}
+      const onBilling = async () => {
+        try { localStorage.setItem('bvx_billing_dismissed',''); } catch {}
+        // Check coverage to avoid unnecessary opens
+        try {
+          const tid = await getTenant();
+          if (tid) {
+            const r = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+            const st = String(r?.data?.subscription_status || '');
+            const covered = st === 'active' || st === 'trialing';
+            if (covered) return;
+          }
+        } catch {}
+        setBillingOpen(true);
+        try { track('billing_modal_open'); } catch {}
       };
-      window.addEventListener('bvx:billing:prompt' as any, onBilling as any, { once: true } as any);
+      window.addEventListener('bvx:billing:prompt' as any, onBilling as any);
       // Clean up on unmount
       return () => window.removeEventListener('bvx:billing:prompt' as any, onBilling as any);
     } catch {}
