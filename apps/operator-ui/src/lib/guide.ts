@@ -1,5 +1,6 @@
 export type GuideStep = { element?: string; popover: { title: string; description: string } };
 import { track } from './analytics';
+import { api } from './api';
 import 'driver.js/dist/driver.css';
 import { flags } from './flags';
 
@@ -117,10 +118,10 @@ export function startGuide(page: string, opts?: { step?: number }) {
   if (!steps || steps.length === 0) return;
   // Persist last guide context for resume
   try { localStorage.setItem('bvx_last_tour_page', page); } catch {}
-  // Server checkpoint: tour started for this page
+  // Server checkpoint: tour started for this page (use API base)
   try {
     const tenantId = (()=>{ try{ return localStorage.getItem('bvx_tenant')||''; }catch{ return '' }})();
-    if (tenantId) fetch('/onboarding/complete_step', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ tenant_id: tenantId, step_key: `tour.start.${page}`, context: {} }) });
+    if (tenantId) void api.post('/onboarding/complete_step', { tenant_id: tenantId, step_key: `tour.start.${page}`, context: {} });
   } catch {}
   try {
     const urlStep = (()=>{ try{ const sp = new URLSearchParams(window.location.search); return Number(sp.get('tourStep')||sp.get('step')||'0'); }catch{ return 0 } })();
@@ -388,8 +389,7 @@ export function startShowcase(opts?: { resume?: boolean }) {
   try {
     (async()=>{
       try{
-        const r = await fetch('/onboarding/analyze', { method:'POST', headers:{ 'content-type':'application/json' }, body: JSON.stringify({}) });
-        const j = await r.json();
+        const j = await api.post('/onboarding/analyze', {});
         const cm = (j?.summary?.connected || {}) as Record<string,string>;
         const bookingOn = String(cm.square||'')==='connected' || String(cm.acuity||'')==='connected';
         if (!bookingOn) {
@@ -434,8 +434,7 @@ export function startShowcase(opts?: { resume?: boolean }) {
       try {
         const tid = (localStorage.getItem('bvx_tenant')||'');
         if (!tid) return false;
-        const res = await fetch(`/settings?tenant_id=${encodeURIComponent(tid)}`);
-        const j = await res.json().catch(()=>null);
+        const j = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
         const st = String(j?.data?.subscription_status || j?.subscription_status || '');
         return st === 'active' || st === 'trialing';
       } catch { return false; }
