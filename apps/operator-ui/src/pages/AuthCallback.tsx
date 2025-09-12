@@ -10,21 +10,21 @@ export default function AuthCallback() {
     const sp = new URLSearchParams(loc.search);
     let next = sp.get('next') || '';
     const wantsWorkspace = sp.get('return') === 'workspace';
-    if (!next && wantsWorkspace) {
-      // Default to Dashboard; only jump to Settings if explicitly requested via next or error
+    if (wantsWorkspace) {
+      // Always land on Dashboard for workspace returns, regardless of connect flow
       next = '/workspace?pane=dashboard&postVerify=1&return=workspace';
     }
     if (!next) next = '/onboarding';
 
-    // Sanitize stale pane=integrations unless this is an explicit connect flow
+    // Sanitize any pane=integrations to dashboard (no exceptions)
     try {
       const u = new URL(window.location.origin + next);
       const pane = u.searchParams.get('pane');
-      const hasFlow = sp.get('flow') === 'connect' || !!sp.get('provider') || !!sp.get('error');
-      if (pane === 'integrations' && !hasFlow) {
+      if (pane === 'integrations') {
         u.searchParams.set('pane','dashboard');
         u.searchParams.delete('provider');
         u.searchParams.delete('connected');
+        u.searchParams.delete('error');
         next = u.pathname + '?' + u.searchParams.toString();
       }
     } catch {}

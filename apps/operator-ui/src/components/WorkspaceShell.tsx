@@ -80,11 +80,11 @@ export default function WorkspaceShell(){
           }
         }
         const sp = new URLSearchParams(loc.search);
-        // Strip stale pane=integrations when not in explicit connect context
+        // Strip and normalize: never land on Settings due to stale query; prefer Dashboard
         try{
           const paneQ = sp.get('pane');
           const hasFlow = sp.get('flow')==='connect' || !!sp.get('provider') || !!sp.get('error');
-          if (paneQ === 'integrations' && !hasFlow) {
+          if (paneQ === 'integrations') {
             const clean = new URL(window.location.href);
             clean.searchParams.set('pane','dashboard');
             clean.searchParams.delete('provider');

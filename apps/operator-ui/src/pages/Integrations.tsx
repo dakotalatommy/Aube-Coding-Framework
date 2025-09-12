@@ -278,7 +278,7 @@ export default function Integrations(){
             }catch{}
           }, 900);
         } else if (returnHint === 'workspace') {
-          setTimeout(()=>{ try{ window.history.replaceState({}, '', '/workspace?pane=integrations'); }catch{} }, 1200);
+          setTimeout(()=>{ try{ window.history.replaceState({}, '', '/workspace?pane=dashboard'); }catch{} }, 900);
         }
       } else if (focusedProvider && error) {
         try { showToast({ title: `${focusedProvider} connection failed`, description: error }); } catch {}
