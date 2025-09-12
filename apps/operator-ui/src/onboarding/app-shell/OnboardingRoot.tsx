@@ -115,9 +115,11 @@ export default function OnboardingRoot(){
     try { localStorage.setItem('bvx_onboarding_done', '1') } catch {}
     try { if (BOOKING_URL) localStorage.setItem('bvx_booking_nudge','1') } catch {}
     try { (window as any).posthog?.capture?.('onboarding_complete'); } catch {}
-    // Nudge payment after onboarding: open billing CTA via event (no URL param)
+    // Always open Billing CTA after onboarding completes — use URL param to avoid event timing issues
+    try { localStorage.removeItem('bvx_billing_dismissed'); } catch {}
+    try { sessionStorage.setItem('bvx_billing_prompt_request','1'); } catch {}
     try { window.dispatchEvent(new CustomEvent('bvx:billing:prompt')); } catch {}
-    navigate('/workspace?pane=dashboard')
+    navigate('/workspace?pane=dashboard&billing=prompt')
   }
 
   const sceneProps = { state, next, back, save, startOAuth }
