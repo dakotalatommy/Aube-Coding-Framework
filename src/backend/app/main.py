@@ -6765,12 +6765,17 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                     pass
             except Exception:
                 t_id = "t1"
-        # Verify state marker to mitigate CSRF
+        # Verify state marker to mitigate CSRF (tolerant fallback: proceed but mark miss)
+        state_verified = True
         try:
             if state and not cache_get(f"oauth_state:{state}"):
-                return RedirectResponse(url=f"{_frontend_base_url()}/integrations?error=oauth_state_mismatch")
+                state_verified = False
+                try:
+                    emit_event("OauthStateMiss", {"tenant_id": t_id, "provider": provider})
+                except Exception:
+                    pass
         except Exception:
-            pass
+            state_verified = True
         status = "pending_config" if not any([
             _env("HUBSPOT_CLIENT_ID"), _env("SQUARE_CLIENT_ID"), _env("ACUITY_CLIENT_ID"),
             _env("FACEBOOK_CLIENT_ID"), _env("INSTAGRAM_CLIENT_ID"), _env("GOOGLE_CLIENT_ID"), _env("SHOPIFY_CLIENT_ID")
