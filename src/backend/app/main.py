@@ -6979,6 +6979,80 @@ def hubspot_import(req: HubspotImportRequest, db: Session = Depends(get_db), ctx
     except Exception:
         pass
     return {"imported": created}
+
+# Admin: migrate legacy connected_accounts rows to connected_accounts_v2 for a tenant
+class MigrateTenantRequest(BaseModel):
+    tenant_id: str
+
+@app.post("/integrations/admin/migrate-connected-accounts", tags=["Integrations"])
+def migrate_connected_accounts_v2(req: MigrateTenantRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"ok": False, "error": "forbidden"}
+    try:
+        # Resolve legacy columns dynamically and upsert into v2
+        cols = _connected_accounts_columns(db)
+        name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
+        if not name_col:
+            return {"ok": False, "error": "legacy_table_missing_provider_column"}
+        is_uuid = _connected_accounts_tenant_is_uuid(db)
+        at_col = 'access_token_enc' if 'access_token_enc' in cols else ('access_token' if 'access_token' in cols else None)
+        rt_col = 'refresh_token_enc' if 'refresh_token_enc' in cols else ('refresh_token' if 'refresh_token' in cols else None)
+        st_col = 'status' if 'status' in cols else None
+        exp_col = 'expires_at' if 'expires_at' in cols else None
+        where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
+        select_cols = [name_col]
+        if st_col: select_cols.append(st_col)
+        if at_col: select_cols.append(at_col)
+        if rt_col: select_cols.append(rt_col)
+        if exp_col: select_cols.append(exp_col)
+        sql = f"SELECT {', '.join(select_cols)} FROM connected_accounts WHERE {where_tid}"
+        rows = db.execute(_sql_text(sql), {"t": req.tenant_id}).fetchall()
+        migrated = 0
+        for r in rows or []:
+            try:
+                p = str(r[0] or '').lower()
+                st = (str(r[1]) if st_col else 'connected') if len(r) > 1 else 'connected'
+                atv = None
+                rtv = None
+                expv = None
+                idx = 2
+                if at_col and len(r) > idx:
+                    atv = r[idx]; idx += 1
+                if rt_col and len(r) > idx:
+                    rtv = r[idx]; idx += 1
+                if exp_col and len(r) > idx:
+                    try: expv = int(r[idx] or 0)
+                    except Exception: expv = None
+                params = {
+                    "t": req.tenant_id,
+                    "prov": p,
+                    "st": st or 'connected',
+                    "at": atv,
+                    "rt": rtv,
+                    "exp": expv,
+                    "sc": None,
+                }
+                # Upsert minimal columns into v2
+                upd = "UPDATE connected_accounts_v2 SET status=:st" + (", access_token_enc=:at" if atv else "") + (", refresh_token_enc=:rt" if rtv else "") + (", expires_at=:exp" if expv is not None else "") + " WHERE tenant_id = CAST(:t AS uuid) AND provider=:prov"
+                res = db.execute(_sql_text(upd), params)
+                saved = bool(getattr(res, 'rowcount', 0))
+                if not saved:
+                    cols2 = ["tenant_id","provider","status"]
+                    vals2 = ["CAST(:t AS uuid)",":prov",":st"]
+                    if atv: cols2.append("access_token_enc"); vals2.append(":at")
+                    if rtv: cols2.append("refresh_token_enc"); vals2.append(":rt")
+                    if expv is not None: cols2.append("expires_at"); vals2.append(":exp")
+                    ins = f"INSERT INTO connected_accounts_v2 ({', '.join(cols2)}) VALUES ({', '.join(vals2)})"
+                    db.execute(_sql_text(ins), params)
+                migrated += 1
+            except Exception:
+                continue
+        db.commit()
+        return {"ok": True, "migrated": migrated}
+    except Exception as e:
+        try: db.rollback()
+        except Exception: pass
+        return {"ok": False, "error": str(e)[:200]}
 @app.post("/integrations/booking/square/sync-contacts", tags=["Integrations"])
 def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context_relaxed)) -> Dict[str, object]:
     if os.getenv("INTEGRATIONS_V1_DISABLED", "0") == "1":
