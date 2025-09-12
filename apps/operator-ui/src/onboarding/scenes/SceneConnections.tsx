@@ -24,7 +24,8 @@ export default function SceneConnections({ next, back }: any){
   const connect = async (prov: 'square'|'acuity')=>{
     try{
       setBusy(true); setError(''); setStatus('')
-      await startOAuth(prov, { returnTo: 'onboarding' })
+      // Unify behavior with Settings: request workspace return so we land on Dashboard post‑connect
+      await startOAuth(prov, { returnTo: 'workspace' })
       setStatus('Opening connect flow…')
     }catch(e:any){ setError(String(e?.message||e)) }
     finally{ setBusy(false) }

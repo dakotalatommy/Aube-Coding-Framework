@@ -65,12 +65,26 @@ export default function OnboardingRoot(){
           try { showToast({ title: 'Connected', description: 'Instagram linked. Ready to generate your plan.' }) } catch {}
           try { track('oauth_linked', { provider }) } catch {}
         } else {
+          // Booking providers (square/acuity): mark connected, then bounce to Dashboard
           const payload = { connections: { bookingProvider: provider, oauth: { provider, linked: true } } }
           void saveStep('connections', payload)
-          setState(s => ({ ...s, step: 'connections', data: { ...s.data, ...payload } }))
           try { track('oauth_linked', { provider }) } catch {}
-          try { showToast({ title: 'Connected', description: `${provider} linked. You can import and backfill now.` }) } catch {}
-          setTimeout(()=>{ void next(payload) }, 0)
+          try { showToast({ title: 'Connected', description: `${provider} linked. Redirecting to your Dashboard…` }) } catch {}
+          // Normalize URL and resume showcase/workflow on Dashboard
+          setTimeout(()=>{
+            try{
+              const u = new URL(window.location.href)
+              u.pathname = '/workspace'
+              u.searchParams.set('pane','dashboard')
+              u.searchParams.delete('provider')
+              u.searchParams.delete('connected')
+              u.searchParams.delete('error')
+              window.history.replaceState({}, '', u.toString())
+              try { sessionStorage.setItem('bvx_showcase_resuming','1') } catch {}
+              window.dispatchEvent(new CustomEvent('bvx:showcase:resume'))
+            }catch{}
+            navigate('/workspace?pane=dashboard')
+          }, 200)
         }
       }
     } catch {}
