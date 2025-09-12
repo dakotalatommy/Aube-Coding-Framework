@@ -15,7 +15,7 @@ export default function SceneBusinessBasics({ state, next, back, save }: any){
         <label className="block"><div className="text-sm">Full name</div><input className="w-full border rounded-md px-3 py-2" value={name} onChange={(e)=>setName(e.target.value)} /></label>
         <label className="block"><div className="text-sm">Business name</div><input className="w-full border rounded-md px-3 py-2" value={business} onChange={(e)=>setBusiness(e.target.value)} /></label>
         <label className="block"><div className="text-sm">City / area</div><input className="w-full border rounded-md px-3 py-2" value={city} onChange={(e)=>setCity(e.target.value)} /></label>
-        <label className="block"><div className="text-sm">What inspired you?</div><input className="w-full border rounded-md px-3 py-2" value={inspiration} onChange={(e)=>setInspiration(e.target.value)} placeholder="One line is perfect." /></label>
+        <label className="block"><div className="text-sm">What inspired you to start your brand?</div><input className="w-full border rounded-md px-3 py-2" value={inspiration} onChange={(e)=>setInspiration(e.target.value)} placeholder="One line is perfect." /></label>
       </div>
       <div className="mt-6 flex gap-2">
         <button className="rounded-full border px-3 py-2 text-sm bg-white" onClick={back}>Back</button>
