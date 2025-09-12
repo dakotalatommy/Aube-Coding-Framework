@@ -391,6 +391,14 @@ export default function Integrations(){
     finally{ setBusy(false); }
   }; */
 
+  // Minimal badge: show plain text for pending (no pill), keep pill for connected/configured
+  const MinimalBadge = ({ status, label, warn }: { status: 'connected'|'configured'|'pending'; label?: string; warn?: boolean }) => {
+    if (status === 'pending') {
+      return <span className="text-[11px] text-slate-600 capitalize">{label || status}</span>;
+    }
+    return <StatusBadge status={status} label={label} warn={warn} />;
+  };
+
   const hubspotUpsertSample = async () => {
     try{
       setBusy(true);
@@ -624,7 +632,7 @@ export default function Integrations(){
               const s = (statusPill.providers as any)[p] || {} as any;
               const linked = !!s.linked;
               const st = linked ? 'connected' : 'pending';
-              return <StatusBadge key={p} status={st as any} label={`${p}: ${linked? 'Connected':'Needs auth'}`} />
+              return <MinimalBadge key={p} status={st as any} label={`${p}: ${linked? 'Connected':'Needs auth'}`} />
             })}
           </div>
         </section>
@@ -720,7 +728,7 @@ export default function Integrations(){
               <div className="text-sm text-slate-600">CRM sync (contacts + properties)</div>
             </div>
             <div className="flex items-center gap-2">
-              <StatusBadge status={isConnected('hubspot') ? 'connected' : (settings.providers_live?.hubspot ? 'configured' : 'pending')} warn={expSoon('hubspot')} />
+              <MinimalBadge status={isConnected('hubspot') ? 'connected' : (settings.providers_live?.hubspot ? 'configured' : 'pending')} warn={expSoon('hubspot')} />
               <label className="inline-flex items-center gap-1 text-[11px]">
                 <span className={`${settings.providers_live?.hubspot ? 'text-emerald-700' : 'text-slate-600'}`}>{settings.providers_live?.hubspot ? 'Live' : 'Demo'}</span>
                 <input type="checkbox" checked={!!settings.providers_live?.hubspot} onChange={e=> setProviderLive('hubspot', e.target.checked)} />
@@ -751,7 +759,7 @@ export default function Integrations(){
               <div className="font-semibold text-slate-900">Square</div>
               <div className="text-sm text-slate-600">Booking & clients (import contacts, backfill metrics)</div>
             </div>
-            <StatusBadge status={onboarding?.connectedMap?.square==='connected' ? 'connected' : (settings.providers_live?.square ? 'configured' : 'pending')} warn={expSoon('square')} />
+            <MinimalBadge status={onboarding?.connectedMap?.square==='connected' ? 'connected' : (settings.providers_live?.square ? 'configured' : 'pending')} warn={expSoon('square')} />
           </div>
           {focusedProvider==='square' && sp.get('connected')==='1' && (
             <div className="mb-2 text-xs rounded-md px-2 py-1 bg-emerald-50 border border-emerald-100 text-emerald-700">Square connected. You can import contacts now.</div>
@@ -794,7 +802,7 @@ export default function Integrations(){
               <div className="font-semibold text-slate-900">Acuity</div>
               <div className="text-sm text-slate-600">Bookings (import appointments; contacts inferred from bookings)</div>
             </div>
-            <StatusBadge status={onboarding?.connectedMap?.acuity==='connected' ? 'connected' : (settings.providers_live?.acuity ? 'configured' : 'pending')} warn={expSoon('acuity')} />
+            <MinimalBadge status={onboarding?.connectedMap?.acuity==='connected' ? 'connected' : (settings.providers_live?.acuity ? 'configured' : 'pending')} warn={expSoon('acuity')} />
           </div>
           <div className="mt-3 flex gap-2 items-center flex-wrap">
             <Button variant="outline" disabled={busy || connecting.acuity || onboarding?.providers?.acuity===false} onClick={()=> connect('acuity')}>{connecting.acuity ? 'Connecting…' : connectLabel('acuity')}</Button>
@@ -825,7 +833,7 @@ export default function Integrations(){
               <div className="text-sm text-slate-600">Transactional email</div>
             </div>
             <div className="flex items-center gap-2">
-              <StatusBadge status={isConnected('sendgrid') ? 'connected' : (settings.providers_live?.sendgrid ? 'configured' : 'pending')} warn={false} />
+              <MinimalBadge status={isConnected('sendgrid') ? 'connected' : (settings.providers_live?.sendgrid ? 'configured' : 'pending')} warn={false} />
               <label className="inline-flex items-center gap-1 text-[11px]">
                 <span className={`${settings.providers_live?.sendgrid ? 'text-emerald-700' : 'text-slate-600'}`}>{(settings.providers_live as any)?.sendgrid ? 'Live' : 'Demo'}</span>
                 <input type="checkbox" checked={!!(settings.providers_live as any)?.sendgrid} onChange={e=> setProviderLive('sendgrid', e.target.checked)} />
@@ -857,7 +865,7 @@ export default function Integrations(){
               <div className="text-sm text-slate-600">One-way sync and merge bookings for now</div>
             </div>
             <div className="flex items-center gap-2">
-              <StatusBadge status={isConnected('google') ? 'connected' : (settings.providers_live?.google ? 'configured' : 'pending')} warn={expSoon('google')} />
+              <MinimalBadge status={isConnected('google') ? 'connected' : (settings.providers_live?.google ? 'configured' : 'pending')} warn={expSoon('google')} />
               <label className="inline-flex items-center gap-1 text-[11px]">
                 <span className={`${settings.providers_live?.google ? 'text-emerald-700' : 'text-slate-600'}`}>{settings.providers_live?.google ? 'Live' : 'Demo'}</span>
                 <input type="checkbox" checked={!!settings.providers_live?.google} onChange={e=> setProviderLive('google', e.target.checked)} />
@@ -887,7 +895,7 @@ export default function Integrations(){
                 <div className="text-sm text-slate-600">DMs & comments in Master Inbox</div>
               </div>
               <div className="flex items-center gap-2">
-                <StatusBadge status={isConnected('instagram') ? 'connected' : (settings.providers_live?.instagram ? 'configured' : 'pending')} warn={expSoon('instagram')} />
+                <MinimalBadge status={isConnected('instagram') ? 'connected' : (settings.providers_live?.instagram ? 'configured' : 'pending')} warn={expSoon('instagram')} />
                 <label className="inline-flex items-center gap-1 text-[11px]">
                   <span className={`${settings.providers_live?.instagram ? 'text-emerald-700' : 'text-slate-600'}`}>{settings.providers_live?.instagram ? 'Live' : 'Demo'}</span>
                   <input type="checkbox" checked={!!settings.providers_live?.instagram} onChange={e=> setProviderLive('instagram', e.target.checked)} />
@@ -921,7 +929,7 @@ export default function Integrations(){
                 <div className="text-sm text-slate-600">Grant Page access (required for IG Business data)</div>
               </div>
               <div className="flex items-center gap-2">
-                <StatusBadge status={isConnected('facebook') ? 'connected' : (settings.providers_live?.facebook ? 'configured' : 'pending')} warn={expSoon('facebook')} />
+                <MinimalBadge status={isConnected('facebook') ? 'connected' : (settings.providers_live?.facebook ? 'configured' : 'pending')} warn={expSoon('facebook')} />
                 <label className="inline-flex items-center gap-1 text-[11px]">
                   <span className={`${settings.providers_live?.facebook ? 'text-emerald-700' : 'text-slate-600'}`}>{settings.providers_live?.facebook ? 'Live' : 'Demo'}</span>
                   <input type="checkbox" checked={!!settings.providers_live?.facebook} onChange={e=> setProviderLive('facebook', e.target.checked)} />
@@ -957,49 +965,9 @@ export default function Integrations(){
       })()}
 
       <div className="grid md:grid-cols-3 gap-4 mt-4">
-        {(
+        {false && (
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div>
-              <div className="font-semibold text-slate-900">Shopify</div>
-              <div className="text-sm text-slate-600">Inventory & products</div>
-            </div>
-            <div className="flex items-center gap-2">
-              <StatusBadge status={isConnected('shopify') ? 'connected' : (settings.providers_live?.shopify ? 'configured' : 'pending')} warn={expSoon('shopify')} />
-              <label className="inline-flex items-center gap-1 text-[11px]">
-                <span className={`${settings.providers_live?.shopify ? 'text-emerald-700' : 'text-slate-600'}`}>{settings.providers_live?.shopify ? 'Live' : 'Demo'}</span>
-                <input type="checkbox" checked={!!settings.providers_live?.shopify} onChange={e=> setProviderLive('shopify', e.target.checked)} />
-              </label>
-            </div>
-          </div>
-          {/* Trial status row */}
-          <div className="mt-2 rounded-md border bg-white px-2 py-1 text-xs">
-            <span className="text-slate-700">Account: </span>
-            {(() => {
-              try{
-                const st = settings?.subscription_status || '';
-                const active = String(st)==='active';
-                if (active) return <span className="text-emerald-700">active</span>;
-                const TRIAL_DAYS = Number((import.meta as any).env?.VITE_STRIPE_TRIAL_DAYS || '7');
-                let started = Number(localStorage.getItem('bvx_trial_started_at')||'0');
-                if (!started) { started = Date.now(); localStorage.setItem('bvx_trial_started_at', String(started)); }
-                const elapsed = Math.floor((Date.now()-started)/(24*60*60*1000));
-                const left = Math.max(0, TRIAL_DAYS - elapsed);
-                if (String(st)==='trialing' || left>0) return <span className="text-slate-800">Trial active — {left} day{left===1?'':'s'} left</span>;
-                return <span className="text-rose-700">trial ended</span>;
-              }catch{ return <span className="text-slate-700">unknown</span>; }
-            })()}
-          </div>
-          <div className="mt-3 flex gap-2 items-center flex-wrap">
-            <Button variant="outline" disabled={busy || connecting.shopify || onboarding?.providers?.shopify===false} onClick={()=> connect('shopify')}>{connecting.shopify ? 'Connecting…' : connectLabel('shopify')}</Button>
-            <Button variant="outline" disabled={busy} onClick={()=> window.open('/workspace?pane=inventory','_self')}>{UI_STRINGS.ctas.secondary.openInventory}</Button>
-            <Button variant="outline" disabled={busy} onClick={()=> refresh('shopify')}>{UI_STRINGS.ctas.secondary.refresh}</Button>
-            {providerStatus?.shopify?.last_sync && (
-              <span className="text-[11px] text-slate-600">Last sync: {fmtTs(providerStatus.shopify.last_sync)}</span>
-            )}
-            {expSoon('shopify') && <span className="text-[11px] text-amber-700">Token expiring soon</span>}
-          </div>
-          {onboarding?.providers?.shopify===false && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Shopify OAuth to enable.</div>}
+          {/* Shopify card intentionally hidden on Settings page */}
         </section>
         )}
       </div>

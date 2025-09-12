@@ -51,11 +51,11 @@ function WorkflowRow() {
   ];
   return (
     <section className="my-auto mt-6 md:mt-8">
-      <div className="grid grid-cols-4 gap-4 md:gap-5 w-full max-md:overflow-x-auto max-md:[scrollbar-width:none] items-center">
+      <div className="grid grid-cols-4 gap-3 md:gap-4 w-full max-md:overflow-x-auto max-md:[scrollbar-width:none] items-center">
         {items.map(({title, sub, icon}, i) => (
-          <div key={i} className="mx-auto aspect-square min-w-[160px] md:min-w-0" style={{ width: 'calc(86% + 14px)' }}>
+          <div key={i} className="mx-auto aspect-square min-w-[140px] md:min-w-0" style={{ width: 'calc(72% + 10px)' }}>
             <div className="relative group h-full w-full">
-              <div role="button" tabIndex={0} aria-label={`${title}: ${sub}`} className="relative h-full w-full rounded-3xl p-6 md:p-7 bg-white border-[3px] border-white shadow-[0_24px_48px_-22px_rgba(0,0,0,0.28)] overflow-hidden transition will-change-transform hover:-translate-y-1.5 hover:shadow-[0_40px_80px_-32px_rgba(0,0,0,0.45)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] isolate mix-blend-normal">
+              <div role="button" tabIndex={0} aria-label={`${title}: ${sub}`} className="relative h-full w-full rounded-3xl p-5 md:p-6 bg-white border-[3px] border-white shadow-[0_24px_48px_-22px_rgba(0,0,0,0.28)] overflow-hidden transition will-change-transform hover:-translate-y-1.5 hover:shadow-[0_40px_80px_-32px_rgba(0,0,0,0.45)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] isolate mix-blend-normal">
               {/* Force isolation: solid white backdrop inside tile */}
               <div aria-hidden className="absolute inset-0 bg-white z-0" />
               {/* Keep subtle white sheen only; remove any color that could tint */}
@@ -197,14 +197,9 @@ export default function LandingV2(){
               </div>
 
               <SplitText
-                text="Fewer no‑shows. Faster fills. Short, human messages in your voice."
+                text="Automations that save you time — made by beauty pros, for beauty pros."
                 startDelayMs={350}
-                className="mt-[23px] md:mt-[31px] text-slate-700 text-[29px] md:text-[41px] font-medium text-center"/>
-
-              <SplitText
-                text="Made by beauty professionals — for beauty professionals"
-                startDelayMs={700}
-                className="mt-[35px] md:mt-[43px] text-slate-600/90 text-[23px] md:text-[29px] text-center"/>
+                className="mt-[23px] md:mt-[31px] text-slate-700 text-[26px] md:text-[36px] font-medium text-center"/>
 
               {/* CTA moved below to sit centered between this line and the squares */}
             </div>

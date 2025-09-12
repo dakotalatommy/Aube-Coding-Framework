@@ -85,7 +85,8 @@ export default function WorkspaceShell(){
         // Strip and normalize: never land on Settings due to stale query; prefer Dashboard
         try{
           const paneQ = sp.get('pane');
-          if (paneQ === 'integrations') {
+          const hasFlow = sp.get('flow')==='connect' || !!sp.get('provider') || !!sp.get('error');
+          if (paneQ === 'integrations' && !hasFlow) {
             const clean = new URL(window.location.href);
             clean.searchParams.set('pane','dashboard');
             clean.searchParams.delete('provider');

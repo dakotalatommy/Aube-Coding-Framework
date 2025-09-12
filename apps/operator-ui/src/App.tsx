@@ -48,7 +48,7 @@ function IntegrationsRedirect() {
     const connected = sp.get('connected') === '1';
     const hasProvider = !!sp.get('provider');
     const wantsWorkspace = sp.get('return') === 'workspace';
-    if (connected || hasProvider || wantsWorkspace) {
+    if ((connected || wantsWorkspace) && !hasProvider) {
       const dash = new URLSearchParams(qs);
       dash.set('pane','dashboard');
       dash.delete('provider');

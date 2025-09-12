@@ -2292,10 +2292,16 @@ async def _call_edge_function(name: str, payload: Dict[str, object]) -> Dict[str
             return r.json()
     except httpx.HTTPError as e:
         return {"error": str(e)}
-def _oauth_authorize_url(provider: str, tenant_id: Optional[str] = None) -> str:
+def _oauth_authorize_url(provider: str, tenant_id: Optional[str] = None, return_hint: Optional[str] = None) -> str:
     # Encode state with tenant context for multi-tenant callback handling
     try:
         _state_obj = {"t": (tenant_id or "t1"), "s": os.urandom(8).hex()}
+        try:
+            if return_hint:
+                # Propagate caller intent through state so callback can route appropriately
+                _state_obj["r"] = str(return_hint)
+        except Exception:
+            pass
         _state = _b64.urlsafe_b64encode(json.dumps(_state_obj).encode()).decode().rstrip("=")
     except Exception:
         _state = os.urandom(16).hex()
@@ -6600,9 +6606,9 @@ def api_assist(req: AssistInput, ctx: UserContext = Depends(get_user_context)):
 
 
 @app.get("/api/oauth/{provider}/start", tags=["Integrations"])  # 302 to provider auth
-def api_oauth_start(provider: str, ctx: UserContext = Depends(get_user_context)):
+def api_oauth_start(provider: str, return_: Optional[str] = None, ctx: UserContext = Depends(get_user_context)):
     try:
-        url = _oauth_authorize_url(provider, tenant_id=ctx.tenant_id)
+        url = _oauth_authorize_url(provider, tenant_id=ctx.tenant_id, return_hint=(return_ or None))
         if not url:
             return JSONResponse({"error": {"code": "invalid_provider", "message": provider}}, status_code=400)
         # Cache state for CSRF verification (match behavior of /oauth/{provider}/login)
@@ -6620,7 +6626,7 @@ def api_oauth_start(provider: str, ctx: UserContext = Depends(get_user_context))
 ## Removed legacy alias /api/oauth/{provider}/callback to avoid duplicate callback handling
 
 @app.get("/oauth/{provider}/login", tags=["Integrations"])  # single canonical login
-def oauth_login(provider: str, tenant_id: Optional[str] = None, ctx: UserContext = Depends(get_user_context)):
+def oauth_login(provider: str, tenant_id: Optional[str] = None, return_: Optional[str] = None, ctx: UserContext = Depends(get_user_context)):
     # Gate v1 Square path if disabled
     if provider == "square" and os.getenv("INTEGRATIONS_V1_DISABLED", "0") == "1":
         return JSONResponse({"error": "gone", "message": "v1 square login disabled"}, status_code=410)
@@ -6637,7 +6643,7 @@ def oauth_login(provider: str, tenant_id: Optional[str] = None, ctx: UserContext
             pass
         return {"url": ""}
     _t = tenant_id or ctx.tenant_id
-    url = _oauth_authorize_url(provider, tenant_id=_t)
+    url = _oauth_authorize_url(provider, tenant_id=_t, return_hint=(return_ or None))
     # Attach correlation id for traceability in callback logs
     try:
         if url:
