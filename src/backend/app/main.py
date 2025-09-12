@@ -2129,9 +2129,8 @@ def _frontend_base_url() -> str:
 
 def _redirect_uri(provider: str) -> str:
     base = _backend_base_url()
-    # Square/Acuity: honor legacy /api/oauth path to match previously registered redirect URIs
-    if provider in ("square", "acuity"):
-        return f"{base}/api/oauth/{provider}/callback"
+    # Use canonical /oauth path for provider-registered redirect URIs
+    # We still support legacy /api/oauth via the alias route added below
     return f"{base}/oauth/{provider}/callback"
 
 
