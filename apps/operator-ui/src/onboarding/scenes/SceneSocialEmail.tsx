@@ -29,7 +29,7 @@ export default function SceneSocialEmail({ state, next, back, save }: any){
               <div className="text-sm font-medium text-slate-800">Connect Instagram</div>
               <div className="text-xs text-slate-600">We’ll tune your 14‑day plan to your recent posts. You approve first.</div>
             </div>
-            <button aria-label="Connect Instagram" className="rounded-full border px-3 py-1.5 text-sm bg-white focus-visible:ring-2 focus-visible:ring-pink-300" onClick={()=> startOAuth('instagram' as any, { returnTo: 'onboarding' })}>Connect</button>
+            <button aria-label="Connect Instagram" className="rounded-full border px-3 py-1.5 text-sm bg-white focus-visible:ring-2 focus-visible:ring-[var(--ring)]" onClick={()=> startOAuth('instagram' as any, { returnTo: 'onboarding' })}>Connect</button>
           </div>
           {analyzing ? (
             <div className="mt-3 animate-pulse">

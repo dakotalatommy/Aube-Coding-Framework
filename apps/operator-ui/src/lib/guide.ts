@@ -238,7 +238,19 @@ export function startGuide(page: string, opts?: { step?: number }) {
     const fromUrl = (()=>{ try{ const sp = new URLSearchParams(window.location.search); return Number(sp.get('tourStep')||sp.get('step')||'0'); }catch{ return 0 } })();
     startAt = Math.max(0, (fromOpts || fromUrl || 0) - 1);
   } catch { startAt = 0; }
-  const stepsToRun = Array.isArray(steps) ? steps.slice(startAt) : steps;
+  // Sanitize steps: if an element selector is missing, fall back to a popover-only step
+  const sanitize = (arr: GuideStep[]): GuideStep[] => {
+    try {
+      return arr.map((s) => {
+        if (!s.element) return s;
+        try {
+          if (document.querySelector(String(s.element))) return s;
+        } catch {}
+        return { popover: s.popover } as GuideStep;
+      });
+    } catch { return arr; }
+  };
+  const stepsToRun = sanitize(Array.isArray(steps) ? steps.slice(startAt) : steps);
   (async()=>{
     const mod: any = await import('driver.js');
     const drv = (mod && (mod as any).driver) ? (mod as any).driver : (mod as any);
@@ -254,6 +266,11 @@ export function startGuide(page: string, opts?: { step?: number }) {
       if (flags.tour_resume_chip()) {
         (d as any).on?.('destroyed', ()=>{
           try{
+            try { track('tour_destroyed', { page }); } catch {}
+            // Mark workspace intro seen to allow showcase gating
+            if (page === 'workspace_intro') {
+              try { localStorage.setItem('bvx_tour_seen_workspace_intro','1'); } catch {}
+            }
             const chip = document.createElement('button');
             chip.className = 'fixed right-3 bottom-3 z-[2000] text-xs px-2 py-1 rounded-full border bg-white shadow';
             chip.textContent = 'Resume tour';
@@ -346,6 +363,29 @@ export function startShowcase() {
     })();
   } catch {}
   let i = 0;
+  // Helper: wait until billing is satisfied (dismissed or covered)
+  const waitForBillingSatisfied = async (): Promise<void> => {
+    const maxWaitMs = 20000; const start = Date.now();
+    const isCovered = async (): Promise<boolean> => {
+      try {
+        const tid = (localStorage.getItem('bvx_tenant')||'');
+        if (!tid) return false;
+        const res = await fetch(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+        const j = await res.json().catch(()=>null);
+        const st = String(j?.data?.subscription_status || j?.subscription_status || '');
+        return st === 'active' || st === 'trialing';
+      } catch { return false; }
+    };
+    for (;;) {
+      try {
+        if (localStorage.getItem('bvx_billing_dismissed') === '1') return;
+        if (await isCovered()) return;
+      } catch {}
+      if (Date.now() - start > maxWaitMs) return; // fail-open to avoid stall
+      await new Promise(r=> setTimeout(r, 600));
+    }
+  };
+  const setPhase = (phase: string) => { try { localStorage.setItem('bvx_showcase_phase', phase); } catch {} };
   const drive = async () => {
     if (i >= steps.length) {
       try { localStorage.setItem('bvx_showcase_done','1'); } catch {}
@@ -354,11 +394,25 @@ export function startShowcase() {
     const curr = steps[i++];
     try {
       try { track('showcase_step', { path: curr.path, idx: i-1 }); } catch {}
+      // Update simple phase hints for resume
+      try {
+        if (curr.path.includes('integrations')) setPhase('integrations');
+        else if (curr.path.includes('billing=prompt')) setPhase('billing');
+        else if (curr.path.includes('pane=vision')) setPhase('vision');
+        else if (curr.path.includes('pane=contacts')) setPhase('contacts');
+        else if (curr.path.includes('pane=askvx') && !curr.path.includes('page=2')) setPhase('ask');
+        else if (curr.path.includes('page=2')) setPhase('train');
+        else if (curr.path.includes('pane=dashboard')) setPhase('dashboard');
+      } catch {}
       if (window.location.pathname + window.location.search !== curr.path) {
         window.location.href = curr.path;
       }
     } catch {}
     setTimeout(async () => {
+      // Special gating for billing CTA step
+      if (curr.path.includes('billing=prompt')) {
+        await waitForBillingSatisfied();
+      }
       if (curr.wait) await waitForSelector(curr.wait, 3000);
       if (curr.guide) {
         try { startGuide(curr.guide); } catch {}

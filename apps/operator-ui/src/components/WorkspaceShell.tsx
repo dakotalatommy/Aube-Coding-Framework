@@ -471,7 +471,7 @@ export default function WorkspaceShell(){
                   aria-current={active ? 'page' : undefined}
                   title={`${p.label}  •  ${i+1}`}
                   data-tour={`nav-${p.key}`}
-                  className={`relative w-full h-11 flex items-center gap-3 pl-4 pr-4 rounded-full border [font-family:var(--font-display)] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white ${active ? 'bg-[var(--brand-50)] text-ink-900 border-black shadow-sm' : 'bg-[var(--brand-50)] text-ink-900 border-black hover:brightness-105'}`}
+                  className={`relative w-full h-11 flex items-center gap-3 pl-4 pr-4 rounded-full border [font-family:var(--font-display)] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-white ${active ? 'bg-[var(--brand-50)] text-ink-900 border-black shadow-sm' : 'bg-[var(--brand-50)] text-ink-900 border-black hover:brightness-105'}`}
                 >
                   <span className="inline-flex items-center justify-center shrink-0 w-7 h-7 rounded-full border border-black bg-transparent text-ink-900 overflow-hidden">{p.icon}</span>
                   <span className="text-[15px] leading-none">{p.label}</span>
@@ -501,7 +501,7 @@ export default function WorkspaceShell(){
                 href={BOOKING_URL}
                 target="_blank"
                 rel="noreferrer"
-                className="mb-[2px] inline-flex w-full items-center justify-center px-3 py-2 rounded-full border bg-white text-slate-900 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60 [font-family:var(--font-display)]"
+                className="mb-[2px] inline-flex w-full items-center justify-center px-3 py-2 rounded-full border bg-white text-slate-900 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] [font-family:var(--font-display)]"
                 data-tour="book-onboarding"
               >Book onboarding</a>
             )}

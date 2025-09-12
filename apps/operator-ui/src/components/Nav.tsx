@@ -62,7 +62,7 @@ export default function Nav(){
                     <Link
                       to={t.to}
                       aria-current={active ? 'page' : undefined}
-                      className={`px-3 py-2 rounded-lg text-sm font-medium text-slate-900 transition ${active ? 'bg-gradient-to-r from-pink-50 to-sky-50 border border-pink-100/70 shadow-sm' : 'hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-pink-200'}`}
+                      className={`px-3 py-2 rounded-lg text-sm font-medium text-slate-900 transition ${active ? 'bg-gradient-to-r from-pink-50 to-sky-50 border border-pink-100/70 shadow-sm' : 'hover:bg-slate-50 focus-visible:ring-2 focus-visible:ring-[var(--ring)]'}`}
                     >
                       <span>{t.label}</span>
                       {t.to === '/approvals' && pendingApprovals > 0 && (

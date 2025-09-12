@@ -136,7 +136,7 @@ export default function OnboardingRoot(){
               <p className="text-slate-600/90 text-[12px] mt-1">You can finish anytime in Settings / Connections.</p>
             </div>
             <div className="flex items-center gap-2">
-              <Button aria-label="Skip onboarding for now" variant="ghost" size="sm" onClick={()=> navigate('/workspace?pane=dashboard&tour=1')} className="rounded-full focus-visible:ring-2 focus-visible:ring-pink-300">Skip for now</Button>
+              <Button aria-label="Skip onboarding for now" variant="ghost" size="sm" onClick={()=> navigate('/workspace?pane=dashboard&tour=1')} className="rounded-full focus-visible:ring-2 focus-visible:ring-[var(--ring)]">Skip for now</Button>
             </div>
           </div>
           <div className="mt-3 flex items-center gap-2" aria-label="Progress">

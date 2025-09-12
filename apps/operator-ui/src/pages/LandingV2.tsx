@@ -55,7 +55,7 @@ function WorkflowRow() {
         {items.map(({title, sub, icon}, i) => (
           <div key={i} className="mx-auto aspect-square min-w-[160px] md:min-w-0" style={{ width: 'calc(86% + 14px)' }}>
             <div className="relative group h-full w-full">
-              <div role="button" tabIndex={0} aria-label={`${title}: ${sub}`} className="relative h-full w-full rounded-3xl p-6 md:p-7 bg-white border-[3px] border-white shadow-[0_24px_48px_-22px_rgba(0,0,0,0.28)] overflow-hidden transition will-change-transform hover:-translate-y-1.5 hover:shadow-[0_40px_80px_-32px_rgba(0,0,0,0.45)] focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300 isolate mix-blend-normal">
+              <div role="button" tabIndex={0} aria-label={`${title}: ${sub}`} className="relative h-full w-full rounded-3xl p-6 md:p-7 bg-white border-[3px] border-white shadow-[0_24px_48px_-22px_rgba(0,0,0,0.28)] overflow-hidden transition will-change-transform hover:-translate-y-1.5 hover:shadow-[0_40px_80px_-32px_rgba(0,0,0,0.45)] focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] isolate mix-blend-normal">
               {/* Force isolation: solid white backdrop inside tile */}
               <div aria-hidden className="absolute inset-0 bg-white z-0" />
               {/* Keep subtle white sheen only; remove any color that could tint */}
@@ -219,7 +219,7 @@ export default function LandingV2(){
                   <div aria-hidden className="absolute -inset-2 rounded-full bg-white/40 blur-md opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100" />
                   <button
                     onClick={goDemo}
-                    className="relative overflow-hidden text-slate-900 text-[20px] md:text-[24px] px-9 md:px-10 py-4 md:py-5 rounded-full border bg-white hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px"
+                    className="relative overflow-hidden text-slate-900 text-[20px] md:text-[24px] px-9 md:px-10 py-4 md:py-5 rounded-full border bg-white hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px"
                     style={{fontFamily:'\"Fraunces\", ui-serif, Georgia, serif'}}
                   >
                     Try the demo →
@@ -228,7 +228,7 @@ export default function LandingV2(){
                 </div>
                 <button
                   onClick={goSignup}
-                  className="relative overflow-hidden text-slate-900 text-[20px] md:text-[24px] px-9 md:px-10 py-4 md:py-5 rounded-full border bg-white hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px"
+                  className="relative overflow-hidden text-slate-900 text-[20px] md:text-[24px] px-9 md:px-10 py-4 md:py-5 rounded-full border bg-white hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px"
                   style={{fontFamily:'\"Fraunces\", ui-serif, Georgia, serif'}}
                 >
                   Create your BrandVX
@@ -240,7 +240,7 @@ export default function LandingV2(){
                 <button
                   aria-label="Sign in"
                   onClick={goLogin}
-                  className="relative text-slate-900 text-[20px] md:text-[24px] px-9 md:px-10 py-4 md:py-5 rounded-full border bg-white hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-400/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+                  className="relative text-slate-900 text-[20px] md:text-[24px] px-9 md:px-10 py-4 md:py-5 rounded-full border bg-white hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
                   style={{fontFamily:'\"Fraunces\", ui-serif, Georgia, serif'}}
                 >
                   Sign in
