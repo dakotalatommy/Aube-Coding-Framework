@@ -309,10 +309,13 @@ export function startGuide(page: string, opts?: { step?: number }) {
               setTimeout(()=>{ try { startGuide('vision'); } catch {} }, 480);
             }, 60);
           }
-          // When user advances past Book Onboarding in the workspace intro, hop to Brand VZN tour
+          // When user advances past Book Onboarding in the workspace intro, open billing then hop to Brand VZN tour
           if (page === 'workspace_intro' && bookIdx >= 0 && lastIndex === bookIdx + 1){
             try { (d as any).destroy?.(); } catch {}
-            setTimeout(()=>{
+            setTimeout(async()=>{
+              try { sessionStorage.setItem('bvx_billing_prompt_request','1'); } catch {}
+              try { window.dispatchEvent(new CustomEvent('bvx:billing:prompt')); } catch {}
+              try { await waitForBillingSatisfiedSimple(); } catch {}
               try { window.location.href = '/workspace?pane=vision'; } catch {}
               setTimeout(()=>{ try { startGuide('vision'); } catch {} }, 480);
             }, 60);
@@ -383,6 +386,28 @@ async function markProgress(key: string) {
       body: JSON.stringify({ tenant_id: tenantId, step_key: key, context: {} })
     });
   } catch {}
+}
+
+// Simple billing waiter usable from step-level handoffs
+async function waitForBillingSatisfiedSimple() {
+  const maxWaitMs = 20000; const start = Date.now();
+  const isCovered = async (): Promise<boolean> => {
+    try {
+      const tid = (localStorage.getItem('bvx_tenant')||'');
+      if (!tid) return false;
+      const j = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+      const st = String(j?.data?.subscription_status || j?.subscription_status || '');
+      return st === 'active' || st === 'trialing';
+    } catch { return false; }
+  };
+  for (;;) {
+    try {
+      if (localStorage.getItem('bvx_billing_dismissed') === '1') return;
+      if (await isCovered()) return;
+    } catch {}
+    if (Date.now() - start > maxWaitMs) return; // fail-open
+    await new Promise(r=> setTimeout(r, 600));
+  }
 }
 
 function prefetchPath(path: string) {
