@@ -31,7 +31,9 @@ export default function WorkspaceShell(){
   const loc = useLocation();
   const nav = useNavigate();
   const params = new URLSearchParams(loc.search);
-  const pane = (params.get('pane') as PaneKey) || 'dashboard';
+  const rawPane = (params.get('pane') as PaneKey) || 'dashboard';
+  const oauthReturn = !!(params.get('provider') || params.get('connected') || params.get('postVerify') || (params.get('return') === 'workspace'));
+  const pane = (rawPane === 'integrations' && oauthReturn) ? 'dashboard' : rawPane;
   const demo = params.get('demo') === '1';
   const BOOKING_URL = (import.meta as any).env?.VITE_BOOKING_URL || '';
   const PRICE_147 = (import.meta as any).env?.VITE_STRIPE_PRICE_147 || '';

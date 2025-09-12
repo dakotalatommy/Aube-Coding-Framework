@@ -42,6 +42,22 @@ const AuthCallback = lazy(() => import('./pages/AuthCallback'));
 function IntegrationsRedirect() {
   const loc = useLocation();
   const qs = loc.search ? (loc.search.startsWith('?') ? loc.search.slice(1) : loc.search) : '';
+  // If this redirect includes OAuth success context, normalize to Dashboard
+  try {
+    const sp = new URLSearchParams(qs);
+    const connected = sp.get('connected') === '1';
+    const hasProvider = !!sp.get('provider');
+    const wantsWorkspace = sp.get('return') === 'workspace';
+    if (connected || hasProvider || wantsWorkspace) {
+      const dash = new URLSearchParams(qs);
+      dash.set('pane','dashboard');
+      dash.delete('provider');
+      dash.delete('connected');
+      dash.delete('error');
+      const target = `/workspace?${dash.toString()}`;
+      return <Navigate to={target} replace />;
+    }
+  } catch {}
   const target = `/workspace?pane=integrations${qs ? `&${qs}` : ''}`;
   return <Navigate to={target} replace />;
 }
