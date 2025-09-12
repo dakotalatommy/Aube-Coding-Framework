@@ -4752,15 +4752,23 @@ async def ai_tool_execute(
             SAFE_TOOLS = {"report.generate.csv","db.query.sql","db.query.named","safety_check","pii.audit"}
             risky = req.name not in SAFE_TOOLS
             if risky and ctx.role != "owner_admin":
+                # Read latest settings and honor seeded trial
                 row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == req.tenant_id).first()
-                status = None
-                if row and row.data_json:
+                data = {}
+                try:
+                    if row and row.data_json:
+                        data = json.loads(row.data_json or "{}")
+                except Exception:
+                    data = {}
+                status = str((data or {}).get("subscription_status") or "").strip().lower()
+                # If missing, treat as trialing when a trial_end_ts is present (or default during rollout)
+                if not status:
                     try:
-                        status = json.loads(row.data_json or "{}").get("subscription_status")
+                        if int((data or {}).get("trial_end_ts") or 0) > 0:
+                            status = "trialing"
                     except Exception:
-                        status = None
-                # Treat anything other than active/trialing as gated
-                if str(status) not in {"active","trialing"}:
+                        status = status or ""
+                if status not in {"active","trialing"}:
                     return {"status":"payment_required","detail":"Add payment method to continue"}
         except Exception:
             pass
