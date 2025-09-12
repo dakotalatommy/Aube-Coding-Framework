@@ -54,6 +54,15 @@ export default function WorkspaceShell(){
   useEffect(()=>{
     (async()=>{
       try{
+        // E2E hook: when e2e=1, bypass billing and intro gating to stabilize tests
+        try {
+          const sp0 = new URLSearchParams(loc.search);
+          if (sp0.get('e2e') === '1') {
+            localStorage.setItem('bvx_billing_dismissed','1');
+            localStorage.setItem('bvx_tour_seen_workspace_intro','1');
+            sessionStorage.setItem('bvx_welcome_seen','1');
+          }
+        } catch {}
         // Auth guard with tolerant resolver to avoid bounce loop
         if (!demo) {
           let session = (await supabase.auth.getSession()).data.session;
