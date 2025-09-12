@@ -1,7 +1,12 @@
 import { api } from '../lib/api';
 
 export async function startOAuth(provider: 'square'|'acuity'|'hubspot'|'google'|'facebook'|'instagram'|'shopify', opts?: { returnTo?: 'onboarding'|'workspace' }){
-  // Prefer server to return a URL; handle redirect responses too.
+  // Robust strategy: request explicit login URL first (works across CORS), then fall back to /api/oauth/start redirect
+  try {
+    const first = await api.get(`/oauth/${provider}/login${opts?.returnTo?`?return=${encodeURIComponent(opts.returnTo)}`:''}`);
+    const url = String(first?.url||'');
+    if (url) { window.location.href = url; return; }
+  } catch {}
   try {
     const q = new URLSearchParams();
     if (opts?.returnTo) q.set('return', opts.returnTo);
@@ -11,19 +16,9 @@ export async function startOAuth(provider: 'square'|'acuity'|'hubspot'|'google'|
       redirect: 'follow',
     });
     if ((res as any).redirected && res.url) {
-      window.location.href = res.url;
-      return;
+      window.location.href = res.url; return;
     }
-    try {
-      const j = await res.json();
-      const url = (j && j.url) || '';
-      if (url) { window.location.href = url; return; }
-    } catch {}
-  } catch {}
-  // Fallback: call non-aliased route if present
-  try {
-    const j = await api.get(`/oauth/${provider}/login${opts?.returnTo?`?return=${encodeURIComponent(opts.returnTo)}`:''}`);
-    if (j?.url) { window.location.href = j.url; }
+    try { const j = await res.json(); const url = (j && j.url) || ''; if (url) { window.location.href = url; return; } } catch {}
   } catch {}
 }
 
