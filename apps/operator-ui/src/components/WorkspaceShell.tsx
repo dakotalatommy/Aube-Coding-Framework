@@ -48,31 +48,7 @@ export default function WorkspaceShell(){
   const [showWelcome, setShowWelcome] = useState(false);
   const [showOnboardingPrompt, setShowOnboardingPrompt] = useState(false);
 
-  const startQuickstartSequence = async () => {
-    try {
-      localStorage.setItem('bvx_post_onboarding_quickstart','1');
-    } catch {}
-    // Vision → Contacts (import) → AskVX train → Dashboard (generate 14‑day plan)
-    try { nav('/vision'); } catch { window.location.href = '/vision'; }
-    setTimeout(async()=>{
-      try { nav('/contacts'); } catch { window.location.href = '/contacts'; }
-      setTimeout(async()=>{
-        try {
-          const tid = await getTenant();
-          await api.post('/ai/tools/execute',{ tenant_id: tid, name:'contacts.import.square', params:{ tenant_id: tid }, require_approval: false });
-        } catch {}
-        try { nav('/ask?train=1'); } catch { window.location.href = '/ask?train=1'; }
-        setTimeout(async()=>{
-          try {
-            const tid = await getTenant();
-            await api.post('/ai/tools/execute',{ tenant_id: tid, name:'social.schedule.14days', params:{ tenant_id: tid }, require_approval: true });
-            try { localStorage.setItem('bvx_social_plan_ready','1'); } catch {}
-          } catch {}
-          try { nav('/dashboard'); } catch { window.location.href = '/dashboard'; }
-        }, 1500);
-      }, 1500);
-    }, 900);
-  };
+  // legacy quickstart path removed; showcase orchestrates the sequence
 
   // Workspace billing gate: open modal if not trialing/active
   useEffect(()=>{
