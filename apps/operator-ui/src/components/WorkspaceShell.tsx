@@ -113,7 +113,7 @@ export default function WorkspaceShell(){
               }
             }
           } catch {}
-          try { startQuickstartSequence(); } catch {}
+          // Do not auto-run quickstart here; we will sequence via showcase
           // Kick off showcase after successful billing if not completed
           try { const seen = localStorage.getItem('bvx_showcase_done') === '1'; if (!seen) setTimeout(()=> startShowcase(), 300); } catch {}
           return;

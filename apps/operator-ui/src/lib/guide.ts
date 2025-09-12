@@ -315,10 +315,12 @@ function prefetchPath(path: string) {
 
 // Cross-page showcase: Dashboard → brandVZN → Contacts (Import) → Ask VX → Dashboard
 export function startShowcase() {
-  try { localStorage.setItem('bvx_showcase_started','1'); } catch {}
-  const steps: Array<{ path: string; guide?: string; wait?: string; progress?: string }> = [
-    { path: '/workspace?pane=dashboard', guide: 'dashboard', wait: '[data-guide="quickstart"]', progress: 'showcase.dashboard' },
-  ];
+  // Begin only after the 13-step workspace intro has completed
+  const begin = () => {
+    try { localStorage.setItem('bvx_showcase_started','1'); } catch {}
+    const steps: Array<{ path: string; guide?: string; wait?: string; progress?: string }> = [
+      { path: '/workspace?pane=dashboard', guide: 'dashboard', wait: '[data-guide="quickstart"]', progress: 'showcase.dashboard' },
+    ];
   // Branch: if booking not connected, detour to Integrations first
   try {
     (async()=>{
@@ -332,10 +334,13 @@ export function startShowcase() {
         }
       } catch {}
       steps.push(
-        { path: '/vision?tour=1&onboard=1', guide: 'vision', wait: '[data-guide="upload"]', progress: 'showcase.vision' },
-        { path: '/contacts?tour=1&onboard=1', guide: 'contacts', wait: '[data-guide="import"]', progress: 'showcase.contacts' },
-        { path: '/ask?onboard=1&autosummarize=1', guide: 'askvx', wait: '[data-guide="composer"]', progress: 'showcase.ask' },
-        { path: '/ask?onboard=1&page=2', guide: 'askvx', wait: '[data-guide="composer"]', progress: 'showcase.trainvx' },
+        // Stay within the workspace tab/pane for all steps
+        // Billing CTA comes after booking (integrations) and before brandVZN
+        { path: '/workspace?pane=dashboard&billing=prompt', guide: undefined as any, wait: undefined as any, progress: 'showcase.billing' },
+        { path: '/workspace?pane=vision&tour=1&onboard=1', guide: 'vision', wait: '[data-guide="upload"]', progress: 'showcase.vision' },
+        { path: '/workspace?pane=contacts&tour=1&onboard=1', guide: 'contacts', wait: '[data-guide="import"]', progress: 'showcase.contacts' },
+        { path: '/workspace?pane=askvx&onboard=1&autosummarize=1', guide: 'askvx', wait: '[data-guide="composer"]', progress: 'showcase.ask' },
+        { path: '/workspace?pane=askvx&onboard=1&page=2', guide: 'askvx', wait: '[data-guide="composer"]', progress: 'showcase.trainvx' },
         { path: '/workspace?pane=dashboard', guide: 'dashboard', wait: '[data-guide="next-best-steps"]', progress: 'showcase.done' },
       );
     })();
@@ -367,6 +372,14 @@ export function startShowcase() {
     }, 450);
   };
   drive();
+  };
+  // Gate on tour completion
+  try {
+    const seen = localStorage.getItem('bvx_tour_seen_workspace_intro') === '1';
+    if (seen) { begin(); return; }
+    const onDone = () => { try { window.removeEventListener('bvx:guide:workspace_intro:done' as any, onDone as any); } catch {}; begin(); };
+    window.addEventListener('bvx:guide:workspace_intro:done' as any, onDone as any);
+  } catch { begin(); }
 }
 
 
