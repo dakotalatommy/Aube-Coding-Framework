@@ -795,7 +795,6 @@ async def global_exception_handler(request: Request, exc: Exception):
         return JSONResponse({"error": "internal_error", "detail": msg}, status_code=500)
     except Exception:
         return JSONResponse({"error": "internal_error"}, status_code=500)
-
 # --- Auth configuration helper ---
 @app.get("/auth/config_check", tags=["Health"])
 def auth_config_check(request: Request):
@@ -1527,6 +1526,28 @@ def _audit_logs_columns(db: Session) -> set:
         return {str(r[0]) for r in rows}
     except Exception:
         return set()
+
+def _safe_audit_log(db: Session, *, tenant_id: str, actor_id: str, action: str, entity_ref: str, payload: Optional[str] = None) -> None:
+    """Insert an audit_log row while tolerating deployments where the 'payload' column is absent.
+    Commits on success; on failure rolls back and swallows the error to avoid aborting outer transactions.
+    """
+    try:
+        cols = _audit_logs_columns(db)
+        if "payload" in cols:
+            db.add(dbm.AuditLog(tenant_id=tenant_id, actor_id=actor_id, action=action, entity_ref=entity_ref, payload=(payload or "{}")))
+        else:
+            db.execute(
+                _sql_text(
+                    "INSERT INTO audit_logs (tenant_id, actor_id, action, entity_ref, created_at) VALUES (:t,:a,:ac,:er, EXTRACT(epoch FROM now())::bigint)"
+                ),
+                {"t": tenant_id, "a": actor_id, "ac": action, "er": entity_ref},
+            )
+        db.commit()
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
 def _insert_connected_account(db: Session, tenant_id: str, user_id: str, provider: str,
                               status: str, access_token_enc: Optional[str],
                               refresh_token_enc: Optional[str], expires_at: Optional[int],
@@ -2693,7 +2714,7 @@ def oauth_refresh(req: OAuthRefreshRequest, db: Session = Depends(get_db), ctx: 
             db.execute(_sql_text(f"UPDATE connected_accounts SET {set_clause} WHERE id = :id"), params)
         # Add audit log (tolerant)
         try:
-            db.add(dbm.AuditLog(tenant_id=req.tenant_id, actor_id=ctx.user_id, action=f"oauth.refresh.{req.provider}", entity_ref="oauth", payload="{}"))
+            _safe_audit_log(db, tenant_id=req.tenant_id, actor_id=ctx.user_id, action=f"oauth.refresh.{req.provider}", entity_ref="oauth", payload="{}")
         except Exception:
             pass
         db.commit()
@@ -4154,8 +4175,8 @@ async def ai_chat_raw(
         sid = req.session_id or "default"
         if req.messages:
             last = req.messages[-1]
-            db.add(dbm.ChatLog(tenant_id=ctx.tenant_id, session_id=sid, role=str(last.role), content=str(last.content)))
-        db.add(dbm.ChatLog(tenant_id=ctx.tenant_id, session_id=sid, role="assistant", content=content))
+            _safe_audit_log(db, tenant_id=ctx.tenant_id, session_id=sid, role=str(last.role), content=str(last.content))
+        _safe_audit_log(db, tenant_id=ctx.tenant_id, session_id=sid, role="assistant", content=content)
         db.commit()
     except Exception:
         try: db.rollback()
@@ -4426,8 +4447,6 @@ def limits_status(tenant_id: str, ctx: UserContext = Depends(get_user_context)) 
         "caps": {"daily_usd": round(daily_usd_cap, 4), "monthly_usd": round(monthly_usd_cap, 4)},
         "warnings": warnings,
     }
-
-
 @app.get("/ops/health", tags=["Health"])
 def ops_health(db: Session = Depends(get_db), ctx: UserContext = Depends(require_role("owner_admin"))) -> Dict[str, object]:
     """Aggregate health snapshot for ops dashboards: DB, Redis, OpenAI, PostHog, Sentry, Tools/Contexts."""
@@ -4767,13 +4786,8 @@ async def ai_tool_execute(
                             status = "trialing"
                     except Exception:
                         status = status or ""
-                # TEMPORARY: Do not gate while we resolve billing UX; log but allow
-                try:
-                    if status not in {"active","trialing"}:
-                        import sys as __sys
-                        print(f"[gate] bypassing payment gate for {req.name} tenant={req.tenant_id} status={status}", file=__sys.stderr)
-                except Exception:
-                    pass
+                if status not in {"active","trialing"}:
+                    return {"status":"payment_required","detail":"Add payment method to continue"}
         except Exception:
             pass
         # Breadcrumb for observability
@@ -5215,8 +5229,6 @@ def contacts_list(
         if "invalid token" in msg or "invalid_token" in msg:
             return _JR({"error": "unauthorized", "detail": msg}, status_code=401)
         return _JR({"error": "internal_error", "detail": msg}, status_code=500)
-
-
 # --- Human-friendly tool schema for AskVX palette ---
 @app.get("/ai/tools/schema_human", tags=["AI"])
 def ai_tools_schema_human() -> Dict[str, object]:
@@ -5923,16 +5935,7 @@ def consent_stop(
             tenant_id=req.tenant_id, contact_id=req.contact_id, channel=req.channel, consent="revoked"
         )
     )
-    # lightweight audit
-    db.add(
-        dbm.AuditLog(
-            tenant_id=req.tenant_id,
-            actor_id=ctx.user_id,
-            action="consent.stop",
-            entity_ref=f"contact:{req.contact_id}",
-            payload="{}",
-        )
-    )
+    _safe_audit_log(db, tenant_id=req.tenant_id, actor_id=ctx.user_id, action="consent.stop", entity_ref=f"contact:{req.contact_id}", payload="{}")
     db.commit()
     emit_event(
         "SuppressionAdded",
@@ -5983,8 +5986,6 @@ def get_config() -> Dict[str, object]:
             "accent_color": "#22C55E",
         },
     }
-
-
 @app.get("/ai/tools/schema", tags=["AI"])
 def ai_tools_schema(mode: Optional[str] = None) -> Dict[str, object]:
     """Return tool registry with public/gated flags and basic param hints.
@@ -6019,8 +6020,6 @@ def ai_tools_schema(mode: Optional[str] = None) -> Dict[str, object]:
         return base
     filtered = [t for t in tools if t.get("name") in allow]
     return {**base, "tools": filtered}
-
-
 @app.get("/ai/schema/map", tags=["AI"])
 def ai_schema_map(db: Session = Depends(get_db)) -> Dict[str, object]:
     """Return a sanitized schema map (table -> columns) for routing db.query.* tools.
@@ -6370,15 +6369,7 @@ async def webhook_twilio(
                 consent="revoked",
             )
         )
-        db.add(
-            dbm.AuditLog(
-                tenant_id=req.tenant_id,
-                actor_id=ctx.user_id,
-                action="consent.stop",
-                entity_ref=f"contact:{payload.get('From','')}",
-                payload="{}",
-            )
-        )
+        _safe_audit_log(db, tenant_id=req.tenant_id, actor_id=ctx.user_id, action="consent.stop", entity_ref=f"contact:{payload.get('From','')}", payload="{}")
         # Persist to inbox for operator visibility
         try:
             db.add(dbm.InboxMessage(
@@ -6896,13 +6887,9 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 pass
             # Record DB insert error for fast diagnosis
             try:
-                db.add(dbm.AuditLog(tenant_id=t_id, actor_id="system", action=f"oauth.connect_failed.{provider}", entity_ref="oauth", payload=str({"db_error": str(e)[:300], "tenant": t_id})))
-                db.commit()
+                _safe_audit_log(db, tenant_id=t_id, actor_id="system", action=f"oauth.connect_failed.{provider}", entity_ref="oauth", payload=str({"db_error": str(e)[:300], "tenant": t_id}))
             except Exception:
-                try:
-                    db.rollback()
-                except Exception:
-                    pass
+                pass
         # Emit explicit event about save attempt
         try:
             emit_event("OauthTokenSaved", {"tenant_id": t_id, "provider": provider, "saved": bool(saved_token_write), "exchange_ok": bool(exchange_ok)})
@@ -6913,13 +6900,9 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
             payload = {"code": bool(code), "error": error or "", "exchange_ok": exchange_ok, **({} if not exchange_detail else exchange_detail)}
             if cid:
                 payload["cid"] = cid
-            db.add(dbm.AuditLog(tenant_id=t_id, actor_id="system", action=f"oauth.callback.{provider}", entity_ref="oauth", payload=str(payload)))
-            db.commit()
+            _safe_audit_log(db, tenant_id=t_id, actor_id="system", action=f"oauth.callback.{provider}", entity_ref="oauth", payload=str(payload))
         except Exception:
-            try:
-                db.rollback()
-            except Exception:
-                pass
+            pass
         # Emit event for callback
         try:
             emit_event("OauthCallback", {"tenant_id": t_id, "provider": provider, "code_present": bool(code), "error": error or ""})
@@ -8367,16 +8350,7 @@ def consent_stop(
             tenant_id=req.tenant_id, contact_id=req.contact_id, channel=req.channel, consent="revoked"
         )
     )
-    # lightweight audit
-    db.add(
-        dbm.AuditLog(
-            tenant_id=req.tenant_id,
-            actor_id=ctx.user_id,
-            action="consent.stop",
-            entity_ref=f"contact:{req.contact_id}",
-            payload="{}",
-        )
-    )
+    _safe_audit_log(db, tenant_id=req.tenant_id, actor_id=ctx.user_id, action="consent.stop", entity_ref=f"contact:{req.contact_id}", payload="{}")
     db.commit()
     emit_event(
         "SuppressionAdded",
@@ -8719,15 +8693,7 @@ async def webhook_twilio(
                 consent="revoked",
             )
         )
-        db.add(
-            dbm.AuditLog(
-                tenant_id=req.tenant_id,
-                actor_id=ctx.user_id,
-                action="consent.stop",
-                entity_ref=f"contact:{payload.get('From','')}",
-                payload="{}",
-            )
-        )
+        _safe_audit_log(db, tenant_id=req.tenant_id, actor_id=ctx.user_id, action="consent.stop", entity_ref=f"contact:{payload.get('From','')}", payload="{}")
         # Persist to inbox for operator visibility
         try:
             db.add(dbm.InboxMessage(
@@ -10662,15 +10628,7 @@ def request_erasure(
     )
     if row:
         row.deleted = True
-        db.add(
-            dbm.AuditLog(
-                tenant_id=req.tenant_id,
-                actor_id=ctx.user_id,
-                action="data.erase",
-                entity_ref=f"contact:{req.contact_id}",
-                payload="{}",
-            )
-        )
+        _safe_audit_log(db, tenant_id=req.tenant_id, actor_id=ctx.user_id, action="data.erase", entity_ref=f"contact:{req.contact_id}", payload="{}")
         db.commit()
         emit_event("DataDeletionCompleted", {"tenant_id": req.tenant_id, "entity": "contact", "contact_id": req.contact_id})
         return {"status": "erased"}
@@ -10812,5 +10770,3 @@ def instagram_status(ctx: UserContext = Depends(get_user_context)):
             return {"status": "connected" if ok else "not_connected"}
     except Exception:
         return {"status": "unknown"}
-
-    
