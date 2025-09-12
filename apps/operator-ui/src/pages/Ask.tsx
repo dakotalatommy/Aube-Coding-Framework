@@ -52,7 +52,7 @@ export default function Ask(){
   const [trainerSaving, setTrainerSaving] = useState<boolean>(false);
   const [sessionSummary, setSessionSummary] = useState<string>('');
   const [summarizing, setSummarizing] = useState<boolean>(false);
-  const [mode, setMode] = useState<string>(()=>{
+  const [mode] = useState<string>(()=>{
     try { const sp = new URLSearchParams(window.location.search); return (sp.get('mode')||'').toLowerCase(); } catch { return ''; }
   });
   // removed getToolLabel
@@ -78,11 +78,13 @@ export default function Ask(){
     setInput('');
     setLoading(true);
     try{
+      const onboardMode = (()=>{ try{ return new URLSearchParams(window.location.search).get('onboard')==='1'; } catch { return false; }})();
+      const modeToUse = onboardMode ? 'onboard' : (mode || undefined);
       const r = await api.post('/ai/chat/raw', {
         tenant_id: await getTenant(),
         messages: next,
         session_id: sessionId,
-        mode: mode || undefined,
+        mode: modeToUse,
       }, { timeoutMs: 60000 });
       if (r?.error) { setMessages(curr => [...curr, { role:'assistant', content: `Error: ${String(r.detail||r.error)}` }]); setLoading(false); return; }
       const text = String(r?.text || '');
@@ -138,6 +140,22 @@ export default function Ask(){
       setSmartAction(null);
     } catch { setSmartAction(null); }
   }, [lastAssistantText]);
+
+  // Cap clarifiers to 0–2 in onboarding mode by pre-seeding context
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const sp = new URLSearchParams(window.location.search);
+        const onboard = sp.get('onboard') === '1';
+        if (!onboard) return;
+        // Prime context with a succinct summary so follow-ups are minimal
+        const tid = await getTenant();
+        const seed = 'Context: Use best estimates from tenant data. Avoid more than two clarifying questions; if uncertain, compute a conservative estimate and state assumptions briefly.';
+        await api.post('/ai/chat/raw', { tenant_id: tid, session_id: sessionId, messages: [{ role:'user', content: seed }] });
+      } catch {}
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const runSmartAction = async () => {
     if (!smartAction || toolRunning) return;
@@ -217,6 +235,42 @@ export default function Ask(){
   // Auto-summarize last session once on mount
   useEffect(()=>{ (async()=>{ try{ await summarizeSession(); } catch{} })(); },[]);
 
+  // Onboarding auto-run: finance questions then generate 14-day plan and pin summary
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const sp = new URLSearchParams(window.location.search);
+        const onboard = sp.get('onboard') === '1';
+        if (!onboard) return;
+        if (messages.length > 0 || loading || streaming) return;
+        // Allow client names in onboarding mode (mask emails/phones still enforced server-side)
+        try{
+          const tid = await getTenant();
+          await api.post('/settings', { tenant_id: tid, ai: { chat_name_exposure: 'open' } });
+        } catch {}
+        const prompts = [
+          'What is my total revenue for the last 3 months? Include a concise total.',
+          'What is my estimated total revenue for the last 3 months? Include a concise total.',
+          'Who are my top 3 clients by spend in the last 3 months? Include first and last names and amounts.'
+        ];
+        for (const p of prompts){
+          setInput(p);
+          await Promise.resolve();
+          await new Promise(r=> setTimeout(r, 60));
+          await send();
+          await new Promise(r=> setTimeout(r, 800));
+        }
+        // Generate 14-day plan and pin summary
+        try {
+          const tid = await getTenant();
+          await api.post('/plan/14day/generate', { tenant_id: tid, step_key: 'init' });
+        } catch {}
+        try { await summarizeSession(); } catch {}
+      } catch {}
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages.length]);
+
   const sp = new URLSearchParams(typeof window !== 'undefined' ? window.location.search : '');
   const embedded = sp.get('embed') === '1';
   const askIsDemo = sp.get('demo') === '1';
@@ -240,17 +294,7 @@ export default function Ask(){
         <div className="flex items-center justify-between">
           <h3 className="text-xl font-semibold" style={{fontFamily:'var(--font-display)'}}>Brand&nbsp;VX</h3>
           <div className="flex items-center gap-2">
-            <select className="text-xs border rounded-md px-2 py-1 bg-white" value={mode}
-              onChange={e=>{ setMode(e.target.value); try{ const u=new URL(window.location.href); if(e.target.value){ u.searchParams.set('mode', e.target.value);} else { u.searchParams.delete('mode'); } window.history.replaceState({}, '', u.toString()); }catch{} }}
-              aria-label="AskVX mode">
-              <option value="">Default</option>
-              <option value="support">Support</option>
-              <option value="train">Train_VX</option>
-              <option value="analysis">Analysis</option>
-              <option value="messaging">Messaging</option>
-              <option value="scheduler">Scheduler</option>
-              <option value="todo">To-Do</option>
-            </select>
+            {/* Mode dropdown removed per spec */}
             <div className="inline-flex rounded-full bg-white overflow-hidden shadow-sm">
               <button className={`px-3 py-1 text-sm ${pageIdx===0? 'bg-slate-900 text-white':'text-slate-700'}`} onClick={()=> setPageIdx(0)}>Chat</button>
               <button className={`px-3 py-1 text-sm ${pageIdx===1? 'bg-slate-900 text-white':'text-slate-700'}`} onClick={()=> setPageIdx(1)}>Train & Profile</button>
@@ -394,6 +438,27 @@ export default function Ask(){
           <button className="text-sm text-slate-600 hover:underline" onClick={reset}>Clear</button>
         </div>
       </div>
+      )}
+      {/* Copy plan & Pin to Dashboard actions */}
+      {pageIdx===0 && lastAssistantText && (
+        <div className="mt-2 flex gap-2 text-xs">
+          <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{ try{ await navigator.clipboard.writeText(lastAssistantText); }catch{} }}>Copy plan</button>
+          <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{
+            try{
+              const tid = await getTenant();
+              // Persist last_session_summary memory for Dashboard surfacing
+              await api.post('/ai/chat/session/summary', { tenant_id: tid, session_id: sessionId, summary: lastAssistantText });
+              setSessionSummary(lastAssistantText);
+              try{ track('plan_pinned_dashboard'); }catch{}
+              try{
+                const u = new URL(window.location.href);
+                u.pathname = '/workspace';
+                u.search = '?pane=dashboard&refresh=summary';
+                window.location.assign(u.toString());
+              }catch{}
+            }catch{}
+          }}>Pin to Dashboard</button>
+        </div>
       )}
       {!firstNoteShown && (
         <div className="text-xs text-slate-500 mt-1 shrink-0">(Responses may take a moment to ensure quality!)</div>

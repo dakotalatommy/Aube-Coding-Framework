@@ -207,6 +207,19 @@ export default function Dashboard(){
     }
   };
   useEffect(()=>{ (async()=>{ try{ await loadPlan(); } catch{} })(); }, []);
+  // Refresh summary when coming back from AskVX pin
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const sp = new URLSearchParams(window.location.search);
+        if (sp.get('refresh') === 'summary') {
+          await loadPlan();
+          sp.delete('refresh');
+          try{ window.history.replaceState({}, '', `${window.location.pathname}?${sp.toString()}`); }catch{}
+        }
+      }catch{}
+    })();
+  }, [loc.search]);
 
   // Reanalyze action removed with micro-wins trim
 
@@ -450,9 +463,9 @@ export default function Dashboard(){
       <section className="rounded-2xl p-2 bg-white border border-white/60 shadow-sm" data-guide="quickstart">
         <h4 className="text-base md:text-[17px] font-semibold text-slate-900 text-center">Quick Start</h4>
         <div className="mt-2 max-w-sm mx-auto grid gap-2">
-          <Button size="sm" variant="outline" className="w-full" onClick={()=> window.location.assign('/vision')}>Brand Vision</Button>
+          <Button size="sm" variant="outline" className="w-full" data-guide="quickstart-brandvzn" onClick={()=> window.location.assign('/vision')}>brandVZN</Button>
           <Button size="sm" variant="outline" className="w-full" onClick={async()=>{ window.location.assign('/contacts'); try{ const tid = await getTenant(); await api.post('/ai/tools/execute',{ tenant_id: tid, name:'contacts.import.square', params:{ tenant_id: tid }, require_approval: false }); }catch{} }}>Import Clients</Button>
-          <Button size="sm" variant="outline" className="w-full" onClick={()=> window.location.assign('/ask?train=1')}>Train VX</Button>
+          <Button size="sm" variant="outline" className="w-full" onClick={()=> window.location.assign('/ask?train=1')}>trainVX</Button>
         </div>
       </section>
       {/* Next Best Steps (Day N/14 + today's tasks) */}
@@ -501,6 +514,10 @@ export default function Dashboard(){
           <div className="mt-3 rounded-md border bg-slate-50 p-2">
             <div className="text-xs text-slate-600">Last session summary</div>
             <div className="text-sm text-slate-800 whitespace-pre-wrap mt-1">{sessionSummary}</div>
+            <div className="mt-2 flex gap-2">
+              <Button size="sm" variant="outline" onClick={async()=>{ try{ await navigator.clipboard.writeText(sessionSummary); }catch{} }}>Copy</Button>
+              <Button size="sm" variant="outline" onClick={()=> window.location.assign('/ask')}>Open AskVX</Button>
+            </div>
           </div>
         )}
       </section>

@@ -16,7 +16,7 @@ export default function Vision(){
   const [loading, setLoading] = useState(false);
   const [mime, setMime] = useState<string>('image/jpeg');
   // const [linkContactId] = useState<string>('');
-  const [editPrompt, setEditPrompt] = useState<string>('Reduce specular highlights on T-zone; keep texture; neutralize warm cast.');
+  const [editPrompt, setEditPrompt] = useState<string>('');
   const [igItems, setIgItems] = useState<string[]>([]);
   // const [contactId, setContactId] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
@@ -27,6 +27,9 @@ export default function Vision(){
   const [saving, setSaving] = useState(false);
   const [lastEditAt, setLastEditAt] = useState<number | null>(null);
   const [baselinePreview, setBaselinePreview] = useState<string>(''); // input used for last edit
+  const [comparePos, setComparePos] = useState<number>(50); // before/after slider position (0..100)
+  const [slowHint, setSlowHint] = useState<boolean>(false);
+  const prefersReducedMotion = (()=>{ try{ return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; }catch{ return false; } })();
   const [showBefore, setShowBefore] = useState<boolean>(false);
   const [versions, setVersions] = useState<string[]>([]); // recent prior states (max 3)
   const [intensity, setIntensity] = useState<number>(60);
@@ -123,19 +126,15 @@ export default function Vision(){
   // const [tryDay] = useState<string>('No-makeup makeup: sheer base, correct under-eye only, groom brows, clear gloss.');
   // const [tryNight] = useState<string>('Evening: deepen crease +10%, warm shimmer center lid, richer lip; preserve texture.');
   const inputRef = useRef<HTMLInputElement|null>(null);
+  const dropRef = useRef<HTMLDivElement|null>(null);
   // Deep link tour
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useState(()=>{ try{ if (new URLSearchParams(window.location.search).get('tour')==='1') setTimeout(()=> startGuide('vision'), 200); } catch {} return 0; });
 
   const pick = () => inputRef.current?.click();
-  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
+  const processFile = (f: File) => {
     if (!f) return;
     if (f.size > 10 * 1024 * 1024) { setOutput('File too large (max 10MB).'); return; }
-    const ok = ['image/jpeg','image/png','image/dng','image/x-adobe-dng'];
-    if (f.type && !ok.includes(f.type)) {
-      // Allow common image/*; warn but continue
-    }
     // Show preview immediately via object URL
     try {
       const url = URL.createObjectURL(f);
@@ -143,6 +142,7 @@ export default function Vision(){
       setObjectUrl(url);
       setPreview(url);
       setBaselinePreview(url);
+      setComparePos(50);
       try { trackEvent('vision.upload', { size: f.size, type: f.type }); } catch {}
     } catch {}
     const reader = new FileReader();
@@ -157,7 +157,6 @@ export default function Vision(){
             const MAX_PIXELS = 12_000_000; // 12MP
             const pixels = w * h;
             let sendDataUrl = dataUrl;
-            // Downscale only when preserveDims is OFF and image is very large
             if (!preserveDims && pixels > MAX_PIXELS) {
               const scale = Math.sqrt(MAX_PIXELS / pixels);
               const nw = Math.max(1, Math.floor(w * scale));
@@ -179,9 +178,9 @@ export default function Vision(){
         };
         im.src = dataUrl;
       } catch {}
-      // Also notify AskVX chat that an image was uploaded with the current edit prompt
+      // Notify AskVX chat
       try {
-        const note = `I uploaded an image in brandVZN. Analyze it and, if appropriate, edit it using Gemini 2.5 (nano banana). Edit prompt: "${editPrompt}"`;
+        const note = `I uploaded an image in brandVZN. Analyze it and, if appropriate, edit it. Current prompt: "${editPrompt||''}"`;
         let sid = localStorage.getItem('bvx_chat_session') || '';
         if (!sid) { sid = 's_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('bvx_chat_session', sid); }
         (async()=>{ try { await api.post('/ai/chat/raw', { tenant_id: await getTenant(), session_id: sid, messages: [{ role:'user', content: note }] }); } catch {} })();
@@ -189,11 +188,55 @@ export default function Vision(){
     };
     reader.readAsDataURL(f);
   };
+  const onFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (f) processFile(f);
+  };
+
+  // Drag & drop upload
+  useEffect(()=>{
+    const el = dropRef.current;
+    if (!el) return;
+    const onDragOver = (e: DragEvent) => { try{ e.preventDefault(); }catch{} };
+    const onDrop = (e: DragEvent) => {
+      try{
+        e.preventDefault();
+        const f = e.dataTransfer?.files?.[0];
+        if (f) processFile(f);
+      }catch{}
+    };
+    el.addEventListener('dragover', onDragOver as any);
+    el.addEventListener('drop', onDrop as any);
+    return ()=>{
+      try{ el.removeEventListener('dragover', onDragOver as any); }catch{}
+      try{ el.removeEventListener('drop', onDrop as any); }catch{}
+    };
+  }, []);
+
+  // Paste-to-upload
+  useEffect(()=>{
+    const onPaste = (e: ClipboardEvent) => {
+      try{
+        const items = e.clipboardData?.items || [] as any;
+        for (let i=0;i<items.length;i++){
+          const it = items[i];
+          if (it.kind === 'file') {
+            const f = it.getAsFile();
+            if (f) { processFile(f); break; }
+          }
+        }
+      }catch{}
+    };
+    window.addEventListener('paste', onPaste as any);
+    return ()=> window.removeEventListener('paste', onPaste as any);
+  }, []);
 
   const analyze = async () => {
     if (!b64 && !srcUrl) return;
     setLoading(true);
     setOutput(''); setLastError('');
+    setSlowHint(false);
+    const slowTimer = window.setTimeout(()=> setSlowHint(true), 2500);
     try{
       try { trackEvent('vision.analyze', { hasB64: !!b64, mime }); } catch {}
       const span = Sentry.startInactiveSpan?.({ name: 'vision.analyze.gpt5' });
@@ -204,6 +247,7 @@ export default function Vision(){
         require_approval: false,
       });
       try { span?.end?.(); } catch {}
+      try { window.clearTimeout(slowTimer); } catch {}
       const brief = String(r?.brief || '');
       const text = brief;
       let i = 0; const step = Math.max(2, Math.floor(text.length / 200));
@@ -215,6 +259,7 @@ export default function Vision(){
       try { trackEvent('integrations.reanalyze.click', { area: 'brandvx.analyze.gpt5' }); } catch {}
     } catch(e:any){
       try { Sentry.captureException(e); } catch {}
+      try { window.clearTimeout(slowTimer); } catch {}
       setLastError(humanizeError(e));
       setOutput(String(e?.message||e));
     } finally { setLoading(false); }
@@ -226,6 +271,8 @@ export default function Vision(){
     setLoading(true);
     setOutput(''); setLastError('');
     try{
+      setSlowHint(false);
+      const slowTimer = window.setTimeout(()=> setSlowHint(true), 2500);
       const span = Sentry.startInactiveSpan?.({ name: 'vision.run_edit' });
       const t0 = performance.now ? performance.now() : Date.now();
       const r = await api.post('/ai/tools/execute', {
@@ -293,6 +340,7 @@ export default function Vision(){
           }
         } catch {}
         try { span?.end?.(); } catch {}
+        try { window.clearTimeout(slowTimer); } catch {}
       } else {
         const friendly = humanizeError(r);
         setOutput(friendly);
@@ -376,23 +424,56 @@ export default function Vision(){
 
       <div className="flex flex-col md:flex-row gap-3 items-start pb-16 md:pb-0">
         <div
-          className="w-full h-64 md:w-64 md:h-64 border rounded-xl bg-white shadow-sm overflow-hidden flex items-center justify-center relative select-none"
+          ref={dropRef}
+          className="w-full h-64 md:w-64 md:h-64 border rounded-xl bg-white shadow-sm overflow-hidden relative select-none"
           data-guide="preview"
           onMouseDown={() => setShowBefore(true)}
           onMouseUp={() => setShowBefore(false)}
           onMouseLeave={() => setShowBefore(false)}
           onTouchStart={() => setShowBefore(true)}
           onTouchEnd={() => setShowBefore(false)}
+          title="Drop an image here or paste (Cmd/Ctrl+V)"
         >
-          {preview ? (
-            <img src={showBefore && baselinePreview ? baselinePreview : preview} alt="preview" className="object-contain w-full h-full"/>
-          ) : (
-            <span className="text-slate-500 text-sm">No image</span>
-          )}
-          {preview && baselinePreview && (
-            <div className="absolute bottom-1 right-1 text-[10px] px-1.5 py-0.5 rounded bg-black/50 text-white">
-              {showBefore ? 'Before' : 'After'}
+          {!preview && (
+            <div className="absolute inset-0 grid place-items-center text-slate-500 text-sm p-2 text-center">
+              <div>
+                <div>Drop or paste an image to start</div>
+                <div className="text-[11px] mt-1">or click Upload below</div>
+              </div>
             </div>
+          )}
+          {preview && (
+            <>
+              {/* Base (Before) */}
+              {baselinePreview && (
+                <img src={baselinePreview} alt="before" className="absolute inset-0 object-contain w-full h-full"/>
+              )}
+              {/* Overlay (After) */}
+              <img
+                src={preview}
+                alt="after"
+                className="absolute inset-0 object-contain w-full h-full"
+                style={baselinePreview ? { clipPath: `inset(0 ${Math.max(0, 100-comparePos)}% 0 0)`, transition: prefersReducedMotion ? undefined : 'clip-path 120ms ease' } : undefined}
+              />
+              {baselinePreview && (
+                <div className="absolute left-0 right-0 bottom-1 flex items-center justify-center px-2">
+                  <input
+                    type="range"
+                    min={0}
+                    max={100}
+                    value={comparePos}
+                    onChange={e=> setComparePos(parseInt(e.target.value))}
+                    aria-label="Compare before/after"
+                    className="w-full"
+                  />
+                </div>
+              )}
+              {baselinePreview && (
+                <div className="absolute bottom-1 right-1 text-[10px] px-1.5 py-0.5 rounded bg-black/50 text-white">
+                  {showBefore ? 'Before' : 'After'}
+                </div>
+              )}
+            </>
           )}
         </div>
         <div className="flex-1 space-y-3">
@@ -416,7 +497,36 @@ export default function Vision(){
           </div>
         </div>
 
-          <textarea className="w-full border rounded-md px-3 py-2" rows={3} value={editPrompt} onChange={e=>setEditPrompt(e.target.value)} />
+          {/* Curated prompt chips */}
+          <div className="mt-1 flex flex-wrap gap-2 text-xs" aria-label="Curated edits">
+            {['Reduce forehead shine','Tame flyaways','Soften background','Sharpen details','Warm tone +5%','Cool tone +5%'].map((sp,i)=>(
+              <Button key={i} variant="outline" size="sm" onClick={()=>{ setEditPrompt(sp); runEdit(sp); }}>{sp}</Button>
+            ))}
+          </div>
+
+          {/* Hair / Eye color quick chips */}
+          <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+            <div className="flex flex-wrap gap-2 items-center">
+              <span className="text-slate-600">Hair:</span>
+              {['copper','espresso brown','platinum blonde','rose gold','jet black'].map(c=> (
+                <Button key={c} variant="outline" size="sm" onClick={()=>{ const p=`Change hair color to ${c}`; setEditPrompt(p); runEdit(p); }}>{c}</Button>
+              ))}
+            </div>
+            <div className="flex flex-wrap gap-2 items-center">
+              <span className="text-slate-600">Eyes:</span>
+              {['blue','green','hazel','amber','gray'].map(c=> (
+                <Button key={c} variant="outline" size="sm" onClick={()=>{ const p=`Change eye color to ${c}`; setEditPrompt(p); runEdit(p); }}>{c}</Button>
+              ))}
+            </div>
+          </div>
+
+          <textarea
+            className="w-full border rounded-md px-3 py-2"
+            rows={3}
+            value={editPrompt}
+            onChange={e=>setEditPrompt(e.target.value)}
+            placeholder={preview ? 'Type an edit prompt (e.g., “Change hair color to copper”)' : 'Click here to start editing or upload a photo to begin'}
+          />
           <div className="mt-1 flex flex-wrap gap-2 text-xs" aria-label="Starter prompts">
             {starterPrompts.map((sp, i)=>(
               <Button key={i} variant="outline" size="sm" onClick={()=> setEditPrompt(sp)}>{sp}</Button>
@@ -507,7 +617,79 @@ export default function Vision(){
         </div>
       </div>
 
-      <div className="border rounded-xl bg-white shadow-sm p-3 min-h-24 whitespace-pre-wrap text-sm">{output}</div>
+      <div className="border rounded-xl bg-white shadow-sm p-3 min-h-24 whitespace-pre-wrap text-sm">
+        {loading && slowHint && (
+          <div className="mb-1 text-[11px] text-slate-600">This usually finishes in ~3–5s…</div>
+        )}
+        {output}
+      </div>
+
+      {/* Download original+edited */}
+      {preview && (
+        <div className="mt-2">
+          <Button variant="outline" size="sm" onClick={async()=>{
+            try{
+              // Download edited
+              const a1 = document.createElement('a');
+              a1.href = preview;
+              a1.download = 'edited.png';
+              document.body.appendChild(a1); a1.click(); document.body.removeChild(a1);
+              // Download original/baseline if available
+              if (baselinePreview) {
+                const a2 = document.createElement('a');
+                a2.href = baselinePreview;
+                a2.download = 'original.png';
+                document.body.appendChild(a2); a2.click(); document.body.removeChild(a2);
+              }
+            } catch {}
+          }}>Download original + edited</Button>
+          <Button variant="outline" size="sm" className="ml-2" onClick={async()=>{
+            try{
+              // Fallback ZIP (simple): open two tabs if ZIP library not present
+              const z = (window as any).JSZip;
+              if (!z) {
+                // No JSZip installed; provide simple dual-download
+                const a1 = document.createElement('a'); a1.href = preview; a1.download = 'edited.png'; document.body.appendChild(a1); a1.click(); document.body.removeChild(a1);
+                if (baselinePreview) { const a2 = document.createElement('a'); a2.href = baselinePreview; a2.download = 'original.png'; document.body.appendChild(a2); a2.click(); document.body.removeChild(a2); }
+                return;
+              }
+              const JSZip = z;
+              const zip = new JSZip();
+              const fetchAsBlob = async (url: string) => { const r = await fetch(url); return await r.blob(); };
+              const eBlob = await fetchAsBlob(preview);
+              zip.file('edited.png', eBlob);
+              if (baselinePreview) {
+                const oBlob = await fetchAsBlob(baselinePreview);
+                zip.file('original.png', oBlob);
+              }
+              const content = await zip.generateAsync({ type: 'blob' });
+              const a = document.createElement('a');
+              a.href = URL.createObjectURL(content);
+              a.download = 'brandvzn-images.zip';
+              document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            }catch{}
+          }}>Download ZIP</Button>
+          {!preview && (
+            <Button variant="outline" size="sm" className="ml-2" onClick={async()=>{
+              try{
+                // Generate a small sample image via canvas (no network dependency)
+                const c = document.createElement('canvas'); c.width = 512; c.height = 512;
+                const ctx = c.getContext('2d'); if (!ctx) return;
+                const g = ctx.createLinearGradient(0,0,512,512);
+                g.addColorStop(0,'#fce7f3'); g.addColorStop(1,'#e0e7ff');
+                ctx.fillStyle = g; ctx.fillRect(0,0,512,512);
+                ctx.fillStyle = '#111827'; ctx.font = 'bold 28px system-ui, sans-serif';
+                ctx.fillText('brandVZN sample', 130, 260);
+                const dataUrl = c.toDataURL('image/png');
+                const url = dataUrl; if (objectUrl) { try { URL.revokeObjectURL(objectUrl); } catch {} }
+                setObjectUrl(url); setPreview(url); setBaselinePreview(url);
+                const idx = dataUrl.indexOf(','); setB64(idx>=0? dataUrl.slice(idx+1): dataUrl);
+                try{ setMime('image/png'); }catch{}
+              }catch{}
+            }}>Use sample image</Button>
+          )}
+        </div>
+      )}
 
       {/* Mobile bottom toolbar removed to avoid duplicate controls */}
 

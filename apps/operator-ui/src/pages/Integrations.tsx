@@ -440,15 +440,7 @@ export default function Integrations(){
     finally{ setBusy(false); }
   };
 
-  const acuityImportSample = async () => {
-    try{
-      setBusy(true);
-      const r = await api.post('/integrations/booking/acuity/import', { tenant_id: await getTenant(), since:'0', until:'', cursor:'' });
-      setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })());
-      try { showToast({ title: (r?.status==='ok') ? 'Acuity sample imported' : 'Acuity import failed', description: (r?.status==='ok') ? 'Acuity sample appointments imported' : (r?.error||r?.status||'') }); } catch {}
-    } catch(e:any){ setStatus(String(e?.message||e)); }
-    finally{ setBusy(false); }
-  };
+  // acuityImportSample removed (unused)
 
   const openSquare = () => { if (squareLink) window.open(squareLink, '_blank'); };
   const connect = async (provider: string) => {
@@ -732,24 +724,21 @@ export default function Integrations(){
 
         {/* Twilio SMS section removed per spec */}
 
-        {(
+        {/* Square card */}
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
           <div className="flex items-center justify-between">
             <div>
-              <div className="font-semibold text-slate-900">Square / Acuity</div>
-              <div className="text-sm text-slate-600">Booking & appointments (we ingest bookings; merging and 2‑way scheduling are coming soon)</div>
+              <div className="font-semibold text-slate-900">Square</div>
+              <div className="text-sm text-slate-600">Booking & clients (import contacts, backfill metrics)</div>
             </div>
-            <StatusBadge status={(onboarding?.connectedMap?.square==='connected' || onboarding?.connectedMap?.acuity==='connected') ? 'connected' : ((settings.providers_live?.square||settings.providers_live?.acuity) ? 'configured' : 'pending')} warn={expSoon('square')||expSoon('acuity')} />
+            <StatusBadge status={onboarding?.connectedMap?.square==='connected' ? 'connected' : (settings.providers_live?.square ? 'configured' : 'pending')} warn={expSoon('square')} />
           </div>
           {focusedProvider==='square' && sp.get('connected')==='1' && (
             <div className="mb-2 text-xs rounded-md px-2 py-1 bg-emerald-50 border border-emerald-100 text-emerald-700">Square connected. You can import contacts now.</div>
           )}
           <div className="mt-3 flex gap-2 items-center flex-wrap">
-            <Button variant="outline" disabled={busy || !squareLink || onboarding?.providers?.square===false} onClick={openSquare}>{squareLink ? 'Open Square booking' : 'No link set'}</Button>
+            {squareLink && <Button variant="outline" disabled={busy || onboarding?.providers?.square===false} onClick={openSquare}>Open Square booking</Button>}
             <Button variant="outline" disabled={busy || connecting.square || onboarding?.providers?.square===false} onClick={()=> connect('square')}>{connecting.square ? 'Connecting…' : connectLabel('square')}</Button>
-            <Button variant="outline" disabled={busy || connecting.acuity || onboarding?.providers?.acuity===false} onClick={()=> connect('acuity')}>{connecting.acuity ? 'Connecting…' : connectLabel('acuity')}</Button>
-            <Button variant="outline" disabled={busy || onboarding?.providers?.acuity===false} onClick={async()=>{ await acuityImportSample(); try{ showToast({ title:'Imported sample appointments', description:'Acuity sample appointments imported' }); }catch{} }}>Import sample appointments</Button>
-            <span className="text-[11px] text-slate-600">Tip: After connecting, click Re‑analyze to refresh status.</span>
             <Button variant="outline" disabled={busy} onClick={()=> { refresh('square'); try { showToast({ title:UI_STRINGS.ctas.secondary.refresh }); } catch {} }}>Refresh</Button>
             <Button variant="outline" disabled={busy} onClick={async()=>{
               try{
@@ -764,32 +753,49 @@ export default function Integrations(){
                 } else {
                   setStatus('Import completed');
                 }
+                // Backfill metrics after import
+                try { await api.post('/integrations/booking/square/backfill-metrics', { tenant_id: await getTenant() }); } catch {}
                 try { await reanalyze(); } catch {}
               }catch(e:any){ setErrorMsg('Import failed. Verify Square is connected, then click Refresh and try again.'); }
               finally{ setBusy(false); }
-            }}>Import contacts from Square</Button>
-            <Button variant="outline" disabled={busy} onClick={async()=>{
-              try{
-                setBusy(true);
-                const r = await api.post('/integrations/booking/square/backfill-metrics', { tenant_id: await getTenant() });
-                if (typeof r?.updated === 'number') {
-                  try { showToast({ title:'Backfill complete', description: `${Number(r.updated)} customers updated` }); } catch {}
-                  setStatus(`Backfill updated ${Number(r.updated)} customers`);
-                } else if (r?.error) {
-                  setErrorMsg(String(r?.error||'backfill_failed'));
-                }
-                try { await reanalyze(); } catch {}
-              }catch(e:any){ setErrorMsg(String(e?.message||e)); }
-              finally { setBusy(false); }
-            }}>Backfill metrics</Button>
+            }}>Import contacts</Button>
             {linked.square && lastSync.square && (
               <span className="text-[11px] text-slate-600">Last sync: {new Date(Number(lastSync.square)*1000).toLocaleString()}</span>
             )}
           </div>
-          {(onboarding?.providers?.square===false || onboarding?.providers?.acuity===false) && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Square/Acuity OAuth to enable.</div>}
-          <div className="mt-2 text-xs text-amber-700">Note: Imports and booking merges may queue approvals when auto-approve is off.</div>
+          {onboarding?.providers?.square===false && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Square OAuth to enable.</div>}
+          <div className="mt-2 text-xs text-amber-700">Note: Imports may queue approvals when auto-approve is off.</div>
         </section>
-        )}
+
+        {/* Acuity card */}
+        <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="font-semibold text-slate-900">Acuity</div>
+              <div className="text-sm text-slate-600">Bookings (import appointments; contacts inferred from bookings)</div>
+            </div>
+            <StatusBadge status={onboarding?.connectedMap?.acuity==='connected' ? 'connected' : (settings.providers_live?.acuity ? 'configured' : 'pending')} warn={expSoon('acuity')} />
+          </div>
+          <div className="mt-3 flex gap-2 items-center flex-wrap">
+            <Button variant="outline" disabled={busy || connecting.acuity || onboarding?.providers?.acuity===false} onClick={()=> connect('acuity')}>{connecting.acuity ? 'Connecting…' : connectLabel('acuity')}</Button>
+            <Button variant="outline" disabled={busy} onClick={()=> { refresh('acuity'); try { showToast({ title:UI_STRINGS.ctas.secondary.refresh }); } catch {} }}>Refresh</Button>
+            <Button variant="outline" disabled={busy || onboarding?.providers?.acuity===false} onClick={async()=>{
+              try{
+                setBusy(true);
+                const r = await api.post('/integrations/booking/acuity/import', { tenant_id: await getTenant(), since:'0', until:'', cursor:'' });
+                const imp = Number(r?.imported||0);
+                try { showToast({ title:'Imported', description: `${imp} appointments` }); } catch {}
+                setStatus(`Acuity import: ${imp} appointments`);
+                try { await reanalyze(); } catch {}
+              } catch(e:any) { setErrorMsg(String(e?.message||e)); }
+              finally { setBusy(false); }
+            }}>Import</Button>
+            {linked.acuity && lastSync.acuity && (
+              <span className="text:[11px] text-slate-600">Last sync: {new Date(Number(lastSync.acuity)*1000).toLocaleString()}</span>
+            )}
+          </div>
+          {onboarding?.providers?.acuity===false && <div className="mt-2 text-xs text-amber-700">Pending app credentials — configure Acuity OAuth to enable.</div>}
+        </section>
 
         {shouldShow('sendgrid') && (
         <section className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
@@ -945,6 +951,24 @@ export default function Integrations(){
                 <input type="checkbox" checked={!!settings.providers_live?.shopify} onChange={e=> setProviderLive('shopify', e.target.checked)} />
               </label>
             </div>
+          </div>
+          {/* Trial status row */}
+          <div className="mt-2 rounded-md border bg-white px-2 py-1 text-xs">
+            <span className="text-slate-700">Account: </span>
+            {(() => {
+              try{
+                const st = settings?.subscription_status || '';
+                const active = String(st)==='active';
+                if (active) return <span className="text-emerald-700">active</span>;
+                const TRIAL_DAYS = Number((import.meta as any).env?.VITE_STRIPE_TRIAL_DAYS || '7');
+                let started = Number(localStorage.getItem('bvx_trial_started_at')||'0');
+                if (!started) { started = Date.now(); localStorage.setItem('bvx_trial_started_at', String(started)); }
+                const elapsed = Math.floor((Date.now()-started)/(24*60*60*1000));
+                const left = Math.max(0, TRIAL_DAYS - elapsed);
+                if (String(st)==='trialing' || left>0) return <span className="text-slate-800">Trial active — {left} day{left===1?'':'s'} left</span>;
+                return <span className="text-rose-700">trial ended</span>;
+              }catch{ return <span className="text-slate-700">unknown</span>; }
+            })()}
           </div>
           <div className="mt-3 flex gap-2 items-center flex-wrap">
             <Button variant="outline" disabled={busy || connecting.shopify || onboarding?.providers?.shopify===false} onClick={()=> connect('shopify')}>{connecting.shopify ? 'Connecting…' : connectLabel('shopify')}</Button>

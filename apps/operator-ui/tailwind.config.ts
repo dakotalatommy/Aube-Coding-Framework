@@ -24,15 +24,19 @@ export default {
 				border: "#E5E7EB",
 				background: "#FFFFFF",
 				card: "#FFFFFF",
+				ink: { 900:'#0b1220', 700:'#334155', 500:'#64748b' },
 			},
 			borderRadius: {
 				lg: "12px",
 				md: "10px",
 				sm: "8px",
+				xl: 'var(--radius)',
+				"2xl": 'calc(var(--radius) + 4px)',
 			},
 			boxShadow: {
 				sm: "0 1px 2px rgba(15, 23, 42, 0.06)",
 				md: "0 6px 16px rgba(15, 23, 42, 0.08)",
+				soft: 'var(--shadow-soft)'
 			},
 		},
 	},

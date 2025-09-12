@@ -5,7 +5,7 @@ import Button from './ui/Button';
 import { Home, MessageSquare, Users, Calendar, Layers, Package2, Plug, CheckCircle2, MessageCircle, Eye } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { api, getTenant } from '../lib/api';
-import { startGuide } from '../lib/guide';
+import { startGuide, startShowcase } from '../lib/guide';
 import { track } from '../lib/analytics';
 import { UI_STRINGS } from '../lib/strings';
 // import PaneManager from './pane/PaneManager';
@@ -41,6 +41,9 @@ export default function WorkspaceShell(){
   const [billingOpen, setBillingOpen] = useState(false);
   const [billingLoading, setBillingLoading] = useState(false);
   const [billingStatus, setBillingStatus] = useState<string>('');
+  const [trialModalOpen, setTrialModalOpen] = useState<boolean>(false);
+  const [trialEndedOpen, setTrialEndedOpen] = useState<boolean>(false);
+  const [trialDaysLeft, setTrialDaysLeft] = useState<number>(0);
   const [showDemoWelcome, setShowDemoWelcome] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
   const [showOnboardingPrompt, setShowOnboardingPrompt] = useState(false);
@@ -96,7 +99,23 @@ export default function WorkspaceShell(){
           try { track('billing_success'); } catch {}
           try { localStorage.setItem('bvx_billing_dismissed','1'); } catch {}
           setBillingOpen(false);
+          // Stripe webhook lag fallback: poll subscription status briefly
+          try {
+            const tidPoll = (await supabase.auth.getSession()).data.session ? (localStorage.getItem('bvx_tenant') || '') : '';
+            if (tidPoll) {
+              for (let i=0; i<12; i++) { // ~18s total
+                try {
+                  const s2 = await api.get(`/settings?tenant_id=${encodeURIComponent(tidPoll)}`);
+                  const st2 = String(s2?.data?.subscription_status || '');
+                  if (st2 === 'active' || st2 === 'trialing') { setBillingStatus(st2); break; }
+                } catch {}
+                await new Promise(r=> setTimeout(r, 1500));
+              }
+            }
+          } catch {}
           try { startQuickstartSequence(); } catch {}
+          // Kick off showcase after successful billing if not completed
+          try { const seen = localStorage.getItem('bvx_showcase_done') === '1'; if (!seen) setTimeout(()=> startShowcase(), 300); } catch {}
           return;
         }
         // Determine whether to show welcome based on onboarding status (or forced)
@@ -121,6 +140,29 @@ export default function WorkspaceShell(){
           if (welcomeSeen) { try { sessionStorage.setItem('bvx_welcome_seen','1'); } catch {} }
           const guideDone = Boolean(r?.data?.guide_done);
           if (guideDone) { try { localStorage.setItem('bvx_guide_done','1'); } catch {} }
+          // Trial status compute (prefer server ts)
+          try {
+            const trialEndTs = Number((r?.data?.trial_end_ts || r?.data?.trialEndsAt || 0));
+            let left = 0;
+            if (trialEndTs && trialEndTs > 0) {
+              left = Math.max(0, Math.ceil((trialEndTs*1000 - Date.now()) / (24*60*60*1000)));
+            } else {
+              const TRIAL_DAYS = Number((import.meta as any).env?.VITE_STRIPE_TRIAL_DAYS || '7');
+              let started = Number(localStorage.getItem('bvx_trial_started_at')||'0');
+              if (!started) { started = Date.now(); localStorage.setItem('bvx_trial_started_at', String(started)); }
+              const elapsedDays = Math.floor((Date.now() - started) / (24*60*60*1000));
+              left = Math.max(0, TRIAL_DAYS - elapsedDays);
+            }
+            setTrialDaysLeft(left);
+            // Open trial modal on login when in trialing
+            if (status === 'trialing' && left > 0) {
+              setTrialModalOpen(true);
+            }
+            // Trial ended gating modal when not covered
+            if (status !== 'active' && left <= 0) {
+              setTrialEndedOpen(true);
+            }
+          } catch {}
         } catch {}
 
         // Optionally auto-start tour when ?tour=1
@@ -279,6 +321,11 @@ export default function WorkspaceShell(){
         startGuide(last as any, { step });
       } catch {}
     }
+    // Quick help key: '?' opens current page guide
+    if (e.key === '?') {
+      e.preventDefault();
+      try { startGuide(pane); } catch {}
+    }
   };
 
   useEffect(()=>{
@@ -424,9 +471,9 @@ export default function WorkspaceShell(){
                   aria-current={active ? 'page' : undefined}
                   title={`${p.label}  •  ${i+1}`}
                   data-tour={`nav-${p.key}`}
-                  className={`relative w-full h-11 flex items-center gap-3 pl-4 pr-4 rounded-full border [font-family:var(--font-display)] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white ${active ? 'bg-slate-900 text-white border-slate-900 shadow-sm' : 'bg-pink-50 text-slate-900 border-pink-200 hover:bg-pink-100 shadow-[inset_0_1px_0_rgba(255,255,255,.6)]'}`}
+                  className={`relative w-full h-11 flex items-center gap-3 pl-4 pr-4 rounded-full border [font-family:var(--font-display)] transition focus:outline-none focus-visible:ring-2 focus-visible:ring-pink-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-white ${active ? 'bg-[var(--brand-50)] text-ink-900 border-black shadow-sm' : 'bg-[var(--brand-50)] text-ink-900 border-black hover:brightness-105'}`}
                 >
-                  <span className={`inline-flex items-center justify-center shrink-0 w-7 h-7 rounded-full border ${active ? 'border-white/40 bg-white/20 text-white' : 'border-pink-200 bg-white/60 text-pink-700'} overflow-hidden`}>{p.icon}</span>
+                  <span className="inline-flex items-center justify-center shrink-0 w-7 h-7 rounded-full border border-black bg-transparent text-ink-900 overflow-hidden">{p.icon}</span>
                   <span className="text-[15px] leading-none">{p.label}</span>
                   {p.key==='approvals' && approvalsCount>0 && (
                     <span aria-label={`${approvalsCount} pending`} className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] text-[10px] px-1 rounded-full bg-amber-100 text-amber-900 border border-amber-200">{approvalsCount}</span>
@@ -539,7 +586,19 @@ export default function WorkspaceShell(){
                     };
                     drive();
                   } else {
+                    // Force Dashboard context before starting intro tour
+                    try {
+                      const u = new URL(window.location.href);
+                      u.pathname = '/workspace';
+                      u.searchParams.set('pane','dashboard');
+                      window.history.replaceState({}, '', u.toString());
+                    } catch {}
                     startGuide('workspace_intro');
+                    // Kick off showcase after a brief delay if not yet completed
+                    try {
+                      const seen = localStorage.getItem('bvx_showcase_done') === '1';
+                      if (!seen) setTimeout(()=> startShowcase(), 300);
+                    } catch {}
                   }
                 }catch{}
               }}>Start</button>
@@ -604,6 +663,34 @@ export default function WorkspaceShell(){
               <button className="w-full rounded-xl border bg-white px-4 py-2 text-sm" onClick={()=>{ setBillingOpen(false); try{ localStorage.setItem('bvx_billing_dismissed','1'); }catch{}; try{ startQuickstartSequence(); }catch{} }}>Skip for now</button>
             </div>
             <div className="text-[11px] text-slate-500 mt-2">Status: {billingStatus||'unavailable'}</div>
+          </div>
+        </div>
+      )}
+      {/* Trial active modal */}
+      {trialModalOpen && (
+        <div className="fixed inset-0 z-[1100] grid place-items-center p-4">
+          <div aria-hidden className="absolute inset-0 bg-black/20" onClick={()=> setTrialModalOpen(false)} />
+          <div className="relative w-full max-w-md rounded-2xl border bg-white p-5 shadow-xl">
+            <div className="text-slate-900 text-lg font-semibold">Trial active</div>
+            <div className="text-slate-600 text-sm mt-1">{trialDaysLeft} day{trialDaysLeft===1?'':'s'} until payment of $147 is required.</div>
+            <div className="mt-3 flex gap-2 justify-end">
+              <Button variant="outline" onClick={()=> setTrialModalOpen(false)}>Close</Button>
+              <Button onClick={()=>{ setTrialModalOpen(false); nav('/billing'); }}>Add payment</Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Trial ended modal (soft gate) */}
+      {trialEndedOpen && (
+        <div className="fixed inset-0 z-[1200] grid place-items-center p-4">
+          <div aria-hidden className="absolute inset-0 bg-black/30" />
+          <div className="relative w-full max-w-md rounded-2xl border bg-white p-5 shadow-xl text-center">
+            <div className="text-slate-900 text-lg font-semibold">Trial ended</div>
+            <div className="text-slate-600 text-sm mt-1">Add payment method to access your brandVX!</div>
+            <div className="mt-3 flex gap-2 justify-center">
+              <Button onClick={()=> nav('/billing')}>Add payment</Button>
+              <Button variant="outline" onClick={()=> setTrialEndedOpen(false)}>Later</Button>
+            </div>
           </div>
         </div>
       )}

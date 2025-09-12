@@ -1232,6 +1232,44 @@ def tool_contacts_dedupe(
     return {"status": "ok", "removed": removed}
 
 
+def tool_contacts_dedupe_preview(
+    db: Session,
+    ctx: UserContext,
+    tenant_id: str,
+) -> Dict[str, Any]:
+    """Preview duplicate contacts grouped by (email_hash, phone_hash) without modifying data."""
+    _require_tenant(ctx, tenant_id)
+    groups: Dict[str, Dict[str, Any]] = {}
+    q = (
+        db.query(dbm.Contact)
+        .filter(dbm.Contact.tenant_id == tenant_id, dbm.Contact.deleted == False)  # type: ignore
+        .order_by(dbm.Contact.id.asc())
+    )
+    for c in q.all():
+        key = f"{c.email_hash or ''}|{c.phone_hash or ''}"
+        if key.strip() == "|":
+            continue
+        g = groups.get(key)
+        entry = {
+            "contact_id": getattr(c, "contact_id", None),
+            "display_name": getattr(c, "display_name", None),
+            "first_name": getattr(c, "first_name", None),
+            "last_name": getattr(c, "last_name", None),
+            "lifetime_cents": int(getattr(c, "lifetime_cents", 0) or 0),
+            "txn_count": int(getattr(c, "txn_count", 0) or 0),
+        }
+        if not g:
+            groups[key] = {"count": 1, "items": [entry]}
+        else:
+            g["count"] = int(g.get("count", 0)) + 1
+            g.setdefault("items", []).append(entry)
+    # Only return groups with duplicates (count >= 2)
+    dupes = [{"key": k, **v} for k, v in groups.items() if int(v.get("count", 0)) >= 2]
+    # Sort by group size desc
+    dupes.sort(key=lambda x: int(x.get("count", 0)), reverse=True)
+    return {"status": "ok", "groups": dupes[:200]}
+
+
 def tool_campaigns_dormant_start(
     db: Session,
     ctx: UserContext,
@@ -1474,6 +1512,7 @@ def tool_export_contacts(
 REGISTRY.update(
     {
         "contacts.dedupe": tool_contacts_dedupe,
+        "contacts.dedupe.preview": lambda db, ctx, tenant_id, **kw: tool_contacts_dedupe_preview(db, ctx, tenant_id),
         "campaigns.dormant.start": tool_campaigns_dormant_start,
         "appointments.schedule_reminders": tool_appointments_schedule_reminders,
         "inventory.alerts.get": tool_inventory_alerts_get,
@@ -1569,6 +1608,8 @@ async def _dispatch_extended(name: str, params: Dict[str, Any], db: Session, ctx
             tenant_id=str(params.get("tenant_id", ctx.tenant_id)),
             threshold_days=int(params.get("threshold_days", 60)),
         )
+    if name == "contacts.dedupe.preview":
+        return tool_contacts_dedupe_preview(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)))
     if name == "connectors.cleanup":
         return await tool_connectors_cleanup(db, ctx, tenant_id=str(params.get("tenant_id", ctx.tenant_id)))
     if name == "connectors.normalize":

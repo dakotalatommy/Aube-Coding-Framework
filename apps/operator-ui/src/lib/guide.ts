@@ -1,6 +1,7 @@
 export type GuideStep = { element?: string; popover: { title: string; description: string } };
 import { track } from './analytics';
 import 'driver.js/dist/driver.css';
+import { flags } from './flags';
 
 const registry: Record<string, GuideStep[]> = {
   workspace_intro: [
@@ -16,6 +17,7 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-tour="nav-approvals"]', popover: { title: 'To‑Do', description: 'Anything needing your OK lands here — resolve in one click.' } },
     { element: '[data-tour="nav-integrations"]', popover: { title: 'Settings', description: 'Connect Square/Acuity/Google; Setup Progress updates live.' } },
     { element: '#bvx-commandbar', popover: { title: 'Command', description: 'Type to jump or run actions (import, connect, open To‑Do).' } },
+    { element: '[data-tour="book-onboarding"]', popover: { title: 'Book Onboarding', description: 'Book a 1-on-1 onboarding for an in-depth walk through of brand BX (beyond the brand)!' } },
   ],
   onboarding: [
     { element: '[data-tour="steps"]', popover: { title: 'Steps', description: 'Personalize your BrandVX — you can jump around anytime.' } },
@@ -27,6 +29,7 @@ const registry: Record<string, GuideStep[]> = {
     { popover: { title: 'Welcome', description: 'Your time saved, wins, and a gentle plan — all in one place.' } },
     { element: '[data-guide="kpis"]', popover: { title: 'KPIs', description: 'Messages sent, Time saved, Rebook rate (30d), Revenue uplift.' } },
     { element: '[data-guide="quickstart"]', popover: { title: 'Quick start', description: 'Open brandVZN, import clients, or train VX — 3 fast wins.' } },
+    { element: '[data-guide="quickstart-brandvzn"]', popover: { title: 'brandVZN', description: 'Start here — upload a photo and try a quick edit to see it in action.' } },
     { element: '[data-guide="next-best-steps"]', popover: { title: 'Next Best Steps', description: 'Day N/14 with today’s tasks. Generate a plan anytime.' } },
   ],
   askvx: [
@@ -35,7 +38,7 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-guide="composer"]', popover: { title: 'Compose', description: 'Enter to send; Shift+Enter for new line. Templates are one‑tap.' } },
     { element: '[data-guide="smart-action"]', popover: { title: 'Smart action', description: 'We propose one safe next step; you can run it instantly.' } },
     { element: '[data-guide="digest"]', popover: { title: 'Digest', description: 'Recent contacts, bookings, messages — summarized for you.' } },
-    { element: '[data-guide="trainer"]', popover: { title: 'Train VX', description: 'Save tone notes and profile to sharpen drafts.' } },
+    { element: '[data-guide="trainer"]', popover: { title: 'trainVX', description: 'Save tone notes and profile to sharpen drafts.' } },
   ],
   vision: [
     { popover: { title: 'Brand Vision', description: 'Analyze and refine photos — fast, natural, beauty‑friendly.' } },
@@ -114,6 +117,11 @@ export function startGuide(page: string, opts?: { step?: number }) {
   if (!steps || steps.length === 0) return;
   // Persist last guide context for resume
   try { localStorage.setItem('bvx_last_tour_page', page); } catch {}
+  // Server checkpoint: tour started for this page
+  try {
+    const tenantId = (()=>{ try{ return localStorage.getItem('bvx_tenant')||''; }catch{ return '' }})();
+    if (tenantId) fetch('/onboarding/complete_step', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ tenant_id: tenantId, step_key: `tour.start.${page}`, context: {} }) });
+  } catch {}
   try {
     const urlStep = (()=>{ try{ const sp = new URLSearchParams(window.location.search); return Number(sp.get('tourStep')||sp.get('step')||'0'); }catch{ return 0 } })();
     const raw = Number(opts?.step || 0) || (Number.isFinite(urlStep) ? urlStep : 0);
@@ -243,6 +251,20 @@ export function startGuide(page: string, opts?: { step?: number }) {
     } as any);
     d.drive();
     try {
+      if (flags.tour_resume_chip()) {
+        (d as any).on?.('destroyed', ()=>{
+          try{
+            const chip = document.createElement('button');
+            chip.className = 'fixed right-3 bottom-3 z-[2000] text-xs px-2 py-1 rounded-full border bg-white shadow';
+            chip.textContent = 'Resume tour';
+            chip.onclick = ()=>{ try{ chip.remove(); }catch{} startGuide(page, { step: Number(localStorage.getItem('bvx_last_tour_step')||'0')||0 }); };
+            document.body.appendChild(chip);
+            setTimeout(()=>{ try{ chip.remove(); }catch{} }, 8000);
+          } catch {}
+        });
+      }
+    } catch {}
+    try {
       // Notify workspace when the intro finishes so onboarding prompt can trigger
       if (page === 'workspace_intro' && typeof (d as any).on === 'function') {
         (d as any).on('destroyed', () => {
@@ -251,6 +273,100 @@ export function startGuide(page: string, opts?: { step?: number }) {
       }
     } catch {}
   })();
+}
+
+// Resilient DOM wait helper
+async function waitForSelector(selector: string, timeoutMs: number = 3000): Promise<boolean> {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const tick = () => {
+      try {
+        if (document.querySelector(selector)) return resolve(true);
+      } catch {}
+      if (Date.now() - start >= timeoutMs) return resolve(false);
+      setTimeout(tick, 80);
+    };
+    tick();
+  });
+}
+
+async function markProgress(key: string) {
+  try {
+    const tenantId = (()=>{ try{ return localStorage.getItem('bvx_tenant')||''; }catch{ return '' }})();
+    if (!tenantId) return;
+    await fetch('/onboarding/complete_step', {
+      method: 'POST',
+      headers: { 'content-type':'application/json' },
+      body: JSON.stringify({ tenant_id: tenantId, step_key: key, context: {} })
+    });
+  } catch {}
+}
+
+function prefetchPath(path: string) {
+  try {
+    const link = document.createElement('link');
+    link.rel = 'prefetch';
+    link.href = path;
+    document.head.appendChild(link);
+    // Also fire a best-effort fetch to warm caches
+    try { fetch(path, { mode: 'no-cors' } as any).catch(()=>{}); } catch {}
+  } catch {}
+}
+
+// Cross-page showcase: Dashboard → brandVZN → Contacts (Import) → Ask VX → Dashboard
+export function startShowcase() {
+  try { localStorage.setItem('bvx_showcase_started','1'); } catch {}
+  const steps: Array<{ path: string; guide?: string; wait?: string; progress?: string }> = [
+    { path: '/workspace?pane=dashboard', guide: 'dashboard', wait: '[data-guide="quickstart"]', progress: 'showcase.dashboard' },
+  ];
+  // Branch: if booking not connected, detour to Integrations first
+  try {
+    (async()=>{
+      try{
+        const r = await fetch('/onboarding/analyze', { method:'POST', headers:{ 'content-type':'application/json' }, body: JSON.stringify({}) });
+        const j = await r.json();
+        const cm = (j?.summary?.connected || {}) as Record<string,string>;
+        const bookingOn = String(cm.square||'')==='connected' || String(cm.acuity||'')==='connected';
+        if (!bookingOn) {
+          steps.push({ path: '/workspace?pane=integrations&tour=1', guide: 'integrations', wait: '[data-guide="providers"]', progress: 'showcase.integrations' });
+        }
+      } catch {}
+      steps.push(
+        { path: '/vision?tour=1&onboard=1', guide: 'vision', wait: '[data-guide="upload"]', progress: 'showcase.vision' },
+        { path: '/contacts?tour=1&onboard=1', guide: 'contacts', wait: '[data-guide="import"]', progress: 'showcase.contacts' },
+        { path: '/ask?onboard=1&autosummarize=1', guide: 'askvx', wait: '[data-guide="composer"]', progress: 'showcase.ask' },
+        { path: '/ask?onboard=1&page=2', guide: 'askvx', wait: '[data-guide="composer"]', progress: 'showcase.trainvx' },
+        { path: '/workspace?pane=dashboard', guide: 'dashboard', wait: '[data-guide="next-best-steps"]', progress: 'showcase.done' },
+      );
+    })();
+  } catch {}
+  let i = 0;
+  const drive = async () => {
+    if (i >= steps.length) {
+      try { localStorage.setItem('bvx_showcase_done','1'); } catch {}
+      return;
+    }
+    const curr = steps[i++];
+    try {
+      try { track('showcase_step', { path: curr.path, idx: i-1 }); } catch {}
+      if (window.location.pathname + window.location.search !== curr.path) {
+        window.location.href = curr.path;
+      }
+    } catch {}
+    setTimeout(async () => {
+      if (curr.wait) await waitForSelector(curr.wait, 3000);
+      if (curr.guide) {
+        try { startGuide(curr.guide); } catch {}
+      }
+      if (curr.progress) {
+        try { await markProgress(curr.progress); } catch {}
+      }
+      // Prefetch next path for faster transition
+      try { const nxt = steps[i]; if (nxt?.path) prefetchPath(nxt.path); } catch {}
+      setTimeout(drive, 2400);
+    }, 450);
+  };
+  drive();
 }
 
 

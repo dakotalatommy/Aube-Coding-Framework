@@ -23,6 +23,7 @@ export default defineConfig({
             if (id.includes('cmdk')) return 'cmdk';
             if (id.includes('howler')) return 'howler';
             if (id.includes('opentype.js')) return 'opentype';
+            if (id.includes('gl') || id.includes('three') || id.includes('@dimforge') || id.includes('ammo.js')) return 'physics';
           }
         },
       },

@@ -4730,6 +4730,24 @@ async def ai_tool_execute(
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
     try:
+        # Subscription/trial gating for protected actions
+        try:
+            # Lightweight allowlist of always-safe tools
+            SAFE_TOOLS = {"report.generate.csv","db.query.sql","db.query.named","safety_check","pii.audit"}
+            risky = req.name not in SAFE_TOOLS
+            if risky and ctx.role != "owner_admin":
+                row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == req.tenant_id).first()
+                status = None
+                if row and row.data_json:
+                    try:
+                        status = json.loads(row.data_json or "{}").get("subscription_status")
+                    except Exception:
+                        status = None
+                # Treat anything other than active/trialing as gated
+                if str(status) not in {"active","trialing"}:
+                    return {"status":"payment_required","detail":"Add payment method to continue"}
+        except Exception:
+            pass
         # Breadcrumb for observability
         try:
             import sentry_sdk as _sentry  # type: ignore
@@ -10597,23 +10615,4 @@ def instagram_status(ctx: UserContext = Depends(get_user_context)):
     except Exception:
         return {"status": "unknown"}
 
-            url = data.get("square_booking_url", url)
-    except Exception:
-        pass
-    return {"url": url}
-
-@app.get("/oauth/instagram/status", tags=["Integrations"])
-def instagram_status(ctx: UserContext = Depends(get_user_context)):
-    try:
-        with next(get_db()) as db:  # type: ignore
-            row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == ctx.tenant_id).first()
-            providers = {}
-            if row and row.data_json:
-                try:
-                    providers = json.loads(row.data_json or '{}').get('providers_live') or {}
-                except Exception:
-                    providers = {}
-            ok = providers.get('instagram') is True
-            return {"status": "connected" if ok else "not_connected"}
-    except Exception:
-        return {"status": "unknown"}
+    
