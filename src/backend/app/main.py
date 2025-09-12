@@ -4748,7 +4748,7 @@ async def ai_tool_execute(
         # Subscription/trial gating for protected actions
         try:
             # Lightweight allowlist of always-safe tools
-            SAFE_TOOLS = {"report.generate.csv","db.query.sql","db.query.named","safety_check","pii.audit"}
+            SAFE_TOOLS = {"report.generate.csv","db.query.sql","db.query.named","safety_check","pii.audit","image.edit"}
             risky = req.name not in SAFE_TOOLS
             if risky and ctx.role != "owner_admin":
                 # Read latest settings and honor seeded trial
