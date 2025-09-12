@@ -5565,6 +5565,9 @@ class SettingsRequest(BaseModel):
     onboarding_completed: Optional[bool] = None
     welcome_seen: Optional[bool] = None
     guide_done: Optional[bool] = None
+    # Subscription/trial flags
+    subscription_status: Optional[str] = None  # trialing | active | canceled
+    trial_end_ts: Optional[int] = None        # epoch seconds
     # Timezone support
     user_timezone: Optional[str] = None  # e.g., "America/Chicago"
     # Creator / developer flags
@@ -5593,11 +5596,22 @@ def get_settings(
                 conn.execute(__t("SET LOCAL app.tenant_id = :t"), {"t": tid})
             except Exception:
                 pass
-            r = conn.execute(__t("SELECT data_json FROM settings WHERE tenant_id = CAST(:t AS uuid) ORDER BY id DESC LIMIT 1"), {"t": tid}).fetchone()
-            if not r or not ((r[0] or "").strip()):
-                return {"data": {}}
+            r = conn.execute(__t("SELECT id, data_json FROM settings WHERE tenant_id = CAST(:t AS uuid) ORDER BY id DESC LIMIT 1"), {"t": tid}).fetchone()
+            if not r or not ((r[1] or "").strip()):
+                # Seed a default settings row with trial for new tenants
+                import time as __time
+                __trial = {"subscription_status": "trialing", "trial_end_ts": int(__time.time()) + 7*86400}
+                conn.execute(__t("INSERT INTO settings(tenant_id, data_json, created_at) VALUES (CAST(:t AS uuid), :d, NOW())"), {"t": tid, "d": json.dumps(__trial)})
+                return {"data": __trial}
             try:
-                return {"data": json.loads(r[0] or "{}")}
+                data = json.loads(r[1] or "{}")
+                # If no subscription_status present, backfill trial (one-time)
+                if not str(data.get("subscription_status") or "").strip():
+                    import time as __time
+                    data["subscription_status"] = "trialing"
+                    data.setdefault("trial_end_ts", int(__time.time()) + 7*86400)
+                    conn.execute(__t("UPDATE settings SET data_json=:d WHERE id=:id"), {"d": json.dumps(data), "id": r[0]})
+                return {"data": data} 
             except Exception:
                 return {"data": {}}
     except Exception:
@@ -5637,6 +5651,8 @@ def update_settings(
         "onboarding_completed": req.onboarding_completed,
         "welcome_seen": req.welcome_seen,
         "guide_done": req.guide_done,
+        "subscription_status": req.subscription_status,
+        "trial_end_ts": req.trial_end_ts,
         "user_timezone": req.user_timezone,
         "developer_mode": req.developer_mode,
         "master_prompt": req.master_prompt,
