@@ -8,6 +8,7 @@ import { trackEvent } from '../lib/analytics';
 
 export default function Vision(){
   // Single-flow UI: Upload & Edit only (Instagram hidden)
+  const isOnboard = (()=>{ try{ return new URLSearchParams(window.location.search).get('onboard')==='1'; }catch{ return false }})();
   const [preview, setPreview] = useState<string>('');
   const [b64, setB64] = useState<string>('');
   const [srcUrl, setSrcUrl] = useState<string>('');
@@ -141,6 +142,7 @@ export default function Vision(){
       if (objectUrl) { try { URL.revokeObjectURL(objectUrl); } catch {} }
       setObjectUrl(url);
       setPreview(url);
+      try { dropRef.current?.setAttribute('data-vision-has-preview','1'); } catch {}
       setBaselinePreview(url);
       setComparePos(50);
       try { trackEvent('vision.upload', { size: f.size, type: f.type }); } catch {}
@@ -321,6 +323,12 @@ export default function Vision(){
             }
           } catch {}
         }
+        try {
+          const el = dropRef.current as any;
+          const prev = Number(el?.getAttribute?.('data-vision-edits')||'0')||0;
+          el?.setAttribute?.('data-vision-edits', String(prev+1));
+          el?.setAttribute?.('data-vision-lastedit', String(Date.now()));
+        } catch {}
         // Persist prompt and history
         try {
           setRecentPrompts(pv => {
@@ -345,8 +353,29 @@ export default function Vision(){
         const friendly = humanizeError(r);
         setOutput(friendly);
         setLastError(friendly);
+        try {
+          const detail = String((r?.detail||r?.status||'')||'').toLowerCase();
+          if (detail.includes('subscription_required') || friendly.toLowerCase().includes('subscription')) {
+            try {
+              const u = new URL(window.location.href);
+              u.searchParams.set('billing','prompt');
+              window.history.pushState({}, '', u.toString());
+              window.dispatchEvent(new PopStateEvent('popstate'));
+            } catch {}
+          }
+        } catch {}
       }
-    } catch(e:any){ try { Sentry.captureException(e); } catch {}; const friendly = humanizeError(e); setOutput(String(friendly||e?.message||e)); setLastError(friendly); }
+    } catch(e:any){ try { Sentry.captureException(e); } catch {}; const friendly = humanizeError(e); setOutput(String(friendly||e?.message||e)); setLastError(friendly);
+      try {
+        const detail = String((e?.detail||e?.status||e?.message||'')||'').toLowerCase();
+        if (detail.includes('subscription_required') || friendly.toLowerCase().includes('subscription')) {
+          const u = new URL(window.location.href);
+          u.searchParams.set('billing','prompt');
+          window.history.pushState({}, '', u.toString());
+          window.dispatchEvent(new PopStateEvent('popstate'));
+        }
+      } catch {}
+    }
     finally { setLoading(false); }
   };
 
@@ -497,25 +526,27 @@ export default function Vision(){
           </div>
         </div>
 
-          {/* Curated prompt chips */}
-          <div className="mt-1 flex flex-wrap gap-2 text-xs" aria-label="Curated edits">
-            {['Reduce forehead shine','Tame flyaways','Soften background','Sharpen details','Warm tone +5%','Cool tone +5%'].map((sp,i)=>(
-              <Button key={i} variant="outline" size="sm" onClick={()=>{ setEditPrompt(sp); runEdit(sp); }}>{sp}</Button>
-            ))}
-          </div>
+          {/* Curated prompt chips (hide during onboarding) */}
+          {!isOnboard && (
+            <div className="mt-1 flex flex-wrap gap-2 text-xs" aria-label="Curated edits">
+              {['Reduce forehead shine','Tame flyaways','Soften background','Sharpen details','Warm tone +5%','Cool tone +5%'].map((sp,i)=>(
+                <Button key={i} variant="outline" size="sm" onClick={()=>{ setEditPrompt(sp); if (canRun) runEdit(sp); }}>{sp}</Button>
+              ))}
+            </div>
+          )}
 
           {/* Hair / Eye color quick chips */}
           <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
             <div className="flex flex-wrap gap-2 items-center">
               <span className="text-slate-600">Hair:</span>
               {['copper','espresso brown','platinum blonde','rose gold','jet black'].map(c=> (
-                <Button key={c} variant="outline" size="sm" onClick={()=>{ const p=`Change hair color to ${c}`; setEditPrompt(p); runEdit(p); }}>{c}</Button>
+                <Button key={c} variant="outline" size="sm" onClick={()=>{ const p=`Change hair color to ${c}`; setEditPrompt(p); if (canRun) runEdit(p); }}>{c}</Button>
               ))}
             </div>
             <div className="flex flex-wrap gap-2 items-center">
               <span className="text-slate-600">Eyes:</span>
               {['blue','green','hazel','amber','gray'].map(c=> (
-                <Button key={c} variant="outline" size="sm" onClick={()=>{ const p=`Change eye color to ${c}`; setEditPrompt(p); runEdit(p); }}>{c}</Button>
+                <Button key={c} variant="outline" size="sm" onClick={()=>{ const p=`Change eye color to ${c}`; setEditPrompt(p); if (canRun) runEdit(p); }}>{c}</Button>
               ))}
             </div>
           </div>
@@ -527,12 +558,14 @@ export default function Vision(){
             onChange={e=>setEditPrompt(e.target.value)}
             placeholder={preview ? 'Type an edit prompt (e.g., “Change hair color to copper”)' : 'Click here to start editing or upload a photo to begin'}
           />
-          <div className="mt-1 flex flex-wrap gap-2 text-xs" aria-label="Starter prompts">
-            {starterPrompts.map((sp, i)=>(
-              <Button key={i} variant="outline" size="sm" onClick={()=> setEditPrompt(sp)}>{sp}</Button>
-            ))}
-          </div>
-          {recentPrompts.length>0 && (
+          {!isOnboard && (
+            <div className="mt-1 flex flex-wrap gap-2 text-xs" aria-label="Starter prompts">
+              {starterPrompts.map((sp, i)=>(
+                <Button key={i} variant="outline" size="sm" onClick={()=> setEditPrompt(sp)}>{sp}</Button>
+              ))}
+            </div>
+          )}
+          {!isOnboard && recentPrompts.length>0 && (
             <div className="mt-1 flex flex-wrap gap-2 text-xs">
               {recentPrompts.map((rp,i)=> (
                 <button key={i} className="px-2 py-1 rounded border bg-white hover:bg-slate-50" onClick={()=> setEditPrompt(rp)}>{rp.slice(0,80)}</button>

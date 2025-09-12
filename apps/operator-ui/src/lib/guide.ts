@@ -371,7 +371,7 @@ export function startShowcase() {
         // Stay within the workspace tab/pane for all steps
         // Billing CTA comes after booking (integrations) and before brandVZN
         { path: '/workspace?pane=dashboard&billing=prompt', guide: undefined as any, wait: undefined as any, progress: 'showcase.billing' },
-        { path: '/workspace?pane=vision&tour=1&onboard=1', guide: 'vision', wait: '[data-guide="upload"]', progress: 'showcase.vision' },
+        { path: '/workspace?pane=vision&tour=1&onboard=1', guide: 'vision', wait: '[data-guide="preview"][data-vision-has-preview="1"]', progress: 'showcase.vision' },
         { path: '/workspace?pane=contacts&tour=1&onboard=1', guide: 'contacts', wait: '[data-guide="import"]', progress: 'showcase.contacts' },
         { path: '/workspace?pane=askvx&onboard=1&autosummarize=1', guide: 'askvx', wait: '[data-guide="composer"]', progress: 'showcase.ask' },
         { path: '/workspace?pane=askvx&onboard=1&page=2', guide: 'askvx', wait: '[data-guide="composer"]', progress: 'showcase.trainvx' },

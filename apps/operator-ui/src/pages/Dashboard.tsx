@@ -450,7 +450,13 @@ export default function Dashboard(){
       <section className="rounded-2xl p-2 bg-white border border-white/60 shadow-sm" data-guide="quickstart">
         <h4 className="text-base md:text-[17px] font-semibold text-slate-900 text-center">Quick Start</h4>
         <div className="mt-2 max-w-sm mx-auto grid gap-2">
-          <Button size="sm" variant="outline" className="w-full" data-guide="quickstart-brandvzn" onClick={()=> window.location.assign('/vision')}>brandVZN</Button>
+          <Button size="sm" variant="outline" className="w-full" data-guide="quickstart-brandvzn" onClick={()=> {
+            try{
+              const sp=new URLSearchParams(window.location.search);
+              if (localStorage.getItem('bvx_tour_seen_workspace_intro')!=='1') return; // disable during intro
+              const u=new URL(window.location.href); u.pathname='/workspace'; u.searchParams.set('pane','vision'); window.location.assign(u.toString());
+            }catch{ window.location.assign('/workspace?pane=vision'); }
+          }}>brandVZN</Button>
           <Button size="sm" variant="outline" className="w-full" onClick={async()=>{ window.location.assign('/contacts'); try{ const tid = await getTenant(); await api.post('/ai/tools/execute',{ tenant_id: tid, name:'contacts.import.square', params:{ tenant_id: tid }, require_approval: false }); }catch{} }}>Import Clients</Button>
           <Button size="sm" variant="outline" className="w-full" onClick={()=> window.location.assign('/ask?train=1')}>trainVX</Button>
         </div>
