@@ -452,7 +452,6 @@ export default function Dashboard(){
         <div className="mt-2 max-w-sm mx-auto grid gap-2">
           <Button size="sm" variant="outline" className="w-full" data-guide="quickstart-brandvzn" onClick={()=> {
             try{
-              const sp=new URLSearchParams(window.location.search);
               if (localStorage.getItem('bvx_tour_seen_workspace_intro')!=='1') return; // disable during intro
               const u=new URL(window.location.href); u.pathname='/workspace'; u.searchParams.set('pane','vision'); window.location.assign(u.toString());
             }catch{ window.location.assign('/workspace?pane=vision'); }
