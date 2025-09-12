@@ -99,7 +99,6 @@ export default function OnboardingRoot(){
 
   const finish = () => {
     try { localStorage.setItem('bvx_onboarding_done', '1') } catch {}
-    try { localStorage.setItem('bvx_post_onboarding_quickstart','1') } catch {}
     try { if (BOOKING_URL) localStorage.setItem('bvx_booking_nudge','1') } catch {}
     try { (window as any).posthog?.capture?.('onboarding_complete'); } catch {}
     // Nudge payment after onboarding: open billing CTA unless already covered

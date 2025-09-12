@@ -47,21 +47,8 @@ export default function Dashboard(){
     let mounted = true;
     const abort = new AbortController();
     (async()=>{
-      // Post-onboarding quickstart sequence
-      try {
-        if (localStorage.getItem('bvx_post_onboarding_quickstart') === '1') {
-          localStorage.removeItem('bvx_post_onboarding_quickstart');
-          setTimeout(()=>{ try{ window.location.assign('/vision'); }catch{} }, 500);
-          setTimeout(()=>{ try{ window.location.assign('/contacts'); }catch{} }, 1800);
-          setTimeout(async()=>{
-            try{
-              const tid = await getTenant();
-              await api.post('/ai/tools/execute', { tenant_id: tid, name: 'contacts.import.square', params: { tenant_id: tid }, require_approval: false });
-            } catch {}
-          }, 2200);
-          setTimeout(()=>{ try{ window.location.assign('/ask?train=1'); }catch{} }, 3200);
-        }
-      } catch {}
+      // Legacy quickstart flag: clear without auto-navigation (prevent premature Vision)
+      try { if (localStorage.getItem('bvx_post_onboarding_quickstart') === '1') localStorage.removeItem('bvx_post_onboarding_quickstart'); } catch {}
 
       if (isDemo) {
         // Friendly demo placeholders (no red error state)

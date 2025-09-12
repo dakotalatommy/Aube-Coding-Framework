@@ -267,6 +267,7 @@ export function startGuide(page: string, opts?: { step?: number }) {
         (d as any).on?.('destroyed', ()=>{
           try{
             try { track('tour_destroyed', { page }); } catch {}
+            try { markProgress(`tour.done.${page}`); } catch {}
             // Mark workspace intro seen to allow showcase gating
             if (page === 'workspace_intro') {
               try { localStorage.setItem('bvx_tour_seen_workspace_intro','1'); } catch {}
@@ -335,6 +336,8 @@ export function startShowcase() {
   // Begin only after the 13-step workspace intro has completed
   const begin = () => {
     try { localStorage.setItem('bvx_showcase_started','1'); } catch {}
+    try { track('showcase_start'); } catch {}
+    try { markProgress('showcase.start'); } catch {}
     const steps: Array<{ path: string; guide?: string; wait?: string; progress?: string }> = [
       { path: '/workspace?pane=dashboard', guide: 'dashboard', wait: '[data-guide="quickstart"]', progress: 'showcase.dashboard' },
     ];
@@ -361,6 +364,10 @@ export function startShowcase() {
         { path: '/workspace?pane=dashboard', guide: 'dashboard', wait: '[data-guide="next-best-steps"]', progress: 'showcase.done' },
       );
     })();
+  } catch {}
+  // Prefetch upcoming routes without navigating
+  try {
+    steps.forEach(s=>{ try { if (s.path) prefetchPath(s.path); } catch {} });
   } catch {}
   let i = 0;
   // Helper: wait until billing is satisfied (dismissed or covered)
@@ -389,6 +396,8 @@ export function startShowcase() {
   const drive = async () => {
     if (i >= steps.length) {
       try { localStorage.setItem('bvx_showcase_done','1'); } catch {}
+      try { track('showcase_done'); } catch {}
+      try { markProgress('showcase.done'); } catch {}
       return;
     }
     const curr = steps[i++];
@@ -410,18 +419,22 @@ export function startShowcase() {
     } catch {}
     setTimeout(async () => {
       // Special gating for billing CTA step
-      if (curr.path.includes('billing=prompt')) {
-        await waitForBillingSatisfied();
+      try {
+        if (curr.path.includes('billing=prompt')) {
+          await waitForBillingSatisfied();
+        }
+        if (curr.wait) await waitForSelector(curr.wait, 3000);
+        if (curr.guide) {
+          try { startGuide(curr.guide); } catch {}
+        }
+        if (curr.progress) {
+          try { await markProgress(curr.progress); } catch {}
+        }
+        // Prefetch next path for faster transition
+        try { const nxt = steps[i]; if (nxt?.path) prefetchPath(nxt.path); } catch {}
+      } catch(e:any) {
+        try { track('showcase_error', { step: curr.path, message: String(e?.message||e) }); } catch {}
       }
-      if (curr.wait) await waitForSelector(curr.wait, 3000);
-      if (curr.guide) {
-        try { startGuide(curr.guide); } catch {}
-      }
-      if (curr.progress) {
-        try { await markProgress(curr.progress); } catch {}
-      }
-      // Prefetch next path for faster transition
-      try { const nxt = steps[i]; if (nxt?.path) prefetchPath(nxt.path); } catch {}
       setTimeout(drive, 2400);
     }, 450);
   };

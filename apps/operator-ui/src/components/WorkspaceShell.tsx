@@ -660,7 +660,7 @@ export default function WorkspaceShell(){
                 <div className="font-medium">$97 today → $97/mo (Founding price)</div>
                 <div className="text-slate-600 text-xs">Lock in $97/mo now; recurring thereafter.</div>
               </button>
-              <button className="w-full rounded-xl border bg-white px-4 py-2 text-sm" onClick={()=>{ setBillingOpen(false); try{ localStorage.setItem('bvx_billing_dismissed','1'); }catch{}; try{ startQuickstartSequence(); }catch{} }}>Skip for now</button>
+              <button className="w-full rounded-xl border bg-white px-4 py-2 text-sm" onClick={()=>{ setBillingOpen(false); try{ localStorage.setItem('bvx_billing_dismissed','1'); }catch{} }}>Skip for now</button>
             </div>
             <div className="text-[11px] text-slate-500 mt-2">Status: {billingStatus||'unavailable'}</div>
           </div>
