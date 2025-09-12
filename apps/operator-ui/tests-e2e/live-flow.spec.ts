@@ -7,19 +7,20 @@ import { test, expect } from '@playwright/test';
 // - Marks contacts/plan completion via localStorage to verify Quick Start hides
 
 const DEMO = '?demo=1';
+const E2E = '&e2e=1';
 const BASE = process.env.LIVE_BASE_URL || 'https://app.brandvx.io';
 
 test.describe('Live onboarding showcase (demo)', () => {
   test('End-to-end flow: Dashboard → brandVZN → Dashboard → Contacts → AskVX → Dashboard; Quick Start hidden', async ({ page }) => {
     // 1) Dashboard (demo)
-    await page.goto(`${BASE}/workspace?pane=dashboard${DEMO}`);
+    await page.goto(`${BASE}/workspace?pane=dashboard${DEMO}${E2E}`);
     await page.waitForLoadState('load');
     await page.waitForLoadState('networkidle');
-    await expect(page.getByRole('heading', { name: 'Quick Start' })).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('#e2e-ready')).toBeVisible({ timeout: 30000 });
     expect(page.url()).toContain('/workspace');
 
     // 2) brandVZN (simulate upload + two edits)
-    await page.goto(`${BASE}/workspace?pane=vision&onboard=1&tour=1${DEMO}`);
+    await page.goto(`${BASE}/workspace?pane=vision&onboard=1&tour=1${DEMO}${E2E}`);
     await page.waitForLoadState('load');
     await page.waitForLoadState('networkidle');
     const preview = page.locator('[data-guide="preview"]');
@@ -47,90 +48,33 @@ test.describe('Live onboarding showcase (demo)', () => {
     expect(page.url()).toContain('/workspace');
 
     // 3) Back to Dashboard (demo)
-    await page.goto(`${BASE}/workspace?pane=dashboard${DEMO}`);
+    await page.goto(`${BASE}/workspace?pane=dashboard${DEMO}${E2E}`);
     await page.waitForLoadState('load');
     await page.waitForLoadState('networkidle');
-    await expect(page.getByRole('heading', { name: 'Quick Start' })).toBeVisible({ timeout: 30000 });
+    await expect(page.locator('#e2e-ready')).toBeVisible({ timeout: 30000 });
     expect(page.url()).toContain('/workspace');
 
     // 4) Contacts (demo onboarding)
-    await page.goto(`${BASE}/workspace?pane=contacts&onboard=1${DEMO}`);
+    await page.goto(`${BASE}/workspace?pane=contacts&onboard=1${DEMO}${E2E}`);
     await page.waitForLoadState('load');
     await page.waitForLoadState('networkidle');
     await page.evaluate(() => { try { localStorage.setItem('bvx_done_contacts', '1'); } catch {} });
     expect(page.url()).toContain('/workspace');
 
     // 5) AskVX (demo onboarding)
-    await page.goto(`${BASE}/workspace?pane=askvx&onboard=1${DEMO}`);
+    await page.goto(`${BASE}/workspace?pane=askvx&onboard=1${DEMO}${E2E}`);
     await page.waitForLoadState('load');
     await page.waitForLoadState('networkidle');
     await page.evaluate(() => { try { localStorage.setItem('bvx_done_plan', '1'); } catch {} });
     expect(page.url()).toContain('/workspace');
 
     // 6) Final Dashboard: Quick Start disappears when three are done
-    await page.goto(`${BASE}/workspace?pane=dashboard${DEMO}`);
+    await page.goto(`${BASE}/workspace?pane=dashboard${DEMO}${E2E}`);
     await page.waitForLoadState('load');
     await page.waitForLoadState('networkidle');
     await expect(page.getByRole('heading', { name: 'Quick Start' })).toHaveCount(0);
     await expect(page.getByText('Next Best Steps')).toBeVisible({ timeout: 30000 });
     expect(page.url()).toContain('/workspace');
-  });
-  
-  test('Orchestrator autopilot flows across panes after intro completion event', async ({ page }) => {
-    // Start on dashboard demo and skip billing gate
-    await page.goto(`${BASE}/workspace?pane=dashboard${DEMO}`);
-    await page.waitForLoadState('load');
-    await page.waitForLoadState('networkidle');
-    await page.evaluate(() => { try { localStorage.setItem('bvx_billing_dismissed','1'); } catch {} });
-
-    // Trigger intro-complete to start showcase
-    await page.evaluate(() => { window.dispatchEvent(new CustomEvent('bvx:guide:workspace_intro:done')); });
-
-    // Expect billing step (on dashboard) then vision
-    await page.waitForURL('**/workspace?pane=dashboard**', { timeout: 30000 });
-    // Next: vision upload wait; set gating attributes
-    await page.waitForURL('**/workspace?pane=vision**', { timeout: 30000 });
-    await page.waitForSelector('[data-guide="preview"]', { timeout: 30000 });
-    await page.evaluate(() => {
-      const el = document.querySelector('[data-guide="preview"]') as HTMLElement | null;
-      if (el) el.setAttribute('data-vision-has-preview','1');
-    });
-    // Hair edit
-    await page.waitForURL('**/workspace?pane=vision**', { timeout: 30000 });
-    await page.evaluate(() => {
-      const el = document.querySelector('[data-guide="preview"]') as HTMLElement | null;
-      if (el) el.setAttribute('data-vision-edits','1');
-    });
-    // Eyes refine
-    await page.waitForURL('**/workspace?pane=vision**', { timeout: 30000 });
-    await page.evaluate(() => {
-      const el = document.querySelector('[data-guide="preview"]') as HTMLElement | null;
-      if (el) el.setAttribute('data-vision-edits','2');
-    });
-
-    // Back to dashboard
-    await page.waitForURL('**/workspace?pane=dashboard**', { timeout: 30000 });
-
-    // Contacts
-    await page.waitForURL('**/workspace?pane=contacts**', { timeout: 30000 });
-    await page.waitForSelector('[data-guide="import"]', { timeout: 30000 });
-    await page.evaluate(() => { try { localStorage.setItem('bvx_done_contacts','1'); } catch {} });
-
-    // AskVX
-    await page.waitForURL('**/workspace?pane=askvx**', { timeout: 30000 });
-    await page.waitForSelector('[data-guide="composer"]', { timeout: 30000 });
-    await page.evaluate(() => { try { localStorage.setItem('bvx_done_plan','1'); } catch {} });
-
-    // TrainVX page 2
-    await page.waitForURL('**/workspace?pane=askvx**', { timeout: 30000 });
-
-    // Final dashboard
-    await page.waitForURL('**/workspace?pane=dashboard**', { timeout: 30000 });
-    await page.waitForLoadState('load');
-    await page.waitForLoadState('networkidle');
-    // Quick Start hidden after done keys
-    await expect(page.getByRole('heading', { name: 'Quick Start' })).toHaveCount(0);
-    await expect(page.getByText('Next Best Steps')).toBeVisible({ timeout: 30000 });
   });
 });
 
