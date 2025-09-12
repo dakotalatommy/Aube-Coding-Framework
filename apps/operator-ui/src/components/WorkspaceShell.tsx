@@ -93,6 +93,24 @@ export default function WorkspaceShell(){
             window.history.replaceState({}, '', clean.toString());
           }
         } catch {}
+        // OAuth return: if provider connected and onboarding/showcase is active, force Dashboard and resume showcase
+        try {
+          const prov = sp.get('provider') || '';
+          const connected = sp.get('connected') === '1';
+          const onboard = sp.get('onboard') === '1';
+          const showcaseStarted = localStorage.getItem('bvx_showcase_started') === '1';
+          const shouldResume = (prov && connected) && (onboard || showcaseStarted);
+          if (shouldResume) {
+            const u = new URL(window.location.href);
+            u.pathname = '/workspace';
+            u.searchParams.set('pane','dashboard');
+            u.searchParams.delete('provider');
+            u.searchParams.delete('connected');
+            u.searchParams.delete('error');
+            window.history.replaceState({}, '', u.toString());
+            setTimeout(()=>{ try { startShowcase(); } catch {} }, 350);
+          }
+        } catch {}
         if (sp.get('billing') === 'success') {
           try { track('billing_success'); } catch {}
           try { localStorage.setItem('bvx_billing_dismissed','1'); } catch {}
@@ -168,6 +186,18 @@ export default function WorkspaceShell(){
           const wantTour = sp.get('tour') === '1';
           if (wantTour) {
             setTimeout(()=>{ try{ startGuide('workspace_intro'); }catch{} }, 400);
+          }
+        } catch {}
+        // If showcase was started earlier and not done, resume on Dashboard
+        try {
+          const started = localStorage.getItem('bvx_showcase_started') === '1';
+          const done = localStorage.getItem('bvx_showcase_done') === '1';
+          if (started && !done) {
+            const u = new URL(window.location.href);
+            u.pathname = '/workspace';
+            u.searchParams.set('pane','dashboard');
+            window.history.replaceState({}, '', u.toString());
+            setTimeout(()=>{ try { startShowcase(); } catch {} }, 500);
           }
         } catch {}
         // Show welcome only once after onboarding_done=true

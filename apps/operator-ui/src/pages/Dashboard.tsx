@@ -500,7 +500,7 @@ export default function Dashboard(){
           <div className="text-sm font-semibold text-slate-900">Next Best Steps</div>
           <div className="flex items-center gap-2 text-xs text-slate-600">
             {typeof setupPct === 'number' && setupPct >= 0 && (
-              <span aria-label={`Setup ${setupPct}%`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border bg-white">Setup {setupPct}%</span>
+              <span aria-label={`Setup ${setupPct}%`}>Setup {setupPct}%</span>
             )}
             {planStatus?.day_today && (
               <span>Day {Number(planStatus.day_today||1)}/{Number(planStatus.days_total||14)}</span>
