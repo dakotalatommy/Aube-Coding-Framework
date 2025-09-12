@@ -4767,8 +4767,13 @@ async def ai_tool_execute(
                             status = "trialing"
                     except Exception:
                         status = status or ""
-                if status not in {"active","trialing"}:
-                    return {"status":"payment_required","detail":"Add payment method to continue"}
+                # TEMPORARY: Do not gate while we resolve billing UX; log but allow
+                try:
+                    if status not in {"active","trialing"}:
+                        import sys as __sys
+                        print(f"[gate] bypassing payment gate for {req.name} tenant={req.tenant_id} status={status}", file=__sys.stderr)
+                except Exception:
+                    pass
         except Exception:
             pass
         # Breadcrumb for observability
