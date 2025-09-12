@@ -271,6 +271,20 @@ export function startGuide(page: string, opts?: { step?: number }) {
       }catch{}
       return -1;
     })();
+    // Determine the index of the Book Onboarding step within the workspace intro, if present
+    const bookIdx = (()=>{
+      try{
+        if (page !== 'workspace_intro') return -1;
+        const raw = Array.isArray(steps) ? steps : [];
+        for (let i=0; i<raw.length; i++){
+          const s:any = raw[i];
+          if (s?.element === '[data-tour="book-onboarding"]'){
+            return Math.max(0, i - Math.max(0, startAt));
+          }
+        }
+      }catch{}
+      return -1;
+    })();
     const d = drv({
       showProgress: true,
       nextBtnText: 'Next',
@@ -289,6 +303,14 @@ export function startGuide(page: string, opts?: { step?: number }) {
         // When user advances past the BrandVZN highlight on Dashboard, jump to Vision panel and start its guide
         try{
           if (page === 'dashboard' && brandVznIdx >= 0 && lastIndex === brandVznIdx + 1){
+            try { (d as any).destroy?.(); } catch {}
+            setTimeout(()=>{
+              try { window.location.href = '/workspace?pane=vision'; } catch {}
+              setTimeout(()=>{ try { startGuide('vision'); } catch {} }, 480);
+            }, 60);
+          }
+          // When user advances past Book Onboarding in the workspace intro, hop to Brand VZN tour
+          if (page === 'workspace_intro' && bookIdx >= 0 && lastIndex === bookIdx + 1){
             try { (d as any).destroy?.(); } catch {}
             setTimeout(()=>{
               try { window.location.href = '/workspace?pane=vision'; } catch {}
