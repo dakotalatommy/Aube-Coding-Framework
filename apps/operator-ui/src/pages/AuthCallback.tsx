@@ -11,9 +11,8 @@ export default function AuthCallback() {
     let next = sp.get('next') || '';
     const wantsWorkspace = sp.get('return') === 'workspace';
     if (!next && wantsWorkspace) {
-      // Prefer returning into Settings/Integrations with postVerify marker
-      const p = sp.get('provider') || '';
-      next = `/workspace?pane=integrations${p?`&provider=${encodeURIComponent(p)}`:''}&connected=1&return=workspace&postVerify=1`;
+      // Default to Dashboard; only jump to Settings if explicitly requested via next or error
+      next = '/workspace?pane=dashboard&postVerify=1&return=workspace';
     }
     if (!next) next = '/onboarding';
 

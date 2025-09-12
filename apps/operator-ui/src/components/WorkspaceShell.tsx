@@ -551,16 +551,14 @@ export default function WorkspaceShell(){
                   const sp = new URLSearchParams(window.location.search);
                   const returning = sp.get('postVerify') === '1' || sp.get('return') === 'workspace';
                   if (returning) {
-                    // Cross‑panel sequence after OAuth return
-                    const seq = ['dashboard','messages','contacts','calendar','cadences','inventory','integrations','workflows','approvals'] as const;
-                    let i = 0;
-                    const drive = async()=>{
-                      if (i >= seq.length) return;
-                      const key = seq[i++];
-                      try { const u = new URL(window.location.href); u.searchParams.set('pane', key); window.history.replaceState({}, '', u.toString()); } catch { window.location.href = `/workspace?pane=${key}`; }
-                      setTimeout(drive, 1800);
-                    };
-                    drive();
+                    // Default to Dashboard, no cross‑panel sequence on OAuth return
+                    try {
+                      const u = new URL(window.location.href);
+                      u.pathname = '/workspace';
+                      u.searchParams.set('pane','dashboard');
+                      window.history.replaceState({}, '', u.toString());
+                    } catch {}
+                    startGuide('workspace_intro');
                   } else {
                     // Force Dashboard context before starting intro tour
                     try {
@@ -570,11 +568,6 @@ export default function WorkspaceShell(){
                       window.history.replaceState({}, '', u.toString());
                     } catch {}
                     startGuide('workspace_intro');
-                    // Kick off showcase after a brief delay if not yet completed
-                    try {
-                      const seen = localStorage.getItem('bvx_showcase_done') === '1';
-                      if (!seen) setTimeout(()=> startShowcase(), 300);
-                    } catch {}
                   }
                 }catch{}
               }}>Start</button>

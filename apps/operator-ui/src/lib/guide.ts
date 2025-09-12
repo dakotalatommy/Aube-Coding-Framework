@@ -254,6 +254,8 @@ export function startGuide(page: string, opts?: { step?: number }) {
   (async()=>{
     const mod: any = await import('driver.js');
     const drv = (mod && (mod as any).driver) ? (mod as any).driver : (mod as any);
+    let lastIndex = -1;
+    const totalSteps = Array.isArray(stepsToRun) ? stepsToRun.length : 0;
     const d = drv({
       showProgress: true,
       nextBtnText: 'Next',
@@ -261,15 +263,24 @@ export function startGuide(page: string, opts?: { step?: number }) {
       doneBtnText: 'Done',
       steps: stepsToRun,
     } as any);
+    try {
+      (d as any).on?.('highlighted', (_el:any, _step:any, idx:any)=>{
+        try { lastIndex = typeof idx === 'number' ? idx : (lastIndex + 1); } catch { lastIndex = lastIndex + 1; }
+      });
+      (d as any).on?.('next', ()=>{ try { if (lastIndex < totalSteps - 1) lastIndex = lastIndex + 1; } catch { lastIndex = lastIndex + 1; } });
+    } catch {}
     d.drive();
     try {
       if (flags.tour_resume_chip()) {
         (d as any).on?.('destroyed', ()=>{
           try{
             try { track('tour_destroyed', { page }); } catch {}
-            try { markProgress(`tour.done.${page}`); } catch {}
-            // Mark workspace intro seen to allow showcase gating
-            if (page === 'workspace_intro') {
+            const completed = lastIndex >= totalSteps - 1 && totalSteps > 0;
+            if (completed) {
+              try { markProgress(`tour.done.${page}`); } catch {}
+            }
+            // Mark workspace intro seen only on true completion
+            if (page === 'workspace_intro' && completed) {
               try { localStorage.setItem('bvx_tour_seen_workspace_intro','1'); } catch {}
             }
             const chip = document.createElement('button');
@@ -286,7 +297,10 @@ export function startGuide(page: string, opts?: { step?: number }) {
       // Notify workspace when the intro finishes so onboarding prompt can trigger
       if (page === 'workspace_intro' && typeof (d as any).on === 'function') {
         (d as any).on('destroyed', () => {
-          try { window.dispatchEvent(new CustomEvent('bvx:guide:workspace_intro:done')); } catch {}
+          try {
+            const completed = lastIndex >= totalSteps - 1 && totalSteps > 0;
+            if (completed) window.dispatchEvent(new CustomEvent('bvx:guide:workspace_intro:done'));
+          } catch {}
         });
       }
     } catch {}
