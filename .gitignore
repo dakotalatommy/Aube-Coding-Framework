@@ -47,3 +47,10 @@ venv/
 venv311/
 **/venv/**
 **/venv*/**
+
+.venv
+.venv/
+**/.venv/**
+env
+env/
+**/env/**
