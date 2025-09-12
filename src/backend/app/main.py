@@ -6810,6 +6810,7 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                     scopes_str = None
             except Exception:
                 exchange_ok = False
+        saved_token_write = False
         try:
             # Upsert using the SAME session/connection that already has RLS GUCs set.
             # This avoids losing app.tenant_id/app.role when ENABLE_PG_RLS=1.
@@ -6851,6 +6852,11 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                     db.rollback()
                 except Exception:
                     pass
+            try:
+                # Mark whether we persisted a token (connected means at present)
+                saved_token_write = bool(params.get("at"))
+            except Exception:
+                saved_token_write = False
         except Exception as e:
             try:
                 db.rollback()
@@ -6865,6 +6871,11 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                     db.rollback()
                 except Exception:
                     pass
+        # Emit explicit event about save attempt
+        try:
+            emit_event("OauthTokenSaved", {"tenant_id": t_id, "provider": provider, "saved": bool(saved_token_write), "exchange_ok": bool(exchange_ok)})
+        except Exception:
+            pass
         try:
             cid = request.query_params.get('cid') or ''
             payload = {"code": bool(code), "error": error or "", "exchange_ok": exchange_ok, **({} if not exchange_detail else exchange_detail)}
