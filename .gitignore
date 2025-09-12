@@ -41,3 +41,9 @@ apps/operator-ui/dist/
 
 # Vertex service accounts
 gen-lang-client-*.json
+venv
+venv311
+venv/
+venv311/
+**/venv/**
+**/venv*/**
