@@ -346,7 +346,7 @@ function prefetchPath(path: string) {
 }
 
 // Cross-page showcase: Dashboard → brandVZN → Contacts (Import) → Ask VX → Dashboard
-export function startShowcase() {
+export function startShowcase(opts?: { resume?: boolean }) {
   // Begin only after the 13-step workspace intro has completed
   const begin = () => {
     try { localStorage.setItem('bvx_showcase_started','1'); } catch {}
@@ -370,8 +370,8 @@ export function startShowcase() {
       } catch {}
       steps.push(
         // Stay within the workspace tab/pane for all steps
-        // Billing CTA comes after booking (integrations) and before brandVZN
-        { path: `/workspace?pane=dashboard&billing=prompt${demoSuffix}` as any, guide: undefined as any, wait: undefined as any, progress: 'showcase.billing' },
+        // Billing CTA comes after booking (integrations) and before brandVZN — event-based (no URL param)
+        { path: `/workspace?pane=dashboard${demoSuffix}` as any, guide: undefined as any, wait: undefined as any, progress: 'showcase.billing' },
         // brandVZN: upload → edit hair → refine eyes, with explicit dashboard hop afterward
         { path: `/workspace?pane=vision&tour=1&onboard=1${demoSuffix}` as any, guide: 'vision', wait: '[data-guide="preview"][data-vision-has-preview="1"]', progress: 'showcase.vision.upload' },
         { path: `/workspace?pane=vision&tour=1&onboard=1${demoSuffix}` as any, guide: 'vision', wait: '[data-guide="preview"][data-vision-edits="1"]', progress: 'showcase.vision.edit.hair' },
@@ -391,7 +391,14 @@ export function startShowcase() {
   try {
     steps.forEach(s=>{ try { if (s.path) prefetchPath(s.path); } catch {} });
   } catch {}
+  // Determine starting index (support resume)
   let i = 0;
+  try {
+    if (opts?.resume) {
+      const lastIndex = Number(localStorage.getItem('bvx_showcase_index')||'');
+      if (Number.isFinite(lastIndex)) i = Math.max(0, lastIndex + 1);
+    }
+  } catch {}
   // Helper: wait until billing is satisfied (dismissed or covered)
   const waitForBillingSatisfied = async (): Promise<void> => {
     const maxWaitMs = 20000; const start = Date.now();
@@ -418,17 +425,19 @@ export function startShowcase() {
   const drive = async () => {
     if (i >= steps.length) {
       try { localStorage.setItem('bvx_showcase_done','1'); } catch {}
+      try { localStorage.removeItem('bvx_showcase_index'); } catch {}
       try { track('showcase_done'); } catch {}
       try { markProgress('showcase.done'); } catch {}
       return;
     }
     const curr = steps[i++];
+    try { localStorage.setItem('bvx_showcase_index', String(i-1)); } catch {}
     try {
       try { track('showcase_step', { path: curr.path, idx: i-1 }); } catch {}
       // Update simple phase hints for resume
       try {
         if (curr.path.includes('integrations')) setPhase('integrations');
-        else if (curr.path.includes('billing=prompt')) setPhase('billing');
+        else if (curr.progress === 'showcase.billing') setPhase('billing');
         else if (curr.path.includes('pane=vision')) setPhase('vision');
         else if (curr.path.includes('pane=contacts')) setPhase('contacts');
         else if (curr.path.includes('pane=askvx') && !curr.path.includes('page=2')) setPhase('ask');
@@ -442,7 +451,9 @@ export function startShowcase() {
     setTimeout(async () => {
       // Special gating for billing CTA step
       try {
-        if (curr.path.includes('billing=prompt')) {
+        if (curr.progress === 'showcase.billing') {
+          try { sessionStorage.setItem('bvx_billing_prompt_request', '1'); } catch {}
+          try { window.dispatchEvent(new CustomEvent('bvx:billing:prompt')); } catch {}
           await waitForBillingSatisfied();
         }
         if (curr.wait) await waitForSelector(curr.wait, 3000);

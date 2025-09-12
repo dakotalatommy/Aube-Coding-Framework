@@ -260,10 +260,23 @@ export default function Integrations(){
         try { showToast({ title: `${focusedProvider.charAt(0).toUpperCase()+focusedProvider.slice(1)} connected` }); } catch {}
         // Auto re-analyze so badges update immediately
         reanalyze();
-        // During onboarding or showcase detour, return to Dashboard
-        const showcaseOn = (()=>{ try{ return localStorage.getItem('bvx_showcase_started')==='1'; }catch{ return false }})();
-        if (isOnboard || showcaseOn) {
-          setTimeout(()=>{ try{ window.location.assign('/workspace?pane=dashboard'); }catch{} }, 1200);
+        // During onboarding or session-intended showcase detour, return to Dashboard and signal resume
+        const intent = (()=>{ try{ return sessionStorage.getItem('bvx_showcase_intent')==='1'; }catch{ return false }})();
+        if (isOnboard || intent) {
+          setTimeout(()=>{
+            try{
+              const u = new URL(window.location.href);
+              u.pathname = '/workspace';
+              u.searchParams.set('pane','dashboard');
+              u.searchParams.delete('provider');
+              u.searchParams.delete('connected');
+              u.searchParams.delete('error');
+              window.history.replaceState({}, '', u.toString());
+              sessionStorage.setItem('bvx_showcase_resuming','1');
+              window.dispatchEvent(new CustomEvent('bvx:showcase:resume'));
+              sessionStorage.removeItem('bvx_showcase_intent');
+            }catch{}
+          }, 900);
         } else if (returnHint === 'workspace') {
           setTimeout(()=>{ try{ window.history.replaceState({}, '', '/workspace?pane=integrations'); }catch{} }, 1200);
         }
@@ -453,8 +466,8 @@ export default function Integrations(){
       setConnecting((m)=> ({ ...m, [provider]: true }));
       setErrorMsg('');
       try { trackEvent('integrations.connect.click', { provider }); } catch {}
-      // Mark showcase intent so OAuth return will resume showcase and bounce to Dashboard
-      try { localStorage.setItem('bvx_showcase_started','1'); } catch {}
+      // Mark showcase intent (session) so OAuth return will resume showcase and bounce to Dashboard
+      try { sessionStorage.setItem('bvx_showcase_intent','1'); } catch {}
       // Feature flag and config guards for social providers
       if ((provider === 'facebook' || provider === 'instagram')) {
         if (!SOCIAL_ON) {

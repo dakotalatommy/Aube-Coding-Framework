@@ -101,8 +101,9 @@ export default function OnboardingRoot(){
     try { localStorage.setItem('bvx_onboarding_done', '1') } catch {}
     try { if (BOOKING_URL) localStorage.setItem('bvx_booking_nudge','1') } catch {}
     try { (window as any).posthog?.capture?.('onboarding_complete'); } catch {}
-    // Nudge payment after onboarding: open billing CTA unless already covered
-    navigate('/workspace?pane=dashboard&billing=prompt')
+    // Nudge payment after onboarding: open billing CTA via event (no URL param)
+    try { window.dispatchEvent(new CustomEvent('bvx:billing:prompt')); } catch {}
+    navigate('/workspace?pane=dashboard')
   }
 
   const sceneProps = { state, next, back, save, startOAuth }

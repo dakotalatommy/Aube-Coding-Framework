@@ -93,13 +93,13 @@ export default function WorkspaceShell(){
             window.history.replaceState({}, '', clean.toString());
           }
         } catch {}
-        // OAuth return: if provider connected and onboarding/showcase is active, force Dashboard and resume showcase
+        // OAuth return: if provider connected and onboarding/showcase is active, force Dashboard and resume showcase (one-shot)
         try {
           const prov = sp.get('provider') || '';
           const connected = sp.get('connected') === '1';
           const onboard = sp.get('onboard') === '1';
-          const showcaseStarted = localStorage.getItem('bvx_showcase_started') === '1';
-          const shouldResume = (prov && connected) && (onboard || showcaseStarted);
+          const sessionIntent = sessionStorage.getItem('bvx_showcase_intent') === '1';
+          const shouldResume = (prov && connected) && (onboard || sessionIntent);
           if (shouldResume) {
             const u = new URL(window.location.href);
             u.pathname = '/workspace';
@@ -108,7 +108,9 @@ export default function WorkspaceShell(){
             u.searchParams.delete('connected');
             u.searchParams.delete('error');
             window.history.replaceState({}, '', u.toString());
-            setTimeout(()=>{ try { startShowcase(); } catch {} }, 350);
+            try { sessionStorage.setItem('bvx_showcase_resuming','1'); } catch {}
+            setTimeout(()=>{ try { startShowcase({ resume:true }); } catch {} }, 350);
+            try { sessionStorage.removeItem('bvx_showcase_intent'); } catch {}
           }
         } catch {}
         if (sp.get('billing') === 'success') {
@@ -188,16 +190,18 @@ export default function WorkspaceShell(){
             setTimeout(()=>{ try{ startGuide('workspace_intro'); }catch{} }, 400);
           }
         } catch {}
-        // If showcase was started earlier and not done, resume on Dashboard
+        // If showcase was started earlier and not done, only resume when explicitly armed in-session
         try {
-          const started = localStorage.getItem('bvx_showcase_started') === '1';
+          const armed = sessionStorage.getItem('bvx_showcase_resuming') === '1';
           const done = localStorage.getItem('bvx_showcase_done') === '1';
-          if (started && !done) {
+          if (armed && !done) {
             const u = new URL(window.location.href);
-            u.pathname = '/workspace';
-            u.searchParams.set('pane','dashboard');
-            window.history.replaceState({}, '', u.toString());
-            setTimeout(()=>{ try { startShowcase(); } catch {} }, 500);
+            if (u.searchParams.get('pane') !== 'dashboard') {
+              u.pathname = '/workspace';
+              u.searchParams.set('pane','dashboard');
+              window.history.replaceState({}, '', u.toString());
+            }
+            setTimeout(()=>{ try { startShowcase({ resume:true }); } catch {} }, 400);
           }
         } catch {}
         // Show welcome only once after onboarding_done=true
@@ -479,6 +483,18 @@ export default function WorkspaceShell(){
     };
     window.addEventListener('bvx:guide:workspace_intro:done', handler, { once: true } as any);
     return () => window.removeEventListener('bvx:guide:workspace_intro:done', handler as any);
+  }, []);
+
+  // Billing prompt: open modal when guide issues an event, without URL churn
+  useEffect(()=>{
+    try {
+      const onBilling = () => {
+        try { setBillingOpen(true); localStorage.setItem('bvx_billing_dismissed',''); } catch {}
+      };
+      window.addEventListener('bvx:billing:prompt' as any, onBilling as any, { once: true } as any);
+      // Clean up on unmount
+      return () => window.removeEventListener('bvx:billing:prompt' as any, onBilling as any);
+    } catch {}
   }, []);
 
   return (
