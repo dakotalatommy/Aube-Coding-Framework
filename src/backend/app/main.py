@@ -6961,6 +6961,18 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
         return RedirectResponse(url=f"{_frontend_base_url()}/integrations?error=oauth_unexpected&provider={provider}")
 
 
+# Legacy alias: forward old path to canonical callback to support previously registered redirect URIs
+@app.get("/api/oauth/{provider}/callback", tags=["Integrations"])  # legacy alias → forwards to /oauth/{provider}/callback
+def oauth_callback_legacy_alias(provider: str, request: Request):
+    try:
+        qs = str(request.query_params or "")
+        base = f"{_backend_base_url()}/oauth/{provider}/callback"
+        url = f"{base}?{qs}" if qs else base
+        return RedirectResponse(url=url)
+    except Exception:
+        return RedirectResponse(url=f"{_frontend_base_url()}/integrations?error=oauth_legacy_alias_failed&provider={provider}")
+
+
 class AnalyzeRequest(BaseModel):
     tenant_id: str
 class HubspotImportRequest(BaseModel):
