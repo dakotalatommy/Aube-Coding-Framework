@@ -20,7 +20,7 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-tour="book-onboarding"]', popover: { title: 'Book Onboarding', description: 'Book a 1-on-1 onboarding for an in-depth walk through of brand BX (beyond the brand)!' } },
   ],
   onboarding: [
-    { element: '[data-tour="steps"]', popover: { title: 'Steps', description: 'Personalize your BrandVX — you can jump around anytime.' } },
+    { element: '[data-tour="steps"]', popover: { title: 'Steps', description: 'Personalize your brandVX — you can jump around anytime.' } },
     { element: '[data-tour="connect"]', popover: { title: 'Connect tools', description: 'Link booking, messages, payments, and CRM. We keep it human.' } },
     { element: '[data-tour="analyze"]', popover: { title: 'Analyze', description: 'Run a quick analysis to see what’s configured.' } },
     { element: '[data-tour="cta"]', popover: { title: 'Ready when you are', description: 'White‑glove or self-serve — you approve everything.' } },
@@ -94,7 +94,7 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-tour="wf-social"]', popover: { title: 'Draft 14‑day social', description: 'Creates a two‑week plan; you approve before scheduling.' } },
   ],
   approvals: [
-    { popover: { title: 'To‑Do', description: 'When BrandVX needs your OK, items appear here.' } },
+    { popover: { title: 'To‑Do', description: 'When brandVX needs your OK, items appear here.' } },
     { element: '[data-guide="filters"]', popover: { title: 'Filter & pending', description: 'Search and toggle pending-only.' } },
     { element: '[data-guide="table"]', popover: { title: 'Items', description: 'Click a row to view details.' } },
     { element: '[data-guide="details"]', popover: { title: 'Details', description: 'Human-readable summary and parameters.' } },
@@ -171,7 +171,7 @@ export function startGuide(page: string, opts?: { step?: number }) {
           { element: '[data-guide="table"]', popover: { title: 'To‑Do', description: 'Pending / All filters and types. Mark done to resolve.' } },
         ],
         onboarding: [
-          { popover: { title: 'Onboarding', description: 'In live, you’ll start here — personalize your BrandVX.' } },
+          { popover: { title: 'Onboarding', description: 'In live, you’ll start here — personalize your brandVX.' } },
         ],
       };
       const seq: Array<{ path: string; key: string }> = [
@@ -213,7 +213,7 @@ export function startGuide(page: string, opts?: { step?: number }) {
                   const d2 = drv3({
                     showProgress: true,
                     steps: [
-                      { element: '[data-guide="demo-signup"]', popover: { title: 'Create your BrandVX', description: 'Ready to continue? Tap Sign up to start your live workspace.' } }
+                      { element: '[data-guide="demo-signup"]', popover: { title: 'Create your brandVX', description: 'Ready to continue? Tap Sign up to start your live workspace.' } }
                     ],
                   } as any);
                   d2.drive();
@@ -256,6 +256,20 @@ export function startGuide(page: string, opts?: { step?: number }) {
     const drv = (mod && (mod as any).driver) ? (mod as any).driver : (mod as any);
     let lastIndex = -1;
     const totalSteps = Array.isArray(stepsToRun) ? stepsToRun.length : 0;
+    // Determine the index of the BrandVZN (dashboard quickstart) step if present
+    const brandVznIdx = (()=>{
+      try{
+        if (page !== 'dashboard') return -1;
+        const raw = Array.isArray(steps) ? steps : [];
+        for (let i=0; i<raw.length; i++){
+          const s:any = raw[i];
+          if (s?.element === '[data-guide="quickstart-brandvzn"]' || String(s?.popover?.title||'').toLowerCase().includes('brandvzn')){
+            return Math.max(0, i - Math.max(0, startAt));
+          }
+        }
+      }catch{}
+      return -1;
+    })();
     const d = drv({
       showProgress: true,
       nextBtnText: 'Next',
@@ -267,7 +281,21 @@ export function startGuide(page: string, opts?: { step?: number }) {
       (d as any).on?.('highlighted', (_el:any, _step:any, idx:any)=>{
         try { lastIndex = typeof idx === 'number' ? idx : (lastIndex + 1); } catch { lastIndex = lastIndex + 1; }
       });
-      (d as any).on?.('next', ()=>{ try { if (lastIndex < totalSteps - 1) lastIndex = lastIndex + 1; } catch { lastIndex = lastIndex + 1; } });
+      (d as any).on?.('next', ()=>{
+        try {
+          if (lastIndex < totalSteps - 1) lastIndex = lastIndex + 1;
+        } catch { lastIndex = lastIndex + 1; }
+        // When user advances past the BrandVZN highlight on Dashboard, jump to Vision panel and start its guide
+        try{
+          if (page === 'dashboard' && brandVznIdx >= 0 && lastIndex === brandVznIdx + 1){
+            try { (d as any).destroy?.(); } catch {}
+            setTimeout(()=>{
+              try { window.location.href = '/workspace?pane=vision'; } catch {}
+              setTimeout(()=>{ try { startGuide('vision'); } catch {} }, 480);
+            }, 60);
+          }
+        }catch{}
+      });
     } catch {}
     d.drive();
     try {
