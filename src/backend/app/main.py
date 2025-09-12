@@ -8013,6 +8013,9 @@ class SettingsRequest(BaseModel):
     rate_limit_multiplier: Optional[int] = None
     # Global safety switch
     pause_automations: Optional[bool] = None
+    # Subscription/trial flags
+    subscription_status: Optional[str] = None  # trialing | active | canceled
+    trial_end_ts: Optional[int] = None        # epoch seconds
 
 
 @app.get("/settings", tags=["Integrations"])
@@ -8026,15 +8029,24 @@ def get_settings(
             return {"data": {}}
         # Deterministic selection: latest row per tenant
         row = db.execute(
-            _sql_text("SELECT data_json FROM settings WHERE tenant_id = CAST(:tid AS uuid) ORDER BY id DESC LIMIT 1"),
+            _sql_text("SELECT id, data_json FROM settings WHERE tenant_id = CAST(:tid AS uuid) ORDER BY id DESC LIMIT 1"),
             {"tid": tenant_id},
         ).fetchone()
-        if not row or not (row[0] or "").strip():
-            return {"data": {}}
+        if not row or not (row[1] or "").strip():
+            # Seed trial settings for brand-new tenants
+            import time as __time
+            data = {"subscription_status": "trialing", "trial_end_ts": int(__time.time()) + 7*86400}
+            db.execute(_sql_text("INSERT INTO settings(tenant_id, data_json, created_at) VALUES (CAST(:t AS uuid), :d, NOW())"), {"t": tenant_id, "d": json.dumps(data)})
+            return {"data": data}
         try:
-            return {"data": json.loads(row[0])}
+            data = json.loads(row[1])
+            if not str((data or {}).get("subscription_status") or "").strip():
+                import time as __time
+                data["subscription_status"] = "trialing"
+                data.setdefault("trial_end_ts", int(__time.time()) + 7*86400)
+                db.execute(_sql_text("UPDATE settings SET data_json=:d WHERE id=:id"), {"d": json.dumps(data), "id": row[0]})
+            return {"data": data}
         except Exception:
-            # Malformed JSON from earlier versions — return empty and avoid 500s
             return {"data": {}}
     except Exception:
         return {"data": {}}
@@ -8102,6 +8114,13 @@ def update_settings(
             data["rate_limit_multiplier"] = 1
     if req.pause_automations is not None:
         data["pause_automations"] = bool(req.pause_automations)
+    if getattr(req, "subscription_status", None) is not None:
+        data["subscription_status"] = str(req.subscription_status)
+    if getattr(req, "trial_end_ts", None) is not None:
+        try:
+            data["trial_end_ts"] = int(req.trial_end_ts)  # epoch seconds
+        except Exception:
+            pass
     if not row:
         row = dbm.Settings(tenant_id=req.tenant_id, data_json=json.dumps(data))
         db.add(row)
