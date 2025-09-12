@@ -6812,34 +6812,46 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
             except Exception:
                 exchange_ok = False
         try:
-            # Upsert into the clean v2 token store (single source of truth)
-            with engine.begin() as conn:
-                params: Dict[str, Any] = {
-                    "t": t_id,
-                    "prov": provider,
-                    "st": ("connected" if exchange_ok else status),
-                    "at": access_token_enc,
-                    "rt": (refresh_token_enc if refresh_token_enc is not None else None),
-                    "exp": (int(expires_at) if isinstance(expires_at, (int, float)) else None),
-                    "sc": scopes_str,
-                }
-                set_parts = ["status=:st", "connected_at=NOW()"]
-                if access_token_enc: set_parts.append("access_token_enc=:at")
-                if refresh_token_enc: set_parts.append("refresh_token_enc=:rt")
-                if params.get("exp") is not None: set_parts.append("expires_at=:exp")
-                if scopes_str: set_parts.append("scopes=:sc")
-                upd = f"UPDATE connected_accounts_v2 SET {', '.join(set_parts)} WHERE tenant_id = CAST(:t AS uuid) AND provider = :prov"
-                res = conn.execute(_sql_text(upd), params)
-                saved = bool(getattr(res, 'rowcount', 0))
-                if not saved:
-                    cols = ["tenant_id","provider","status","connected_at"]
-                    vals = ["CAST(:t AS uuid)",":prov",":st","NOW()"]
-                    if access_token_enc: cols.append("access_token_enc"); vals.append(":at")
-                    if refresh_token_enc: cols.append("refresh_token_enc"); vals.append(":rt")
-                    if params.get("exp") is not None: cols.append("expires_at"); vals.append(":exp")
-                    if scopes_str: cols.append("scopes"); vals.append(":sc")
-                    ins = f"INSERT INTO connected_accounts_v2 ({', '.join(cols)}) VALUES ({', '.join(vals)})"
-                    conn.execute(_sql_text(ins), params)
+            # Upsert using the SAME session/connection that already has RLS GUCs set.
+            # This avoids losing app.tenant_id/app.role when ENABLE_PG_RLS=1.
+            params: Dict[str, Any] = {
+                "t": t_id,
+                "prov": provider,
+                # Only mark connected when we actually exchanged a token
+                "st": ("connected" if (exchange_ok and bool(access_token_enc)) else "pending_config"),
+                "at": (access_token_enc if access_token_enc else None),
+                "rt": (refresh_token_enc if refresh_token_enc is not None else None),
+                "exp": (int(expires_at) if isinstance(expires_at, (int, float)) else None),
+                "sc": scopes_str,
+            }
+            set_parts = ["status=:st", "connected_at=NOW()"]
+            if params["at"]: set_parts.append("access_token_enc=:at")
+            if params["rt"]: set_parts.append("refresh_token_enc=:rt")
+            if params["exp"] is not None: set_parts.append("expires_at=:exp")
+            if scopes_str: set_parts.append("scopes=:sc")
+            upd = f"UPDATE connected_accounts_v2 SET {', '.join(set_parts)} WHERE tenant_id = CAST(:t AS uuid) AND provider = :prov"
+            res = db.execute(_sql_text(upd), params)
+            saved = False
+            try:
+                saved = bool(getattr(res, 'rowcount', 0) and int(res.rowcount) > 0)
+            except Exception:
+                saved = False
+            if not saved:
+                cols = ["tenant_id","provider","status","connected_at"]
+                vals = ["CAST(:t AS uuid)",":prov",":st","NOW()"]
+                if params["at"]: cols.append("access_token_enc"); vals.append(":at")
+                if params["rt"]: cols.append("refresh_token_enc"); vals.append(":rt")
+                if params["exp"] is not None: cols.append("expires_at"); vals.append(":exp")
+                if scopes_str: cols.append("scopes"); vals.append(":sc")
+                ins = f"INSERT INTO connected_accounts_v2 ({', '.join(cols)}) VALUES ({', '.join(vals)})"
+                db.execute(_sql_text(ins), params)
+            try:
+                db.commit()
+            except Exception:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
         except Exception as e:
             try:
                 db.rollback()
