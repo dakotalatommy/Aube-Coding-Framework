@@ -2049,8 +2049,12 @@ def integrations_status(
                     continue
         # v2 table connected_accounts_v2 (preferred)
         try:
-            rows_v2 = db.execute(_sql_text("SELECT provider, status, COALESCE(expires_at,0), COALESCE(last_sync,0) FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid)"), {"t": tenant_id}).fetchall()
-            for pv, st, ex, ls in rows_v2 or []:
+            # Guard for deployments where last_sync column may not exist
+            rows_v2 = db.execute(
+                _sql_text("SELECT provider, status, COALESCE(expires_at,0) FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid)"),
+                {"t": tenant_id},
+            ).fetchall()
+            for pv, st, ex in rows_v2 or []:
                 try:
                     p = str(pv or '').lower()
                     if p in linked_map:
@@ -2060,12 +2064,7 @@ def integrations_status(
                         try:
                             expires_map[p] = int(ex or 0)
                         except Exception:
-                            pass
-                        try:
-                            if int(ls or 0) > 0 and int(ls) > int(last_sync.get(p, 0)):
-                                last_sync[p] = int(ls)
-                        except Exception:
-                            pass
+                            expires_map[p] = 0
                 except Exception:
                     continue
         except Exception:
@@ -7057,11 +7056,29 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
         except Exception:
             pass
 
-        # Retrieve Square access token: prefer v2 store, fallback to legacy
+        # Ensure RLS GUCs BEFORE any SQL
+        try:
+            if getattr(db.bind, "dialect", None) and db.bind.dialect.name == "postgresql" and os.getenv("ENABLE_PG_RLS", "0") == "1":
+                try:
+                    CURRENT_TENANT_ID.set(req.tenant_id)
+                    CURRENT_ROLE.set("owner_admin")
+                except Exception:
+                    pass
+                try:
+                    db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+                    db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Retrieve Square access token: prefer v2 store via current session, fallback to legacy
         token = ""
         try:
-            with engine.begin() as conn:
-                row_v2 = conn.execute(_sql_text("SELECT access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider='square' ORDER BY id DESC LIMIT 1"), {"t": req.tenant_id}).fetchone()
+            row_v2 = db.execute(
+                _sql_text("SELECT access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider='square' ORDER BY id DESC LIMIT 1"),
+                {"t": req.tenant_id},
+            ).fetchone()
             if row_v2 and row_v2[0]:
                 try:
                     token = decrypt_text(str(row_v2[0])) or ""
@@ -7098,22 +7115,7 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
         if os.getenv("SQUARE_ENV", "prod").lower().startswith("sand"):
             base = "https://connect.squareupsandbox.com"
 
-        # Ensure RLS GUCs for this transaction when enabled
-        try:
-            if getattr(db.bind, "dialect", None) and db.bind.dialect.name == "postgresql" and os.getenv("ENABLE_PG_RLS", "0") == "1":
-                try:
-                    CURRENT_TENANT_ID.set(req.tenant_id)
-                    CURRENT_ROLE.set("owner_admin")
-                except Exception:
-                    pass
-                try:
-                    db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
-                    db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-                except Exception:
-                    # Non-fatal; proceed without GUCs if not supported
-                    pass
-        except Exception:
-            pass
+        # (GUCs already set above)
 
         created_total = 0
         updated_total = 0
@@ -7212,6 +7214,12 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
 
                 # Raw SQL upsert using a connection-bound transaction to avoid session state issues
                 with engine.begin() as _conn:
+                    # Apply tenant GUCs on this connection for RLS safety
+                    try:
+                        _conn.exec_driver_sql("SET LOCAL app.tenant_id = :t", {"t": req.tenant_id})
+                        _conn.exec_driver_sql("SET LOCAL app.role = 'owner_admin'")
+                    except Exception:
+                        pass
                     row = _conn.execute(
                         _sql_text(
                             "SELECT id FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid LIMIT 1"
