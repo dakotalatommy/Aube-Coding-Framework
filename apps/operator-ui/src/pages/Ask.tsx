@@ -483,6 +483,8 @@ export default function Ask(){
           <div className="mt-2 text-sm text-slate-700 whitespace-pre-wrap min-h-[48px]">{sessionSummary || '—'}</div>
         </div>
       )}
+      {/* When onboarding, signal plan completion to hide Quick Start later */}
+      {(() => { try{ if (new URLSearchParams(window.location.search).get('onboard')==='1' && sessionSummary) localStorage.setItem('bvx_done_plan','1'); }catch{} return null; })()}
     </div>
   );
 }

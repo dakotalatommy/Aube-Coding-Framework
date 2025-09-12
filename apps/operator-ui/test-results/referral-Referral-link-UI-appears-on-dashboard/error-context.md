@@ -4,28 +4,19 @@
 - link "Skip to content":
   - /url: "#main"
 - main:
-  - navigation "Breadcrumb":
-    - list:
-      - listitem:
-        - link "Home":
-          - /url: /
-      - listitem: / Signup
-  - heading "Create your account" [level=1]
-  - paragraph: Start your onboarding in minutes.
-  - text: Your name
-  - textbox "Alex Rivera"
-  - text: Business name
-  - textbox "Vivid Studio"
-  - text: Email
-  - textbox "you@example.com"
-  - text: Password
-  - textbox "••••••••"
-  - button "Create account"
-  - button "Continue with Google"
+  - heading "Sign in" [level=1]
+  - paragraph: Welcome back.
+  - status:
+    - text: Email
+    - textbox "you@example.com"
+    - text: Password
+    - textbox "••••••••"
+    - button "Sign in"
   - paragraph:
-    - text: Already have an account?
-    - link "Sign in":
-      - /url: /login
+    - text: No account?
+    - link "Create one":
+      - /url: /signup
+  - button "Continue with Google"
 - region "Notifications (F8)":
   - list
 ```

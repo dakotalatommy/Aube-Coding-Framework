@@ -16,6 +16,19 @@ export default function AuthCallback() {
     }
     if (!next) next = '/onboarding';
 
+    // Sanitize stale pane=integrations unless this is an explicit connect flow
+    try {
+      const u = new URL(window.location.origin + next);
+      const pane = u.searchParams.get('pane');
+      const hasFlow = sp.get('flow') === 'connect' || !!sp.get('provider') || !!sp.get('error');
+      if (pane === 'integrations' && !hasFlow) {
+        u.searchParams.set('pane','dashboard');
+        u.searchParams.delete('provider');
+        u.searchParams.delete('connected');
+        next = u.pathname + '?' + u.searchParams.toString();
+      }
+    } catch {}
+
     // Broadcast to the opener/original tab that auth is ready
     const signalReady = () => {
       try {

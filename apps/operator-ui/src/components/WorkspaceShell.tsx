@@ -71,6 +71,19 @@ export default function WorkspaceShell(){
           }
         }
         const sp = new URLSearchParams(loc.search);
+        // Strip stale pane=integrations when not in explicit connect context
+        try{
+          const paneQ = sp.get('pane');
+          const hasFlow = sp.get('flow')==='connect' || !!sp.get('provider') || !!sp.get('error');
+          if (paneQ === 'integrations' && !hasFlow) {
+            const clean = new URL(window.location.href);
+            clean.searchParams.set('pane','dashboard');
+            clean.searchParams.delete('provider');
+            clean.searchParams.delete('connected');
+            clean.searchParams.delete('postVerify');
+            window.history.replaceState({}, '', clean.toString());
+          }
+        } catch {}
         if (sp.get('billing') === 'success') {
           try { track('billing_success'); } catch {}
           try { localStorage.setItem('bvx_billing_dismissed','1'); } catch {}

@@ -418,6 +418,9 @@ export default function Vision(){
 
   const canRun = (!!b64 || !!srcUrl) && !loading;
 
+  // When onboarding, mark vision step as completed after first successful edit
+  try { if (new URLSearchParams(window.location.search).get('onboard')==='1' && (Number((dropRef.current as any)?.getAttribute?.('data-vision-edits')||'0')||0) > 0) localStorage.setItem('bvx_done_vision','1'); } catch {}
+
   function humanizeError(err: any): string {
     try {
       const detail = String(err?.detail || err?.status || err?.message || err || '').toLowerCase();

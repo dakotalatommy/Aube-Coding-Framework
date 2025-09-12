@@ -15,6 +15,7 @@ export default function Integrations(){
   const sp = (()=>{ try { return new URLSearchParams(window.location.search); } catch { return new URLSearchParams(); } })();
   const providerFromURL = (()=>{ try{ return (sp.get('provider')||'').toLowerCase(); } catch { return ''; } })();
   const returnHint = (()=>{ try{ return (sp.get('return')||''); } catch { return ''; } })();
+  const isOnboard = (()=>{ try{ return sp.get('onboard')==='1'; } catch { return false; } })();
   const [focusedProvider] = useState<string>(providerFromURL);
   // Pager removed; single-page layout
   const SOCIAL_ON = (import.meta as any).env?.VITE_FEATURE_SOCIAL === '1';
@@ -259,7 +260,10 @@ export default function Integrations(){
         try { showToast({ title: `${focusedProvider.charAt(0).toUpperCase()+focusedProvider.slice(1)} connected` }); } catch {}
         // Auto re-analyze so badges update immediately
         reanalyze();
-        if (returnHint === 'workspace') {
+        // During onboarding detour, return to Dashboard (with billing prompt)
+        if (isOnboard) {
+          setTimeout(()=>{ try{ window.location.assign('/workspace?pane=dashboard&billing=prompt'); }catch{} }, 1200);
+        } else if (returnHint === 'workspace') {
           setTimeout(()=>{ try{ window.history.replaceState({}, '', '/workspace?pane=integrations'); }catch{} }, 1200);
         }
       } else if (focusedProvider && error) {

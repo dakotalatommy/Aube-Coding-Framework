@@ -364,16 +364,23 @@ export function startShowcase() {
         const cm = (j?.summary?.connected || {}) as Record<string,string>;
         const bookingOn = String(cm.square||'')==='connected' || String(cm.acuity||'')==='connected';
         if (!bookingOn) {
-          steps.push({ path: '/workspace?pane=integrations&tour=1', guide: 'integrations', wait: '[data-guide="providers"]', progress: 'showcase.integrations' });
+          steps.push({ path: '/workspace?pane=integrations&tour=1&onboard=1', guide: 'integrations', wait: '[data-guide="providers"]', progress: 'showcase.integrations' });
         }
       } catch {}
       steps.push(
         // Stay within the workspace tab/pane for all steps
         // Billing CTA comes after booking (integrations) and before brandVZN
         { path: '/workspace?pane=dashboard&billing=prompt', guide: undefined as any, wait: undefined as any, progress: 'showcase.billing' },
-        { path: '/workspace?pane=vision&tour=1&onboard=1', guide: 'vision', wait: '[data-guide="preview"][data-vision-has-preview="1"]', progress: 'showcase.vision' },
+        // brandVZN: upload → edit hair → refine eyes, with explicit dashboard hop afterward
+        { path: '/workspace?pane=vision&tour=1&onboard=1', guide: 'vision', wait: '[data-guide="preview"][data-vision-has-preview="1"]', progress: 'showcase.vision.upload' },
+        { path: '/workspace?pane=vision&tour=1&onboard=1', guide: 'vision', wait: '[data-guide="preview"][data-vision-edits="1"]', progress: 'showcase.vision.edit.hair' },
+        { path: '/workspace?pane=vision&tour=1&onboard=1', guide: 'vision', wait: '[data-guide="preview"][data-vision-edits="2"]', progress: 'showcase.vision.edit.eyes' },
+        { path: '/workspace?pane=dashboard', guide: 'dashboard', wait: '[data-guide="quickstart"]', progress: 'showcase.back.dashboard.after.vision' },
+        // Contacts import, then AskVX, then dashboard hop
         { path: '/workspace?pane=contacts&tour=1&onboard=1', guide: 'contacts', wait: '[data-guide="import"]', progress: 'showcase.contacts' },
         { path: '/workspace?pane=askvx&onboard=1&autosummarize=1', guide: 'askvx', wait: '[data-guide="composer"]', progress: 'showcase.ask' },
+        { path: '/workspace?pane=dashboard', guide: 'dashboard', wait: '[data-guide="quickstart"]', progress: 'showcase.back.dashboard.after.ask' },
+        // Train & Profile hop, then final dashboard
         { path: '/workspace?pane=askvx&onboard=1&page=2', guide: 'askvx', wait: '[data-guide="composer"]', progress: 'showcase.trainvx' },
         { path: '/workspace?pane=dashboard', guide: 'dashboard', wait: '[data-guide="next-best-steps"]', progress: 'showcase.done' },
       );

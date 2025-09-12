@@ -17,6 +17,7 @@ export default function Contacts(){
   const loc = useLocation();
   const { showToast } = useToast();
   const isDemo = (()=>{ try{ return new URLSearchParams(window.location.search).get('demo')==='1'; } catch { return false; } })();
+  const isOnboard = (()=>{ try{ return new URLSearchParams(window.location.search).get('onboard')==='1'; } catch { return false; } })();
   const [status, setStatus] = useState('');
   const [importing, setImporting] = useState<boolean>(false);
   const [importReport, setImportReport] = useState<{ provider?: string; imported?: number; updated?: number; skipped?: number; reasonTop?: string }|null>(null);
@@ -123,6 +124,7 @@ export default function Contacts(){
                 setImportReport({ provider, imported, updated, skipped, reasonTop });
                 try{ showToast({ title:'Import complete', description: `${imported} contacts imported` }); }catch{}
                 try{ await api.post('/onboarding/complete_step', { tenant_id: await getTenant(), step_key: 'contacts_imported', context: { provider, imported, updated, skipped } }); }catch{}
+                try{ if (isOnboard) localStorage.setItem('bvx_done_contacts','1'); }catch{}
                 try{ await loadList(); }catch{}
                 // Post-import nudges
                 try{
@@ -136,6 +138,8 @@ export default function Contacts(){
                 setStatus(String(e?.message||e));
               } finally {
                 setImporting(false);
+                // During onboarding, return to Dashboard for the next guided step
+                try { if (isOnboard) window.location.assign('/workspace?pane=dashboard'); } catch {}
               }
             }}>Import from booking</Button>
             <Button variant="outline" size="sm" onClick={async()=>{

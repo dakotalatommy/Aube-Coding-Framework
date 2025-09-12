@@ -160,6 +160,15 @@ export default function Dashboard(){
   // Post-onboarding banner removed; keep state out to avoid unused var
   // Single page dashboard (pager removed)
   const [onboarding, setOnboarding] = useState<any>(null);
+  const isIntroActive = (()=>{ try{ return localStorage.getItem('bvx_tour_seen_workspace_intro')!=='1'; }catch{ return false; }})();
+  const quickStartDone = (()=>{
+    try{
+      const v = localStorage.getItem('bvx_done_vision')==='1';
+      const c = localStorage.getItem('bvx_done_contacts')==='1';
+      const p = localStorage.getItem('bvx_done_plan')==='1';
+      return v && c && p;
+    }catch{ return false; }
+  })();
 
   // Plan: Next Best Steps
   const [planLoading, setPlanLoading] = useState<boolean>(false);
@@ -446,20 +455,45 @@ export default function Dashboard(){
       </section>
       
       {/* Micro-wins and quick wins CTAs removed per UI trim */}
-      {/* Quick Start 3 WorkStyles (stacked vertically) */}
-      <section className="rounded-2xl p-2 bg-white border border-white/60 shadow-sm" data-guide="quickstart">
-        <h4 className="text-base md:text-[17px] font-semibold text-slate-900 text-center">Quick Start</h4>
-        <div className="mt-2 max-w-sm mx-auto grid gap-2">
-          <Button size="sm" variant="outline" className="w-full" data-guide="quickstart-brandvzn" onClick={()=> {
-            try{
-              if (localStorage.getItem('bvx_tour_seen_workspace_intro')!=='1') return; // disable during intro
-              const u=new URL(window.location.href); u.pathname='/workspace'; u.searchParams.set('pane','vision'); window.location.assign(u.toString());
-            }catch{ window.location.assign('/workspace?pane=vision'); }
-          }}>brandVZN</Button>
-          <Button size="sm" variant="outline" className="w-full" onClick={async()=>{ window.location.assign('/contacts'); try{ const tid = await getTenant(); await api.post('/ai/tools/execute',{ tenant_id: tid, name:'contacts.import.square', params:{ tenant_id: tid }, require_approval: false }); }catch{} }}>Import Clients</Button>
-          <Button size="sm" variant="outline" className="w-full" onClick={()=> window.location.assign('/ask?train=1')}>trainVX</Button>
-        </div>
-      </section>
+      {/* Quick Start 3 WorkStyles (stacked vertically); hidden when initial three actions are complete */}
+      {!quickStartDone && (
+        <section className="rounded-2xl p-2 bg-white border border-white/60 shadow-sm" data-guide="quickstart">
+          <h4 className="text-base md:text-[17px] font-semibold text-slate-900 text-center">Quick Start</h4>
+          <div className="mt-2 max-w-sm mx-auto grid gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full"
+              data-guide="quickstart-brandvzn"
+              disabled={isIntroActive}
+              onClick={()=> {
+                try{
+                  if (isIntroActive) return;
+                  nav('/workspace?pane=vision');
+                }catch{ window.location.assign('/workspace?pane=vision'); }
+              }}>brandVZN</Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full"
+              disabled={isIntroActive}
+              onClick={async()=>{
+                try{
+                  if (isIntroActive) return;
+                  nav('/workspace?pane=contacts');
+                  const tid = await getTenant();
+                  await api.post('/ai/tools/execute',{ tenant_id: tid, name:'contacts.import.square', params:{ tenant_id: tid }, require_approval: false });
+                }catch{}
+              }}>Import Clients</Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full"
+              disabled={isIntroActive}
+              onClick={()=>{ if (!isIntroActive) nav('/workspace?pane=askvx&page=2'); }}>trainVX</Button>
+          </div>
+        </section>
+      )}
       {/* Next Best Steps (Day N/14 + today's tasks) */}
       <section className="rounded-2xl p-3 bg-white border border-white/60 shadow-sm" data-guide="next-best-steps">
         <div className="flex items-center justify-between gap-2">
