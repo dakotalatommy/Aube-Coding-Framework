@@ -94,6 +94,16 @@ export default function WorkspaceShell(){
             clean.searchParams.delete('postVerify');
             window.history.replaceState({}, '', clean.toString());
           }
+          // Guard: only allow tour=1 to autostart on Dashboard. If present on other panes, strip it.
+          try {
+            const tour = sp.get('tour');
+            const pane = sp.get('pane') || 'dashboard';
+            if (tour === '1' && pane !== 'dashboard') {
+              const clean2 = new URL(window.location.href);
+              clean2.searchParams.delete('tour');
+              window.history.replaceState({}, '', clean2.toString());
+            }
+          } catch {}
         } catch {}
         // OAuth return: if provider connected and onboarding/showcase is active, force Dashboard and resume showcase (one-shot)
         try {
@@ -185,10 +195,12 @@ export default function WorkspaceShell(){
           } catch {}
         } catch {}
 
-        // Optionally auto-start tour when ?tour=1
+        // Optionally auto-start tour when ?tour=1 (Dashboard only to avoid conflicting with post-book chain)
         try {
           const wantTour = sp.get('tour') === '1';
-          if (wantTour) {
+          const pane = sp.get('pane') || 'dashboard';
+          const billingParam = sp.get('billing');
+          if (wantTour && pane === 'dashboard' && billingParam !== 'prompt') {
             setTimeout(()=>{ try{ startGuide('workspace_intro'); }catch{} }, 400);
           }
         } catch {}
@@ -587,7 +599,7 @@ export default function WorkspaceShell(){
         </aside>
         {/* Canvas */}
         <main className={`h-full rounded-2xl border border-b-0 border-l-slate-300/80 ${demo? 'bg-amber-50/60' : 'bg-white/90'} backdrop-blur p-4 md:p-5 shadow-sm overflow-hidden border-l relative`}>
-          <div className="rounded-xl bg-white/70 backdrop-blur overflow-hidden min-h-full">
+          <div className="rounded-xl bg-white/70 backdrop-blur min-h-full h-full overflow-y-auto pb-[calc(var(--bvx-commandbar-height,64px)+env(safe-area-inset-bottom,0px)+12px)]">
             <Suspense fallback={<div className="p-4 text-slate-600 text-sm">Loading {PANES.find(p=>p.key===pane)?.label}…</div>}>
               {PaneView}
             </Suspense>
