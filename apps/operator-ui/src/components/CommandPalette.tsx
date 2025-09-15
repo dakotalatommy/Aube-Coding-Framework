@@ -49,7 +49,7 @@ export default function CommandPalette(){
     <Dialog.Root open={open} onOpenChange={setOpen}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/20" />
-        <Dialog.Content className="fixed top-[15%] left-1/2 -translate-x-1/2 w-[92vw] max-w-lg rounded-xl border bg-white shadow-2xl">
+        <Dialog.Content className="fixed top-[15%] left-1/2 -translate-x-1/2 w-[min(92vw,560px)] rounded-2xl border border-[var(--border)] bg-white shadow-soft">
           <div className="border-b p-3">
             <input
               autoFocus

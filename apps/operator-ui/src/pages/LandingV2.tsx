@@ -46,12 +46,12 @@ function WorkflowRow() {
   const items: Array<{title:string; sub:string; proof?:string; icon: any}> = [
     { title:'Fill cancellations first', sub:'Text your waitlist first so open spots get taken in minutes.', proof:'Typical: +2–4 slots/week', icon:<IconPlug/> },
     { title:'Cut no‑shows', sub:'Friendly confirmations and day‑of nudges that keep clients on track.', proof:'Typical: 15–25% fewer no‑shows', icon:<IconClock/> },
-    { title:'Seamless professional photo edits', sub:'Polish before/afters with BrandVZN; preserve skin texture and natural tone.', icon:<IconUser/> },
-    { title:'Give your brand a voice', sub:'Short, on‑brand messages and captions — you approve before anything goes live.', icon:<IconSpark/> },
+    { title:'Seamless professional photo edits', sub:'Polish before/afters with brandVZN; preserve skin texture and natural tone.', icon:<IconUser/> },
+    { title:'Give your brand a voice', sub:'Short, on‑brand messages and captions — nothing happens without your approval.', icon:<IconSpark/> },
   ];
   return (
     <section className="my-auto mt-6 md:mt-8">
-      <div className="grid grid-cols-4 gap-3 md:gap-4 w-full max-md:overflow-x-auto max-md:[scrollbar-width:none] items-center mt-[20px]">
+      <div className="grid grid-cols-4 gap-3 md:gap-4 w-full max-md:overflow-x-auto max-md:[scrollbar-width:none] items-center mt-[8px]">
         {items.map(({title, sub, icon}, i) => (
           <div key={i} className="mx-auto aspect-square min-w-[147px] md:min-w-0" style={{ width: 'calc(76% + 10px)' }}>
             <div className="relative group h-full w-full">
@@ -166,7 +166,7 @@ export default function LandingV2(){
         {/* Header removed for now per design — hero remains primary */}
         <main ref={mainRef} className="min-h-full grid grid-rows-[auto_auto_1fr] overflow-visible relative">
           {/* Hero (words-only + single CTA) */}
-          <section className="relative pt-6 md:pt-8 pb-10 md:pb-12 mt-[7px]">
+          <section className="relative pt-4 md:pt-6 pb-10 md:pb-12 mt-[7px]">
             <div
               aria-hidden
               className="absolute inset-0 -z-10"
@@ -180,7 +180,7 @@ export default function LandingV2(){
               <div className="relative inline-block w-full">
                 <div className="w-full flex justify-center mb-2 md:mb-3">
                   <img
-                    src="/assets/brandvx-logo.png"
+                    src="/assets/bVX_logo-removebg-preview.png"
                     alt="brandVX logo"
                     className="max-w-[140px] md:max-w-[180px] opacity-95"
                   />
@@ -214,7 +214,7 @@ export default function LandingV2(){
 
           {/* Thin CTA section between hero and squares */}
           <section className="py-2 md:py-2.5 flex justify-center">
-            <div className="flex flex-col items-center mt-[28px] md:mt-[50px]">
+            <div className="flex flex-col items-center mt-[22px] md:mt-[42px]">
               {/* slightly reduce top margin on laptops to fit common Mac heights */}
               <div className="flex gap-4 md:gap-5 items-center">
                 <div className="relative group">
@@ -233,7 +233,7 @@ export default function LandingV2(){
                   className="relative overflow-hidden text-slate-900 text-[20px] md:text-[24px] px-9 md:px-10 py-4 md:py-5 rounded-full border bg-white hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px"
                   style={{fontFamily:'\"Fraunces\", ui-serif, Georgia, serif'}}
                 >
-                  Create your BrandVX
+                  Create your brandVX
                   <span aria-hidden className="pointer-events-none absolute inset-x-0 -top-1 h-1.5 bg-white/60 blur-[2px]" />
                 </button>
               </div>

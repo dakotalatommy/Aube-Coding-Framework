@@ -81,7 +81,6 @@ export default function Approvals(){
     } catch(e:any){ setStatus('Update failed: '+String(e?.message||e)); }
   };
   const bulk = async (decision:'approve'|'reject') => {
-    if (!window.confirm(`Are you sure you want to ${decision} all (${items.length})?`)) return;
     try{
       setStatus('');
       for (const it of items) {

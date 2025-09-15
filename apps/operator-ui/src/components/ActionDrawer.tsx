@@ -25,11 +25,11 @@ export default function ActionDrawer(){
     <div aria-live="polite" aria-atomic="false">
       {open && (
         <div className="fixed inset-0 z-50">
-          <div aria-hidden className="absolute inset-0 bg-black/30" onClick={()=> setOpen(false)} />
-          <div ref={ref} className="absolute left-1/2 -translate-x-1/2 bottom-[env(safe-area-inset-bottom,0px)] w-full max-w-3xl rounded-2xl border bg-white/95 backdrop-blur shadow-2xl p-3">
+          <div aria-hidden className="absolute inset-0 bg-black/20" onClick={()=> setOpen(false)} />
+          <div ref={ref} className="absolute left-1/2 -translate-x-1/2 bottom-[env(safe-area-inset-bottom,0px)] w-full max-w-3xl rounded-2xl border border-[var(--border)] bg-white/95 backdrop-blur shadow-soft p-3">
             <div className="flex items-center justify-between mb-2">
-              <div className="font-medium text-slate-900">Action details</div>
-              <button className="text-sm px-2 py-1 rounded border bg-white" onClick={()=> setOpen(false)}>Close</button>
+              <div className="font-semibold text-ink-900">Action details</div>
+              <button className="text-sm px-2 py-1 rounded-md border bg-white hover:bg-slate-50" onClick={()=> setOpen(false)}>Close</button>
             </div>
             <div className="max-h-[40vh] overflow-auto rounded-xl border bg-white">
               <table className="w-full text-sm">

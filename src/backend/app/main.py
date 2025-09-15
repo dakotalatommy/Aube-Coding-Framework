@@ -4761,17 +4761,18 @@ async def ai_tool_execute(
     db: Session = Depends(get_db),
     ctx: UserContext = Depends(get_user_context),
 ):
-    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
-        return {"status": "forbidden"}
+    # Canonicalize tenant to session context to avoid client/body/header drift
+    # and remove per-request tenant mismatch flakiness across devices.
+    req.tenant_id = ctx.tenant_id
     try:
         # Subscription/trial gating for protected actions
         try:
             # Lightweight allowlist of always-safe tools
-            SAFE_TOOLS = {"report.generate.csv","db.query.sql","db.query.named","safety_check","pii.audit","image.edit"}
+            SAFE_TOOLS = {"report.generate.csv","db.query.sql","db.query.named","safety_check","pii.audit","image.edit","vision.analyze.gpt5","brand.vision.analyze"}
             risky = req.name not in SAFE_TOOLS
             if risky and ctx.role != "owner_admin":
                 # Read latest settings and honor seeded trial
-                row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == req.tenant_id).first()
+                row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == ctx.tenant_id).first()
                 data = {}
                 try:
                     if row and row.data_json:
@@ -4821,7 +4822,7 @@ async def ai_tool_execute(
         auto_approve = False
         pause_automations = False
         try:
-            row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == req.tenant_id).first()
+            row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == ctx.tenant_id).first()
             if row:
                 data = json.loads(row.data_json or "{}")
                 auto_approve = bool(data.get("auto_approve_all", False))
@@ -4859,14 +4860,14 @@ async def ai_tool_execute(
         if req.require_approval and not auto_approve:
             db.add(
                 dbm.Approval(
-                    tenant_id=req.tenant_id,
+                    tenant_id=ctx.tenant_id,
                     tool_name=req.name,
                     params_json=str(dict(req.params or {})),
                     status="pending",
                 )
             )
             db.commit()
-            emit_event("AIToolExecuted", {"tenant_id": req.tenant_id, "tool": req.name, "status": "pending"})
+            emit_event("AIToolExecuted", {"tenant_id": ctx.tenant_id, "tool": req.name, "status": "pending"})
             return {"status": "pending"}
         # Minimal permission guard: restrict non-public tools if needed
         try:
@@ -4889,9 +4890,9 @@ async def ai_tool_execute(
         # Normalize return shape minimally
         if not isinstance(result, dict) or "status" not in result:
             result = {"status": str(result)} if not isinstance(result, dict) else {**result, "status": result.get("status", "ok")}
-        emit_event("AIToolExecuted", {"tenant_id": req.tenant_id, "tool": req.name, "status": result.get("status"), "mode": (mode or "")})
+        emit_event("AIToolExecuted", {"tenant_id": ctx.tenant_id, "tool": req.name, "status": result.get("status"), "mode": (mode or "")})
         try:
-            TOOL_EXECUTED.labels(tenant_id=str(req.tenant_id), name=str(req.name), status=str(result.get("status","ok"))).inc()  # type: ignore
+            TOOL_EXECUTED.labels(tenant_id=str(ctx.tenant_id), name=str(req.name), status=str(result.get("status","ok"))).inc()  # type: ignore
         except Exception:
             pass
         return result

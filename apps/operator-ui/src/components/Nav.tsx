@@ -50,7 +50,7 @@ export default function Nav(){
     <div className="sticky top-0 z-10">
       <nav className="max-w-5xl mx-auto mt-3 px-4 py-3 flex items-center justify-between gap-3 rounded-2xl border bg-white/70 backdrop-blur supports-[backdrop-filter]:bg-white/50 shadow-md" role="navigation" aria-label="Primary">
         <div className="flex items-center gap-2">
-          <Link to="/" className="hidden md:inline-flex items-center gap-2 text-slate-900 font-semibold" style={{fontFamily:'var(--font-display)'}}>BrandVX</Link>
+          <Link to="/" className="hidden md:inline-flex items-center gap-2 text-slate-900 font-semibold" style={{fontFamily:'var(--font-display)'}}>brandVX</Link>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap overflow-x-auto">
           {tabs.map((t, idx)=>{

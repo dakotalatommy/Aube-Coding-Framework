@@ -156,7 +156,7 @@ export default function Dashboard(){
   const [shareUrl] = useState<string>('');
   // removed copied state in streamlined share flow
   const [shareOpen, setShareOpen] = useState<boolean>(false);
-  const shareCaption = 'BrandVX — early wins worth sharing';
+  const shareCaption = 'brandVX — early wins worth sharing';
   // Post-onboarding banner removed; keep state out to avoid unused var
   // Single page dashboard (pager removed)
   const [onboarding, setOnboarding] = useState<any>(null);
@@ -448,7 +448,7 @@ export default function Dashboard(){
               <KpiAnimated title="Rebook rate (30d)" value={Number(Math.round((metrics?.rebook_rate_30d||0)))} prefix="%" onClick={()=> nav('/calendar')} />
             </div>
             <div className="flex-shrink-0" style={{ width: 'clamp(150px, 19vw, 200px)' }}>
-              <KpiAnimated title="Revenue uplift" value={Number(metrics?.revenue_uplift||0)} prefix="$" onClick={()=> nav('/billing')} />
+              <KpiAnimated title="Revenue uplift" value={Number(metrics?.revenue_uplift||0)} prefix="$" />
             </div>
           </div>
         </div>
@@ -596,13 +596,14 @@ function KpiAnimated({ title, value, prefix='', onClick }:{ title:string; value:
     const raf = requestAnimationFrame(tick);
     return ()=> cancelAnimationFrame(raf);
   }, [value]);
+  const isClickable = typeof onClick === 'function';
   return (
     <motion.div
-      className="relative overflow-hidden rounded-2xl p-3 bg-white shadow-md aspect-[4/3] grid place-items-center border border-slate-200 cursor-pointer"
+      className={`relative overflow-hidden rounded-2xl p-3 bg-white shadow-md aspect-[4/3] grid place-items-center border border-slate-200 ${isClickable ? 'cursor-pointer' : ''}`}
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
-      whileHover={{ y: -2, boxShadow: '0 8px 24px rgba(236,72,153,0.12)' }}
+      whileHover={isClickable ? { y: -2, boxShadow: '0 8px 24px rgba(236,72,153,0.12)' } : undefined}
       onClick={onClick}
     >
       <div className="absolute inset-0 -z-10" style={{ background: 'radial-gradient(600px 220px at 20% -20%, rgba(236,72,153,0.12), transparent)' }} />
@@ -630,13 +631,14 @@ function TimeSavedAnimated({ title, minutes, onClick }:{ title:string; minutes:n
     const raf = requestAnimationFrame(tick);
     return ()=> cancelAnimationFrame(raf);
   }, [hours]);
+  const isClickable = typeof onClick === 'function';
   return (
     <motion.div
-      className="relative overflow-hidden rounded-2xl p-3 bg-white shadow-md aspect-[4/3] grid place-items-center border border-slate-200 cursor-pointer"
+      className={`relative overflow-hidden rounded-2xl p-3 bg-white shadow-md aspect-[4/3] grid place-items-center border border-slate-200 ${isClickable ? 'cursor-pointer' : ''}`}
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.25 }}
-      whileHover={{ y: -2, boxShadow: '0 8px 24px rgba(236,72,153,0.12)' }}
+      whileHover={isClickable ? { y: -2, boxShadow: '0 8px 24px rgba(236,72,153,0.12)' } : undefined}
       onClick={onClick}
       aria-label={`${title}: ${display}h`}
     >

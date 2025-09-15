@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import InlineStatus from '../components/ui/InlineStatus';
+// import InlineStatus from '../components/ui/InlineStatus';
 import Button from '../components/ui/Button';
 import * as Sentry from '@sentry/react';
 import { api, getTenant } from '../lib/api';
@@ -29,25 +29,21 @@ export default function Vision(){
   const [lastEditAt, setLastEditAt] = useState<number | null>(null);
   const [baselinePreview, setBaselinePreview] = useState<string>(''); // input used for last edit
   const [comparePos, setComparePos] = useState<number>(50); // before/after slider position (0..100)
-  const [slowHint, setSlowHint] = useState<boolean>(false);
+  const [_slowHint, setSlowHint] = useState<boolean>(false);
   const prefersReducedMotion = (()=>{ try{ return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; }catch{ return false; } })();
   const [showBefore, setShowBefore] = useState<boolean>(false);
   const [versions, setVersions] = useState<string[]>([]); // recent prior states (max 3)
   const [intensity, setIntensity] = useState<number>(60);
   const [origW, setOrigW] = useState<number>(0);
-  const [origH, setOrigH] = useState<number>(0);
+  const [_origH, setOrigH] = useState<number>(0);
   const [currW, setCurrW] = useState<number>(0);
-  const [currH, setCurrH] = useState<number>(0);
-  const [currFmt, setCurrFmt] = useState<string>('');
+  const [_currH, setCurrH] = useState<number>(0);
+  const [_currFmt, setCurrFmt] = useState<string>('');
   const [objectUrl, setObjectUrl] = useState<string>('');
-  const [lastError, setLastError] = useState<string>('');
+  const [_lastError, setLastError] = useState<string>('');
   // const [errorRaw, setErrorRaw] = useState<any>(null);
   const [recentPrompts, setRecentPrompts] = useState<string[]>([]);
-  const starterPrompts = [
-    'Change eye color to blue; keep iris texture; no halo.',
-    'Reduce forehead shine; preserve skin texture; neutral tone.',
-    'Brighten background subtly; keep subject contrast natural.'
-  ];
+  // starter prompt seeds removed from UI
 
   const [clientName, setClientName] = useState<string>('');
   const [clientSuggestions, setClientSuggestions] = useState<Array<{contact_id:string; display_name:string}>>([]);
@@ -142,8 +138,9 @@ export default function Vision(){
       if (objectUrl) { try { URL.revokeObjectURL(objectUrl); } catch {} }
       setObjectUrl(url);
       setPreview(url);
-      try { dropRef.current?.setAttribute('data-vision-has-preview','1'); } catch {}
-      setBaselinePreview(url);
+      // Defer any DOM attributes until next frame to ensure image paints
+      try { requestAnimationFrame(()=>{ try { dropRef.current?.setAttribute('data-vision-has-preview','1'); } catch {} }); } catch {}
+      // Do NOT set baseline until first successful edit (prevents overlay clipping)
       setComparePos(50);
       try { trackEvent('vision.upload', { size: f.size, type: f.type }); } catch {}
     } catch {}
@@ -172,7 +169,7 @@ export default function Vision(){
                 sendDataUrl = canvas.toDataURL(outMime, 0.92);
               }
             }
-            setSrcUrl('');
+      setSrcUrl('');
             const idx = sendDataUrl.indexOf(',');
             setB64(idx >= 0 ? sendDataUrl.slice(idx+1) : sendDataUrl);
             try{ const m = sendDataUrl.slice(5, sendDataUrl.indexOf(';')); if (m) setMime(m); }catch{}
@@ -287,6 +284,8 @@ export default function Vision(){
         setLastError('');
         const next = String(r?.data_url || r?.preview_url || '');
         if (next) {
+          // Set baseline only on first edit to enable compare; push history
+          try { if (!baselinePreview) setBaselinePreview(preview); } catch {}
           // push current preview into versions (history), max 3
           try { setVersions(v => [preview, ...v].slice(0,3)); } catch {}
           setPreview(next);
@@ -397,7 +396,7 @@ export default function Vision(){
 
   const loadLibrary = async () => {
     try{
-      setLoading(true);
+    setLoading(true);
       const tid = await getTenant();
       const cid = (selectedContactId || (clientName ? clientName : 'library')).trim();
       const r = await api.get(`/client-images/list?tenant_id=${encodeURIComponent(tid)}&contact_id=${encodeURIComponent(cid)}`);
@@ -439,15 +438,14 @@ export default function Vision(){
   // revertToLastGood removed from header; history controls remain
 
   return (
-    <div className="space-y-4">
-      {/* Sticky primary action bar */}
+    <div className="space-y-4 overflow-y-auto pb-[calc(var(--bvx-commandbar-height,64px)+env(safe-area-inset-bottom,0px)+12px)] h-full">
+      {/* Simplified header: no loading/error banner */}
       <div className="sticky top-0 z-20 bg-white/80 backdrop-blur border-b border-slate-200">
         <div className="max-w-6xl mx-auto px-2 sm:px-3 py-2 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 text-sm text-slate-600">
             {lastEditAt && (
               <span className="text-slate-500">Last edited {new Date(lastEditAt).toLocaleTimeString()}</span>
             )}
-            <InlineStatus state={loading ? 'loading' : lastError ? 'error' : 'idle'} message={loading ? (output||'Working…') : lastError || ''} onRetry={loading ? undefined : ()=> runEdit(editPrompt)} />
           </div>
           <div className="flex items-center gap-2" />
         </div>
@@ -457,7 +455,7 @@ export default function Vision(){
       <div className="flex flex-col md:flex-row gap-3 items-start pb-16 md:pb-0">
         <div
           ref={dropRef}
-          className="w-full h-64 md:w-64 md:h-64 border rounded-xl bg-white shadow-sm overflow-hidden relative select-none"
+          className="w-full h-[420px] md:h-[460px] border rounded-xl bg-white shadow-sm overflow-hidden relative select-none z-10"
           data-guide="preview"
           onMouseDown={() => setShowBefore(true)}
           onMouseUp={() => setShowBefore(false)}
@@ -476,8 +474,8 @@ export default function Vision(){
           )}
           {preview && (
             <>
-              {/* Base (Before) */}
-              {baselinePreview && (
+              {/* Base (Before) — only after first edit */}
+              {baselinePreview && baselinePreview !== preview && (
                 <img src={baselinePreview} alt="before" className="absolute inset-0 object-contain w-full h-full"/>
               )}
               {/* Overlay (After) */}
@@ -485,9 +483,9 @@ export default function Vision(){
                 src={preview}
                 alt="after"
                 className="absolute inset-0 object-contain w-full h-full"
-                style={baselinePreview ? { clipPath: `inset(0 ${Math.max(0, 100-comparePos)}% 0 0)`, transition: prefersReducedMotion ? undefined : 'clip-path 120ms ease' } : undefined}
+                style={(baselinePreview && baselinePreview !== preview) ? { clipPath: `inset(0 ${Math.max(0, 100-comparePos)}% 0 0)`, transition: prefersReducedMotion ? undefined : 'clip-path 120ms ease' } : undefined}
               />
-              {baselinePreview && (
+              {(baselinePreview && baselinePreview !== preview) && (
                 <div className="absolute left-0 right-0 bottom-1 flex items-center justify-center px-2">
                   <input
                     type="range"
@@ -509,50 +507,48 @@ export default function Vision(){
           )}
         </div>
         <div className="flex-1 space-y-3">
-        <div className="flex gap-2 items-center">
-          <Button variant="outline" onClick={pick} data-guide="upload" aria-label="Upload image">Upload</Button>
-          <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.dng,image/*" className="hidden" onChange={onFile} />
-          <Button variant="outline" disabled={(!b64 && !srcUrl) || loading} onClick={analyze} data-guide="analyze" aria-label="Analyze photo">{loading ? 'Analyzing…' : 'Analyze Photo'}</Button>
-          <Button variant="outline" disabled={(!b64 && !srcUrl) || loading} onClick={()=> runEdit(editPrompt)} data-guide="edit" aria-label="Run edit">{loading ? 'Editing…' : 'Run Edit'}</Button>
-          <Button variant="outline" onClick={() => runEdit(editPrompt)} disabled={!canRun || !lastEditAt} title={!lastEditAt ? 'Run an edit first' : 'Refine using the same prompt'} aria-label="Refine again">
-            Refine again
-          </Button>
-          <div className="flex items-center gap-2 text-xs text-slate-600">
-            <span>Intensity</span>
-            <input type="range" min={10} max={100} value={intensity} onChange={e=> setIntensity(parseInt(e.target.value))} aria-label="Refinement intensity" />
-            <span>{intensity}</span>
-          </div>
-          {/* Import IG temporarily removed */}
-          <div className="flex items-center gap-2 ml-auto">
-            <Button variant="outline" disabled={saving || !preview} onClick={saveToLibrary}>{saving ? 'Saving…' : 'Save to Library'}</Button>
-            <Button variant="outline" disabled={loading} onClick={loadLibrary}>My Images</Button>
-          </div>
-        </div>
-
-          {/* Curated prompt chips (hide during onboarding) */}
-          {!isOnboard && (
-            <div className="mt-1 flex flex-wrap gap-2 text-xs" aria-label="Curated edits">
-              {['Reduce forehead shine','Tame flyaways','Soften background','Sharpen details','Warm tone +5%','Cool tone +5%'].map((sp,i)=>(
-                <Button key={i} variant="outline" size="sm" onClick={()=>{ setEditPrompt(sp); if (canRun) runEdit(sp); }}>{sp}</Button>
-              ))}
+        {false && (
+          <div className="flex gap-2 items-center">
+            <Button variant="outline" onClick={pick} data-guide="upload" aria-label="Upload image">Upload</Button>
+            <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.dng,image/*" className="hidden" onChange={onFile} />
+            <Button variant="outline" disabled={(!b64 && !srcUrl) || loading} onClick={analyze} data-guide="analyze" aria-label="Analyze photo">{loading ? 'Analyzing…' : 'Analyze Photo'}</Button>
+            <Button variant="outline" disabled={(!b64 && !srcUrl) || loading} onClick={()=> runEdit(editPrompt)} data-guide="edit" aria-label="Run edit">{loading ? 'Editing…' : 'Run Edit'}</Button>
+            <Button variant="outline" onClick={() => runEdit(editPrompt)} disabled={!canRun || !lastEditAt} title={!lastEditAt ? 'Run an edit first' : 'Refine using the same prompt'} aria-label="Refine again">
+              Refine again
+            </Button>
+            <div className="flex items-center gap-2 text-xs text-slate-600">
+              <span>Intensity</span>
+              <input type="range" min={10} max={100} value={intensity} onChange={e=> setIntensity(parseInt(e.target.value))} aria-label="Refinement intensity" />
+              <span>{intensity}</span>
             </div>
+            <div className="flex items-center gap-2 ml-auto">
+              <Button variant="outline" disabled={saving || !preview} onClick={saveToLibrary}>{saving ? 'Saving…' : 'Save to Library'}</Button>
+              <Button variant="outline" disabled={loading} onClick={loadLibrary}>My Images</Button>
+            </div>
+          </div>
+        )}
+
+          {false && !isOnboard && (
+            <div className="mt-1 flex flex-wrap gap-2 text-xs" aria-label="Curated edits" />
           )}
 
-          {/* Hair / Eye color quick chips */}
-          <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-            <div className="flex flex-wrap gap-2 items-center">
-              <span className="text-slate-600">Hair:</span>
-              {['copper','espresso brown','platinum blonde','rose gold','jet black'].map(c=> (
-                <Button key={c} variant="outline" size="sm" onClick={()=>{ const p=`Change hair color to ${c}`; setEditPrompt(p); if (canRun) runEdit(p); }}>{c}</Button>
-              ))}
+          {/* Hair / Eye color quick chips — onboarding only */}
+          {isOnboard && (
+            <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+              <div className="flex flex-wrap gap-2 items-center">
+                <span className="text-slate-600">Hair:</span>
+                {['copper','espresso brown','platinum blonde','rose gold','jet black'].map(c=> (
+                  <Button key={c} variant="outline" size="sm" onClick={()=>{ const p=`Change hair color to ${c}`; setEditPrompt(p); if (canRun) runEdit(p); }}>{c}</Button>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-2 items-center">
+                <span className="text-slate-600">Eyes:</span>
+                {['blue','green','hazel','amber','gray'].map(c=> (
+                  <Button key={c} variant="outline" size="sm" onClick={()=>{ const p=`Change eye color to ${c}`; setEditPrompt(p); if (canRun) runEdit(p); }}>{c}</Button>
+                ))}
+              </div>
             </div>
-            <div className="flex flex-wrap gap-2 items-center">
-              <span className="text-slate-600">Eyes:</span>
-              {['blue','green','hazel','amber','gray'].map(c=> (
-                <Button key={c} variant="outline" size="sm" onClick={()=>{ const p=`Change eye color to ${c}`; setEditPrompt(p); if (canRun) runEdit(p); }}>{c}</Button>
-              ))}
-            </div>
-          </div>
+          )}
 
           <textarea
             className="w-full border rounded-md px-3 py-2"
@@ -561,12 +557,8 @@ export default function Vision(){
             onChange={e=>setEditPrompt(e.target.value)}
             placeholder={preview ? 'Type an edit prompt (e.g., “Change hair color to copper”)' : 'Click here to start editing or upload a photo to begin'}
           />
-          {!isOnboard && (
-            <div className="mt-1 flex flex-wrap gap-2 text-xs" aria-label="Starter prompts">
-              {starterPrompts.map((sp, i)=>(
-                <Button key={i} variant="outline" size="sm" onClick={()=> setEditPrompt(sp)}>{sp}</Button>
-              ))}
-            </div>
+          {false && !isOnboard && (
+            <div className="mt-1 flex flex-wrap gap-2 text-xs" aria-label="Starter prompts" />
           )}
           {!isOnboard && recentPrompts.length>0 && (
             <div className="mt-1 flex flex-wrap gap-2 text-xs">
@@ -609,11 +601,11 @@ export default function Vision(){
             </label>
           </div>
           {/* Save/My Images moved to top control row */}
-          {/* Version stack */}
-          {versions.length > 0 && (
+          {/* Version stack (hidden for beta) */}
+          {false && versions.length > 0 && (
             <div className="pt-2">
               <div className="text-xs text-slate-600 mb-1">History</div>
-              <div className="flex gap-2">
+        <div className="flex gap-2">
                 {versions.map((v, i) => (
                   <button key={i} className="relative w-16 h-16 border rounded overflow-hidden hover:ring-2 ring-pink-300" onClick={async ()=>{
                     try {
@@ -638,27 +630,21 @@ export default function Vision(){
               </div>
             </div>
           )}
-          {/* Dimensions chip */}
-          {(origW>0 && currW>0) && (
-            <div className="mt-2 inline-flex items-center gap-2">
-              <div className={`inline-flex items-center text-xs px-2 py-1 rounded border ${origW===currW && origH===currH ? 'bg-green-50 text-green-700 border-green-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
-                <span>{currW}×{currH} {currFmt?.replace('image/','').toUpperCase()}</span>
-                <span className="ml-2">{origW===currW && origH===currH ? 'Preserved' : 'Adjusted'}</span>
-              </div>
-              <div className="inline-flex items-center text-xs px-2 py-1 rounded border bg-white text-slate-700 border-slate-200" title="Canvas fit policy">
-                Policy: <span className="ml-1 font-medium">{policy}</span>
-              </div>
-            </div>
-          )}
+          {/* Dimensions chip hidden */}
+          {false && (origW>0 && currW>0) && (<div />)}
+
+          {/* Controls moved to bottom */}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button variant="outline" onClick={pick} data-guide="upload" aria-label="Upload image">Upload</Button>
+          <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.dng,image/*" className="hidden" onChange={onFile} />
+            <Button variant="outline" disabled={(!b64 && !srcUrl) || loading} onClick={analyze} data-guide="analyze" aria-label="Analyze photo">{loading ? 'Analyzing…' : 'Analyze Photo'}</Button>
+            <Button variant="outline" disabled={(!b64 && !srcUrl) || loading} onClick={()=> runEdit(editPrompt)} data-guide="edit" aria-label="Run edit">{loading ? 'Editing…' : 'Run Edit'}</Button>
+            <Button variant="outline" onClick={() => runEdit(editPrompt)} disabled={!canRun || !lastEditAt} title={!lastEditAt ? 'Run an edit first' : 'Refine using the same prompt'} aria-label="Refine again">Refine again</Button>
+        </div>
         </div>
       </div>
 
-      <div className="border rounded-xl bg-white shadow-sm p-3 min-h-24 whitespace-pre-wrap text-sm">
-        {loading && slowHint && (
-          <div className="mb-1 text-[11px] text-slate-600">This usually finishes in ~3–5s…</div>
-        )}
-        {output}
-      </div>
+      <div className="border rounded-xl bg-white shadow-sm p-3 min-h-24 whitespace-pre-wrap text-sm" style={{ display: output ? 'block' : 'none' }}>{output}</div>
 
       {/* Download original+edited */}
       {preview && (
@@ -679,32 +665,9 @@ export default function Vision(){
               }
             } catch {}
           }}>Download original + edited</Button>
-          <Button variant="outline" size="sm" className="ml-2" onClick={async()=>{
-            try{
-              // Fallback ZIP (simple): open two tabs if ZIP library not present
-              const z = (window as any).JSZip;
-              if (!z) {
-                // No JSZip installed; provide simple dual-download
-                const a1 = document.createElement('a'); a1.href = preview; a1.download = 'edited.png'; document.body.appendChild(a1); a1.click(); document.body.removeChild(a1);
-                if (baselinePreview) { const a2 = document.createElement('a'); a2.href = baselinePreview; a2.download = 'original.png'; document.body.appendChild(a2); a2.click(); document.body.removeChild(a2); }
-                return;
-              }
-              const JSZip = z;
-              const zip = new JSZip();
-              const fetchAsBlob = async (url: string) => { const r = await fetch(url); return await r.blob(); };
-              const eBlob = await fetchAsBlob(preview);
-              zip.file('edited.png', eBlob);
-              if (baselinePreview) {
-                const oBlob = await fetchAsBlob(baselinePreview);
-                zip.file('original.png', oBlob);
-              }
-              const content = await zip.generateAsync({ type: 'blob' });
-              const a = document.createElement('a');
-              a.href = URL.createObjectURL(content);
-              a.download = 'brandvzn-images.zip';
-              document.body.appendChild(a); a.click(); document.body.removeChild(a);
-            }catch{}
-          }}>Download ZIP</Button>
+          {false && (
+            <Button variant="outline" size="sm" className="ml-2">Download ZIP</Button>
+          )}
           {!preview && (
             <Button variant="outline" size="sm" className="ml-2" onClick={async()=>{
               try{

@@ -134,7 +134,7 @@ export default function Ask(){
         return;
       }
       if (t.includes('send') && (t.includes('sms') || t.includes('text'))) {
-        setSmartAction({ label: 'Send a test SMS', tool: 'messages.send', params: { contact_id: 'c_demo', channel: 'sms', body: 'Hi from BrandVX (demo)' } });
+        setSmartAction({ label: 'Send a test SMS', tool: 'messages.send', params: { contact_id: 'c_demo', channel: 'sms', body: 'Hi from brandVX (demo)' } });
         return;
       }
       setSmartAction(null);
@@ -280,7 +280,7 @@ export default function Ask(){
   useEffect(()=>{ try{ if (new URLSearchParams(window.location.search).get('tour')==='1') startGuide('askvx'); } catch {} },[]);
 
   return (
-    <div className={`h-full min-h-0 flex flex-col min-w-0 overflow-x-hidden`}>
+    <div className={`h-full min-h-0 flex flex-col min-w-0 overflow-x-hidden overflow-y-auto pb-[calc(var(--bvx-commandbar-height,64px)+env(safe-area-inset-bottom,0px)+12px)]`}>
       {askIsDemo && (
         <div className="rounded-2xl p-3 border bg-amber-50/80 border-amber-200 text-amber-900">
           <div className="flex flex-wrap items-center gap-2">
@@ -310,30 +310,32 @@ export default function Ask(){
       {/* "This week" section removed */}
       {pageIdx===0 && (
       <div className={`grid ${embedded ? 'grid-cols-3' : 'grid-cols-3'} items-center gap-2 text-sm`} data-guide="toolbar">
-        <div className="flex items-center gap-2" data-guide="history">
-          <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ setHistoryOpen(h=>!h); if (!historyOpen) void loadHistory(); }}>{historyOpen ? 'Hide history' : 'Show history'}</button>
-          <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{
-            try{
-              const tid = await getTenant();
-              const r = await api.post('/ai/chat/session/new', { tenant_id: tid });
-              const sid = String(r?.session_id || ('s_' + Math.random().toString(36).slice(2,10)));
-              localStorage.setItem('bvx_chat_session', sid);
-              setSessionId(sid);
-              setMessages([]);
-              setHistory([]);
-              setInput('');
-              try { track('ask_new_session'); } catch {}
-            } catch { /* fallback is to clear UI only */ setMessages([]); setHistory([]); setInput(''); }
-          }}>New session</button>
-          {/* Sessions button removed */}
-        </div>
+        {/* Hide chat history controls during beta; keep wiring intact */}
+        {false && (
+          <div className="flex items-center gap-2" data-guide="history">
+            <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={()=>{ setHistoryOpen(h=>!h); if (!historyOpen) void loadHistory(); }}>{historyOpen ? 'Hide history' : 'Show history'}</button>
+            <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{
+              try{
+                const tid = await getTenant();
+                const r = await api.post('/ai/chat/session/new', { tenant_id: tid });
+                const sid = String(r?.session_id || ('s_' + Math.random().toString(36).slice(2,10)));
+                localStorage.setItem('bvx_chat_session', sid);
+                setSessionId(sid);
+                setMessages([]);
+                setHistory([]);
+                setInput('');
+                try { track('ask_new_session'); } catch {}
+              } catch { /* fallback is to clear UI only */ setMessages([]); setHistory([]); setInput(''); }
+            }}>New session</button>
+          </div>
+        )}
         <div className="flex items-center">
           <div className="font-semibold" style={{fontFamily:'var(--font-display)', fontSize:'calc(1em + 8px)'}}>Ask VX</div>
         </div>
         <div className="flex items-center justify-end" />
       </div>
       )}
-      {pageIdx===0 && historyOpen && (
+      {false && pageIdx===0 && historyOpen && (
         <div className="rounded-xl bg-white shadow-sm p-3 max-h-40 overflow-auto text-xs text-slate-700 border">
           {history.length === 0 ? <div>No messages yet.</div> : (
             <ul className="space-y-1">
@@ -413,7 +415,7 @@ export default function Ask(){
       )}
       {pageIdx===0 && !embedded && !askIsDemo && (
       <div className="flex flex-wrap gap-2 text-xs">
-        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{ setInput('What can BrandVX do for me? Keep it concise and tailored to beauty pros.'); await Promise.resolve(); void send(); }}>What can BrandVX do?</button>
+        <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{ setInput('What can brandVX do for me? Keep it concise and tailored to beauty pros.'); await Promise.resolve(); void send(); }}>What can brandVX do?</button>
         <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{ setInput('How do I get started? Give me the first 3 actions and where to click.'); await Promise.resolve(); void send(); }}>How do I get started?</button>
         <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{ setInput('What was my revenue for last week?'); await Promise.resolve(); void send(); }}>What was my revenue for last week?</button>
       </div>

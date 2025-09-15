@@ -250,8 +250,8 @@ export default function Inbox(){
           <div className="absolute inset-0 bg-black/20" onClick={()=> setSelected(null)} />
           <div className="absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl border-l p-4">
             <div className="flex items-center justify-between mb-2">
-              <h4 className="font-semibold text-slate-900">Message</h4>
-              <button className="text-slate-500 hover:text-slate-700" onClick={()=> setSelected(null)}>Close</button>
+              <h4 className="font-semibold text-ink-900">Message</h4>
+              <button className="text-slate-600 hover:text-slate-800" onClick={()=> setSelected(null)}>Close</button>
             </div>
             <div className="text-sm text-slate-700 space-y-2">
               <div><span className="text-slate-500">Channel:</span> {selected.channel||'—'}</div>

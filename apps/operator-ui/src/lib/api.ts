@@ -149,10 +149,12 @@ async function request(path: string, options: RequestInit = {}) {
         try {
           const p = window.location.pathname;
           const onAuthPage = p === '/login' || p === '/signup' || p === '/auth/callback';
+          // Treat landing/marketing routes as public and never force redirect from them
+          const onPublicPage = p === '/' || p === '/brandvx' || p.startsWith('/landing') || p.startsWith('/demo');
           const sp = new URLSearchParams(window.location.search);
           const isDemo = sp.get('demo') === '1';
           const isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
-          if (!onAuthPage && !isDemo && !redirectedRecently) {
+          if (!onAuthPage && !onPublicPage && !isDemo && !redirectedRecently) {
             if (!isLocal) {
               try { localStorage.setItem('bvx_auth_return', window.location.href); } catch {}
               try { localStorage.setItem('bvx_last_401_redirect_ts', String(Date.now())); } catch {}
@@ -188,6 +190,13 @@ async function request(path: string, options: RequestInit = {}) {
 export const api = {
   get: (path: string, opts?: RequestInit & { timeoutMs?: number }) => request(path, opts),
   post: (path: string, body: any, opts?: RequestInit & { timeoutMs?: number }) => {
+    try {
+      // Beta switch: route execute -> qa to avoid gating during early trials
+      const beta = (import.meta as any).env?.VITE_BETA_OPEN_TOOLS === '1' || (typeof window !== 'undefined' && localStorage.getItem('bvx_beta_open_tools') === '1');
+      if (beta && typeof path === 'string' && path.startsWith('/ai/tools/execute')) {
+        path = '/ai/tools/qa';
+      }
+    } catch {}
     try {
       // Normalize idempotency_key for tool executions if not provided
       if (typeof path === 'string' && path.startsWith('/ai/tools/execute')) {

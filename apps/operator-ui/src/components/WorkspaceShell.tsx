@@ -613,13 +613,13 @@ export default function WorkspaceShell(){
       </div>
       {showDemoWelcome && (
         <div className="fixed inset-0 z-50 grid place-items-center p-4">
-          <div aria-hidden className="absolute inset-0 bg-black/30" onClick={()=>{ setShowDemoWelcome(false); try{ sessionStorage.setItem('bvx_demo_welcome_seen','1'); }catch{} }} />
-          <div className="relative w-full max-w-md rounded-2xl border bg-white p-5 shadow-xl">
-            <div className="text-slate-900 text-lg font-semibold">Welcome to the BrandVX demo</div>
-            <div className="text-slate-600 text-sm mt-1">We’ll show each panel briefly. Use “Guide me” on any page for a quick walkthrough.</div>
+          <div aria-hidden className="absolute inset-0 bg-black/20" onClick={()=>{ setShowDemoWelcome(false); try{ sessionStorage.setItem('bvx_demo_welcome_seen','1'); }catch{} }} />
+          <div className="relative w-full max-w-md rounded-2xl border border-[var(--border)] bg-white p-5 shadow-soft">
+            <div className="text-ink-900 text-lg font-semibold">Welcome to the BrandVX demo</div>
+            <div className="text-ink-700 text-sm mt-1">We’ll show each panel briefly. Use “Guide me” on any page for a quick walkthrough.</div>
             <div className="mt-4 flex gap-2 justify-end">
-              <button className="rounded-full px-3 py-2 border" onClick={()=>{ setShowDemoWelcome(false); try{ sessionStorage.setItem('bvx_demo_welcome_seen','1'); }catch{} }}>Got it</button>
-              <button className="rounded-full px-3 py-2 bg-slate-900 text-white" onClick={()=>{ try{ sessionStorage.setItem('bvx_demo_welcome_seen','1'); }catch{}; setShowDemoWelcome(false); try{ startGuide('dashboard'); } catch {} }}>Start guide</button>
+              <button className="rounded-xl px-3 py-2 border bg-white hover:bg-slate-50" onClick={()=>{ setShowDemoWelcome(false); try{ sessionStorage.setItem('bvx_demo_welcome_seen','1'); }catch{} }}>Got it</button>
+              <button className="rounded-xl px-3 py-2 bg-slate-900 text-white" onClick={()=>{ try{ sessionStorage.setItem('bvx_demo_welcome_seen','1'); }catch{}; setShowDemoWelcome(false); try{ startGuide('dashboard'); } catch {} }}>Start guide</button>
             </div>
           </div>
         </div>
@@ -634,12 +634,12 @@ export default function WorkspaceShell(){
       )}
       {showWelcome && createPortal(
         <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4" id="bvx-welcome-modal" style={{position:'fixed',top:0,left:0,right:0,bottom:0,zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center'}}>
-          <div aria-hidden className="absolute inset-0 bg-black/30" onClick={async()=>{ setShowWelcome(false); try{ sessionStorage.setItem('bvx_welcome_seen','1'); }catch{}; try{ const tid = localStorage.getItem('bvx_tenant')||''; if (tid) await api.post('/settings', { tenant_id: tid, welcome_seen: true }); }catch{} }} />
-          <div className="relative inline-block max-w-md w-[min(92vw,420px)] rounded-2xl border p-6 shadow-xl text-center bvx-modal-card" style={{ backgroundColor:'#fff' }}>
-            <div className="text-lg font-semibold text-slate-900">Welcome to brandVX</div>
-            <div className="text-slate-700 text-sm mt-1">Let’s briefly walk through your different views.</div>
+          <div aria-hidden className="absolute inset-0 bg-black/20" onClick={async()=>{ setShowWelcome(false); try{ sessionStorage.setItem('bvx_welcome_seen','1'); }catch{}; try{ const tid = localStorage.getItem('bvx_tenant')||''; if (tid) await api.post('/settings', { tenant_id: tid, welcome_seen: true }); }catch{} }} />
+          <div className="relative inline-block max-w-md w=[min(92vw,420px)] rounded-2xl border border-[var(--border)] p-6 shadow-soft text-center bvx-modal-card" style={{ backgroundColor:'#fff' }}>
+            <div className="text-lg font-semibold text-ink-900">Welcome to brandVX</div>
+            <div className="text-ink-700 text-sm mt-1">Let’s briefly walk through your different views.</div>
             <div className="mt-4 flex items-center justify-center">
-              <button className="inline-flex rounded-full px-5 py-2 bg-slate-900 text-white" onClick={async()=>{
+              <button className="inline-flex rounded-xl px-5 py-2 bg-slate-900 text-white" onClick={async()=>{
                 setShowWelcome(false);
                 try{ sessionStorage.setItem('bvx_welcome_seen','1'); }catch{}
                 try{ const tid = localStorage.getItem('bvx_tenant')||''; if (tid) await api.post('/settings', { tenant_id: tid, welcome_seen: true }); }catch{}
@@ -673,7 +673,7 @@ export default function WorkspaceShell(){
                   const shouldHide = sp.get('postVerify') === '1' || sp.get('return') === 'workspace' || localStorage.getItem('bvx_onboarding_done') === '1';
                   if (shouldHide) return null;
                 } catch {}
-                return <a className="ml-2 inline-flex rounded-full px-5 py-2 border bg-white" href="/onboarding">Go to onboarding</a>;
+                return <a className="ml-2 inline-flex rounded-xl px-5 py-2 border bg-white hover:bg-slate-50" href="/onboarding">Go to onboarding</a>;
               })()}
             </div>
           </div>
@@ -681,13 +681,13 @@ export default function WorkspaceShell(){
       }
       {showOnboardingPrompt && createPortal(
         <div className="fixed inset-0 z-[1000] grid place-items-center p-4" id="bvx-onboarding-modal" style={{position:'fixed',top:0,left:0,right:0,bottom:0,zIndex:1000,display:'grid',alignItems:'center',justifyItems:'center'}}>
-          <div aria-hidden className="absolute inset-0 bg-black/30" onClick={()=> setShowOnboardingPrompt(false)} />
-          <div className="relative w-full max-w-md rounded-2xl border bg-white p-6 shadow-xl text-center">
-            <div className="text-lg font-semibold text-slate-900">Let’s set up your Priority WorkStyles</div>
-            <div className="text-slate-700 text-sm mt-1">Full walkthrough will walk the visible sections and show them where to click.</div>
+          <div aria-hidden className="absolute inset-0 bg-black/20" onClick={()=> setShowOnboardingPrompt(false)} />
+          <div className="relative w-full max-w-md rounded-2xl border border-[var(--border)] bg-white p-6 shadow-soft text-center">
+            <div className="text-lg font-semibold text-ink-900">Let’s set up your Priority WorkStyles</div>
+            <div className="text-ink-700 text-sm mt-1">Full walkthrough will walk the visible sections and show them where to click.</div>
             <div className="mt-4 grid gap-2">
-              <a className="rounded-full px-5 py-2 text-white bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600" href="/workspace?pane=workflows">Open WorkStyles</a>
-              <button className="rounded-full px-5 py-2 border" onClick={()=> setShowOnboardingPrompt(false)}>Later</button>
+              <a className="rounded-xl px-5 py-2 text-white bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600" href="/workspace?pane=workflows">Open WorkStyles</a>
+              <button className="rounded-xl px-5 py-2 border bg-white hover:bg-slate-50" onClick={()=> setShowOnboardingPrompt(false)}>Later</button>
             </div>
           </div>
         </div>, document.body)
@@ -696,9 +696,9 @@ export default function WorkspaceShell(){
       {billingOpen && (
         <div className="fixed inset-0 z-50 grid place-items-center p-4">
           <div aria-hidden className="absolute inset-0 bg-black/20" onClick={()=>{ setBillingOpen(false); try{ localStorage.setItem('bvx_billing_dismissed','1'); }catch{} }} />
-          <div className="relative w-full max-w-md rounded-2xl border bg-white p-5 shadow-xl">
-            <div className="text-slate-900 text-lg font-semibold">Start your BrandVX</div>
-            <div className="text-slate-600 text-sm mt-1">Choose a plan to unlock your workspace. You can change anytime.</div>
+          <div className="relative w-full max-w-md rounded-2xl border border-[var(--border)] bg-white p-5 shadow-soft">
+            <div className="text-ink-900 text-lg font-semibold">Start your BrandVX</div>
+            <div className="text-ink-700 text-sm mt-1">Choose a plan to unlock your workspace. You can change anytime.</div>
             <div className="mt-4 grid gap-2">
               <button disabled={billingLoading} onClick={async()=>{
                 try { track('billing_trial_click'); } catch {}
@@ -725,9 +725,9 @@ export default function WorkspaceShell(){
                 <div className="font-medium">$97 today → $97/mo (Founding price)</div>
                 <div className="text-slate-600 text-xs">Lock in $97/mo now; recurring thereafter.</div>
               </button>
-              <button className="w-full rounded-xl border bg-white px-4 py-2 text-sm" onClick={()=>{ setBillingOpen(false); try{ localStorage.setItem('bvx_billing_dismissed','1'); }catch{} }}>Skip for now</button>
+              <button className="w-full rounded-xl border bg-white hover:bg-slate-50 px-4 py-2 text-sm" onClick={()=>{ setBillingOpen(false); try{ localStorage.setItem('bvx_billing_dismissed','1'); }catch{} }}>Skip for now</button>
             </div>
-            <div className="text-[11px] text-slate-500 mt-2">Status: {billingStatus||'unavailable'}</div>
+            <div className="text-[11px] text-ink-700 mt-2">Status: {billingStatus||'unavailable'}</div>
           </div>
         </div>
       )}
@@ -735,9 +735,9 @@ export default function WorkspaceShell(){
       {trialModalOpen && (
         <div className="fixed inset-0 z-[1100] grid place-items-center p-4">
           <div aria-hidden className="absolute inset-0 bg-black/20" onClick={()=> setTrialModalOpen(false)} />
-          <div className="relative w-full max-w-md rounded-2xl border bg-white p-5 shadow-xl">
-            <div className="text-slate-900 text-lg font-semibold">Trial active</div>
-            <div className="text-slate-600 text-sm mt-1">{trialDaysLeft} day{trialDaysLeft===1?'':'s'} until payment of $147 is required.</div>
+          <div className="relative w-full max-w-md rounded-2xl border border-[var(--border)] bg-white p-5 shadow-soft">
+            <div className="text-ink-900 text-lg font-semibold">Trial active</div>
+            <div className="text-ink-700 text-sm mt-1">{trialDaysLeft} day{trialDaysLeft===1?'':'s'} until payment of $147 is required.</div>
             <div className="mt-3 flex gap-2 justify-end">
               <Button variant="outline" onClick={()=> setTrialModalOpen(false)}>Close</Button>
               <Button onClick={()=>{ setTrialModalOpen(false); nav('/billing'); }}>Add payment</Button>
@@ -748,10 +748,10 @@ export default function WorkspaceShell(){
       {/* Trial ended modal (soft gate) */}
       {trialEndedOpen && (
         <div className="fixed inset-0 z-[1200] grid place-items-center p-4">
-          <div aria-hidden className="absolute inset-0 bg-black/30" />
-          <div className="relative w-full max-w-md rounded-2xl border bg-white p-5 shadow-xl text-center">
-            <div className="text-slate-900 text-lg font-semibold">Trial ended</div>
-            <div className="text-slate-600 text-sm mt-1">Add payment method to access your brandVX!</div>
+          <div aria-hidden className="absolute inset-0 bg-black/20" />
+          <div className="relative w-full max-w-md rounded-2xl border border-[var(--border)] bg-white p-5 shadow-soft text-center">
+            <div className="text-ink-900 text-lg font-semibold">Trial ended</div>
+            <div className="text-ink-700 text-sm mt-1">Add payment method to access your brandVX!</div>
             <div className="mt-3 flex gap-2 justify-center">
               <Button onClick={()=> nav('/billing')}>Add payment</Button>
               <Button variant="outline" onClick={()=> setTrialEndedOpen(false)}>Later</Button>

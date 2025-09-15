@@ -75,8 +75,8 @@ export default function ShareCard({ open, onOpenChange, url, title = 'Share', ca
   const sms = `sms:&body=${encodeURIComponent(`${caption ? caption + '\n' : ''}${url}`)}`;
   const mail = `mailto:?subject=${encodeURIComponent(title)}&body=${encodeURIComponent(`${caption ? caption + '\n\n' : ''}${url}`)}`;
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center" style={{background:'rgba(15,23,42,0.45)'}} onClick={()=> onOpenChange(false)}>
-      <div className="w-[92vw] max-w-md rounded-2xl bg-white shadow-xl border" onClick={e=> e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/20" onClick={()=> onOpenChange(false)}>
+      <div className="w-[min(92vw,420px)] rounded-2xl bg-white shadow-soft border border-[var(--border)]" onClick={e=> e.stopPropagation()}>
         <div className="px-4 pt-4 pb-2">
           <div className="text-slate-900 font-semibold">{title}</div>
           <div className="text-slate-600 text-sm mt-1">Share this moment with your audience.</div>
