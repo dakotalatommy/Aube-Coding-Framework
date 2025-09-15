@@ -348,19 +348,8 @@ async def tool_image_edit(
     except Exception:
         data_b64 = ""
     if not data_b64:
-        # Fallback: try Vertex Images (Gemini 2.5 Flash Image) if configured
-        try:
-            inline = await _vertex_try_image_edit(img_obj, prompt, preserve)
-        except Exception as e:
-            inline = {"error": f"vertex_exception:{str(e)[:120]}"}
-        if inline and inline.get("data"):
-            data_b64 = inline["data"]
-            mime = inline.get("mime", "image/png")
-        else:
-            # Bubble up vertex error details if present for debugging
-            if isinstance(inline, dict) and inline.get("error"):
-                return {"status": "error", "detail": inline.get("error"), "body": inline.get("body"), "rid": inline.get("rid")}
-            return {"status": "error", "detail": "no_image_returned"}
+        # Do NOT fallback to Vertex. Force Gemini-only path.
+        return {"status": "error", "detail": "no_image_returned"}
     # Enforce original dimensions if requested and we know them
     if preserve and orig_w and orig_h and _PILImage is not None:
         try:

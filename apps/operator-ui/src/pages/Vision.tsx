@@ -350,7 +350,20 @@ export default function Vision(){
         try { window.clearTimeout(slowTimer); } catch {}
       } else {
         const friendly = humanizeError(r);
-        setOutput(friendly);
+        // Surface exact backend error details to aid debugging (status/detail/body/rid)
+        try {
+          const rawDetail = String(r?.detail || r?.message || r?.status || '');
+          const extra = [
+            rawDetail ? `detail: ${rawDetail}` : '',
+            r?.rid ? `rid: ${String(r.rid)}` : '',
+            r?.content_type ? `type: ${String(r.content_type)}` : '',
+          ].filter(Boolean).join(' | ');
+          const body = String(r?.body || '');
+          const snippet = body ? `\n${body.slice(0, 400)}` : '';
+          setOutput(`${friendly}${extra ? `\n(${extra})` : ''}${snippet}`);
+        } catch {
+          setOutput(friendly);
+        }
         setLastError(friendly);
         try {
           const detail = String((r?.detail||r?.status||'')||'').toLowerCase();
@@ -364,7 +377,14 @@ export default function Vision(){
           }
         } catch {}
       }
-    } catch(e:any){ try { Sentry.captureException(e); } catch {}; const friendly = humanizeError(e); setOutput(String(friendly||e?.message||e)); setLastError(friendly);
+    } catch(e:any){ try { Sentry.captureException(e); } catch {}; const friendly = humanizeError(e);
+      try {
+        const rawDetail = String(e?.detail || e?.status || e?.message || '');
+        setOutput(`${friendly}${rawDetail ? `\n(detail: ${rawDetail.slice(0,200)})` : ''}`);
+      } catch {
+        setOutput(String(friendly||e?.message||e));
+      }
+      setLastError(friendly);
       try {
         const detail = String((e?.detail||e?.status||e?.message||'')||'').toLowerCase();
         if (detail.includes('subscription_required') || friendly.toLowerCase().includes('subscription')) {
