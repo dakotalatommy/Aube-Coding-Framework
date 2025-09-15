@@ -646,7 +646,6 @@ def _sum_counter(counter) -> int:
         return int(total)
     except Exception:
         return 0
-
 # Restrictive CORS (configurable)
 # Include production app origins by default to avoid CORS failures after first deploy
 cors_default = (
@@ -1285,8 +1284,6 @@ class UsageLimitUpsert(BaseModel):
     ai_daily_cents_cap: Optional[int] = None
     ai_monthly_cents_cap: Optional[int] = None
     messages_daily_cap: Optional[int] = None
-
-
 def _run_insights_aggregate_tick(db: Session) -> None:
     """Lightweight anonymized aggregator writing to ai_global_insights.
     Uses k-anonymity (k>=5) by dropping small buckets; adds ±1 jitter to counts.
@@ -2517,8 +2514,6 @@ def _oauth_exchange_token(provider: str, code: str, redirect_uri: str, code_veri
     except Exception:
         return {}
     return {}
-
-
 def _oauth_refresh_token(provider: str, refresh_token: str, redirect_uri: str) -> Dict[str, object]:
     """Refresh access token using provider-specific endpoints. Returns {} on failure."""
     try:
@@ -4278,8 +4273,6 @@ def ai_memories_upsert(req: MemoryUpsertRequest, db: Session = Depends(get_db), 
         return {"status": "ok"}
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
-
-
 @app.get("/ai/memories/list", tags=["AI"])
 def ai_memories_list(tenant_id: str, limit: int = 20, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
@@ -4765,12 +4758,13 @@ async def ai_tool_execute(
     # and remove per-request tenant mismatch flakiness across devices.
     req.tenant_id = ctx.tenant_id
     try:
-        # Subscription/trial gating for protected actions
+        # Subscription/trial gating for protected actions (Beta toggle supported)
         try:
+            BETA_OPEN = (os.getenv("BETA_OPEN_TOOLS", "0") or "0").strip() == "1"
             # Lightweight allowlist of always-safe tools
             SAFE_TOOLS = {"report.generate.csv","db.query.sql","db.query.named","safety_check","pii.audit","image.edit","vision.analyze.gpt5","brand.vision.analyze"}
             risky = req.name not in SAFE_TOOLS
-            if risky and ctx.role != "owner_admin":
+            if (not BETA_OPEN) and risky and ctx.role != "owner_admin":
                 # Read latest settings and honor seeded trial
                 row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == ctx.tenant_id).first()
                 data = {}
@@ -4787,6 +4781,25 @@ async def ai_tool_execute(
                             status = "trialing"
                     except Exception:
                         status = status or ""
+                # Optional hardening: auto-seed a trial once during beta rollout
+                if status not in {"active","trialing"}:
+                    try:
+                        if (os.getenv("BETA_TRIAL_AUTOSEED", "1") or "1").strip() == "1":
+                            now = int(_time.time())
+                            new_data = dict(data or {})
+                            new_data["subscription_status"] = "trialing"
+                            new_data.setdefault("trial_end_ts", now + 7*86400)
+                            if not row:
+                                db.add(dbm.Settings(tenant_id=ctx.tenant_id, data_json=json.dumps(new_data)))
+                            else:
+                                row.data_json = json.dumps(new_data)
+                            db.commit()
+                            status = "trialing"
+                    except Exception:
+                        try:
+                            db.rollback()
+                        except Exception:
+                            pass
                 if status not in {"active","trialing"}:
                     return {"status":"payment_required","detail":"Add payment method to continue"}
         except Exception:
@@ -4886,7 +4899,24 @@ async def ai_tool_execute(
             allow = set(context_allowlist(mode))
             if allow and req.name not in allow:
                 return {"status": "forbidden", "reason": "tool_not_allowed_in_mode", "mode": mode}
-        result = await execute_tool(req.name, dict(req.params or {}), db, ctx)
+        # Execute with one-time retry for transient DB disconnects
+        try:
+            result = await execute_tool(req.name, dict(req.params or {}), db, ctx)
+        except Exception as _exec_err:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            err_s = str(_exec_err)
+            if any(k in err_s for k in ["OperationalError","SSL connection has been closed","psycopg2"]):
+                try:
+                    with engine.begin() as _probe_conn:
+                        _probe_conn.execute(_sql_text("SELECT 1"))
+                except Exception:
+                    pass
+                result = await execute_tool(req.name, dict(req.params or {}), db, ctx)
+            else:
+                raise
         # Normalize return shape minimally
         if not isinstance(result, dict) or "status" not in result:
             result = {"status": str(result)} if not isinstance(result, dict) else {**result, "status": result.get("status", "ok")}
@@ -5575,7 +5605,6 @@ def surface_share_prompt(
         {"tenant_id": req.tenant_id, "kind": req.kind},
     )
     return {"status": "ok"}
-
 class SettingsRequest(BaseModel):
     tenant_id: str
     tone: Optional[str] = None
@@ -6224,8 +6253,6 @@ def ui_contract() -> Dict[str, object]:
             "AIToolExecuted",
         ],
     }
-
-
 class ProviderWebhook(BaseModel):
     tenant_id: str
     payload: Dict[str, object] = {}
@@ -8200,8 +8227,6 @@ def provision_creator(
 class CacheClearRequest(BaseModel):
     tenant_id: str
     scope: Optional[str] = "all"  # all | inbox | inventory | calendar
-
-
 @app.post("/admin/cache/clear", tags=["Admin"])
 def admin_cache_clear(req: CacheClearRequest, ctx: UserContext = Depends(get_user_context)) -> Dict[str, Any]:
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
@@ -8848,8 +8873,6 @@ def get_funnel_daily(
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"days": days, "series": []}
     return funnel_daily_series(db, tenant_id, days)
-
-
 @app.get("/docs/checklist", tags=["Health"])
 def get_checklist_doc() -> Dict[str, str]:
     try:
@@ -10716,8 +10739,6 @@ def curation_decide(req: CurationDecisionRequest, db: Session = Depends(get_db),
     db.commit()
     emit_event("ClientCurated", {"tenant_id": req.tenant_id, "client_id": req.client_id, "decision": req.decision})
     return {"status": "ok"}
-
-
 class CurationUndoRequest(BaseModel):
     tenant_id: str
     client_id: str
