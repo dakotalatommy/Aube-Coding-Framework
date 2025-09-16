@@ -48,12 +48,6 @@ export default function Contacts(){
     } catch { return 'Client'; }
   };
 
-  const run = async (fn: ()=>Promise<any>) => {
-    try{ setBusy(true); const r = await fn(); setStatus(JSON.stringify(r)); }
-    catch(e:any){ setStatus(String(e?.message||e)); }
-    finally { setBusy(false); }
-  };
-
   // Removed consent/faq fetch; section no longer shown
   useEffect(()=>{ try{ const sp = new URLSearchParams(window.location.search); if (sp.get('tour')==='1') startGuide('contacts'); } catch {} },[]);
 
@@ -87,17 +81,17 @@ export default function Contacts(){
   // Removed contact search side panel; keeping list-only for clarity
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center px-1 py-1">
+    <div className="space-y-2">
+      <div className="flex items-center px-1 py-0.5">
         <h3 className="text-lg font-semibold">Clients</h3>
+        <Button variant="outline" className="ml-auto" onClick={()=> startGuide('contacts')}>{UI_STRINGS.ctas.tertiary.guideMe}</Button>
       </div>
       <div className="grid gap-4">
         {/* Who to reach out to */}
         {/* Removed old import/HubSpot section per spec */}
 
         <section className="border rounded-xl p-3 bg-white shadow-sm" data-guide="list">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="font-semibold">Clients</div>
+          <div className="flex items-center gap-1 mb-1">
             <Button variant="outline" size="sm" disabled={busy || importing} onClick={async()=>{
               if (isDemo) { setStatus('Demo: import disabled.'); return; }
               try{
@@ -224,8 +218,8 @@ export default function Contacts(){
                             const draft = `Hi ${name}! ${recency}I have a couple openings coming up and thought of you. Want me to send a few times?`;
                             try{ await navigator.clipboard.writeText(draft); } catch {}
                             // Best effort: try to fetch phone via search (may be masked in this environment)
-                            try{
-                              const tid = await getTenant();
+                          try{
+                            const tid = await getTenant();
                               const s = await api.get(`/contacts/search?tenant_id=${encodeURIComponent(tid)}&q=${encodeURIComponent(r.contact_id)}&limit=1`);
                               const phone = String((s?.items||[])[0]?.phone||'').trim();
                               if (phone) { try{ await navigator.clipboard.writeText(phone); showToast({ title:'Phone copied' }); } catch {} }
@@ -238,8 +232,8 @@ export default function Contacts(){
                           try{
                             // Try to fetch email (may be masked); copy if present
                             let copied = false;
-                            try{
-                              const tid = await getTenant();
+                          try{
+                            const tid = await getTenant();
                               const s = await api.get(`/contacts/search?tenant_id=${encodeURIComponent(tid)}&q=${encodeURIComponent(r.contact_id)}&limit=1`);
                               const email = String((s?.items||[])[0]?.email||'').trim();
                               if (email) { await navigator.clipboard.writeText(email); copied = true; }
@@ -259,8 +253,8 @@ export default function Contacts(){
                 ))}
                 {items.length===0 && (
                   <tr><td className="px-2 py-2" colSpan={7}>
-                    <div className="max-w-md"><EmptyState title="No clients yet" description="Import from booking or CRM to see clients here.">
-                      <Button variant="outline" size="sm" onClick={()=>{ if (isDemo){ setStatus('Demo: import disabled'); return; } void run(async()=> api.post('/calendar/sync',{ tenant_id: await getTenant(), provider: 'auto' })); }}>Import from booking</Button>
+                    <div className="max-w-md"><EmptyState title="No clients yet" description="Import from Booking to see clients here.">
+                      
                       <Button variant="outline" size="sm" onClick={()=> startGuide('contacts')}>{UI_STRINGS.ctas.tertiary.guideMe}</Button>
                     </EmptyState></div>
                   </td></tr>

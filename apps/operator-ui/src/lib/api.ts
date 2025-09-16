@@ -198,18 +198,24 @@ export const api = {
       }
     } catch {}
     try {
-      // Normalize idempotency_key for tool executions if not provided
+      // Disable idempotency for vision tools to avoid false "duplicate" errors in UI
       if (typeof path === 'string' && path.startsWith('/ai/tools/execute')) {
         const b = (body||{}) as any;
-        if (!b.idempotency_key) {
-          const tid = (typeof window !== 'undefined' ? (localStorage.getItem('bvx_tenant')||'') : '') || 'anon';
-          const name = String(b?.name||'tool');
-          const paramsStr = JSON.stringify(b?.params||{});
-          let hash = 0;
-          for (let i = 0; i < paramsStr.length; i++) { hash = ((hash << 5) - hash + paramsStr.charCodeAt(i)) | 0; }
-          const bucket = Math.floor(Date.now() / 10000); // 10s bucket
-          b.idempotency_key = `${tid}:${name}:${hash}:${bucket}`;
+        const toolName = String(b?.name || '');
+        const skipIdempotency = toolName === 'image.edit' || toolName === 'vision.analyze.gpt5' || toolName === 'brand.vision.analyze';
+        if (skipIdempotency) {
+          if (b && b.idempotency_key) delete b.idempotency_key;
           body = b;
+        } else {
+          if (b && !b.idempotency_key) {
+            const tid = (typeof window !== 'undefined' ? (localStorage.getItem('bvx_tenant')||'') : '') || 'anon';
+            const paramsStr = JSON.stringify(b?.params||{});
+            let hash = 0;
+            for (let i = 0; i < paramsStr.length; i++) { hash = ((hash << 5) - hash + paramsStr.charCodeAt(i)) | 0; }
+            const bucket = Math.floor(Date.now() / 10000); // 10s bucket
+            b.idempotency_key = `${tid}:${toolName||'tool'}:${hash}:${bucket}`;
+            body = b;
+          }
         }
       }
     } catch {}

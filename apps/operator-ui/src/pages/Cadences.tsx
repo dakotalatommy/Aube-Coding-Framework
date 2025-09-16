@@ -11,6 +11,7 @@ import { Table, THead, TR, TH, TD } from '../components/ui/Table';
 import { useToast } from '../components/ui/Toast';
 
 export default function Cadences(){
+  const SHOW_WAITLIST = false;
   const loc = useLocation();
   const isDemo = new URLSearchParams(loc.search).get('demo') === '1';
   const [status, setStatus] = useState('');
@@ -180,7 +181,7 @@ export default function Cadences(){
         </section>
         )}
 
-        {tab==='actions' && (
+        {tab==='actions' && SHOW_WAITLIST && (
         <section className="border rounded-xl p-3 bg-white shadow-sm">
           <div className="font-semibold mb-2">Check waitlist</div>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">

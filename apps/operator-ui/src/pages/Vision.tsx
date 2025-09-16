@@ -22,9 +22,6 @@ export default function Vision(){
   // const [contactId, setContactId] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [preserveDims, setPreserveDims] = useState<boolean>(true);
-  const [policy, setPolicy] = useState<'pad'|'crop'|'scale-down'>(()=>{
-    try { return (localStorage.getItem('bvx_vision_policy') as any) || 'pad'; } catch { return 'pad'; }
-  });
   const [saving, setSaving] = useState(false);
   const [lastEditAt, setLastEditAt] = useState<number | null>(null);
   const [baselinePreview, setBaselinePreview] = useState<string>(''); // input used for last edit
@@ -42,7 +39,6 @@ export default function Vision(){
   const [objectUrl, setObjectUrl] = useState<string>('');
   const [_lastError, setLastError] = useState<string>('');
   // const [errorRaw, setErrorRaw] = useState<any>(null);
-  const [recentPrompts, setRecentPrompts] = useState<string[]>([]);
   // starter prompt seeds removed from UI
 
   const [clientName, setClientName] = useState<string>('');
@@ -65,11 +61,9 @@ export default function Vision(){
     return ()=> clearTimeout(t);
   }, [clientName]);
 
-  // Hydrate recent prompts/history from localStorage
+  // Hydrate history from localStorage
   useEffect(()=>{
     try {
-      const p = JSON.parse(localStorage.getItem('bvx_vision_prompts') || '[]');
-      if (Array.isArray(p)) setRecentPrompts(p.slice(0,5));
       const hist = JSON.parse(localStorage.getItem('bvx_vision_history') || '[]');
       if (Array.isArray(hist) && hist.length) setVersions(hist.slice(0,3));
     } catch {}
@@ -98,25 +92,21 @@ export default function Vision(){
         const r = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
         const v = (r?.data?.vision || {}) as any;
         if (typeof v?.preserve_dims === 'boolean') setPreserveDims(!!v.preserve_dims);
-        if (typeof v?.policy === 'string') setPolicy((v.policy as any) || 'pad');
       } catch{}
       try{
         const ls = localStorage.getItem('bvx_preserve_dims');
         if (ls != null) setPreserveDims(ls === '1');
-        const pol = localStorage.getItem('bvx_vision_policy');
-        if (pol) setPolicy((pol as any));
       } catch{}
     })();
   }, []);
 
-  const persistPrefs = async (nextPreserve = preserveDims, nextPolicy = policy) => {
+  const persistPrefs = async (nextPreserve = preserveDims) => {
     try{
       const tid = await getTenant();
-      await api.post('/settings', { tenant_id: tid, vision: { preserve_dims: nextPreserve, policy: nextPolicy } });
+      await api.post('/settings', { tenant_id: tid, vision: { preserve_dims: nextPreserve } });
     } catch {}
     try{
       localStorage.setItem('bvx_preserve_dims', nextPreserve ? '1' : '0');
-      localStorage.setItem('bvx_vision_policy', nextPolicy);
     } catch {}
   };
   // const [tryPrimary] = useState<string>('Soft glam: satin skin; neutral-peach blush; soft brown wing; keep freckles.');
@@ -277,7 +267,7 @@ export default function Vision(){
       const r = await api.post('/ai/tools/execute', {
         tenant_id: await getTenant(),
         name: 'image.edit',
-        params: { tenant_id: await getTenant(), mode: 'edit', prompt: `${p}\nRefinement intensity: ${intensity}/100.${notes?`\nAdditional notes: ${notes}`:''}\nCanvas policy: ${policy}.`, ...(b64?{ inputImageBase64: b64, inputMime: mime }:{ imageUrl: srcUrl }), outputFormat: 'png', preserveDims },
+        params: { tenant_id: await getTenant(), mode: 'edit', prompt: `${p}\nRefinement intensity: ${intensity}/100.${notes?`\nAdditional notes: ${notes}`:''}`, ...(b64?{ inputImageBase64: b64, inputMime: mime }:{ imageUrl: srcUrl }), outputFormat: 'png', preserveDims },
         require_approval: false,
       });
       if (r?.data_url || r?.preview_url) {
@@ -329,19 +319,12 @@ export default function Vision(){
           el?.setAttribute?.('data-vision-lastedit', String(Date.now()));
         } catch {}
         // Persist prompt and history
-        try {
-          setRecentPrompts(pv => {
-            const arr = [p, ...pv.filter(x => x !== p)].slice(0,5);
-            localStorage.setItem('bvx_vision_prompts', JSON.stringify(arr));
-            return arr;
-          });
-          setVersions(v => { localStorage.setItem('bvx_vision_history', JSON.stringify(v)); return v; });
-        } catch {}
+        try { setVersions(v => { localStorage.setItem('bvx_vision_history', JSON.stringify(v)); return v; }); } catch {}
         setOutput('Edit complete.');
         try { setLastEditAt(Date.now()); } catch {}
         try {
           const ms = Math.round((performance.now ? performance.now() : Date.now()) - t0);
-          trackEvent('vision.run_edit', { ms, preserveDims, policy, mime: mime||'', intensity });
+          trackEvent('vision.run_edit', { ms, preserveDims, mime: mime||'', intensity });
           if (ms > 8000) {
             try { Sentry.captureMessage('vision.run_edit.slow', { level: 'warning' } as any); } catch {}
           }
@@ -570,22 +553,23 @@ export default function Vision(){
             </div>
           )}
 
-          <textarea
-            className="w-full border rounded-md px-3 py-2"
-            rows={3}
-            value={editPrompt}
-            onChange={e=>setEditPrompt(e.target.value)}
-            placeholder={preview ? 'Type an edit prompt (e.g., “Change hair color to copper”)' : 'Click here to start editing or upload a photo to begin'}
-          />
+          <div className="flex items-start gap-3">
+            <textarea
+              className="w-full border rounded-md px-3 py-2"
+              rows={3}
+              value={editPrompt}
+              onChange={e=>setEditPrompt(e.target.value)}
+              placeholder={preview ? 'Type an edit prompt (e.g., “Change hair color to copper”)' : 'Click here to start editing or upload a photo to begin'}
+            />
+            <div className="shrink-0 flex flex-col gap-2">
+              <Button variant="outline" onClick={pick} data-guide="upload" aria-label="Upload image">Upload</Button>
+              <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.dng,image/*" className="hidden" onChange={onFile} />
+              <Button variant="outline" disabled={(!b64 && !srcUrl) || loading} onClick={analyze} data-guide="analyze" aria-label="Analyze photo">{loading ? 'Analyzing…' : 'Analyze Photo'}</Button>
+              <Button variant="outline" disabled={(!b64 && !srcUrl) || loading} onClick={()=> runEdit(editPrompt)} data-guide="edit" aria-label="Run edit">{loading ? 'Editing…' : 'Run Edit'}</Button>
+            </div>
+          </div>
           {false && !isOnboard && (
             <div className="mt-1 flex flex-wrap gap-2 text-xs" aria-label="Starter prompts" />
-          )}
-          {!isOnboard && recentPrompts.length>0 && (
-            <div className="mt-1 flex flex-wrap gap-2 text-xs">
-              {recentPrompts.map((rp,i)=> (
-                <button key={i} className="px-2 py-1 rounded border bg-white hover:bg-slate-50" onClick={()=> setEditPrompt(rp)}>{rp.slice(0,80)}</button>
-              ))}
-            </div>
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-2 items-end">
@@ -605,19 +589,8 @@ export default function Vision(){
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <label className="inline-flex items-center gap-2" title="Keep output size the same as the original">
-              <input type="checkbox" checked={preserveDims} onChange={async e=>{ const v=e.target.checked; setPreserveDims(v); await persistPrefs(v, policy); }} aria-label="Preserve original dimensions"/>
+              <input type="checkbox" checked={preserveDims} onChange={async e=>{ const v=e.target.checked; setPreserveDims(v); await persistPrefs(v); }} aria-label="Preserve original dimensions"/>
               <span className="text-xs text-slate-600">Preserve Original Dimensions</span>
-            </label>
-            <label className="inline-flex items-center gap-2" title="How to fit the canvas when sizes differ">
-              <span className="text-xs text-slate-600">Policy</span>
-              <select className="text-xs border rounded-md px-2 py-1 bg-white"
-                value={policy}
-                onChange={async e=>{ const v=e.target.value as any; setPolicy(v); await persistPrefs(preserveDims, v); }}
-                aria-label="Canvas policy">
-                <option value="pad">Pad</option>
-                <option value="crop">Crop</option>
-                <option value="scale-down">Scale‑down</option>
-              </select>
             </label>
           </div>
           {/* Save/My Images moved to top control row */}
@@ -654,13 +627,7 @@ export default function Vision(){
           {false && (origW>0 && currW>0) && (<div />)}
 
           {/* Controls moved to bottom */}
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Button variant="outline" onClick={pick} data-guide="upload" aria-label="Upload image">Upload</Button>
-          <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.dng,image/*" className="hidden" onChange={onFile} />
-            <Button variant="outline" disabled={(!b64 && !srcUrl) || loading} onClick={analyze} data-guide="analyze" aria-label="Analyze photo">{loading ? 'Analyzing…' : 'Analyze Photo'}</Button>
-            <Button variant="outline" disabled={(!b64 && !srcUrl) || loading} onClick={()=> runEdit(editPrompt)} data-guide="edit" aria-label="Run edit">{loading ? 'Editing…' : 'Run Edit'}</Button>
-            <Button variant="outline" onClick={() => runEdit(editPrompt)} disabled={!canRun || !lastEditAt} title={!lastEditAt ? 'Run an edit first' : 'Refine using the same prompt'} aria-label="Refine again">Refine again</Button>
-        </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2" />
         </div>
       </div>
 
