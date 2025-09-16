@@ -6853,6 +6853,8 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
             _env("FACEBOOK_CLIENT_ID"), _env("INSTAGRAM_CLIENT_ID"), _env("GOOGLE_CLIENT_ID"), _env("SHOPIFY_CLIENT_ID")
         ]) else "connected"
         # Set RLS GUCs as early as possible so all DB writes honor tenant policies
+        update_count = 0
+        inserted = False
         try:
             CURRENT_TENANT_ID.set(t_id)
             CURRENT_ROLE.set("owner_admin")
@@ -6931,12 +6933,11 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
             if scopes_str: set_parts.append("scopes=:sc")
             upd = f"UPDATE connected_accounts_v2 SET {', '.join(set_parts)} WHERE tenant_id = CAST(:t AS uuid) AND provider = :prov"
             res = db.execute(_sql_text(upd), params)
-            saved = False
             try:
-                saved = bool(getattr(res, 'rowcount', 0) and int(res.rowcount) > 0)
+                update_count = int(getattr(res, "rowcount", 0) or 0)
             except Exception:
-                saved = False
-            if not saved:
+                update_count = 0
+            if update_count == 0:
                 cols = ["tenant_id","provider","status","connected_at"]
                 vals = ["CAST(:t AS uuid)",":prov",":st","NOW()"]
                 if params["at"]: cols.append("access_token_enc"); vals.append(":at")
@@ -6945,6 +6946,7 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 if scopes_str: cols.append("scopes"); vals.append(":sc")
                 ins = f"INSERT INTO connected_accounts_v2 ({', '.join(cols)}) VALUES ({', '.join(vals)})"
                 db.execute(_sql_text(ins), params)
+                inserted = True
             try:
                 db.commit()
             except Exception:
@@ -6957,6 +6959,17 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 saved_token_write = bool(params.get("at"))
             except Exception:
                 saved_token_write = False
+            try:
+                emit_event("OauthTokenUpsert", {
+                    "tenant_id": t_id,
+                    "provider": provider,
+                    "updated": update_count,
+                    "inserted": bool(inserted),
+                    "exchange_ok": bool(exchange_ok),
+                    "has_token": bool(params.get("at")),
+                })
+            except Exception:
+                pass
         except Exception as e:
             try:
                 db.rollback()
@@ -6965,6 +6978,14 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
             # Record DB insert error for fast diagnosis
             try:
                 _safe_audit_log(db, tenant_id=t_id, actor_id="system", action=f"oauth.connect_failed.{provider}", entity_ref="oauth", payload=str({"db_error": str(e)[:300], "tenant": t_id}))
+            except Exception:
+                pass
+            try:
+                emit_event("OauthTokenUpsertFailed", {
+                    "tenant_id": t_id,
+                    "provider": provider,
+                    "error": str(e)[:200],
+                })
             except Exception:
                 pass
         # Emit explicit event about save attempt

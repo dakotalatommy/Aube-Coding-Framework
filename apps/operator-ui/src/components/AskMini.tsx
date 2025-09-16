@@ -55,7 +55,7 @@ export default function AskMini(){
         <textarea ref={textareaRef} className="flex-1 border rounded-md px-2 py-1 text-sm" rows={2} placeholder={maxed? 'Chat complete — thanks!': 'Type and press Enter'} value={input} onChange={e=>setInput(e.target.value)} onKeyDown={onKeyDown} disabled={busy||maxed} />
         <button className="px-3 py-1.5 rounded-md border bg-white text-sm" onClick={send} disabled={busy||maxed}>Send</button>
       </div>
-      {maxed && <div className="mt-1 text-xs text-slate-600">Thanks — that was helpful! You can continue in Ask VX later.</div>}
+      {maxed && <div className="mt-1 text-xs text-slate-600">Thanks — that was helpful! You can continue in askVX later.</div>}
     </div>
   );
 }

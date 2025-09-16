@@ -544,7 +544,7 @@ export default function Integrations(){
   if (showIntro) {
     return (
       <>
-        <div className="space-y-3 overflow-hidden min-h-[calc(100vh-var(--bvx-commandbar-height,64px)-48px)]">
+        <div className="space-y-3 overflow-hidden min-h-[calc(100vh-48px)]">
           <section className="grid place-items-center h-[calc(100vh-var(--ask-float-height,0px)-80px)]">
             <div className="max-w-lg text-center rounded-2xl p-6 bg-white/70 backdrop-blur border border-white/70 shadow-sm">
               <div className="text-lg font-semibold text-slate-900">Settings</div>
@@ -569,14 +569,14 @@ export default function Integrations(){
     );
   }
   return (
-    <div className="space-y-3 overflow-hidden min-h-[calc(100vh-var(--bvx-commandbar-height,64px)-48px)]">
+    <div className="space-y-3 overflow-hidden min-h-[calc(100vh-48px)]">
       <div className="flex items-center sticky top-0 z-10 bg-white/80 backdrop-blur rounded-md px-1 py-1">
         <h3 className="text-lg font-semibold">Settings</h3>
         <div className="flex items-center gap-2 ml-auto">
           <span className="text-xs text-slate-600 px-2 py-1 rounded-md border bg-white/70">
             TZ: {Intl.DateTimeFormat().resolvedOptions().timeZone} (UTC{computeOffsetHours()>=0?'+':''}{computeOffsetHours()})
           </span>
-          <Button variant="outline" size="sm" onClick={()=>{ reanalyze(); try{ trackEvent('integrations.reanalyze.click', { area:'integrations' }); }catch{} }} aria-label="Re-analyze connections" data-guide="reanalyze">{UI_STRINGS.ctas.secondary.reanalyze}</Button>
+          {/* Re-analyze removed per cleanup */}
           <Button variant="outline" size="sm" aria-label="Open integrations guide" onClick={()=>{
             try { trackEvent('integrations.guide.open', { area: 'integrations' }); } catch {}
             const d = _noop({ showProgress: true, steps: [
@@ -586,9 +586,20 @@ export default function Integrations(){
             ] } as any);
             d.drive();
           }}>{UI_STRINGS.ctas.tertiary.guideMe}</Button>
+          <Button variant="outline" size="sm" onClick={()=>{ window.location.href='/ask'; }}>AskVX</Button>
+          <Button variant="outline" size="sm" onClick={()=>{ window.location.href='/billing'; }}>Billing</Button>
           {/* Pager removed */}
         </div>
       </div>
+      {/* Booking (explicit) under Acuity */}
+      <section className="rounded-2xl border bg-white p-3 shadow-sm">
+        <div className="text-sm font-medium text-slate-800">Booking</div>
+        <div className="text-xs text-slate-600">Manage your booking links and confirmations.</div>
+        <div className="mt-2 flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={()=>{ try{ window.open('https://squareup.com/appointments', '_blank'); }catch{ window.location.href='https://squareup.com/appointments'; } }}>Open Square booking</Button>
+        </div>
+      </section>
+
       {/* Token expiry warnings */}
       {(() => {
         try {

@@ -115,7 +115,10 @@ export default function Inbox(){
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">Inbox</h3>
-        <button className="text-sm text-slate-600 hover:underline" aria-label="Open inbox guide" onClick={()=> startGuide('inbox')}>Guide me</button>
+        <div className="flex items-center gap-2">
+          <button className="text-sm text-slate-600 hover:underline" aria-label="Open inbox guide" onClick={()=> startGuide('inbox')}>Guide me</button>
+          <button className="px-2 py-1 rounded-md border bg-white hover:shadow-sm text-sm" onClick={()=>{ window.location.href='/ask'; }}>AskVX</button>
+        </div>
       </div>
       {/* Gmail connect CTA when not connected */}
       {connected.google !== 'connected' && (

@@ -441,7 +441,7 @@ export default function Vision(){
   // revertToLastGood removed from header; history controls remain
 
   return (
-    <div className="space-y-4 overflow-y-auto pb-[calc(var(--bvx-commandbar-height,64px)+env(safe-area-inset-bottom,0px)+12px)] h-full">
+    <div className="space-y-4 overflow-y-auto pb-3 h-full">
       {/* Simplified header: no loading/error banner */}
       <div className="sticky top-0 z-20 bg-white/80 backdrop-blur border-b border-slate-200">
         <div className="max-w-6xl mx-auto px-2 sm:px-3 py-2 flex items-center justify-between gap-3">
@@ -453,7 +453,12 @@ export default function Vision(){
           <div className="flex items-center gap-2" />
         </div>
       </div>
-      <h3 className="text-lg font-semibold">brandVZN</h3>
+      <div className="flex items-center">
+        <h3 className="text-lg font-semibold">brandVZN</h3>
+        <div className="ml-auto flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={()=>{ window.location.href='/ask'; }}>AskVX</Button>
+        </div>
+      </div>
 
       <div className="flex flex-col md:flex-row gap-3 items-start pb-16 md:pb-0">
         <div

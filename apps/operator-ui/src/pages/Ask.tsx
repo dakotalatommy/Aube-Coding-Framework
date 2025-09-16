@@ -280,7 +280,7 @@ export default function Ask(){
   useEffect(()=>{ try{ if (new URLSearchParams(window.location.search).get('tour')==='1') startGuide('askvx'); } catch {} },[]);
 
   return (
-    <div className={`h-full min-h-0 flex flex-col min-w-0 overflow-x-hidden overflow-y-auto pb-[calc(var(--bvx-commandbar-height,64px)+env(safe-area-inset-bottom,0px)+12px)]`}>
+    <div className={`h-full min-h-0 flex flex-col min-w-0 overflow-x-hidden overflow-y-auto pb-3`}>
       {askIsDemo && (
         <div className="rounded-2xl p-3 border bg-amber-50/80 border-amber-200 text-amber-900">
           <div className="flex flex-wrap items-center gap-2">
@@ -330,7 +330,7 @@ export default function Ask(){
           </div>
         )}
         <div className="flex items-center">
-          <div className="font-semibold" style={{fontFamily:'var(--font-display)', fontSize:'calc(1em + 8px)'}}>Ask VX</div>
+          <div className="font-semibold" style={{fontFamily:'var(--font-display)', fontSize:'calc(1em + 8px)'}}>askVX</div>
         </div>
         <div className="flex items-center justify-end" />
       </div>

@@ -82,11 +82,19 @@ createRoot(document.getElementById('root')!).render(
   </StrictMode>,
 )
 
-// Register service worker (non-blocking)
+// Temporarily unregister any existing service worker to force fresh shell
 try {
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
-    });
+    navigator.serviceWorker.getRegistrations?.().then((regs)=>{
+      regs?.forEach((r)=>{ try { r.unregister(); } catch {} });
+      // Best-effort: clear caches with our prefix
+      try {
+        (async()=>{
+          const keys = await caches.keys();
+          await Promise.all(keys.filter((k)=> k.startsWith('bvx-cache-')).map((k)=> caches.delete(k)));
+        })();
+      } catch {}
+      // Skip re-registering for now; allow a fully fresh load
+    }).catch(()=>{});
   }
 } catch {}

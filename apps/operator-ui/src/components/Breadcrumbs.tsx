@@ -9,7 +9,7 @@ const LABELS: Record<string, string> = {
   'approvals': 'Approvals',
   'integrations': 'Settings',
   'workflows': 'WorkStyles',
-  'ask': 'Ask VX',
+  'ask': 'askVX',
   'vision': 'Vision',
   'onboarding': 'Onboarding',
   'admin': 'Admin',

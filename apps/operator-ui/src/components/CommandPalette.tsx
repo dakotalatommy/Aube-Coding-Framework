@@ -23,7 +23,7 @@ export default function CommandPalette(){
     { label: 'Go to Cadences', action: () => nav('/workspace?pane=cadences'), keywords: ['automation','flows'] },
     { label: 'Go to Approvals', action: () => nav('/workspace?pane=approvals'), keywords: ['human','review'] },
     { label: 'Connect Tools', action: () => nav('/workspace?pane=integrations'), keywords: ['oauth','integrations'] },
-    { label: 'Ask VX', action: () => nav('/ask'), keywords: ['agent','help'] },
+    { label: 'askVX', action: () => nav('/ask'), keywords: ['agent','help'] },
     { label: 'Vision (design-time)', action: () => nav('/vision'), keywords: ['image','analysis'] },
   ]), [nav]);
 

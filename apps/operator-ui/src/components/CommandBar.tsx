@@ -69,8 +69,8 @@ export default function CommandBar(){
             <button
               className="text-[11px] px-2 py-1 rounded-md border bg-white hover:shadow-sm"
               onClick={()=>{ try{ window.location.assign('/workspace?pane=askvx'); } catch { window.location.href='/workspace?pane=askvx'; } }}
-              aria-label="Open Ask VX"
-            >Ask VX</button>
+              aria-label="Open askVX"
+            >askVX</button>
             {busy && <div className="text-[11px] text-slate-500">Working…</div>}
           </div>
         </div>

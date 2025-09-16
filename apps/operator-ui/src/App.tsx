@@ -6,8 +6,7 @@ import Breadcrumbs from './components/Breadcrumbs';
 import { ToastProvider } from './components/ui/Toast';
 import { useLenis } from './hooks/useLenis';
 import { Provider as TooltipProvider } from '@radix-ui/react-tooltip';
-import AskFloat from './components/AskFloat';
-import CommandBar from './components/CommandBar';
+// AskFloat and CommandBar removed per simplification
 import ActionDrawer from './components/ActionDrawer';
 import { initAnalytics, trackPage } from './lib/analytics';
 import { supabase } from './lib/supabase';
@@ -144,7 +143,7 @@ function Shell() {
   const onAuthRoute = loc.pathname === '/login' || loc.pathname === '/signup' || loc.pathname === '/auth/callback';
   const onOnboarding = loc.pathname === '/onboarding';
 
-  // Clear Ask VX persisted state on pure landing to avoid stray artifacts
+  // Clear askVX persisted state on pure landing to avoid stray artifacts
   useEffect(()=>{
     if (onLanding && qs.get('demo') !== '1') {
       try {
@@ -167,7 +166,7 @@ function Shell() {
     })();
   }, [loc.search]);
 
-  // Keyboard shortcut: Cmd/Ctrl+K focuses Ask VX (navigates to /ask)
+  // Keyboard shortcut: Cmd/Ctrl+K focuses askVX (navigates to /ask)
   useEffect(()=>{
     const onKey = (e: KeyboardEvent) => {
       try{
@@ -200,11 +199,8 @@ function Shell() {
               <RouteContent />
             </Suspense>
           </main>
-          {/* Command Mode: dockless AskVX (hide on landing, demos, billing, auth routes, and onboarding) */}
-          {!embed && !onAskPage && !onDemo && !onLanding && !onBilling && !onAuthRoute && !onOnboarding && <CommandBar />}
+          {/* Command mode and Ask dock removed; keep ActionDrawer */}
           {!embed && !onAskPage && !onDemo && !onLanding && !onBilling && !onAuthRoute && !onOnboarding && <ActionDrawer />}
-          {/* Compact side AskVX button */}
-          {!embed && !onAskPage && !onDemo && !onBilling && !onAuthRoute && !onOnboarding && <AskFloat />}
           {!embed && !onAskPage && !onDemo && !onBilling && !onAuthRoute && !onOnboarding && <QuietBadge />}
         </div>
       </div>

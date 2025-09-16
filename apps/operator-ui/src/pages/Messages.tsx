@@ -312,7 +312,7 @@ export default function Messages(){
       )}
     </div>
     {/* Mobile bottom toolbar */}
-    <div className="fixed md:hidden left-0 right-0 bottom-[calc(var(--bvx-commandbar-height,64px)+env(safe-area-inset-bottom,0px))] z-30">
+    <div className="fixed md:hidden left-0 right-0 bottom-[calc(env(safe-area-inset-bottom,0px))] z-30">
       <div className="mx-3 mb-2 rounded-xl border bg-white/95 backdrop-blur shadow flex items-center justify-between px-2 py-2">
         <Button variant="outline" size="sm" onClick={draftSmart} aria-label="Draft for me">Draft</Button>
         <Button variant="outline" size="sm" onClick={async()=>{ try { await api.post('/settings', { tenant_id: await getTenant(), quiet_hours: quiet }); trackEvent('integrations.guide.open', { area: 'messages.save_quiet_hours' }); } catch{} }} aria-label="Save quiet hours">Save quiet</Button>

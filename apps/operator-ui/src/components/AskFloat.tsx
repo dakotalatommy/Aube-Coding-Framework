@@ -48,21 +48,21 @@ export default function AskFloat(){
       {!open && (
         <button
           onClick={()=> setOpen(true)}
-          aria-label="Open Ask VX"
+          aria-label="Open askVX"
           className={`fixed z-40 bottom-4 ${buttonSide}-4 rounded-full shadow-lg bg-white border hover:shadow-md`}
           style={{ width: 44, height: 44 }}
         >
-          <span className="sr-only">Open Ask VX</span>
+          <span className="sr-only">Open askVX</span>
           <svg width="20" height="20" viewBox="0 0 24 24" className="m-auto text-slate-700" fill="currentColor"><path d="M12 3a9 9 0 0 0-9 9c0 4.971 4.029 9 9 9 1.57 0 3.046-.402 4.336-1.108l3.828 1.023-1.023-3.828A8.96 8.96 0 0 0 21 12a9 9 0 0 0-9-9zm-1 5h2v6h-2V8zm1 10a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg>
         </button>
       )}
       {open && (
         <div
           className="fixed z-[200] bottom-4 right-4 w-[min(92vw,420px)] h-[min(70vh,560px)] bg-white border shadow-xl rounded-2xl overflow-hidden"
-          role="dialog" aria-label="Ask VX"
+          role="dialog" aria-label="askVX"
         >
           <div className="flex items-center justify-between px-3 py-2 border-b" onMouseDown={onMouseDown}>
-            <div className="text-sm font-medium text-slate-900">Ask VX</div>
+            <div className="text-sm font-medium text-slate-900">askVX</div>
             <div className="flex items-center gap-2">
               <button className="px-2 py-1 text-xs rounded-md border bg-white hover:shadow-sm" onClick={()=> setOpen(false)}>Close</button>
             </div>
@@ -191,9 +191,9 @@ export default function AskFloat(){
       {!open && !(onDashboard || onWorkspace || inDemo) && (
         <button
           onClick={()=> setOpen(true)}
-          title="Ask VX"
+          title="askVX"
           className="fixed z-40 bottom-4 left-4 px-4 py-3 rounded-full text-white shadow-lg bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600"
-        >Ask VX</button>
+        >askVX</button>
       )}
       {open && (
         <div id="bvx-ask-float"

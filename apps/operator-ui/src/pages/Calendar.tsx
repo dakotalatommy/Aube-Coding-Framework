@@ -137,7 +137,10 @@ export default function Calendar(){
     <div className="space-y-3">
       <div className="flex items-center">
         <h3 className="text-lg font-semibold">Calendar</h3>
-        <button className="ml-auto text-sm text-slate-600 hover:underline" aria-label={UI_STRINGS.a11y.buttons.guideCalendar} onClick={()=> startGuide('calendar')}>{UI_STRINGS.ctas.tertiary.guideMe}</button>
+        <div className="ml-auto flex items-center gap-2">
+          <button className="text-sm text-slate-600 hover:underline" aria-label={UI_STRINGS.a11y.buttons.guideCalendar} onClick={()=> startGuide('calendar')}>{UI_STRINGS.ctas.tertiary.guideMe}</button>
+          <button className="px-2 py-1 rounded-md border bg-white text-xs" onClick={()=>{ window.location.href='/ask'; }}>AskVX</button>
+        </div>
       </div>
       {(() => {
         try{

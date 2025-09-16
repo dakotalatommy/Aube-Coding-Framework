@@ -22,7 +22,7 @@ export default function PaneManager({ pane, items, setPane }: { pane: string; it
 
   return (
     <div className="pointer-events-none select-none" aria-hidden>
-      <div className="fixed right-6 bottom-[calc(var(--bvx-commandbar-height,64px)+20px)] z-30 flex gap-2">
+      <div className="fixed right-6 bottom-[20px] z-30 flex gap-2">
         <div className="pointer-events-auto">
           <button className="rounded-full border bg-white/95 backdrop-blur p-2 shadow" onClick={()=>{
             const i = Math.max(0, items.findIndex(p=>p.key===pane));

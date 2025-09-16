@@ -100,7 +100,7 @@ export default function Billing(){
   return (
     <div className="max-w-lg mx-auto">
       <div className="mb-3">
-        <button onClick={()=> navigate('/workspace?pane=dashboard')} className="text-sm text-slate-700 hover:text-slate-900 inline-flex items-center gap-1">
+        <button onClick={()=> navigate('/workspace?pane=integrations')} className="text-sm text-slate-700 hover:text-slate-900 inline-flex items-center gap-1">
           <span aria-hidden>←</span> Return to workspace
         </button>
       </div>

@@ -66,7 +66,10 @@ export default function Cadences(){
     <div className="space-y-4">
       <div className="flex items-center">
         <h3 className="text-lg font-semibold">Follow‑ups</h3>
-        <Button variant="outline" className="ml-auto" onClick={()=> startGuide('cadences')}>Guide me</Button>
+        <div className="ml-auto flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={()=> startGuide('cadences')}>Guide me</Button>
+          <Button variant="outline" size="sm" onClick={()=>{ window.location.href='/ask'; }}>AskVX</Button>
+        </div>
       </div>
       <div className="grid gap-4">
         <div className="flex items-center gap-2">

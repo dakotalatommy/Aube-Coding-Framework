@@ -7,17 +7,15 @@ import { flags } from './flags';
 const registry: Record<string, GuideStep[]> = {
   workspace_intro: [
     { element: '[data-tour="nav-dashboard"]', popover: { title: 'Dashboard', description: 'KPIs up top; “Next Best Steps” shows Day N/14 and today’s tasks.' } },
-    { element: '[data-tour="nav-askvx"]', popover: { title: 'Ask VX', description: 'Ask in your voice. We suggest safe actions; you’re in control.' } },
+    { element: '[data-tour="nav-askvx"]', popover: { title: 'askVX', description: 'Ask in your voice. We suggest safe actions; you’re in control.' } },
     { element: '[data-tour="nav-vision"]', popover: { title: 'brandVZN', description: 'Upload, analyze, and refine with natural, texture‑safe edits.' } },
     { element: '[data-tour="nav-messages"]', popover: { title: 'Messages', description: 'Draft in one tap. Quiet hours + STOP/HELP are respected.' } },
     { element: '[data-tour="nav-contacts"]', popover: { title: 'Clients', description: 'Predictive search, quick copy (email/phone), and context drafts.' } },
     { element: '[data-tour="nav-calendar"]', popover: { title: 'Calendar', description: 'Unified week grid: Google + booking. Mirror events to Google.' } },
     { element: '[data-tour="nav-cadences"]', popover: { title: 'Follow‑ups', description: 'Tomorrow, this week, 30‑day re‑engage, 45‑day win‑back — fast.' } },
     { element: '[data-tour="nav-inventory"]', popover: { title: 'Inventory', description: 'Sync Shopify/Square. See low/out‑of‑stock at a glance.' } },
-    { element: '[data-tour="nav-workflows"]', popover: { title: 'WorkStyles', description: 'Top plays wired: social plan, reminders, dedupe, more.' } },
     { element: '[data-tour="nav-approvals"]', popover: { title: 'To‑Do', description: 'Anything needing your OK lands here — resolve in one click.' } },
     { element: '[data-tour="nav-integrations"]', popover: { title: 'Settings', description: 'Connect Square/Acuity/Google; Setup Progress updates live.' } },
-    { element: '#bvx-commandbar', popover: { title: 'Command', description: 'Type to jump or run actions (import, connect, open To‑Do).' } },
     { element: '[data-tour="book-onboarding"]', popover: { title: 'Book Onboarding', description: 'Book a 1-on-1 onboarding for an in-depth walk through of brand BX (beyond the brand)!' } },
   ],
   onboarding: [
@@ -34,7 +32,7 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-guide="next-best-steps"]', popover: { title: 'Next Best Steps', description: 'Day N/14 with today’s tasks. Generate a plan anytime.' } },
   ],
   askvx: [
-    { popover: { title: 'Ask VX', description: 'Your co‑pilot. Short answers, your tone, ready to act (with approval).' } },
+    { popover: { title: 'askVX', description: 'Your co‑pilot. Short answers, your tone, ready to act (with approval).' } },
     { element: '[data-guide="history"]', popover: { title: 'History', description: 'Open session history; start a new session without reloading.' } },
     { element: '[data-guide="composer"]', popover: { title: 'Compose', description: 'Enter to send; Shift+Enter for new line. Templates are one‑tap.' } },
     { element: '[data-guide="smart-action"]', popover: { title: 'Smart action', description: 'We propose one safe next step; you can run it instantly.' } },
@@ -45,8 +43,8 @@ const registry: Record<string, GuideStep[]> = {
     { popover: { title: 'Brand Vision', description: 'Analyze and refine photos — fast, natural, beauty‑friendly.' } },
     { element: '[data-guide="preview"]', popover: { title: 'Preview', description: 'Your working image; press/hold for before/after.' } },
     { element: '[data-guide="upload"]', popover: { title: 'Upload', description: 'Pick a photo or screenshot to analyze or edit.' } },
-    { element: '[data-guide="analyze"]', popover: { title: 'Analyze', description: 'GPT‑5 returns a short brief (lighting, color, texture). Use Notes to ask a specific question.' } },
-    { element: '[data-guide="edit"]', popover: { title: 'Edit / Refine', description: 'Run subtle edits; “Refine again” repeats with the same prompt.' } },
+    { element: '[data-guide\="analyze"]', popover: { title: 'Analyze', description: 'GPT‑5 returns a short brief (lighting, color, texture). Use Notes to ask a specific question.' } },
+    { element: '[data-guide="edit"]', popover: { title: 'Edit', description: 'Run subtle edits using the prompt to the left.' } },
     { element: '[data-guide="save"]', popover: { title: 'Save to client', description: 'Link images to a client record for before/after.' } },
   ],
   integrations: [

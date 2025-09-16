@@ -15,14 +15,13 @@ type PaneKey = 'dashboard' | 'messages' | 'contacts' | 'calendar' | 'cadences' |
 
 const PANES: { key: PaneKey; label: string; icon: React.ReactNode }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: <Home size={18} /> },
-  { key: 'askvx', label: 'Ask VX', icon: <MessageCircle size={18} /> },
+  { key: 'askvx', label: 'askVX', icon: <MessageCircle size={18} /> },
   { key: 'vision', label: 'brandVZN', icon: <Eye size={18} /> },
   { key: 'messages', label: 'Messages', icon: <MessageSquare size={18} /> },
   { key: 'contacts', label: 'Clients', icon: <Users size={18} /> },
   { key: 'calendar', label: 'Calendar', icon: <Calendar size={18} /> },
   { key: 'cadences', label: 'Follow‑ups', icon: <Layers size={18} /> },
   { key: 'inventory', label: 'Inventory', icon: <Package2 size={18} /> },
-  { key: 'workflows', label: 'WorkStyles', icon: <Layers size={18} /> },
   { key: 'approvals', label: 'To‑Do', icon: <CheckCircle2 size={18} /> },
   { key: 'integrations', label: 'Settings', icon: <Plug size={18} /> },
 ];
@@ -48,7 +47,6 @@ export default function WorkspaceShell(){
   const [trialDaysLeft, setTrialDaysLeft] = useState<number>(0);
   const [showDemoWelcome, setShowDemoWelcome] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
-  const [showOnboardingPrompt, setShowOnboardingPrompt] = useState(false);
 
   // legacy quickstart path removed; showcase orchestrates the sequence
 
@@ -472,7 +470,7 @@ export default function WorkspaceShell(){
     })();
   }, [loc.pathname]);
 
-  // After workspace intro finishes, mark guide_done in settings and show onboarding prompt
+  // After workspace intro finishes, mark guide_done in settings
   useEffect(()=>{
     const handler = async () => {
       try {
@@ -483,17 +481,7 @@ export default function WorkspaceShell(){
           if (tid) await api.post('/settings', { tenant_id: tid, guide_done: true });
         } catch {}
       } catch {}
-      // After tour completes, present payment options unless dismissed or in demo
-      try {
-        const dismissed = localStorage.getItem('bvx_billing_dismissed') === '1';
-        const sp = new URLSearchParams(window.location.search);
-        const isDemo = sp.get('demo') === '1';
-        if (!dismissed && !isDemo) {
-          setBillingOpen(true);
-          return;
-        }
-      } catch {}
-      setShowOnboardingPrompt(true);
+      // After tour completes, billing is handled by guide.ts handoff; avoid duplicate prompts here
     };
     window.addEventListener('bvx:guide:workspace_intro:done', handler, { once: true } as any);
     return () => window.removeEventListener('bvx:guide:workspace_intro:done', handler as any);
@@ -527,7 +515,7 @@ export default function WorkspaceShell(){
     <div className="max-w-6xl mx-auto">
       {/* E2E readiness marker */}
       <div id="e2e-ready" data-pane={pane} style={{ position:'absolute', opacity:0, pointerEvents:'none' }} />
-      <div className="h-[100dvh] grid grid-cols-[theme(spacing.64)_1fr] gap-4 md:gap-5 overflow-hidden pb-[calc(var(--bvx-commandbar-height,64px)+env(safe-area-inset-bottom,0px))] relative md:[--sticky-offset:88px] [--sticky-offset:70px]">
+      <div className="h-[100dvh] grid grid-cols-[theme(spacing.64)_1fr] gap-4 md:gap-5 overflow-hidden pb-2 relative md:[--sticky-offset:88px] [--sticky-offset:70px]">
         {/* Left dock */}
         <aside className="h-full min-h-0 bg-white/70 backdrop-blur border border-b-0 rounded-2xl p-0 flex flex-col relative" aria-label="Primary navigation">
           <nav className="flex flex-col gap-1 mt-[2px] px-[3px]" role="tablist" aria-orientation="vertical" onKeyDown={onKeyDown}>
@@ -559,7 +547,7 @@ export default function WorkspaceShell(){
             })}
           </nav>
           {/* Anchored footer */}
-          <div className="absolute left-[3px] right-[3px]" style={{ bottom: 'calc(var(--bvx-commandbar-height,64px) + env(safe-area-inset-bottom,0px) + 18px)' }}>
+          <div className="absolute left-[3px] right-[3px]" style={{ bottom: 'calc(env(safe-area-inset-bottom,0px) + 18px)' }}>
             {demo && (
               <Button
                 variant="outline"
@@ -599,15 +587,12 @@ export default function WorkspaceShell(){
         </aside>
         {/* Canvas */}
         <main className={`h-full rounded-2xl border border-b-0 border-l-slate-300/80 ${demo? 'bg-amber-50/60' : 'bg-white/90'} backdrop-blur p-4 md:p-5 shadow-sm overflow-hidden border-l relative`}>
-          <div className="rounded-xl bg-white/70 backdrop-blur min-h-full h-full overflow-y-auto pb-[calc(var(--bvx-commandbar-height,64px)+env(safe-area-inset-bottom,0px)+12px)]">
+          <div className="rounded-xl bg-white/70 backdrop-blur min-h-full h-full overflow-y-auto pb-3">
             <Suspense fallback={<div className="p-4 text-slate-600 text-sm">Loading {PANES.find(p=>p.key===pane)?.label}…</div>}>
               {PaneView}
             </Suspense>
           </div>
-          {/* Bottom hard separator just above Command Bar (non-interactive) */}
-          <div aria-hidden className="pointer-events-none absolute left-0 right-0" style={{ bottom: 'calc(var(--bvx-commandbar-height,64px) + env(safe-area-inset-bottom,0px))' }}>
-            <div className="h-0.5 w-full bg-slate-800/70" />
-          </div>
+          {/* Bottom separator removed with command bar */}
         </main>
         {/* Arrows removed per product decision */}
       </div>
@@ -679,19 +664,7 @@ export default function WorkspaceShell(){
           </div>
         </div>, document.body)
       }
-      {showOnboardingPrompt && createPortal(
-        <div className="fixed inset-0 z-[1000] grid place-items-center p-4" id="bvx-onboarding-modal" style={{position:'fixed',top:0,left:0,right:0,bottom:0,zIndex:1000,display:'grid',alignItems:'center',justifyItems:'center'}}>
-          <div aria-hidden className="absolute inset-0 bg-black/20" onClick={()=> setShowOnboardingPrompt(false)} />
-          <div className="relative w-full max-w-md rounded-2xl border border-[var(--border)] bg-white p-6 shadow-soft text-center">
-            <div className="text-lg font-semibold text-ink-900">Let’s set up your Priority WorkStyles</div>
-            <div className="text-ink-700 text-sm mt-1">Full walkthrough will walk the visible sections and show them where to click.</div>
-            <div className="mt-4 grid gap-2">
-              <a className="rounded-xl px-5 py-2 text-white bg-gradient-to-r from-pink-500 to-violet-500 hover:from-pink-600 hover:to-violet-600" href="/workspace?pane=workflows">Open WorkStyles</a>
-              <button className="rounded-xl px-5 py-2 border bg-white hover:bg-slate-50" onClick={()=> setShowOnboardingPrompt(false)}>Later</button>
-            </div>
-          </div>
-        </div>, document.body)
-      }
+      {/* Onboarding prompt for WorkStyles removed per simplification */}
       {/* Billing modal */}
       {billingOpen && (
         <div className="fixed inset-0 z-50 grid place-items-center p-4">
