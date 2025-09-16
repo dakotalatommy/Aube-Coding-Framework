@@ -6855,6 +6855,7 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
         # Set RLS GUCs as early as possible so all DB writes honor tenant policies
         update_count = 0
         inserted = False
+        inserted_id: Optional[int] = None
         try:
             CURRENT_TENANT_ID.set(t_id)
             CURRENT_ROLE.set("owner_admin")
@@ -6944,8 +6945,11 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 if params["rt"]: cols.append("refresh_token_enc"); vals.append(":rt")
                 if params["exp"] is not None: cols.append("expires_at"); vals.append(":exp")
                 if scopes_str: cols.append("scopes"); vals.append(":sc")
-                ins = f"INSERT INTO connected_accounts_v2 ({', '.join(cols)}) VALUES ({', '.join(vals)})"
-                db.execute(_sql_text(ins), params)
+                ins = f"INSERT INTO connected_accounts_v2 ({', '.join(cols)}) VALUES ({', '.join(vals)}) RETURNING id"
+                try:
+                    inserted_id = db.execute(_sql_text(ins), params).scalar()
+                except Exception:
+                    inserted_id = None
                 inserted = True
             try:
                 db.commit()
@@ -6959,12 +6963,23 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 saved_token_write = bool(params.get("at"))
             except Exception:
                 saved_token_write = False
+            post_rows = 0
+            try:
+                chk = db.execute(
+                    _sql_text("SELECT COUNT(1) FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider = :p"),
+                    {"t": t_id, "p": provider},
+                )
+                post_rows = int(chk.scalar() or 0)
+            except Exception:
+                post_rows = -1
             try:
                 emit_event("OauthTokenUpsert", {
                     "tenant_id": t_id,
                     "provider": provider,
                     "updated": update_count,
                     "inserted": bool(inserted),
+                    "inserted_id": inserted_id,
+                    "post_rows": post_rows,
                     "exchange_ok": bool(exchange_ok),
                     "has_token": bool(params.get("at")),
                 })
