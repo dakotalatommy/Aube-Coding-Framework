@@ -6855,9 +6855,9 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
         # Set RLS GUCs as early as possible so all DB writes honor tenant policies
         try:
             CURRENT_TENANT_ID.set(t_id)
-            CURRENT_ROLE.set("authenticated")
+            CURRENT_ROLE.set("owner_admin")
             db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": t_id})
-            db.execute(_sql_text("SET LOCAL app.role = 'authenticated'"))
+            db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
         except Exception:
             try:
                 db.rollback()
