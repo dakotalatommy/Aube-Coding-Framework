@@ -84,7 +84,10 @@ export default function Contacts(){
     <div className="space-y-2">
       <div className="flex items-center px-1 py-0.5">
         <h3 className="text-lg font-semibold">Clients</h3>
-        <Button variant="outline" className="ml-auto" onClick={()=> startGuide('contacts')}>{UI_STRINGS.ctas.tertiary.guideMe}</Button>
+        <div className="ml-auto flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={()=> startGuide('contacts')}>{UI_STRINGS.ctas.tertiary.guideMe}</Button>
+          <Button variant="outline" size="sm" onClick={()=>{ window.location.href='/ask'; }}>AskVX</Button>
+        </div>
       </div>
       <div className="grid gap-4">
         {/* Who to reach out to */}
@@ -189,7 +192,7 @@ export default function Contacts(){
               finally { setListBusy(false); }
             }}>Refresh</Button>
           </div>
-          <div className="overflow-auto rounded-md border" style={{ maxHeight: 'calc(100dvh - var(--bvx-commandbar-height,64px) - 220px)' }}>
+          <div className="overflow-auto rounded-md border" style={{ maxHeight: 'calc(100dvh - 220px)' }}>
             <table className="min-w-full text-xs">
               <thead className="bg-slate-50 text-slate-700">
                 <tr>
