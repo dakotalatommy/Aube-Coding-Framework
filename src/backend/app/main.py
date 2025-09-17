@@ -7326,15 +7326,16 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
             # If this fails due to permissions/RLS, downstream FK will surface; we keep read-only behavior
             pass
 
-        # Retrieve Square access token using a short-lived connection (avoid holding a Session txn)
+        # Retrieve Square access token robustly: short-lived conn first, then Session fallback,
+        # then legacy table in both modes. Immediately end any Session txn afterward.
         token = ""
+        def _read_v2_conn(_conn):
+            return _conn.execute(
+                _sql_text("SELECT access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider='square' ORDER BY id DESC LIMIT 1"),
+                {"t": req.tenant_id},
+            ).fetchone()
         try:
-            def _read_token(_conn):
-                return _conn.execute(
-                    _sql_text("SELECT access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider='square' ORDER BY id DESC LIMIT 1"),
-                    {"t": req.tenant_id},
-                ).fetchone()
-            row_v2 = _with_conn_do(_read_token)
+            row_v2 = _with_conn_do(_read_v2_conn)
             if row_v2 and row_v2[0]:
                 try:
                     token = decrypt_text(str(row_v2[0])) or ""
@@ -7343,6 +7344,47 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
         except Exception:
             token = ""
         if not token:
+            # Session fallback for v2 (maintains RLS parity), then rollback to avoid idle txn
+            try:
+                row_v2s = db.execute(
+                    _sql_text("SELECT access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider='square' ORDER BY id DESC LIMIT 1"),
+                    {"t": req.tenant_id},
+                ).fetchone()
+                if row_v2s and row_v2s[0]:
+                    try:
+                        token = decrypt_text(str(row_v2s[0])) or ""
+                    except Exception:
+                        token = str(row_v2s[0])
+            except Exception:
+                token = token
+            finally:
+                try: db.rollback()
+                except Exception: pass
+        if not token:
+            # Legacy table via conn
+            try:
+                def _read_legacy_conn(_conn):
+                    cols = _connected_accounts_columns(db)
+                    name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
+                    if not name_col:
+                        return None
+                    token_col = 'access_token_enc' if 'access_token_enc' in cols else ('access_token' if 'access_token' in cols else None)
+                    if not token_col:
+                        token_col = 'access_token_enc'
+                    is_uuid = _connected_accounts_tenant_is_uuid(db)
+                    where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
+                    sql = f"SELECT {token_col} FROM connected_accounts WHERE {where_tid} AND {name_col} = 'square' ORDER BY id DESC LIMIT 1"
+                    return _conn.execute(_sql_text(sql), {"t": req.tenant_id}).fetchone()
+                row_legacy = _with_conn_do(_read_legacy_conn)
+                if row_legacy and row_legacy[0]:
+                    try:
+                        token = decrypt_text(str(row_legacy[0])) or ""
+                    except Exception:
+                        token = str(row_legacy[0])
+            except Exception:
+                token = token
+        if not token:
+            # Legacy table via Session (last resort), then rollback
             try:
                 cols = _connected_accounts_columns(db)
                 name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
@@ -7361,8 +7403,11 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                             token = str(row[0])
                         if not token:
                             token = str(row[0])
-            except Exception as e:
-                return {"imported": 0, "error": "connected_account_lookup_failed", "detail": str(e)[:200]}
+            except Exception:
+                token = token
+            finally:
+                try: db.rollback()
+                except Exception: pass
         if not token:
             return {"imported": 0, "error": "missing_access_token"}
 
