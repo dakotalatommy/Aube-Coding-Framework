@@ -11050,6 +11050,106 @@ def square_booking_link(
         pass
     return {"url": url}
 
+
+# ---------- Admin: schema/RLS/timestamps inspection ----------
+@app.get("/admin/schema/inspect", tags=["Admin"])
+def admin_schema_inspect(db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+    if ctx.role != "owner_admin":
+        return {"error": "forbidden"}
+    try:
+        out: Dict[str, object] = {}
+        with engine.begin() as conn:
+            # RLS enabled tables in public schema
+            try:
+                rows = conn.execute(
+                    _sql_text(
+                        """
+                        SELECT c.relname AS table_name, c.relrowsecurity AS rls_enabled
+                        FROM pg_class c
+                        JOIN pg_namespace n ON n.oid = c.relnamespace
+                        WHERE n.nspname = 'public' AND c.relkind = 'r'
+                        ORDER BY c.relname
+                        """
+                    )
+                ).fetchall()
+                out["rls_tables"] = [
+                    {"table": str(r[0]), "rls": bool(r[1])} for r in rows or []
+                ]
+            except Exception:
+                out["rls_tables"] = []
+            # Policies and referenced GUCs
+            try:
+                rows = conn.execute(
+                    _sql_text(
+                        """
+                        SELECT schemaname, tablename, policyname, cmd, qual, with_check
+                        FROM pg_policies
+                        WHERE schemaname='public'
+                        ORDER BY tablename, policyname
+                        """
+                    )
+                ).fetchall()
+                policies = []
+                gucs: set[str] = set()
+                for r in rows or []:
+                    schem = str(r[0] or "public")
+                    table = str(r[1] or "")
+                    name = str(r[2] or "")
+                    cmd = str(r[3] or "all")
+                    qual = str(r[4]) if r[4] is not None else None
+                    wchk = str(r[5]) if r[5] is not None else None
+                    for expr in [qual or "", wchk or ""]:
+                        try:
+                            import re as _re
+                            for m in _re.findall(r"app\.[a-zA-Z_]+", expr):
+                                gucs.add(m)
+                        except Exception:
+                            pass
+                    policies.append({"table": table, "policy": name, "cmd": cmd, "qual": qual, "with_check": wchk})
+                out["policies"] = policies
+                out["gucs_referenced"] = sorted(list(gucs))
+            except Exception:
+                out["policies"] = []
+                out["gucs_referenced"] = []
+            # Timestamp columns inventory
+            try:
+                rows = conn.execute(
+                    _sql_text(
+                        """
+                        SELECT table_name, column_name, data_type
+                        FROM information_schema.columns
+                        WHERE table_schema='public' AND column_name IN ('created_at','updated_at')
+                        ORDER BY table_name, column_name
+                        """
+                    )
+                ).fetchall()
+                ts_map: Dict[str, Dict[str, str]] = {}
+                for t, c, dt in rows or []:
+                    tbl = str(t)
+                    col = str(c)
+                    ts_map.setdefault(tbl, {})[col] = str(dt)
+                out["timestamps"] = [
+                    {"table": tbl, **cols} for tbl, cols in sorted(ts_map.items(), key=lambda x: x[0])
+                ]
+            except Exception:
+                out["timestamps"] = []
+            # audit_logs.payload presence
+            try:
+                row = conn.execute(
+                    _sql_text(
+                        """
+                        SELECT COUNT(1) FROM information_schema.columns
+                        WHERE table_schema='public' AND table_name='audit_logs' AND column_name='payload'
+                        """
+                    )
+                ).fetchone()
+                out["audit_logs_has_payload"] = bool(row and int(row[0] or 0) > 0)
+            except Exception:
+                out["audit_logs_has_payload"] = False
+        return out
+    except Exception as e:
+        return {"error": str(e)[:200]}
+
 @app.get("/oauth/instagram/status", tags=["Integrations"])
 def instagram_status(ctx: UserContext = Depends(get_user_context)):
     try:

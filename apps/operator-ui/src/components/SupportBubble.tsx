@@ -51,6 +51,52 @@ export default function SupportBubble(){
   const [busy, setBusy] = useState(false);
   const [needsAuth, setNeedsAuth] = useState(false);
   const scrollerRef = useRef<HTMLDivElement|null>(null);
+  const [debugVisible, setDebugVisible] = useState<boolean>(false);
+
+  // Runtime guard & debug
+  useEffect(()=>{
+    try {
+      // Signal mount
+      window.dispatchEvent(new CustomEvent('bvx:support:mounted'));
+      // Console breadcrumb
+      // eslint-disable-next-line no-console
+      console.info('[SupportBubble] mounted', { path: window.location.pathname });
+      // Probe element
+      let probe = document.getElementById('bvx-support-probe');
+      if (!probe) {
+        probe = document.createElement('div');
+        probe.id = 'bvx-support-probe';
+        probe.setAttribute('data-bvx', 'support-bubble');
+        Object.assign(probe.style, {
+          position: 'fixed', right: '4px', bottom: '4px', width: '1px', height: '1px',
+          opacity: '0', zIndex: '4001', pointerEvents: 'none'
+        } as CSSStyleDeclaration);
+        document.body.appendChild(probe);
+      }
+      // Optional debug chip
+      const debug = (()=>{ try{ const sp=new URLSearchParams(window.location.search); if(sp.get('supportDebug')==='1') return true; return localStorage.getItem('bvx_support_debug')==='1'; }catch{return false;} })();
+      if (debug) {
+        setDebugVisible(true);
+        window.setTimeout(()=> setDebugVisible(false), 2600);
+      }
+      // Style snapshot for diagnostics
+      window.setTimeout(()=>{
+        try {
+          const btn = document.querySelector('[data-bvx="support-bubble-button"]') as HTMLElement | null;
+          if (btn) {
+            const cs = window.getComputedStyle(btn);
+            // eslint-disable-next-line no-console
+            console.info('[SupportBubble] button styles', { display: cs.display, visibility: cs.visibility, opacity: cs.opacity, zIndex: cs.zIndex });
+          } else {
+            // eslint-disable-next-line no-console
+            console.warn('[SupportBubble] button not found at mount');
+          }
+        } catch {}
+      }, 0);
+      return () => { try { const p = document.getElementById('bvx-support-probe'); p?.remove(); } catch {} };
+    } catch {}
+    return undefined;
+  }, []);
 
   useEffect(()=>{ try{ localStorage.setItem('bvx_support_open', open ? '1' : '0'); } catch{} }, [open]);
 
@@ -124,6 +170,7 @@ export default function SupportBubble(){
           aria-label="Open support"
           onClick={()=> setOpen(true)}
           className="fixed right-4 bottom-4 z-[4000] rounded-full border bg-white px-4 py-2 shadow-md text-sm text-slate-900 hover:shadow-lg"
+          data-bvx="support-bubble-button"
         >
           support
         </button>,
@@ -171,6 +218,13 @@ export default function SupportBubble(){
               </div>
             </div>
           </div>
+        </div>,
+        document.body
+      )}
+      {/* Optional debug chip (2.6s) */}
+      {debugVisible && createPortal(
+        <div className="fixed right-4 bottom-16 z-[4001] pointer-events-none select-none">
+          <div className="px-2 py-1 rounded-full border bg-white text-[11px] text-slate-900 shadow">support ready</div>
         </div>,
         document.body
       )}
