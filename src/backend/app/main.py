@@ -7513,6 +7513,27 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                 except Exception:
                     display_name = None
 
+                # Decide timestamp expression per schema (timestamptz vs bigint)
+                ts_insert_expr = "EXTRACT(epoch FROM now())::bigint"
+                ts_update_expr = "EXTRACT(epoch FROM now())::bigint"
+                try:
+                    with engine.begin() as _probe:
+                        _probe.exec_driver_sql("SET LOCAL app.tenant_id = :t", {"t": req.tenant_id})
+                        _probe.exec_driver_sql("SET LOCAL app.role = 'owner_admin'")
+                        row_type = _probe.execute(
+                            _sql_text(
+                                """
+                                SELECT data_type FROM information_schema.columns
+                                WHERE table_name='contacts' AND table_schema='public' AND column_name='created_at'
+                                """
+                            )
+                        ).fetchone()
+                        if row_type and isinstance(row_type[0], str) and 'timestamp' in row_type[0].lower():
+                            ts_insert_expr = "NOW()"
+                            ts_update_expr = "NOW()"
+                except Exception:
+                    pass
+
                 # Raw SQL upsert using a connection-bound transaction with retry via helper
                 def _write(_conn):
                     row = _conn.execute(
@@ -7524,7 +7545,7 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                     if not row:
                         _conn.execute(
                             _sql_text(
-                                """
+                                f"""
                                 INSERT INTO contacts (
                                   tenant_id, contact_id, email_hash, phone_hash, consent_sms, consent_email,
                                   square_customer_id, birthday, creation_source, email_subscription_status, instant_profile,
@@ -7533,7 +7554,7 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                                 VALUES (
                                   CAST(:t AS uuid), :cid, :eh, :ph, :csms, :cemail,
                                   :sqcid, :bday, :csrc, :esub, :ip,
-                                  :fname, :lname, :dname, EXTRACT(epoch FROM now())::bigint
+                                  :fname, :lname, :dname, {ts_insert_expr}
                                 )
                                 """
                             ),
@@ -7558,7 +7579,7 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                     else:
                         res = _conn.execute(
                             _sql_text(
-                                """
+                                f"""
                                 UPDATE contacts
                                 SET
                                     email_hash = COALESCE(email_hash, :eh),
@@ -7577,7 +7598,7 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                                       THEN :dname
                                       ELSE display_name
                                     END,
-                                    updated_at = EXTRACT(epoch FROM now())::bigint
+                                    updated_at = {ts_update_expr}
                                 WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid
                                 """
                             ),
@@ -7611,8 +7632,12 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                     updated_total += 1
                 else:
                     existing_total += 1
-            except Exception:
-                pass
+            except Exception as e:
+                # Surface the first write error to the response path via a lightweight cache hint
+                try:
+                    emit_event("ImportWriteError", {"tenant_id": req.tenant_id, "provider": "square", "detail": str(e)[:180]})
+                except Exception:
+                    pass
 
         headers = {
             "Authorization": f"Bearer {token}",

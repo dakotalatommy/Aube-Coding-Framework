@@ -496,8 +496,8 @@ export default function WorkspaceShell(){
               const clean2 = new URL(window.location.href);
               clean2.searchParams.delete('tour');
               window.history.replaceState({}, '', clean2.toString());
-            }
-          } catch {}
+          }
+        } catch {}
         } catch {}
         // OAuth return cleanup
         try {
