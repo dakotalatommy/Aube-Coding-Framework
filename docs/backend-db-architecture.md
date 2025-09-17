@@ -71,4 +71,19 @@ Appendix B: curl diagnostics (examples)
 - Import: curl -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <token>" -d '{"tenant_id":"<tid>"}' "https://api.brandvx.io/integrations/booking/square/sync-contacts"
 - Admin inspect: curl -H "Authorization: Bearer <token>" "https://api.brandvx.io/admin/schema/inspect"
 
+Current inspection snapshot (production)
+- GUCs referenced in RLS policies: app.tenant_id, app.role
+- RLS: enabled across all tenant tables; exception observed: client_images (rls=false)
+- Timestamp columns by type:
+  - bigint: contacts.created_at/updated_at; inventory_items.updated_at; inventory_summary.updated_at; calendar_events.created_at
+  - integer: client_images.created_at; inbox_messages.created_at; share_links.created_at
+  - timestamptz: most other tables (appointments, audit_logs, messages, settings, tenants, etc.)
+- audit_logs.payload present: false (keep _safe_audit_log tolerant writer)
+
+Impact if not following patterns
+- Missing/incorrect SET LOCAL on the write connection → transaction aborts; imports become no‑op (created=0)
+- Non‑adaptive timestamps → type errors against timestamptz/bigint columns; txn abort cascades
+- Swallowed DB exceptions → symptoms masked (e.g., fetched N, created 0)
+- Non‑robust token read → false “missing_access_token” under RLS
+
 
