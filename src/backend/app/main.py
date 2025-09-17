@@ -10722,8 +10722,8 @@ def rls_probe_insert_contact(
             try:
                 conn.exec_driver_sql("SET LOCAL app.tenant_id = :t", {"t": req.tenant_id})
                 conn.exec_driver_sql("SET LOCAL app.role = 'owner_admin'")
-            except Exception:
-                pass
+            except Exception as e:
+                return {"status": "guc_error", "detail": str(e)[:200]}
             try:
                 row_type = conn.execute(
                     _sql_text(
@@ -10735,21 +10735,24 @@ def rls_probe_insert_contact(
                 ).fetchone()
                 if row_type and isinstance(row_type[0], str) and 'timestamp' in row_type[0].lower():
                     ts_expr = "NOW()"
-            except Exception:
-                pass
-            conn.execute(
-                _sql_text(
-                    f"""
-                    INSERT INTO contacts (
-                        tenant_id, contact_id, consent_sms, consent_email, display_name, created_at, updated_at
-                    ) VALUES (
-                        CAST(:t AS uuid), :cid, :cs, :ce, :dn, {ts_expr}, {ts_expr}
-                    )
-                    ON CONFLICT DO NOTHING
-                    """
-                ),
-                {"t": req.tenant_id, "cid": contact_id, "cs": False, "ce": False, "dn": "Probe Contact"},
-            )
+            except Exception as e:
+                return {"status": "schema_probe_error", "detail": str(e)[:200]}
+            try:
+                conn.execute(
+                    _sql_text(
+                        f"""
+                        INSERT INTO contacts (
+                            tenant_id, contact_id, consent_sms, consent_email, display_name, created_at, updated_at
+                        ) VALUES (
+                            CAST(:t AS uuid), :cid, :cs, :ce, :dn, {ts_expr}, {ts_expr}
+                        )
+                        ON CONFLICT DO NOTHING
+                        """
+                    ),
+                    {"t": req.tenant_id, "cid": contact_id, "cs": False, "ce": False, "dn": "Probe Contact"},
+                )
+            except Exception as e:
+                return {"status": "insert_error", "detail": str(e)[:200]}
         return {"status": "ok", "contact_id": contact_id}
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
