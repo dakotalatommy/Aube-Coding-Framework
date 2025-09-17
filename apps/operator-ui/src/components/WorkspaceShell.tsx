@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useMemo, useRef, useEffect, useState } from 'react';
+import React, { Suspense, lazy, useMemo, useRef, useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import Button from './ui/Button';
@@ -26,6 +26,25 @@ const PANES: { key: PaneKey; label: string; icon: React.ReactNode }[] = [
   { key: 'integrations', label: 'Settings', icon: <Plug size={18} /> },
 ];
 
+type FlowModalButton = {
+  label: string;
+  value?: any;
+  tone?: 'primary' | 'secondary';
+  disabled?: boolean;
+};
+
+type FlowModalConfig = {
+  title: string;
+  body?: React.ReactNode;
+  buttons: FlowModalButton[];
+  input?: {
+    placeholder?: string;
+    textarea?: boolean;
+    required?: boolean;
+    defaultValue?: string;
+  };
+};
+
 export default function WorkspaceShell(){
   const loc = useLocation();
   const nav = useNavigate();
@@ -45,6 +64,387 @@ export default function WorkspaceShell(){
   const [trialEndedOpen, setTrialEndedOpen] = useState<boolean>(false);
   const [trialDaysLeft, setTrialDaysLeft] = useState<number>(0);
   const [showWelcome, setShowWelcome] = useState(false);
+  const [flowModal, setFlowModal] = useState<FlowModalConfig | null>(null);
+  const [flowModalInput, setFlowModalInput] = useState('');
+
+  const paneRef = useRef(pane);
+  useEffect(()=>{ paneRef.current = pane; }, [pane]);
+  const billingOpenRef = useRef(billingOpen);
+  useEffect(()=>{ billingOpenRef.current = billingOpen; }, [billingOpen]);
+  const billingStatusRef = useRef(billingStatus);
+  useEffect(()=>{ billingStatusRef.current = billingStatus; }, [billingStatus]);
+  const flowRunningRef = useRef(false);
+  const flowModalResolveRef = useRef<((value: any) => void) | undefined>(undefined);
+
+  useEffect(()=>{
+    if (flowModal?.input) {
+      setFlowModalInput(flowModal.input.defaultValue || '');
+    } else {
+      setFlowModalInput('');
+    }
+  }, [flowModal]);
+
+  const sleep = useCallback((ms: number) => new Promise(resolve => setTimeout(resolve, ms)), []);
+
+  const showFlowModalAsync = useCallback((config: FlowModalConfig) => {
+    return new Promise<any>((resolve) => {
+      flowModalResolveRef.current = resolve;
+      setFlowModal(config);
+    });
+  }, []);
+
+  const resolveFlowModal = useCallback((value: any) => {
+    const resolver = flowModalResolveRef.current;
+    flowModalResolveRef.current = undefined;
+    const resolvedValue = value !== undefined ? value : (flowModal?.input ? flowModalInput.trim() : undefined);
+    setFlowModal(null);
+    if (resolver) resolver(resolvedValue);
+  }, [flowModal, flowModalInput]);
+
+  const waitForCondition = useCallback(async (predicate: () => boolean, timeoutMs = 10000) => {
+    const start = Date.now();
+    while (!predicate()) {
+      if (Date.now() - start > timeoutMs) return false;
+      await sleep(80);
+    }
+    return true;
+  }, [sleep]);
+
+  const waitForEvent = useCallback((eventName: string, predicate: ((event: Event) => boolean) | undefined = undefined, timeoutMs = 30000) => {
+    return new Promise<Event>((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const handler = (event: Event) => {
+        try {
+          if (!predicate || predicate(event)) {
+            cleanup();
+            resolve(event);
+          }
+        } catch (err) {
+          cleanup();
+          reject(err);
+        }
+      };
+      const cleanup = () => {
+        window.removeEventListener(eventName, handler as any);
+        if (timer) clearTimeout(timer);
+      };
+      window.addEventListener(eventName, handler as any);
+      if (timeoutMs > 0) {
+        timer = setTimeout(() => {
+          cleanup();
+          reject(new Error(`${eventName} timeout`));
+        }, timeoutMs);
+      }
+    });
+  }, []);
+
+  const highlightStep = useCallback(async (selector: string, title: string, description: string) => {
+    const found = await waitForCondition(() => !!document.querySelector(selector), 8000);
+    if (!found) return;
+    const mod: any = await import('driver.js');
+    const driverFactory = mod?.driver || mod;
+    const instance = driverFactory({
+      showProgress: false,
+      allowClose: false,
+      steps: [
+        {
+          element: selector,
+          popover: {
+            title,
+            description,
+            side: 'bottom',
+            align: 'start',
+          },
+        },
+      ],
+    } as any);
+    return new Promise<void>((resolve) => {
+      try {
+        instance.drive();
+      } catch {
+        resolve();
+        return;
+      }
+      instance.on('destroyed', () => resolve());
+    });
+  }, [waitForCondition]);
+
+  const goToPane = useCallback(async (target: PaneKey) => {
+    if (paneRef.current !== target) {
+      try {
+        const sp = new URLSearchParams(window.location.search);
+        sp.set('pane', target);
+        nav({ pathname: '/workspace', search: `?${sp.toString()}` }, { replace: false });
+      } catch {
+        window.location.href = `/workspace?pane=${encodeURIComponent(target)}`;
+        return;
+      }
+    }
+    await waitForCondition(() => paneRef.current === target, 12000);
+    await sleep(200);
+  }, [nav, sleep, waitForCondition]);
+
+  const ensureBilling = useCallback(async () => {
+    const covered = () => {
+      const status = billingStatusRef.current || '';
+      return status === 'active' || status === 'trialing';
+    };
+    if (covered()) return;
+    setBillingOpen(true);
+    try { localStorage.removeItem('bvx_billing_dismissed'); } catch {}
+    const start = Date.now();
+    while (!covered()) {
+      if (!billingOpenRef.current) break;
+      if (Date.now() - start > 60000) break;
+      await sleep(600);
+    }
+    setBillingOpen(false);
+  }, [sleep]);
+
+  const runUnifiedFlow = useCallback(async () => {
+    if (flowRunningRef.current) return;
+    if (localStorage.getItem('bvx_quickstart_completed') === '1') return;
+    flowRunningRef.current = true;
+    const hairOptions = [
+      'Copper',
+      'Espresso brown',
+      'Platinum blonde',
+      'Rose gold',
+      'Jet black',
+    ];
+    const planQuestions = [
+      {
+        id: 'goal',
+        title: 'Your focus',
+        placeholder: 'Example: Fill weekdays with high-ticket color clients',
+        prompt: 'What is your biggest business goal for the next two weeks?',
+      },
+      {
+        id: 'segments',
+        title: 'Who you want to serve',
+        placeholder: 'Example: Vivid color guests or bridal parties',
+        prompt: 'Which client segments are you focusing on (vivid color, bridal, lash refills, etc.)?',
+      },
+      {
+        id: 'time',
+        title: 'Time available',
+        placeholder: 'Example: 30 minutes per day, 2 hours on Mondays',
+        prompt: 'How much time per day can you realistically invest in follow-ups, content, or training?',
+      },
+    ];
+    try {
+      await sleep(400);
+      await ensureBilling();
+
+      await showFlowModalAsync({
+        title: 'Let’s start strong',
+        body: (
+          <div className="text-sm text-slate-700">
+            We’ll knock out three quick wins so your workspace delivers value right away.
+          </div>
+        ),
+        buttons: [{ label: 'Let’s go', value: 'continue', tone: 'primary' }],
+      });
+
+      await highlightStep('[data-guide="quickstart-brandvzn"]', 'Brand Vision', 'Tap Brand Vision to jump in and show a fast before & after.');
+      await goToPane('vision');
+      await sleep(400);
+      try { startGuide('vision'); } catch {}
+      await sleep(1600);
+
+      if (localStorage.getItem('bvx_done_vision') !== '1') {
+        await highlightStep('[data-guide="upload"]', 'Upload a photo', 'Pick a selfie or client look to get started.');
+        try {
+          await waitForEvent('bvx:flow:vision-uploaded', undefined, 90000);
+        } catch {
+          throw new Error('vision-upload-timeout');
+        }
+
+        const choice = await showFlowModalAsync({
+          title: 'Try a quick hair update',
+          body: (
+            <div className="text-sm text-slate-700">
+              Choose a shade to see how naturally Brand Vision edits.
+            </div>
+          ),
+          buttons: hairOptions.map(label => ({ label, value: label, tone: 'primary' })),
+        });
+        if (choice) {
+          window.dispatchEvent(new CustomEvent('bvx:flow:vision-command', {
+            detail: {
+              action: 'vision.run-edit',
+              prompt: `Change just the hair on the top of the subject's head to ${choice}`,
+            },
+          }));
+          try {
+            await waitForEvent('bvx:flow:vision-edit-complete', (event) => {
+              const detail = (event as CustomEvent).detail as any;
+              if (detail?.error) throw new Error(detail.error);
+              return true;
+            }, 120000);
+          } catch {
+            throw new Error('vision-edit-failed');
+          }
+        }
+
+        await highlightStep('[data-guide="slider"]', 'Compare the look', 'Drag the slider to show before vs after in real time.');
+        await showFlowModalAsync({
+          title: 'Brand Vision ready',
+          body: (
+            <div className="text-sm text-slate-700">
+              Your edit is saved in the Brand Vision library for future share-outs.
+            </div>
+          ),
+          buttons: [{ label: 'Back to dashboard', value: 'dashboard', tone: 'primary' }],
+        });
+        try { localStorage.setItem('bvx_done_vision','1'); } catch {}
+        window.dispatchEvent(new CustomEvent('bvx:quickstart:update', { detail: { step: 'vision' } }));
+      }
+
+      await goToPane('dashboard');
+      await sleep(400);
+
+      if (localStorage.getItem('bvx_done_contacts') !== '1') {
+        await highlightStep('[data-guide="quickstart-import"]', 'Import clients', 'Bring in your Square or Acuity guests so metrics stay accurate.');
+        await goToPane('contacts');
+        await sleep(400);
+        try { startGuide('contacts'); } catch {}
+        await sleep(1400);
+        window.dispatchEvent(new CustomEvent('bvx:flow:contacts-command', { detail: { action: 'contacts.import' } }));
+        try {
+          await waitForEvent('bvx:flow:contacts-imported', (event) => {
+            const detail = (event as CustomEvent).detail as any;
+            if (detail?.error) throw new Error(detail.error);
+            return true;
+          }, 150000);
+        } catch {
+          throw new Error('contacts-import-failed');
+        }
+        await showFlowModalAsync({
+          title: 'Clients connected',
+          body: (
+            <div className="text-sm text-slate-700">
+              Your guests, spend, and visit history are synced. Let’s tap into insights now.
+            </div>
+          ),
+          buttons: [{ label: 'Continue', value: 'next', tone: 'primary' }],
+        });
+        try { localStorage.setItem('bvx_done_contacts','1'); } catch {}
+        window.dispatchEvent(new CustomEvent('bvx:quickstart:update', { detail: { step: 'contacts' } }));
+      }
+
+      await goToPane('dashboard');
+      await highlightStep('[data-guide="quickstart-train"]', 'Train VX', 'Use Train VX to tailor a 14-day plan with your style and schedule.');
+      await goToPane('askvx');
+      await sleep(400);
+      try { startGuide('askvx'); } catch {}
+      await sleep(1500);
+
+      const analyticsPrompt = 'What was my revenue for the last three months and who are my top three clients?';
+      window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.prefill', prompt: analyticsPrompt } }));
+      await showFlowModalAsync({
+        title: 'Check your numbers',
+        body: (
+          <div className="text-sm text-slate-700">
+            Press Send to see revenue for the last three months and your top three clients.
+          </div>
+        ),
+        buttons: [{ label: 'Send now', value: 'send', tone: 'primary' }],
+      });
+      window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.send', prompt: analyticsPrompt, context: { flow: 'analytics' } } }));
+      await waitForEvent('bvx:flow:askvx-response', (event) => ((event as CustomEvent).detail as any)?.context?.flow === 'analytics', 60000);
+      await showFlowModalAsync({
+        title: 'Revenue ready',
+        body: (
+          <div className="text-sm text-slate-700">
+            Review the chat response for your three-month revenue snapshot. When you’re set, we’ll map your 14-day strategy.
+          </div>
+        ),
+        buttons: [{ label: 'Next', value: 'next', tone: 'primary' }],
+      });
+
+      if (localStorage.getItem('bvx_done_plan') !== '1') {
+        const answers: Record<string, string> = {};
+        for (const item of planQuestions) {
+        const response = await showFlowModalAsync({
+          title: item.prompt,
+          body: (
+            <div className="text-sm text-slate-700">
+              {item.title}
+            </div>
+          ),
+          input: {
+            placeholder: item.placeholder,
+            textarea: true,
+            required: true,
+            defaultValue: '',
+          },
+          buttons: [{ label: 'Save answer', tone: 'primary' }],
+        });
+          const value = typeof response === 'string' ? response.trim() : '';
+          if (!value) {
+            throw new Error('plan-question-missing');
+          }
+          answers[item.id] = value;
+        }
+
+        const planPrompt = `You are a beauty business coach. Create a warm, practical 14-day action plan with daily bullet points based on the owner’s answers. Goal: ${answers.goal}. Focused client segments: ${answers.segments}. Daily time available: ${answers.time}. Keep it friendly, no tech jargon, and include a mix of follow-ups, content, and training.`;
+        window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.send', prompt: planPrompt, context: { flow: 'plan' } } }));
+        const planEvent = await waitForEvent('bvx:flow:askvx-response', (event) => ((event as CustomEvent).detail as any)?.context?.flow === 'plan', 60000);
+        const planText = String(((planEvent as CustomEvent).detail as any)?.text || '').trim();
+
+        const planChoice = await showFlowModalAsync({
+          title: 'Your 14-day plan',
+          body: (
+            <div className="text-sm text-slate-700 whitespace-pre-wrap max-h-[40vh] overflow-y-auto">{planText || 'Plan available in chat window.'}</div>
+          ),
+          buttons: [
+            { label: 'Save plan', value: 'save', tone: 'primary', disabled: !planText },
+            { label: 'Skip for now', value: 'skip' },
+          ],
+        });
+
+        if (planChoice === 'save' && planText) {
+          try {
+            const tid = await getTenant();
+            await api.post('/ai/memories/upsert', { tenant_id: tid, key: 'plan.14day', value: planText, tags: 'onboarding,plan' });
+          } catch (err) {
+            console.error('plan save failed', err);
+          }
+        }
+        try { localStorage.setItem('bvx_done_plan','1'); } catch {}
+        window.dispatchEvent(new CustomEvent('bvx:quickstart:update', { detail: { step: 'plan' } }));
+      }
+
+      await goToPane('dashboard');
+      await showFlowModalAsync({
+        title: 'You’re all set',
+        body: (
+          <div className="text-sm text-slate-700">
+            Brand Vision edits, your client list, and your 14-day plan are ready. Explore the dashboard anytime.
+          </div>
+        ),
+        buttons: [{ label: 'Finish', value: 'done', tone: 'primary' }],
+      });
+
+      try { localStorage.setItem('bvx_quickstart_completed','1'); } catch {}
+      window.dispatchEvent(new CustomEvent('bvx:quickstart:completed'));
+    } catch (err) {
+      console.error('Unified onboarding flow error', err);
+      await showFlowModalAsync({
+        title: 'Flow paused',
+        body: (
+          <div className="text-sm text-slate-700">
+            Something interrupted the guided steps. You can continue exploring manually and rerun the tour later.
+          </div>
+        ),
+        buttons: [{ label: 'Continue', value: 'ok', tone: 'primary' }],
+      });
+    } finally {
+      flowRunningRef.current = false;
+      setFlowModal(null);
+    }
+  }, [ensureBilling, goToPane, highlightStep, showFlowModalAsync, sleep, waitForEvent, waitForCondition]);
 
   // Workspace billing gate: open modal if not trialing/active
   useEffect(()=>{
@@ -240,18 +640,6 @@ export default function WorkspaceShell(){
     }
   };
 
-  const toggleDemo = () => {
-    try {
-      const sp = new URLSearchParams(loc.search);
-      sp.set('pane', (pane || 'dashboard'));
-      sp.delete('demo');
-      nav({ pathname: '/workspace', search: `?${sp.toString()}` }, { replace: false });
-    } catch {
-      const qs = `?pane=${encodeURIComponent(pane||'dashboard')}`;
-      window.location.href = `/workspace${qs}`;
-    }
-  };
-
   const PaneView = (() => {
     switch (pane) {
       case 'dashboard': return <LazyDashboard/>;
@@ -274,13 +662,20 @@ export default function WorkspaceShell(){
     }
   }, [showWelcome]);
 
+  useEffect(()=>{
+    const handler = () => {
+      runUnifiedFlow();
+    };
+    window.addEventListener('bvx:guide:workspace_intro:done', handler as any);
+    return () => window.removeEventListener('bvx:guide:workspace_intro:done', handler as any);
+  }, [runUnifiedFlow]);
+
   const items = useMemo(()=> PANES, []);
   const [approvalsCount, setApprovalsCount] = useState<number>(0);
   const [queueCount, setQueueCount] = useState<number>(0);
   useEffect(()=>{
     (async()=>{
       try{
-        // demo disabled; proceed
         // Ensure we have an authenticated session before hitting protected endpoints
         const session = (await supabase.auth.getSession()).data.session;
         if (!session?.access_token) { setApprovalsCount(0); setQueueCount(0); return; }
@@ -511,14 +906,6 @@ export default function WorkspaceShell(){
           </nav>
           {/* Anchored footer */}
           <div className="absolute left-[3px] right-[3px]" style={{ bottom: 'calc(env(safe-area-inset-bottom,0px) + 18px)' }}>
-            {false && (
-              <Button
-                variant="outline"
-                className="mb-[2px] w-full !rounded-full bg-amber-50 text-amber-800 border-amber-200"
-                onClick={toggleDemo}
-                data-tour="demo-toggle"
-              >Demo mode: on</Button>
-            )}
             {BOOKING_URL && (
               <a
                 href={BOOKING_URL}
@@ -606,6 +993,54 @@ export default function WorkspaceShell(){
           </div>
         </div>, document.body)
       }
+      {flowModal && createPortal(
+        <div className="fixed inset-0 z-[2100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/30" />
+          <div className="relative w-full max-w-md rounded-2xl border border-[var(--border)] bg-white p-5 shadow-soft text-center">
+            <div className="text-lg font-semibold text-ink-900">{flowModal.title}</div>
+            {flowModal.body && (
+              <div className="mt-2 text-sm text-slate-700 text-left whitespace-pre-wrap">{flowModal.body}</div>
+            )}
+            {flowModal.input && (
+              flowModal.input.textarea ? (
+                <textarea
+                  className="mt-4 w-full rounded-md border px-3 py-2 text-sm"
+                  rows={4}
+                  placeholder={flowModal.input.placeholder}
+                  value={flowModalInput}
+                  onChange={e=> setFlowModalInput(e.target.value)}
+                />
+              ) : (
+                <input
+                  className="mt-4 w-full rounded-md border px-3 py-2 text-sm"
+                  placeholder={flowModal.input.placeholder}
+                  value={flowModalInput}
+                  onChange={e=> setFlowModalInput(e.target.value)}
+                />
+              )
+            )}
+            <div className="mt-4 flex flex-wrap gap-2 justify-center">
+              {flowModal.buttons.map((btn, idx) => {
+                const disabled = btn.disabled || (flowModal.input?.required && !flowModalInput.trim() && btn.value === undefined);
+                const tone = btn.tone || 'secondary';
+                const className = tone === 'primary'
+                  ? 'inline-flex items-center justify-center px-4 py-2 rounded-full bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-60'
+                  : 'inline-flex items-center justify-center px-4 py-2 rounded-full border bg-white text-slate-900 hover:bg-slate-50 disabled:opacity-60';
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    className={className}
+                    disabled={disabled}
+                    onClick={()=> resolveFlowModal(btn.value)}
+                  >{btn.label}</button>
+                );
+              })}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
       {/* Onboarding prompt for WorkStyles removed per simplification */}
       {/* Billing modal */}
       {billingOpen && (

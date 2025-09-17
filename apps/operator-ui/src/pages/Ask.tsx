@@ -318,7 +318,7 @@ export default function Ask(){
   useEffect(()=>{ try{ if (new URLSearchParams(window.location.search).get('tour')==='1') startGuide('askvx'); } catch {} },[]);
 
   return (
-    <div className={`h-full min-h-0 flex flex-col min-w-0 overflow-x-hidden overflow-y-auto pb-3`}>
+    <div className={`h-full min-h-0 flex flex-col min-w-0 overflow-x-hidden overflow-y-hidden pb-3`}>
       {askIsDemo && (
         <div className="rounded-2xl p-3 border bg-amber-50/80 border-amber-200 text-amber-900">
           <div className="flex flex-wrap items-center gap-2">
@@ -385,7 +385,7 @@ export default function Ask(){
         </div>
       )}
       {pageIdx===0 && (
-      <div className={`rounded-xl bg-white shadow-sm p-3 border flex-1 min-h-0 overflow-auto min-w-0`} aria-live="polite" aria-atomic="false" role="log" data-guide="messages">
+      <div className={`rounded-xl bg-white shadow-sm p-3 border flex-1 min-h-0 overflow-y-auto min-w-0`} aria-live="polite" aria-atomic="false" role="log" data-guide="messages">
         {messages.length === 0 && (
           <div className="text-sm text-slate-500">Start a conversation below.</div>
         )}

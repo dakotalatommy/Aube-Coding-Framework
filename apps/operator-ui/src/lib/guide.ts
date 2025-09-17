@@ -111,161 +111,62 @@ export function getGuideSteps(page: string): GuideStep[] {
   return registry[page] || [];
 }
 
-export function startGuide(page: string, opts?: { step?: number }) {
+export function startGuide(page: string, _opts?: { step?: number }) {
   const steps = getGuideSteps(page);
   if (!steps || steps.length === 0) return;
-  // Persist last guide context for resume
+  if (typeof window === 'undefined' || typeof document === 'undefined') return;
   try { localStorage.setItem('bvx_last_tour_page', page); } catch {}
-  // Server checkpoint: tour started for this page (use API base)
+  try { localStorage.setItem('bvx_last_tour_step', '0'); } catch {}
   try {
     const tenantId = (()=>{ try{ return localStorage.getItem('bvx_tenant')||''; }catch{ return '' }})();
     if (tenantId) void api.post('/onboarding/complete_step', { tenant_id: tenantId, step_key: `tour.start.${page}`, context: {} });
   } catch {}
-  try {
-    const urlStep = (()=>{ try{ const sp = new URLSearchParams(window.location.search); return Number(sp.get('tourStep')||sp.get('step')||'0'); }catch{ return 0 } })();
-    const raw = Number(opts?.step || 0) || (Number.isFinite(urlStep) ? urlStep : 0);
-    const s = Math.max(0, Math.floor(raw||0));
-    localStorage.setItem('bvx_last_tour_step', String(s||0));
-  } catch {}
-  const demoSuffix = (()=>{ try{ const sp = new URLSearchParams(window.location.search); return sp.get('demo')==='1' ? '&demo=1' : ''; } catch { return '' } })();
-  const begin = () => {
-    const steps: Array<{ path: string; guide?: string; wait?: string; progress?: string }> = [
-      { path: `/workspace?pane=dashboard${demoSuffix}` as any, guide: 'dashboard', wait: '[data-guide="quickstart"]', progress: 'showcase.dashboard' },
-    ];
-  // Branch: if booking not connected, detour to Integrations first
-  try {
-    (async()=>{
-      try{
-        const j = await api.post('/onboarding/analyze', {});
-        const cm = (j?.summary?.connected || {}) as Record<string,string>;
-        const bookingOn = String(cm.square||'')==='connected' || String(cm.acuity||'')==='connected';
-        if (!bookingOn) {
-          steps.push({ path: `/workspace?pane=integrations&tour=1&onboard=1${demoSuffix}` as any, guide: 'integrations', wait: '[data-guide="providers"]', progress: 'showcase.integrations' });
-        }
-      } catch {}
-      steps.push(
-        // Stay within the workspace tab/pane for all steps
-        // Billing CTA comes after booking (integrations) and before brandVZN — event-based (no URL param)
-        { path: `/workspace?pane=dashboard${demoSuffix}` as any, guide: undefined as any, wait: undefined as any, progress: 'showcase.billing' },
-        // brandVZN: upload → edit hair → refine eyes, with explicit dashboard hop afterward
-        { path: `/workspace?pane=vision&tour=1&onboard=1${demoSuffix}` as any, guide: 'vision', wait: '[data-guide="preview"][data-vision-has-preview="1"]', progress: 'showcase.vision.upload' },
-        { path: `/workspace?pane=vision&tour=1&onboard=1${demoSuffix}` as any, guide: 'vision', wait: '[data-guide="preview"][data-vision-edits="1"]', progress: 'showcase.vision.edit.hair' },
-        { path: `/workspace?pane=vision&tour=1&onboard=1${demoSuffix}` as any, guide: 'vision', wait: '[data-guide="preview"][data-vision-edits="2"]', progress: 'showcase.vision.edit.eyes' },
-        { path: `/workspace?pane=dashboard${demoSuffix}` as any, guide: 'dashboard', wait: '[data-guide="quickstart"]', progress: 'showcase.back.dashboard.after.vision' },
-        // Contacts import, then AskVX, then dashboard hop
-        { path: `/workspace?pane=contacts&tour=1&onboard=1${demoSuffix}` as any, guide: 'contacts', wait: '[data-guide="import"]', progress: 'showcase.contacts' },
-        { path: `/workspace?pane=askvx&onboard=1&autosummarize=1${demoSuffix}` as any, guide: 'askvx', wait: '[data-guide="composer"]', progress: 'showcase.ask' },
-        { path: `/workspace?pane=dashboard${demoSuffix}` as any, guide: 'dashboard', wait: '[data-guide="quickstart"]', progress: 'showcase.back.dashboard.after.ask' },
-        // Train & Profile hop, then final dashboard
-        { path: `/workspace?pane=askvx&onboard=1&page=2${demoSuffix}` as any, guide: 'askvx', wait: '[data-guide="composer"]', progress: 'showcase.trainvx' },
-        { path: `/workspace?pane=dashboard${demoSuffix}` as any, guide: 'dashboard', wait: '[data-guide="next-best-steps"]', progress: 'showcase.done' },
-      );
-    })();
-  } catch {}
-    // Prefetch upcoming routes without navigating
+  try { track('tour_start', { page }); } catch {}
+
+  void (async () => {
     try {
-      const prefetchPath = (href: string) => { try { const link = document.createElement('link'); link.rel = 'prefetch'; link.href = href; document.head.appendChild(link); } catch {} };
-      steps.forEach(s=>{ try { if (s.path) prefetchPath(s.path); } catch {} });
-    } catch {}
-  // Determine starting index (support resume)
-  let i = 0;
-  try {
-    const anyOpts = opts as any;
-    if (anyOpts?.resume) {
-      const lastIndex = Number(localStorage.getItem('bvx_showcase_index')||'');
-      if (Number.isFinite(lastIndex)) i = Math.max(0, lastIndex + 1);
-    }
-  } catch {}
-  // Helper: wait until billing is satisfied (dismissed or covered)
-  const waitForBillingSatisfied = async (): Promise<void> => {
-    const maxWaitMs = 20000; const start = Date.now();
-    const isCovered = async (): Promise<boolean> => {
-      try {
-        const tid = (localStorage.getItem('bvx_tenant')||'');
-        if (!tid) return false;
-        const j = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
-        const st = String(j?.data?.subscription_status || j?.subscription_status || '');
-        return st === 'active' || st === 'trialing';
-      } catch { return false; }
-    };
-    for (;;) {
-      try {
-        if (localStorage.getItem('bvx_billing_dismissed') === '1') return;
-        if (await isCovered()) return;
-      } catch {}
-      if (Date.now() - start > maxWaitMs) return; // fail-open to avoid stall
-      await new Promise(r=> setTimeout(r, 600));
-    }
-  };
-  const setPhase = (phase: string) => { try { localStorage.setItem('bvx_showcase_phase', phase); } catch {} };
-  const drive = async () => {
-    if (i >= steps.length) {
-      try { localStorage.setItem('bvx_showcase_done','1'); } catch {}
-      try { localStorage.removeItem('bvx_showcase_index'); } catch {}
-      try { track('showcase_done'); } catch {}
-      try { await api.post('/onboarding/complete_step', { step_key: 'showcase.done', context: {} }); } catch {}
-      return;
-    }
-    const curr = steps[i++];
-    try { localStorage.setItem('bvx_showcase_index', String(i-1)); } catch {}
-    try {
-      try { track('showcase_step', { path: curr.path, idx: i-1 }); } catch {}
-      // Update simple phase hints for resume
-      try {
-        if (curr.path.includes('integrations')) setPhase('integrations');
-        else if (curr.progress === 'showcase.billing') setPhase('billing');
-        else if (curr.path.includes('pane=vision')) setPhase('vision');
-        else if (curr.path.includes('pane=contacts')) setPhase('contacts');
-        else if (curr.path.includes('pane=askvx') && !curr.path.includes('page=2')) setPhase('ask');
-        else if (curr.path.includes('page=2')) setPhase('train');
-        else if (curr.path.includes('pane=dashboard')) setPhase('dashboard');
-      } catch {}
-      if (window.location.pathname + window.location.search !== curr.path) {
-        window.location.href = curr.path;
-      }
-    } catch {}
-    setTimeout(async () => {
-      // Special gating for billing CTA step
-      try {
-        if (curr.progress === 'showcase.billing') {
-          try { sessionStorage.setItem('bvx_billing_prompt_request', '1'); } catch {}
-          try { window.dispatchEvent(new CustomEvent('bvx:billing:prompt')); } catch {}
-          await waitForBillingSatisfied();
-        }
-        if (curr.wait) {
-          try {
-            const sel = String(curr.wait||'');
-            const timeout = 3000; const start = Date.now();
-            const wait = async()=>{ for(;;){ if (document.querySelector(sel)) return; if (Date.now()-start>timeout) return; await new Promise(r=> setTimeout(r,80)); } };
-            await wait();
-          } catch {}
-        }
-        if (curr.guide) {
-          try { startGuide(curr.guide); } catch {}
-        }
-        if (curr.progress) {
-          try { await api.post('/onboarding/complete_step', { step_key: curr.progress, context: {} }); } catch {}
-        }
-        // Prefetch next path for faster transition
+      const mod: any = await import('driver.js');
+      const driverFactory = mod?.driver || mod?.default || mod;
+      if (!driverFactory) return;
+      const instance = driverFactory({
+        showProgress: steps.length > 1,
+        allowClose: false,
+        animate: true,
+        overlayOpacity: 0.55,
+        stagePadding: 8,
+        steps: steps.map((step) => ({
+          element: step.element || document.body,
+          popover: {
+            title: step.popover.title,
+            description: step.popover.description,
+            side: 'bottom',
+            align: 'start',
+          },
+        })),
+      } as any);
+      const persistIndex = () => {
         try {
-          const prefetchPath = (href: string) => { try { const link = document.createElement('link'); link.rel = 'prefetch'; link.href = href; document.head.appendChild(link); } catch {} };
-          const nxt = steps[i]; if (nxt?.path) prefetchPath(nxt.path);
+          const idx = instance?.getState?.()?.activeIndex;
+          if (typeof idx === 'number') localStorage.setItem('bvx_last_tour_step', String(idx));
         } catch {}
-      } catch(e:any) {
-        try { track('showcase_error', { step: curr.path, message: String(e?.message||e) }); } catch {}
+      };
+      instance.on?.('next', persistIndex);
+      instance.on?.('previous', persistIndex);
+      instance.on?.('highlighted', persistIndex);
+      if (typeof instance.drive === 'function') {
+        instance.drive();
       }
-      setTimeout(drive, 2400);
-    }, 450);
-  };
-  drive();
-  };
-  // Gate on tour completion
-  try {
-    const seen = localStorage.getItem('bvx_tour_seen_workspace_intro') === '1';
-    if (seen) { begin(); return; }
-    const onDone = () => { try { window.removeEventListener('bvx:guide:workspace_intro:done' as any, onDone as any); } catch {}; begin(); };
-    window.addEventListener('bvx:guide:workspace_intro:done' as any, onDone as any);
-  } catch { begin(); }
+      instance.on?.('destroyed', () => {
+        persistIndex();
+        try { track('tour_complete', { page }); } catch {}
+        if (page === 'workspace_intro') {
+          try { localStorage.setItem('bvx_tour_seen_workspace_intro', '1'); } catch {}
+          try { sessionStorage.setItem('bvx_welcome_seen', '1'); } catch {}
+          try { window.dispatchEvent(new CustomEvent('bvx:guide:workspace_intro:done')); } catch {}
+        }
+      });
+    } catch (err) {
+      console.error('startGuide error', err);
+    }
+  })();
 }
-
-

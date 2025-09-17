@@ -4448,7 +4448,7 @@ def ai_costs(tenant_id: str, ctx: UserContext = Depends(get_user_context)):
 
 
 @app.get("/limits/status", tags=["AI"])
-def limits_status(tenant_id: str, ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+def limits_status(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
     # Daily usage (same counters as /ai/costs)
@@ -7283,45 +7283,58 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
         except Exception:
             pass
 
-        # Ensure RLS GUCs BEFORE any SQL
+        # Capture tenant/role in context only; avoid starting a transaction on the Session.
         try:
-            if getattr(db.bind, "dialect", None) and db.bind.dialect.name == "postgresql" and os.getenv("ENABLE_PG_RLS", "0") == "1":
-                try:
-                    CURRENT_TENANT_ID.set(req.tenant_id)
-                    CURRENT_ROLE.set("owner_admin")
-                except Exception:
-                    pass
-                try:
-                    db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
-                    db.execute(_sql_text("SET LOCAL app.role = :r"), {"r": "owner_admin"})
-                except Exception:
-                    pass
+            CURRENT_TENANT_ID.set(req.tenant_id)
+            CURRENT_ROLE.set("owner_admin")
         except Exception:
             pass
 
+        # Short-lived connection helper with RLS GUCs and one-time retry for transient disconnects
+        def _with_conn_do(work):
+            for _attempt in range(2):
+                try:
+                    with engine.begin() as _conn:
+                        try:
+                            _conn.exec_driver_sql("SET LOCAL app.tenant_id = :t", {"t": req.tenant_id})
+                            _conn.exec_driver_sql("SET LOCAL app.role = 'owner_admin'")
+                        except Exception:
+                            pass
+                        return work(_conn)
+                except Exception as _e:
+                    err_s = str(_e)
+                    if _attempt == 0 and ("OperationalError" in err_s or "SSL connection has been closed" in err_s or "psycopg2" in err_s):
+                        continue
+                    raise
+
         # Idempotent guard: ensure tenant row exists to satisfy FK on contacts/events
         try:
-            db.execute(
-                _sql_text(
-                    """
-                    INSERT INTO public.tenants (id, name, created_at)
-                    VALUES (CAST(:t AS uuid), :name, NOW())
-                    ON CONFLICT (id) DO NOTHING
-                    """
-                ),
-                {"t": req.tenant_id, "name": "Workspace"},
-            )
+            def _ensure(_conn):
+                _conn.execute(
+                    _sql_text(
+                        """
+                        INSERT INTO public.tenants (id, name, created_at)
+                        VALUES (CAST(:t AS uuid), :name, NOW())
+                        ON CONFLICT (id) DO NOTHING
+                        """
+                    ),
+                    {"t": req.tenant_id, "name": "Workspace"},
+                )
+                return True
+            _with_conn_do(_ensure)
         except Exception:
             # If this fails due to permissions/RLS, downstream FK will surface; we keep read-only behavior
             pass
 
-        # Retrieve Square access token: prefer v2 store via current session, fallback to legacy
+        # Retrieve Square access token using a short-lived connection (avoid holding a Session txn)
         token = ""
         try:
-            row_v2 = db.execute(
-                _sql_text("SELECT access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider='square' ORDER BY id DESC LIMIT 1"),
-                {"t": req.tenant_id},
-            ).fetchone()
+            def _read_token(_conn):
+                return _conn.execute(
+                    _sql_text("SELECT access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider='square' ORDER BY id DESC LIMIT 1"),
+                    {"t": req.tenant_id},
+                ).fetchone()
+            row_v2 = _with_conn_do(_read_token)
             if row_v2 and row_v2[0]:
                 try:
                     token = decrypt_text(str(row_v2[0])) or ""
@@ -7455,14 +7468,8 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                 except Exception:
                     display_name = None
 
-                # Raw SQL upsert using a connection-bound transaction to avoid session state issues
-                with engine.begin() as _conn:
-                    # Apply tenant GUCs on this connection for RLS safety
-                    try:
-                        _conn.exec_driver_sql("SET LOCAL app.tenant_id = :t", {"t": req.tenant_id})
-                        _conn.exec_driver_sql("SET LOCAL app.role = 'owner_admin'")
-                    except Exception:
-                        pass
+                # Raw SQL upsert using a connection-bound transaction with retry via helper
+                def _write(_conn):
                     row = _conn.execute(
                         _sql_text(
                             "SELECT id FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid LIMIT 1"
@@ -7501,59 +7508,64 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                                 "lname": last_name,
                                 "dname": display_name,
                             },
-                    )
-                        created_total += 1
+                        )
+                        return "created"
                     else:
                         res = _conn.execute(
                             _sql_text(
-                                    """
-                                    UPDATE contacts
-                                    SET
-                                        email_hash = COALESCE(email_hash, :eh),
-                                        phone_hash = COALESCE(phone_hash, :ph),
-                                        consent_sms = (consent_sms OR :csms),
-                                        consent_email = (consent_email OR :cemail),
-                                        square_customer_id = COALESCE(square_customer_id, :sqcid),
-                                        birthday = COALESCE(birthday, :bday),
-                                        creation_source = COALESCE(creation_source, :csrc),
-                                        email_subscription_status = COALESCE(email_subscription_status, :esub),
-                                        instant_profile = (instant_profile OR :ip),
-                                        first_name = CASE WHEN first_name IS NULL OR first_name = '' THEN :fname ELSE first_name END,
-                                        last_name = CASE WHEN last_name IS NULL OR last_name = '' THEN :lname ELSE last_name END,
-                                        display_name = CASE
-                                          WHEN display_name IS NULL OR display_name = '' OR display_name ~ '^Client [0-9a-zA-Z]+'
-                                          THEN :dname
-                                          ELSE display_name
-                                        END,
-                                        updated_at = EXTRACT(epoch FROM now())::bigint
-                                    WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid
-                                    """
-                                ),
+                                """
+                                UPDATE contacts
+                                SET
+                                    email_hash = COALESCE(email_hash, :eh),
+                                    phone_hash = COALESCE(phone_hash, :ph),
+                                    consent_sms = (consent_sms OR :csms),
+                                    consent_email = (consent_email OR :cemail),
+                                    square_customer_id = COALESCE(square_customer_id, :sqcid),
+                                    birthday = COALESCE(birthday, :bday),
+                                    creation_source = COALESCE(creation_source, :csrc),
+                                    email_subscription_status = COALESCE(email_subscription_status, :esub),
+                                    instant_profile = (instant_profile OR :ip),
+                                    first_name = CASE WHEN first_name IS NULL OR first_name = '' THEN :fname ELSE first_name END,
+                                    last_name = CASE WHEN last_name IS NULL OR last_name = '' THEN :lname ELSE last_name END,
+                                    display_name = CASE
+                                      WHEN display_name IS NULL OR display_name = '' OR display_name ~ '^Client [0-9a-zA-Z]+'
+                                      THEN :dname
+                                      ELSE display_name
+                                    END,
+                                    updated_at = EXTRACT(epoch FROM now())::bigint
+                                WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid
+                                """
+                            ),
                             {
-                                    "t": req.tenant_id,
-                                    "cid": contact_id,
-                                    "eh": email,
-                                    "ph": phone_norm,
-                                    "csms": bool(phone_norm),
-                                    "cemail": bool(email),
-                                    "sqcid": sq_id,
-                                    "bday": birthday,
-                                    "csrc": creation_source,
-                                    "esub": email_sub_status,
-                                    "ip": bool(instant_profile),
-                                    "fname": first_name,
-                                    "lname": last_name,
-                                    "dname": display_name,
+                                "t": req.tenant_id,
+                                "cid": contact_id,
+                                "eh": email,
+                                "ph": phone_norm,
+                                "csms": bool(phone_norm),
+                                "cemail": bool(email),
+                                "sqcid": sq_id,
+                                "bday": birthday,
+                                "csrc": creation_source,
+                                "esub": email_sub_status,
+                                "ip": bool(instant_profile),
+                                "fname": first_name,
+                                "lname": last_name,
+                                "dname": display_name,
                             },
                         )
                         try:
                             rc = int(getattr(res, "rowcount", 0) or 0)
                         except Exception:
                             rc = 0
-                        if rc > 0:
-                            updated_total += 1
-                        else:
-                            existing_total += 1
+                        return "updated" if rc > 0 else "existing"
+
+                outcome = _with_conn_do(_write)
+                if outcome == "created":
+                    created_total += 1
+                elif outcome == "updated":
+                    updated_total += 1
+                else:
+                    existing_total += 1
             except Exception:
                 pass
 

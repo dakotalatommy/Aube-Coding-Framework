@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import Button, { ButtonLink } from '../components/ui/Button';
@@ -160,15 +160,28 @@ export default function Dashboard(){
   // Post-onboarding banner removed; keep state out to avoid unused var
   // Single page dashboard (pager removed)
   const [onboarding, setOnboarding] = useState<any>(null);
+  const [quickStartVersion, setQuickStartVersion] = useState(0);
   const isIntroActive = (()=>{ try{ return localStorage.getItem('bvx_tour_seen_workspace_intro')!=='1'; }catch{ return false; }})();
-  const quickStartDone = (()=>{
+  const quickStartDone = useMemo(()=>{
     try{
       const v = localStorage.getItem('bvx_done_vision')==='1';
       const c = localStorage.getItem('bvx_done_contacts')==='1';
       const p = localStorage.getItem('bvx_done_plan')==='1';
       return v && c && p;
     }catch{ return false; }
-  })();
+  }, [quickStartVersion]);
+
+  useEffect(()=>{
+    const handler = () => setQuickStartVersion(v => v + 1);
+    window.addEventListener('bvx:quickstart:update', handler as any);
+    window.addEventListener('bvx:quickstart:completed', handler as any);
+    window.addEventListener('storage', handler as any);
+    return () => {
+      window.removeEventListener('bvx:quickstart:update', handler as any);
+      window.removeEventListener('bvx:quickstart:completed', handler as any);
+      window.removeEventListener('storage', handler as any);
+    };
+  }, []);
 
   // Plan: Next Best Steps
   const [planLoading, setPlanLoading] = useState<boolean>(false);
@@ -476,6 +489,7 @@ export default function Dashboard(){
               size="sm"
               variant="outline"
               className="w-full"
+              data-guide="quickstart-import"
               disabled={isIntroActive}
               onClick={async()=>{
                 try{
@@ -489,6 +503,7 @@ export default function Dashboard(){
               size="sm"
               variant="outline"
               className="w-full"
+              data-guide="quickstart-train"
               disabled={isIntroActive}
               onClick={()=>{ if (!isIntroActive) nav('/workspace?pane=askvx&page=2'); }}>trainVX</Button>
           </div>
