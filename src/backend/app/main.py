@@ -11053,7 +11053,7 @@ def square_booking_link(
 
 # ---------- Admin: schema/RLS/timestamps inspection ----------
 @app.get("/admin/schema/inspect", tags=["Admin"])
-def admin_schema_inspect(db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+def admin_schema_inspect(db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context_relaxed)) -> Dict[str, object]:
     if ctx.role != "owner_admin":
         return {"error": "forbidden"}
     try:

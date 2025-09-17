@@ -166,18 +166,20 @@ export default function SupportBubble(){
     <>
       {/* Floating pill bubble */}
       {!open && createPortal(
-        <button
-          aria-label="Open support"
-          onClick={()=> setOpen(true)}
-          className="fixed right-4 bottom-4 z-[4000] rounded-full border bg-white px-4 py-2 shadow-md text-sm text-slate-900 hover:shadow-lg"
-          data-bvx="support-bubble-button"
-        >
-          support
-        </button>,
+        <div className="fixed inset-0 pointer-events-none" style={{ zIndex: 2147483647, isolation: 'isolate' }}>
+          <button
+            aria-label="Open support"
+            onClick={()=> setOpen(true)}
+            className="pointer-events-auto absolute right-4 bottom-4 rounded-full border bg-white px-4 py-2 shadow-md text-sm text-slate-900 hover:shadow-lg"
+            data-bvx="support-bubble-button"
+          >
+            support
+          </button>
+        </div>,
         document.body
       )}
       {open && createPortal(
-        <div className="fixed inset-0 z-[4000] pointer-events-none">
+        <div className="fixed inset-0 pointer-events-none" style={{ zIndex: 2147483647, isolation: 'isolate' }}>
           {/* Click catcher to close when clicking outside */}
           <div className="absolute inset-0" onClick={()=> setOpen(false)} />
           <div className="absolute right-4 bottom-4 w-[min(36vw,420px)] max-w-[92vw] h-[min(48vh,560px)] max-h-[78vh] pointer-events-auto">
