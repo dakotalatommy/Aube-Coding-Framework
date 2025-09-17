@@ -10757,6 +10757,40 @@ def rls_probe_insert_contact(
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
 
+
+class RlsProbeDeleteRequest(BaseModel):
+    tenant_id: str
+    contact_id: str
+
+
+@app.post("/integrations/rls/probe-delete-contact", tags=["Integrations"])
+def rls_probe_delete_contact(
+    req: RlsProbeDeleteRequest,
+    ctx: UserContext = Depends(get_user_context),
+) -> Dict[str, object]:
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    try:
+        with engine.begin() as conn:
+            try:
+                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+            except Exception:
+                pass
+            res = conn.execute(
+                _sql_text(
+                    "DELETE FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid"
+                ),
+                {"t": req.tenant_id, "cid": req.contact_id},
+            )
+        try:
+            deleted = int(getattr(res, "rowcount", 0) or 0)
+        except Exception:
+            deleted = 0
+        return {"status": "ok", "deleted": deleted}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
+
 class ConnectorsNormalizeRequest(BaseModel):
     tenant_id: Optional[str] = None
     migrate_legacy: bool = True
