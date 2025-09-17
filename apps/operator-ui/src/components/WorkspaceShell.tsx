@@ -5,13 +5,13 @@ import Button from './ui/Button';
 import { Home, MessageSquare, Users, Calendar, Layers, Package2, Plug, CheckCircle2, MessageCircle, Eye } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { api, getTenant } from '../lib/api';
-import { startGuide, startShowcase } from '../lib/guide';
+import { startGuide } from '../lib/guide';
 import { track } from '../lib/analytics';
 import { UI_STRINGS } from '../lib/strings';
 // import PaneManager from './pane/PaneManager';
 import { registerActions, registerMessageBridge } from '../lib/actions';
 
-type PaneKey = 'dashboard' | 'messages' | 'contacts' | 'calendar' | 'cadences' | 'inventory' | 'integrations' | 'approvals' | 'workflows' | 'askvx' | 'vision';
+type PaneKey = 'dashboard' | 'messages' | 'contacts' | 'calendar' | 'cadences' | 'inventory' | 'integrations' | 'approvals' | 'askvx' | 'vision';
 
 const PANES: { key: PaneKey; label: string; icon: React.ReactNode }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: <Home size={18} /> },
@@ -22,7 +22,7 @@ const PANES: { key: PaneKey; label: string; icon: React.ReactNode }[] = [
   { key: 'calendar', label: 'Calendar', icon: <Calendar size={18} /> },
   { key: 'cadences', label: 'Follow‑ups', icon: <Layers size={18} /> },
   { key: 'inventory', label: 'Inventory', icon: <Package2 size={18} /> },
-  { key: 'approvals', label: 'To‑Do', icon: <CheckCircle2 size={18} /> },
+  { key: 'approvals', label: 'To-Do', icon: <CheckCircle2 size={18} /> },
   { key: 'integrations', label: 'Settings', icon: <Plug size={18} /> },
 ];
 
@@ -33,7 +33,6 @@ export default function WorkspaceShell(){
   const rawPane = (params.get('pane') as PaneKey) || 'dashboard';
   const oauthReturn = !!(params.get('provider') || params.get('connected') || params.get('postVerify') || (params.get('return') === 'workspace'));
   const pane = (rawPane === 'integrations' && oauthReturn) ? 'dashboard' : rawPane;
-  const demo = params.get('demo') === '1';
   const BOOKING_URL = (import.meta as any).env?.VITE_BOOKING_URL || '';
   const PRICE_147 = (import.meta as any).env?.VITE_STRIPE_PRICE_147 || '';
   const PRICE_97 = (import.meta as any).env?.VITE_STRIPE_PRICE_97 || '';
@@ -45,10 +44,7 @@ export default function WorkspaceShell(){
   const [trialModalOpen, setTrialModalOpen] = useState<boolean>(false);
   const [trialEndedOpen, setTrialEndedOpen] = useState<boolean>(false);
   const [trialDaysLeft, setTrialDaysLeft] = useState<number>(0);
-  const [showDemoWelcome, setShowDemoWelcome] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
-
-  // legacy quickstart path removed; showcase orchestrates the sequence
 
   // Workspace billing gate: open modal if not trialing/active
   useEffect(()=>{
@@ -64,7 +60,7 @@ export default function WorkspaceShell(){
           }
         } catch {}
         // Auth guard with tolerant resolver to avoid bounce loop
-        if (!demo) {
+        {
           let session = (await supabase.auth.getSession()).data.session;
           if (!session) {
             const inProgress = localStorage.getItem('bvx_auth_in_progress') === '1';
@@ -79,7 +75,7 @@ export default function WorkspaceShell(){
             if (!session) { nav('/login'); return; }
           }
         }
-        const sp = new URLSearchParams(loc.search);
+        const sp = new URLSearchParams(loc.search); void sp;
         // Strip and normalize: never land on Settings due to stale query; prefer Dashboard
         try{
           const paneQ = sp.get('pane');
@@ -103,14 +99,11 @@ export default function WorkspaceShell(){
             }
           } catch {}
         } catch {}
-        // OAuth return: if provider connected and onboarding/showcase is active, force Dashboard and resume showcase (one-shot)
+        // OAuth return cleanup
         try {
           const prov = sp.get('provider') || '';
           const connected = sp.get('connected') === '1';
-          const onboard = sp.get('onboard') === '1';
-          const sessionIntent = sessionStorage.getItem('bvx_showcase_intent') === '1';
-          const shouldResume = (prov && connected) && (onboard || sessionIntent);
-          if (shouldResume) {
+          if (prov && connected) {
             const u = new URL(window.location.href);
             u.pathname = '/workspace';
             u.searchParams.set('pane','dashboard');
@@ -118,9 +111,6 @@ export default function WorkspaceShell(){
             u.searchParams.delete('connected');
             u.searchParams.delete('error');
             window.history.replaceState({}, '', u.toString());
-            try { sessionStorage.setItem('bvx_showcase_resuming','1'); } catch {}
-            setTimeout(()=>{ try { startShowcase({ resume:true }); } catch {} }, 350);
-            try { sessionStorage.removeItem('bvx_showcase_intent'); } catch {}
           }
         } catch {}
         if (sp.get('billing') === 'success') {
@@ -141,9 +131,6 @@ export default function WorkspaceShell(){
               }
             }
           } catch {}
-          // Do not auto-run quickstart here; we will sequence via showcase
-          // Kick off showcase after successful billing if not completed
-          try { const seen = localStorage.getItem('bvx_showcase_done') === '1'; if (!seen) setTimeout(()=> startShowcase(), 300); } catch {}
           return;
         }
         // Determine whether to show welcome based on onboarding status (or forced)
@@ -202,26 +189,12 @@ export default function WorkspaceShell(){
             setTimeout(()=>{ try{ startGuide('workspace_intro'); }catch{} }, 400);
           }
         } catch {}
-        // If showcase was started earlier and not done, only resume when explicitly armed in-session
-        try {
-          const armed = sessionStorage.getItem('bvx_showcase_resuming') === '1';
-          const done = localStorage.getItem('bvx_showcase_done') === '1';
-          if (armed && !done) {
-            const u = new URL(window.location.href);
-            if (u.searchParams.get('pane') !== 'dashboard') {
-              u.pathname = '/workspace';
-              u.searchParams.set('pane','dashboard');
-              window.history.replaceState({}, '', u.toString());
-            }
-            setTimeout(()=>{ try { startShowcase({ resume:true }); } catch {} }, 400);
-          }
-        } catch {}
         // Show welcome only once after onboarding_done=true
         try {
           const doneLocal = localStorage.getItem('bvx_onboarding_done') === '1';
           const seenSession = sessionStorage.getItem('bvx_welcome_seen') === '1';
           // Only show when onboarding completed and never seen before
-          if (!demo && (forceWelcome || (doneLocal && !seenSession))) {
+          if (forceWelcome || (doneLocal && !seenSession)) {
             setTimeout(()=> setShowWelcome(true), 200);
           }
           // Booking nudge: highlight left-rail Book onboarding button once after onboarding
@@ -250,18 +223,11 @@ export default function WorkspaceShell(){
               }, 600);
             }
           } catch {}
-          // Do not auto-open demo welcome unless demo mode is on
-          if (demo) setShowDemoWelcome(false);
         } catch {}
       } catch {}
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loc.search]);
-
-  // Demo: suppress welcome entirely
-  useEffect(()=>{
-    try{ if (demo) setShowDemoWelcome(false); } catch {}
-  }, [demo]);
 
   const setPane = (key: PaneKey) => {
     try {
@@ -275,14 +241,13 @@ export default function WorkspaceShell(){
   };
 
   const toggleDemo = () => {
-    const shouldOn = !demo;
     try {
       const sp = new URLSearchParams(loc.search);
       sp.set('pane', (pane || 'dashboard'));
-      if (shouldOn) sp.set('demo', '1'); else sp.delete('demo');
+      sp.delete('demo');
       nav({ pathname: '/workspace', search: `?${sp.toString()}` }, { replace: false });
     } catch {
-      const qs = shouldOn ? `?pane=${encodeURIComponent(pane||'dashboard')}&demo=1` : `?pane=${encodeURIComponent(pane||'dashboard')}`;
+      const qs = `?pane=${encodeURIComponent(pane||'dashboard')}`;
       window.location.href = `/workspace${qs}`;
     }
   };
@@ -297,7 +262,6 @@ export default function WorkspaceShell(){
       case 'inventory': return <LazyInventory/>;
       case 'integrations': return <LazyIntegrations/>;
       case 'approvals': return <LazyApprovals/>;
-      case 'workflows': return <LazyWorkflows/>;
       case 'askvx': return <LazyAsk/>;
       case 'vision': return <LazyVision/>;
       default: return <div/>;
@@ -316,9 +280,7 @@ export default function WorkspaceShell(){
   useEffect(()=>{
     (async()=>{
       try{
-        const sp = new URLSearchParams(loc.search);
-        const isDemo = sp.get('demo')==='1';
-        if (isDemo) { setApprovalsCount(0); setQueueCount(0); return; }
+        // demo disabled; proceed
         // Ensure we have an authenticated session before hitting protected endpoints
         const session = (await supabase.auth.getSession()).data.session;
         if (!session?.access_token) { setApprovalsCount(0); setQueueCount(0); return; }
@@ -384,12 +346,13 @@ export default function WorkspaceShell(){
       'nav.inventory': { id:'nav.inventory', run: ()=> setPane('inventory') },
       'nav.integrations': { id:'nav.integrations', run: ()=> setPane('integrations') },
       'nav.approvals': { id:'nav.approvals', run: ()=> setPane('approvals') },
-      'nav.styles': { id:'nav.styles', run: ()=> setPane('workflows') },
+      // styles/workflows pane is hidden; keep action as no-op
+      'nav.styles': { id:'nav.styles', run: ()=> setPane('dashboard') },
       'nav.askvx': { id:'nav.askvx', run: ()=> setPane('askvx') },
       'nav.vision': { id:'nav.vision', run: ()=> setPane('vision') },
       'guide.dashboard': { id:'guide.dashboard', run: ()=> startGuide('dashboard') },
       'guide.integrations': { id:'guide.integrations', run: ()=> startGuide('integrations') },
-      'guide.workflows': { id:'guide.workflows', run: ()=> startGuide('workflows') },
+      'guide.workflows': { id:'guide.workflows', run: ()=> startGuide('dashboard') },
       'guide.messages': { id:'guide.messages', run: ()=> startGuide('messages') },
       'guide.contacts': { id:'guide.contacts', run: ()=> startGuide('contacts') },
       'guide.calendar': { id:'guide.calendar', run: ()=> startGuide('calendar') },
@@ -461,7 +424,7 @@ export default function WorkspaceShell(){
         };
         const ok = await waitForMarkers();
         if (ok) {
-          if (!demo) {
+          {
             setShowWelcome(true);
             try { localStorage.setItem(shownKey, '1'); } catch {}
           }
@@ -525,7 +488,7 @@ export default function WorkspaceShell(){
                 <Link
                   key={p.key}
                   ref={el=>{ if (el) refs.current[i]=el as any; }}
-                  to={`/workspace?pane=${encodeURIComponent(p.key)}${demo?'&demo=1':''}`}
+                  to={`/workspace?pane=${encodeURIComponent(p.key)}`}
                   role="tab"
                   aria-selected={active}
                   aria-current={active ? 'page' : undefined}
@@ -548,7 +511,7 @@ export default function WorkspaceShell(){
           </nav>
           {/* Anchored footer */}
           <div className="absolute left-[3px] right-[3px]" style={{ bottom: 'calc(env(safe-area-inset-bottom,0px) + 18px)' }}>
-            {demo && (
+            {false && (
               <Button
                 variant="outline"
                 className="mb-[2px] w-full !rounded-full bg-amber-50 text-amber-800 border-amber-200"
@@ -568,25 +531,25 @@ export default function WorkspaceShell(){
             <Button
               variant="outline"
               className="w-full !rounded-full !py-2 text-left"
-              data-guide={new URLSearchParams(loc.search).get('demo')==='1' ? 'demo-signup' : undefined}
+              data-guide={undefined}
               data-tour="signup"
               onClick={async()=>{
-                const sp = new URLSearchParams(loc.search);
-                const isDemo = sp.get('demo') === '1';
+                // const sp = new URLSearchParams(loc.search);
+                const isDemo = false;
                 if (isDemo) {
                   window.location.href = '/signup';
                   return;
                 }
                 try { localStorage.setItem('bvx_signed_out','1'); } catch {}
                 try { await supabase.auth.signOut(); } catch {}
-                try { localStorage.removeItem('bvx_tenant'); localStorage.removeItem('bvx_demo_profile'); localStorage.removeItem('bvx_demo_preferences'); } catch {}
+                try { localStorage.removeItem('bvx_tenant'); } catch {}
                 window.location.href = '/brandvx';
               }}
-            >{new URLSearchParams(loc.search).get('demo')==='1' ? UI_STRINGS.ctas.demoOnly.signUp : UI_STRINGS.ctas.liveOnly.signOut}</Button>
+            >{UI_STRINGS.ctas.liveOnly.signOut}</Button>
           </div>
         </aside>
         {/* Canvas */}
-        <main className={`h-full rounded-2xl border border-b-0 border-l-slate-300/80 ${demo? 'bg-amber-50/60' : 'bg-white/90'} backdrop-blur p-4 md:p-5 shadow-sm overflow-hidden border-l relative`}>
+        <main className={`h-full rounded-2xl border border-b-0 border-l-slate-300/80 bg-white/90 backdrop-blur p-4 md:p-5 shadow-sm overflow-hidden border-l relative`}>
           <div className="rounded-xl bg-white/70 backdrop-blur min-h-full h-full overflow-y-auto pb-3">
             <Suspense fallback={<div className="p-4 text-slate-600 text-sm">Loading {PANES.find(p=>p.key===pane)?.label}…</div>}>
               {PaneView}
@@ -596,27 +559,6 @@ export default function WorkspaceShell(){
         </main>
         {/* Arrows removed per product decision */}
       </div>
-      {showDemoWelcome && (
-        <div className="fixed inset-0 z-50 grid place-items-center p-4">
-          <div aria-hidden className="absolute inset-0 bg-black/20" onClick={()=>{ setShowDemoWelcome(false); try{ sessionStorage.setItem('bvx_demo_welcome_seen','1'); }catch{} }} />
-          <div className="relative w-full max-w-md rounded-2xl border border-[var(--border)] bg-white p-5 shadow-soft">
-            <div className="text-ink-900 text-lg font-semibold">Welcome to the BrandVX demo</div>
-            <div className="text-ink-700 text-sm mt-1">We’ll show each panel briefly. Use “Guide me” on any page for a quick walkthrough.</div>
-            <div className="mt-4 flex gap-2 justify-end">
-              <button className="rounded-xl px-3 py-2 border bg-white hover:bg-slate-50" onClick={()=>{ setShowDemoWelcome(false); try{ sessionStorage.setItem('bvx_demo_welcome_seen','1'); }catch{} }}>Got it</button>
-              <button className="rounded-xl px-3 py-2 bg-slate-900 text-white" onClick={()=>{ try{ sessionStorage.setItem('bvx_demo_welcome_seen','1'); }catch{}; setShowDemoWelcome(false); try{ startGuide('dashboard'); } catch {} }}>Start guide</button>
-            </div>
-          </div>
-        </div>
-      )}
-      {demo && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
-          <div className="flex gap-2 items-center rounded-full border bg-white/90 backdrop-blur px-3 py-2 shadow">
-            <span className="text-xs text-amber-800 bg-amber-100 rounded-full px-2 py-0.5 border border-amber-200">Demo</span>
-            <a href="/signup" className="text-sm px-3 py-1.5 rounded-full bg-slate-900 text-white">Create account</a>
-          </div>
-        </div>
-      )}
       {showWelcome && createPortal(
         <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4" id="bvx-welcome-modal" style={{position:'fixed',top:0,left:0,right:0,bottom:0,zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center'}}>
           <div aria-hidden className="absolute inset-0 bg-black/20" onClick={async()=>{ setShowWelcome(false); try{ sessionStorage.setItem('bvx_welcome_seen','1'); }catch{}; try{ const tid = localStorage.getItem('bvx_tenant')||''; if (tid) await api.post('/settings', { tenant_id: tid, welcome_seen: true }); }catch{} }} />
@@ -745,8 +687,7 @@ const LazyCadences = lazy(()=> import('../pages/Cadences'));
 const LazyInventory = lazy(()=> import('../pages/Inventory'));
 const LazyIntegrations = lazy(()=> import('../pages/Integrations'));
 const LazyApprovals = lazy(()=> import('../pages/Approvals'));
-const LazyWorkflows = lazy(()=> import('../pages/Workflows'));
+// const LazyWorkflows = lazy(()=> import('../pages/Workflows'));
 const LazyAsk = lazy(()=> import('../pages/Ask'));
 const LazyVision = lazy(()=> import('../pages/Vision'));
 // Onboarding is now a standalone route (not a workspace pane)
-

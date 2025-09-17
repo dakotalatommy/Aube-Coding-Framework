@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 // import { useNavigate } from 'react-router-dom';
 import { api, getTenant } from '../lib/api';
 import { startGuide } from '../lib/guide';
@@ -14,6 +14,8 @@ export default function Ask(){
   const { showToast } = useToast();
   const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Msg[]>([]);
+  const messagesRef = useRef<Msg[]>(messages);
+  useEffect(()=>{ messagesRef.current = messages; }, [messages]);
   const [loading, setLoading] = useState(false);
   const [streaming, setStreaming] = useState(false);
   const streamId = useRef<number | null>(null);
@@ -70,23 +72,30 @@ export default function Ask(){
 
   // Removed computeContext
 
-  const send = async () => {
-    const prompt = input.trim();
-    if (!prompt || loading) return;
-    const next = [...messages, { role: 'user' as const, content: prompt }];
+  const sendPrompt = useCallback(async (rawPrompt: string, overrides?: { mode?: string; context?: Record<string, unknown> }) => {
+    const prompt = rawPrompt.trim();
+    if (!prompt || loading) return { text: '', error: 'empty' };
+    const next = [...messagesRef.current, { role: 'user' as const, content: prompt }];
     setMessages(next);
     setInput('');
     setLoading(true);
     try{
       const onboardMode = (()=>{ try{ return new URLSearchParams(window.location.search).get('onboard')==='1'; } catch { return false; }})();
-      const modeToUse = onboardMode ? 'onboard' : (mode || undefined);
+      const modeToUse = overrides?.mode ?? (onboardMode ? 'onboard' : (mode || undefined));
+      try { window.dispatchEvent(new CustomEvent('bvx:flow:askvx-user', { detail: { prompt, context: overrides?.context||{} } })); } catch {}
       const r = await api.post('/ai/chat/raw', {
         tenant_id: await getTenant(),
         messages: next,
         session_id: sessionId,
         mode: modeToUse,
       }, { timeoutMs: 60000 });
-      if (r?.error) { setMessages(curr => [...curr, { role:'assistant', content: `Error: ${String(r.detail||r.error)}` }]); setLoading(false); return; }
+      if (r?.error) {
+        const msg = `Error: ${String(r.detail||r.error)}`;
+        setMessages(curr => [...curr, { role:'assistant', content: msg }]);
+        try { window.dispatchEvent(new CustomEvent('bvx:flow:askvx-response', { detail: { prompt, error: msg, context: overrides?.context||{} } })); } catch {}
+        setLoading(false);
+        return { text: '', error: msg };
+      }
       const text = String(r?.text || '');
       if (!firstNoteShown) {
         setFirstNoteShown(true);
@@ -111,13 +120,24 @@ export default function Ask(){
         if (i >= text.length) {
           if (streamId.current) { window.clearInterval(streamId.current); streamId.current = null; }
           setStreaming(false);
+          try { window.dispatchEvent(new CustomEvent('bvx:flow:askvx-response', { detail: { prompt, text, context: overrides?.context||{} } })); } catch {}
         }
       }, 20);
+      return { text, error: '' };
     } catch(e:any){
-      setMessages(curr => [...curr, { role: 'assistant', content: String(e?.message||e) }]);
+      const error = String(e?.message||e);
+      setMessages(curr => [...curr, { role: 'assistant', content: error }]);
+      try { window.dispatchEvent(new CustomEvent('bvx:flow:askvx-response', { detail: { prompt, error, context: overrides?.context||{} } })); } catch {}
+      return { text: '', error };
     } finally {
       setLoading(false);
     }
+  }, [loading, mode, sessionId, firstNoteShown]);
+
+  const send = async () => {
+    const prompt = input.trim();
+    if (!prompt || loading) return;
+    await sendPrompt(prompt);
   };
 
   // Heuristic: propose one smart action chip based on the last assistant reply
@@ -156,6 +176,24 @@ export default function Ask(){
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(()=>{
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      if (detail?.action === 'askvx.prefill') {
+        const prompt = String(detail.prompt || '');
+        setInput(prompt);
+        try { inputRef.current?.focus(); } catch {}
+      }
+      if (detail?.action === 'askvx.send') {
+        const prompt = String(detail.prompt || input).trim();
+        if (!prompt) return;
+        void sendPrompt(prompt, { mode: detail.mode, context: detail.context });
+      }
+    };
+    window.addEventListener('bvx:flow:askvx-command' as any, handler as any);
+    return () => window.removeEventListener('bvx:flow:askvx-command' as any, handler as any);
+  }, [input, sendPrompt]);
 
   const runSmartAction = async () => {
     if (!smartAction || toolRunning) return;
@@ -564,4 +602,3 @@ function ProfileEditor(){
     </div>
   );
 }
-

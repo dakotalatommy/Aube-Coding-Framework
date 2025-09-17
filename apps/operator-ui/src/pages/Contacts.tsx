@@ -78,6 +78,61 @@ export default function Contacts(){
     try{ const n = Number(c||0); return `$${(n/100).toFixed(2)}`; } catch { return '$0.00'; }
   };
 
+  const handleImport = async () => {
+    if (isDemo) { setStatus('Demo: import disabled.'); return; }
+    try {
+      setImporting(true); setImportReport(null);
+      try { trackEvent('contacts.import_booking'); } catch {}
+      try { window.dispatchEvent(new CustomEvent('bvx:flow:contacts-import-started')); } catch {}
+      const analyze = await api.post('/onboarding/analyze', { tenant_id: await getTenant() });
+      const connected = (analyze?.summary?.connected || {}) as Record<string,string>;
+      const provider = String(connected.square||'')==='connected' ? 'square' : (String(connected.acuity||'')==='connected' ? 'acuity' : 'auto');
+      let imported = 0; let updated = 0; let skipped = 0; let reasonTop = '';
+      try {
+        if (provider === 'square') {
+          const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'contacts.import.square', params:{ tenant_id: await getTenant() }, require_approval: false, idempotency_key: `square_import_${Date.now()}` });
+          imported = Number(r?.imported||0); updated = Number(r?.updated||0); skipped = Number(r?.skipped||0); reasonTop = String(r?.top_reason||'');
+          try{ await api.post('/integrations/booking/square/backfill-metrics', { tenant_id: await getTenant() }); }catch{}
+        } else if (provider === 'acuity') {
+          const r = await api.post('/integrations/booking/acuity/import', { tenant_id: await getTenant(), since:'0', until:'', cursor:'' });
+          imported = Number(r?.imported||0); updated = Number(r?.updated||0);
+        } else {
+          await api.post('/calendar/sync',{ tenant_id: await getTenant(), provider: 'auto' });
+        }
+        setImportReport({ provider, imported, updated, skipped, reasonTop });
+        try{ showToast({ title:'Import complete', description: `${imported} contacts imported` }); }catch{}
+        try{ await api.post('/onboarding/complete_step', { tenant_id: await getTenant(), step_key: 'contacts_imported', context: { provider, imported, updated, skipped } }); }catch{}
+        try{ if (isOnboard) localStorage.setItem('bvx_done_contacts','1'); }catch{}
+        try{ await loadList(); }catch{}
+        try { window.dispatchEvent(new CustomEvent('bvx:flow:contacts-imported', { detail: { provider, imported, updated, skipped } })); } catch {}
+        try {
+          const d = document.createElement('div');
+          d.className = 'fixed z-[100] bottom-20 left-1/2 -translate-x-1/2 rounded-full border bg-white shadow px-3 py-2 text-xs text-slate-800';
+          d.textContent = 'Next: Train VX with top client feedback or draft a dormant re‑engage.';
+          document.body.appendChild(d);
+          setTimeout(()=>{ try{ document.body.removeChild(d); }catch{} }, 5000);
+        }catch{}
+      } catch (err) {
+        const message = String((err as any)?.message || err);
+        setStatus(message);
+        try { window.dispatchEvent(new CustomEvent('bvx:flow:contacts-imported', { detail: { error: message } })); } catch {}
+      }
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  useEffect(()=>{
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      if (detail?.action === 'contacts.import' && !importing && !busy) {
+        void handleImport();
+      }
+    };
+    window.addEventListener('bvx:flow:contacts-command' as any, handler as any);
+    return () => window.removeEventListener('bvx:flow:contacts-command' as any, handler as any);
+  }, [importing, busy]);
+
   // Removed contact search side panel; keeping list-only for clarity
 
   return (
@@ -95,50 +150,7 @@ export default function Contacts(){
 
         <section className="border rounded-xl p-3 bg-white shadow-sm" data-guide="list">
           <div className="flex items-center gap-1 mb-1">
-            <Button variant="outline" size="sm" disabled={busy || importing} onClick={async()=>{
-              if (isDemo) { setStatus('Demo: import disabled.'); return; }
-              try{
-                setImporting(true); setImportReport(null);
-                try{ trackEvent('contacts.import_booking'); }catch{}
-                // Detect connected booking provider
-                const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() });
-                const connected = (a?.summary?.connected || {}) as Record<string,string>;
-                const provider = String(connected.square||'')==='connected' ? 'square' : (String(connected.acuity||'')==='connected' ? 'acuity' : 'auto');
-                let imported = 0; let updated = 0; let skipped = 0; let reasonTop = '';
-                if (provider === 'square') {
-                  // Prefer tool for resilient import
-                  const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'contacts.import.square', params:{ tenant_id: await getTenant() }, require_approval: false, idempotency_key: `square_import_${Date.now()}` });
-                  imported = Number(r?.imported||0); updated = Number(r?.updated||0); skipped = Number(r?.skipped||0); reasonTop = String(r?.top_reason||'');
-                  // Backfill key metrics after import
-                  try{ await api.post('/integrations/booking/square/backfill-metrics', { tenant_id: await getTenant() }); }catch{}
-                } else if (provider === 'acuity') {
-                  const r = await api.post('/integrations/booking/acuity/import', { tenant_id: await getTenant(), since:'0', until:'', cursor:'' });
-                  imported = Number(r?.imported||0); updated = Number(r?.updated||0);
-                } else {
-                  // Fallback calendar sync
-                  await api.post('/calendar/sync',{ tenant_id: await getTenant(), provider: 'auto' });
-                }
-                setImportReport({ provider, imported, updated, skipped, reasonTop });
-                try{ showToast({ title:'Import complete', description: `${imported} contacts imported` }); }catch{}
-                try{ await api.post('/onboarding/complete_step', { tenant_id: await getTenant(), step_key: 'contacts_imported', context: { provider, imported, updated, skipped } }); }catch{}
-                try{ if (isOnboard) localStorage.setItem('bvx_done_contacts','1'); }catch{}
-                try{ await loadList(); }catch{}
-                // Post-import nudges
-                try{
-                  const d = document.createElement('div');
-                  d.className = 'fixed z-[100] bottom-20 left-1/2 -translate-x-1/2 rounded-full border bg-white shadow px-3 py-2 text-xs text-slate-800';
-                  d.textContent = 'Next: Train VX with top client feedback or draft a dormant re‑engage.';
-                  document.body.appendChild(d);
-                  setTimeout(()=>{ try{ document.body.removeChild(d); }catch{} }, 5000);
-                }catch{}
-              } catch(e:any) {
-                setStatus(String(e?.message||e));
-              } finally {
-                setImporting(false);
-                // During onboarding, return to Dashboard for the next guided step
-                try { if (isOnboard) window.location.assign('/workspace?pane=dashboard'); } catch {}
-              }
-            }}>Import from booking</Button>
+            <Button variant="outline" size="sm" disabled={busy || importing} onClick={()=> handleImport()}>Import from booking</Button>
             <Button variant="outline" size="sm" onClick={async()=>{
               try{
                 setListBusy(true);

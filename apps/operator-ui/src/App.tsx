@@ -11,6 +11,7 @@ import ActionDrawer from './components/ActionDrawer';
 import { initAnalytics, trackPage } from './lib/analytics';
 import { supabase } from './lib/supabase';
 import QuietBadge from './components/ui/QuietBadge';
+import SupportBubble from './components/SupportBubble';
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Messages = lazy(() => import('./pages/Messages'));
 const Contacts = lazy(() => import('./pages/Contacts'));
@@ -202,6 +203,8 @@ function Shell() {
           {/* Command mode and Ask dock removed; keep ActionDrawer */}
           {!embed && !onAskPage && !onDemo && !onLanding && !onBilling && !onAuthRoute && !onOnboarding && <ActionDrawer />}
           {!embed && !onAskPage && !onDemo && !onBilling && !onAuthRoute && !onOnboarding && <QuietBadge />}
+          {/* Global support bubble (visible on all routes incl. landing) */}
+          {!embed && <SupportBubble />}
         </div>
       </div>
     </>

@@ -2,7 +2,7 @@ export type GuideStep = { element?: string; popover: { title: string; descriptio
 import { track } from './analytics';
 import { api } from './api';
 import 'driver.js/dist/driver.css';
-import { flags } from './flags';
+// import { flags } from './flags';
 
 const registry: Record<string, GuideStep[]> = {
   workspace_intro: [
@@ -127,306 +127,8 @@ export function startGuide(page: string, opts?: { step?: number }) {
     const s = Math.max(0, Math.floor(raw||0));
     localStorage.setItem('bvx_last_tour_step', String(s||0));
   } catch {}
-  // Demo-specific orchestration: if on dashboard with demo=1, chain across panels
-  try {
-    const sp = new URLSearchParams(window.location.search);
-    const isDemo = sp.get('demo') === '1';
-    // Gate per page once per session
-    if (isDemo) {
-      const key = `bvx_tour_seen_${page}_session`;
-      if (sessionStorage.getItem(key) === '1') {
-        return;
-      }
-      try { sessionStorage.setItem(key, '1'); } catch {}
-    }
-    if (isDemo && page === 'dashboard') {
-      // Welcome only on dashboard, then single-step per pane sequence
-      const demoStepsMap: Record<string, GuideStep[]> = {
-        dashboard: [
-          { element: '[data-guide="kpis"]', popover: { title: 'Dashboard', description: 'KPIs up top — then we’ll show each area briefly.' } },
-        ],
-        messages: [
-          { element: '[data-guide="table"]', popover: { title: 'Messages', description: 'Preview and copy examples (beta). Sending will enable automatically later.' } },
-        ],
-        contacts: [
-          { element: '[data-guide="import"]', popover: { title: 'Contacts', description: 'Import/export and manage consent. Simple JSON import to start.' } },
-        ],
-        calendar: [
-          { element: '[data-guide="list"]', popover: { title: 'Calendar', description: 'Weekly grid view with names & times. Filter by provider.' } },
-        ],
-        cadences: [
-          { element: '[data-guide="actions"]', popover: { title: 'Cadences', description: 'Human‑feel follow‑ups; respects quiet hours and approvals.' } },
-        ],
-        inventory: [
-          { element: '[data-guide="table"]', popover: { title: 'Inventory', description: 'Sync Shopify/Square; spot low/out‑of‑stock quickly.' } },
-        ],
-        integrations: [
-          { element: '[data-guide="providers"]', popover: { title: 'Integrations', description: 'Connect booking, CRM, messaging, and more — status at a glance.' } },
-        ],
-        workflows: [
-          { element: '[data-tour="wf-quick"]', popover: { title: 'WorkStyles', description: 'One place for common actions and impact steps.' } },
-        ],
-        approvals: [
-          { element: '[data-guide="table"]', popover: { title: 'To‑Do', description: 'Pending / All filters and types. Mark done to resolve.' } },
-        ],
-        onboarding: [
-          { popover: { title: 'Onboarding', description: 'In live, you’ll start here — personalize your brandVX.' } },
-        ],
-      };
-      const seq: Array<{ path: string; key: string }> = [
-        { path: '/workspace?pane=dashboard&demo=1', key: 'dashboard' },
-        { path: '/workspace?pane=messages&demo=1', key: 'messages' },
-        { path: '/workspace?pane=contacts&demo=1', key: 'contacts' },
-        { path: '/workspace?pane=calendar&demo=1', key: 'calendar' },
-        { path: '/workspace?pane=cadences&demo=1', key: 'cadences' },
-        { path: '/workspace?pane=inventory&demo=1', key: 'inventory' },
-        { path: '/workspace?pane=integrations&demo=1', key: 'integrations' },
-        { path: '/workspace?pane=workflows&demo=1', key: 'workflows' },
-        { path: '/workspace?pane=approvals&demo=1', key: 'approvals' },
-        { path: '/workspace?pane=onboarding&demo=1', key: 'onboarding' },
-      ];
-      const driveAt = (idx: number) => {
-        if (idx >= seq.length) return;
-        const { path, key } = seq[idx];
-        if (window.location.pathname + window.location.search !== path) {
-          window.location.href = path;
-        }
-        setTimeout(() => {
-          const steps = demoStepsMap[key] || [];
-          try { sessionStorage.setItem(`bvx_tour_seen_${key}_session`, '1'); } catch {}
-          try { track('tour_start', { page: key }); } catch {}
-          (async()=>{
-            const mod2: any = await import('driver.js');
-            const drv2 = (mod2 && (mod2 as any).driver) ? (mod2 as any).driver : (mod2 as any);
-            const d = drv2({ showProgress: true, steps } as any);
-            d.drive();
-          })();
-          const next = idx + 1;
-          setTimeout(() => {
-            if (next >= seq.length) {
-              // Final: highlight demo Sign up button
-              try {
-                (async()=>{
-                  const mod3: any = await import('driver.js');
-                  const drv3 = (mod3 && (mod3 as any).driver) ? (mod3 as any).driver : (mod3 as any);
-                  const d2 = drv3({
-                    showProgress: true,
-                    steps: [
-                      { element: '[data-guide="demo-signup"]', popover: { title: 'Create your brandVX', description: 'Ready to continue? Tap Sign up to start your live workspace.' } }
-                    ],
-                  } as any);
-                  d2.drive();
-                })();
-              } catch {}
-              return;
-            }
-            driveAt(next);
-          }, 2300);
-        }, 450);
-      };
-      driveAt(0);
-      return;
-    }
-  } catch {}
-  try { localStorage.setItem(`bvx_tour_seen_${page}`, '1'); } catch {}
-  try { track('tour_start', { page }); } catch {}
-  // Support deep-link to a specific step by slicing steps
-  let startAt = 0;
-  try {
-    const fromOpts = Number(opts?.step||0);
-    const fromUrl = (()=>{ try{ const sp = new URLSearchParams(window.location.search); return Number(sp.get('tourStep')||sp.get('step')||'0'); }catch{ return 0 } })();
-    startAt = Math.max(0, (fromOpts || fromUrl || 0) - 1);
-  } catch { startAt = 0; }
-  // Sanitize steps: if an element selector is missing, fall back to a popover-only step
-  const sanitize = (arr: GuideStep[]): GuideStep[] => {
-    try {
-      return arr.map((s) => {
-        if (!s.element) return s;
-        try {
-          if (document.querySelector(String(s.element))) return s;
-        } catch {}
-        return { popover: s.popover } as GuideStep;
-      });
-    } catch { return arr; }
-  };
-  const stepsToRun = sanitize(Array.isArray(steps) ? steps.slice(startAt) : steps);
-  (async()=>{
-    const mod: any = await import('driver.js');
-    const drv = (mod && (mod as any).driver) ? (mod as any).driver : (mod as any);
-    let lastIndex = -1;
-    const totalSteps = Array.isArray(stepsToRun) ? stepsToRun.length : 0;
-    // Determine the index of the BrandVZN (dashboard quickstart) step if present
-    const brandVznIdx = (()=>{
-      try{
-        if (page !== 'dashboard') return -1;
-        const raw = Array.isArray(steps) ? steps : [];
-        for (let i=0; i<raw.length; i++){
-          const s:any = raw[i];
-          if (s?.element === '[data-guide="quickstart-brandvzn"]' || String(s?.popover?.title||'').toLowerCase().includes('brandvzn')){
-            return Math.max(0, i - Math.max(0, startAt));
-          }
-        }
-      }catch{}
-      return -1;
-    })();
-    // Determine the index of the Book Onboarding step within the workspace intro, if present
-    const bookIdx = (()=>{
-      try{
-        if (page !== 'workspace_intro') return -1;
-        const raw = Array.isArray(steps) ? steps : [];
-        for (let i=0; i<raw.length; i++){
-          const s:any = raw[i];
-          if (s?.element === '[data-tour="book-onboarding"]'){
-            return Math.max(0, i - Math.max(0, startAt));
-          }
-        }
-      }catch{}
-      return -1;
-    })();
-    const d = drv({
-      showProgress: true,
-      nextBtnText: 'Next',
-      prevBtnText: 'Back',
-      doneBtnText: 'Done',
-      steps: stepsToRun,
-    } as any);
-    try {
-      (d as any).on?.('highlighted', (_el:any, _step:any, idx:any)=>{
-        try { lastIndex = typeof idx === 'number' ? idx : (lastIndex + 1); } catch { lastIndex = lastIndex + 1; }
-      });
-      (d as any).on?.('next', ()=>{
-        try {
-          if (lastIndex < totalSteps - 1) lastIndex = lastIndex + 1;
-        } catch { lastIndex = lastIndex + 1; }
-        // When user advances past the BrandVZN highlight on Dashboard, jump to Vision panel and start its guide
-        try{
-          if (page === 'dashboard' && brandVznIdx >= 0 && lastIndex === brandVznIdx + 1){
-            try { (d as any).destroy?.(); } catch {}
-            setTimeout(()=>{
-              try { window.location.href = '/workspace?pane=vision'; } catch {}
-              setTimeout(()=>{ try { startGuide('vision'); } catch {} }, 480);
-            }, 60);
-          }
-          // When user advances past Book Onboarding in the workspace intro, open billing then hop to Brand VZN tour
-          if (page === 'workspace_intro' && bookIdx >= 0 && lastIndex === bookIdx + 1){
-            try { (d as any).destroy?.(); } catch {}
-            setTimeout(async()=>{
-              try { sessionStorage.setItem('bvx_billing_prompt_request','1'); } catch {}
-              try { window.dispatchEvent(new CustomEvent('bvx:billing:prompt')); } catch {}
-              try { await waitForBillingSatisfiedSimple(); } catch {}
-              try { window.location.href = '/workspace?pane=vision'; } catch {}
-              setTimeout(()=>{ try { startGuide('vision'); } catch {} }, 480);
-            }, 60);
-          }
-        }catch{}
-      });
-    } catch {}
-    d.drive();
-    try {
-      if (flags.tour_resume_chip()) {
-        (d as any).on?.('destroyed', ()=>{
-          try{
-            try { track('tour_destroyed', { page }); } catch {}
-            const completed = lastIndex >= totalSteps - 1 && totalSteps > 0;
-            if (completed) {
-              try { markProgress(`tour.done.${page}`); } catch {}
-            }
-            // Mark workspace intro seen only on true completion
-            if (page === 'workspace_intro' && completed) {
-              try { localStorage.setItem('bvx_tour_seen_workspace_intro','1'); } catch {}
-            }
-            const chip = document.createElement('button');
-            chip.className = 'fixed right-3 bottom-3 z-[2000] text-xs px-2 py-1 rounded-full border bg-white shadow';
-            chip.textContent = 'Resume tour';
-            chip.onclick = ()=>{ try{ chip.remove(); }catch{} startGuide(page, { step: Number(localStorage.getItem('bvx_last_tour_step')||'0')||0 }); };
-            document.body.appendChild(chip);
-            setTimeout(()=>{ try{ chip.remove(); }catch{} }, 8000);
-          } catch {}
-        });
-      }
-    } catch {}
-    try {
-      // Notify workspace when the intro finishes so onboarding prompt can trigger
-      if (page === 'workspace_intro' && typeof (d as any).on === 'function') {
-        (d as any).on('destroyed', () => {
-          try {
-            const completed = lastIndex >= totalSteps - 1 && totalSteps > 0;
-            if (completed) window.dispatchEvent(new CustomEvent('bvx:guide:workspace_intro:done'));
-          } catch {}
-        });
-      }
-    } catch {}
-  })();
-}
-
-// Resilient DOM wait helper
-async function waitForSelector(selector: string, timeoutMs: number = 3000): Promise<boolean> {
-  return new Promise((resolve) => {
-    const start = Date.now();
-    const tick = () => {
-      try {
-        if (document.querySelector(selector)) return resolve(true);
-      } catch {}
-      if (Date.now() - start >= timeoutMs) return resolve(false);
-      setTimeout(tick, 80);
-    };
-    tick();
-  });
-}
-
-async function markProgress(key: string) {
-  try {
-    const tenantId = (()=>{ try{ return localStorage.getItem('bvx_tenant')||''; }catch{ return '' }})();
-    if (!tenantId) return;
-    await fetch('/onboarding/complete_step', {
-      method: 'POST',
-      headers: { 'content-type':'application/json' },
-      body: JSON.stringify({ tenant_id: tenantId, step_key: key, context: {} })
-    });
-  } catch {}
-}
-
-// Simple billing waiter usable from step-level handoffs
-async function waitForBillingSatisfiedSimple() {
-  const maxWaitMs = 20000; const start = Date.now();
-  const isCovered = async (): Promise<boolean> => {
-    try {
-      const tid = (localStorage.getItem('bvx_tenant')||'');
-      if (!tid) return false;
-      const j = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
-      const st = String(j?.data?.subscription_status || j?.subscription_status || '');
-      return st === 'active' || st === 'trialing';
-    } catch { return false; }
-  };
-  for (;;) {
-    try {
-      if (localStorage.getItem('bvx_billing_dismissed') === '1') return;
-      if (await isCovered()) return;
-    } catch {}
-    if (Date.now() - start > maxWaitMs) return; // fail-open
-    await new Promise(r=> setTimeout(r, 600));
-  }
-}
-
-function prefetchPath(path: string) {
-  try {
-    const link = document.createElement('link');
-    link.rel = 'prefetch';
-    link.href = path;
-    document.head.appendChild(link);
-    // Also fire a best-effort fetch to warm caches
-    try { fetch(path, { mode: 'no-cors' } as any).catch(()=>{}); } catch {}
-  } catch {}
-}
-
-// Cross-page showcase: Dashboard → brandVZN → Contacts (Import) → Ask VX → Dashboard
-export function startShowcase(opts?: { resume?: boolean }) {
-  // Begin only after the 13-step workspace intro has completed
+  const demoSuffix = (()=>{ try{ const sp = new URLSearchParams(window.location.search); return sp.get('demo')==='1' ? '&demo=1' : ''; } catch { return '' } })();
   const begin = () => {
-    try { localStorage.setItem('bvx_showcase_started','1'); } catch {}
-    try { track('showcase_start'); } catch {}
-    try { markProgress('showcase.start'); } catch {}
-    const demoSuffix = (()=>{ try{ return new URLSearchParams(window.location.search).get('demo')==='1' ? '&demo=1' : ''; } catch { return ''; } })();
     const steps: Array<{ path: string; guide?: string; wait?: string; progress?: string }> = [
       { path: `/workspace?pane=dashboard${demoSuffix}` as any, guide: 'dashboard', wait: '[data-guide="quickstart"]', progress: 'showcase.dashboard' },
     ];
@@ -460,14 +162,16 @@ export function startShowcase(opts?: { resume?: boolean }) {
       );
     })();
   } catch {}
-  // Prefetch upcoming routes without navigating
-  try {
-    steps.forEach(s=>{ try { if (s.path) prefetchPath(s.path); } catch {} });
-  } catch {}
+    // Prefetch upcoming routes without navigating
+    try {
+      const prefetchPath = (href: string) => { try { const link = document.createElement('link'); link.rel = 'prefetch'; link.href = href; document.head.appendChild(link); } catch {} };
+      steps.forEach(s=>{ try { if (s.path) prefetchPath(s.path); } catch {} });
+    } catch {}
   // Determine starting index (support resume)
   let i = 0;
   try {
-    if (opts?.resume) {
+    const anyOpts = opts as any;
+    if (anyOpts?.resume) {
       const lastIndex = Number(localStorage.getItem('bvx_showcase_index')||'');
       if (Number.isFinite(lastIndex)) i = Math.max(0, lastIndex + 1);
     }
@@ -499,7 +203,7 @@ export function startShowcase(opts?: { resume?: boolean }) {
       try { localStorage.setItem('bvx_showcase_done','1'); } catch {}
       try { localStorage.removeItem('bvx_showcase_index'); } catch {}
       try { track('showcase_done'); } catch {}
-      try { markProgress('showcase.done'); } catch {}
+      try { await api.post('/onboarding/complete_step', { step_key: 'showcase.done', context: {} }); } catch {}
       return;
     }
     const curr = steps[i++];
@@ -528,15 +232,25 @@ export function startShowcase(opts?: { resume?: boolean }) {
           try { window.dispatchEvent(new CustomEvent('bvx:billing:prompt')); } catch {}
           await waitForBillingSatisfied();
         }
-        if (curr.wait) await waitForSelector(curr.wait, 3000);
+        if (curr.wait) {
+          try {
+            const sel = String(curr.wait||'');
+            const timeout = 3000; const start = Date.now();
+            const wait = async()=>{ for(;;){ if (document.querySelector(sel)) return; if (Date.now()-start>timeout) return; await new Promise(r=> setTimeout(r,80)); } };
+            await wait();
+          } catch {}
+        }
         if (curr.guide) {
           try { startGuide(curr.guide); } catch {}
         }
         if (curr.progress) {
-          try { await markProgress(curr.progress); } catch {}
+          try { await api.post('/onboarding/complete_step', { step_key: curr.progress, context: {} }); } catch {}
         }
         // Prefetch next path for faster transition
-        try { const nxt = steps[i]; if (nxt?.path) prefetchPath(nxt.path); } catch {}
+        try {
+          const prefetchPath = (href: string) => { try { const link = document.createElement('link'); link.rel = 'prefetch'; link.href = href; document.head.appendChild(link); } catch {} };
+          const nxt = steps[i]; if (nxt?.path) prefetchPath(nxt.path);
+        } catch {}
       } catch(e:any) {
         try { track('showcase_error', { step: curr.path, message: String(e?.message||e) }); } catch {}
       }
@@ -555,66 +269,3 @@ export function startShowcase(opts?: { resume?: boolean }) {
 }
 
 
-// Cross-panel workflow guide orchestrator
-export async function startWorkflowGuide(name: string) {
-  try {
-    try { localStorage.setItem(`bvx_wf_tour_seen_${name}`, '1'); } catch {}
-    try { track('workflow_tour_start', { name }); } catch {}
-    const res = await fetch('/guide/manifest');
-    const manifest = await res.json();
-    const flows = manifest?.workflows || {};
-    const steps = flows[name];
-    if (!Array.isArray(steps) || steps.length === 0) return;
-    // Navigate to first panel, then run a minimal step-highlighting driver
-    const first = steps[0];
-    if (first?.panel) {
-      window.location.href = `/workspace?pane=${first.panel}`;
-      // Allow route transition
-      setTimeout(async () => {
-        const mod: any = await import('driver.js');
-        const drv = (mod && (mod as any).driver) ? (mod as any).driver : (mod as any);
-        const d = drv({
-          showProgress: true,
-          steps: steps.map((s:any) => ({ element: s.selector, popover: { title: s.title, description: s.desc } }))
-        } as any);
-        d.drive();
-      }, 400);
-    }
-  } catch {}
-}
-
-// Demo-wide mega tour across key panels
-export function startDemoMegaTour() {
-  try { localStorage.setItem('bvx_demo_mega_seen', '1'); } catch {}
-  try { track('demo_mega_tour_start', {}); } catch {}
-  const seq: Array<{ path: string; page: string }> = [
-    { path: '/workspace?pane=dashboard&demo=1', page: 'dashboard' },
-    { path: '/workspace?pane=integrations&demo=1', page: 'integrations' },
-    { path: '/workspace?pane=messages&demo=1', page: 'messages' },
-    { path: '/workspace?pane=contacts&demo=1', page: 'contacts' },
-    { path: '/workspace?pane=calendar&demo=1', page: 'calendar' },
-    { path: '/workspace?pane=inventory&demo=1', page: 'inventory' },
-    { path: '/workspace?pane=approvals&demo=1', page: 'approvals' },
-    // Workflows remains a standalone route
-    { path: '/workflows?demo=1', page: 'workflows' },
-  ];
-  const driveAt = (idx: number) => {
-    if (idx >= seq.length) {
-      try { track('demo_mega_tour_done', {}); } catch {}
-      // Return to dashboard at end
-      setTimeout(()=>{ window.location.href = '/workspace?pane=dashboard&demo=1'; }, 300);
-      return;
-    }
-    const { path, page } = seq[idx];
-    // Navigate and then start that page's guide
-    if (window.location.pathname + window.location.search !== path) {
-      window.location.href = path;
-    }
-    setTimeout(() => {
-      startGuide(page);
-      // Heuristic duration per page before moving on
-      setTimeout(() => driveAt(idx + 1), 2600);
-    }, 500);
-  };
-  driveAt(0);
-}

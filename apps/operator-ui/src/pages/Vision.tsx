@@ -61,6 +61,20 @@ export default function Vision(){
     return ()=> clearTimeout(t);
   }, [clientName]);
 
+  useEffect(()=>{
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      if (detail?.action === 'vision.run-edit') {
+        const prompt = String(detail.prompt || '').trim();
+        if (!prompt) return;
+        setEditPrompt(prompt);
+        if (!loading) void runEdit(prompt);
+      }
+    };
+    window.addEventListener('bvx:flow:vision-command' as any, handler as any);
+    return () => window.removeEventListener('bvx:flow:vision-command' as any, handler as any);
+  }, [loading]);
+
   // Hydrate history from localStorage
   useEffect(()=>{
     try {
@@ -130,6 +144,7 @@ export default function Vision(){
       setPreview(url);
       // Defer any DOM attributes until next frame to ensure image paints
       try { requestAnimationFrame(()=>{ try { dropRef.current?.setAttribute('data-vision-has-preview','1'); } catch {} }); } catch {}
+      try { window.dispatchEvent(new CustomEvent('bvx:flow:vision-uploaded')); } catch {}
       // Do NOT set baseline until first successful edit (prevents overlay clipping)
       setComparePos(50);
       try { trackEvent('vision.upload', { size: f.size, type: f.type }); } catch {}
@@ -318,6 +333,7 @@ export default function Vision(){
           el?.setAttribute?.('data-vision-edits', String(prev+1));
           el?.setAttribute?.('data-vision-lastedit', String(Date.now()));
         } catch {}
+        try { window.dispatchEvent(new CustomEvent('bvx:flow:vision-edit-complete', { detail: { prompt: p } })); } catch {}
         // Persist prompt and history
         try { setVersions(v => { localStorage.setItem('bvx_vision_history', JSON.stringify(v)); return v; }); } catch {}
         setOutput('Edit complete.');
@@ -348,6 +364,7 @@ export default function Vision(){
           setOutput(friendly);
         }
         setLastError(friendly);
+        try { window.dispatchEvent(new CustomEvent('bvx:flow:vision-edit-complete', { detail: { prompt: p, error: friendly } })); } catch {}
         try {
           const detail = String((r?.detail||r?.status||'')||'').toLowerCase();
           if (detail.includes('subscription_required') || friendly.toLowerCase().includes('subscription')) {

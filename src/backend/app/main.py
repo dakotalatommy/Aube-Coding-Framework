@@ -7293,10 +7293,26 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                     pass
                 try:
                     db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
-                    db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                    db.execute(_sql_text("SET LOCAL app.role = :r"), {"r": "owner_admin"})
                 except Exception:
                     pass
         except Exception:
+            pass
+
+        # Idempotent guard: ensure tenant row exists to satisfy FK on contacts/events
+        try:
+            db.execute(
+                _sql_text(
+                    """
+                    INSERT INTO public.tenants (id, name, created_at)
+                    VALUES (CAST(:t AS uuid), :name, NOW())
+                    ON CONFLICT (id) DO NOTHING
+                    """
+                ),
+                {"t": req.tenant_id, "name": "Workspace"},
+            )
+        except Exception:
+            # If this fails due to permissions/RLS, downstream FK will surface; we keep read-only behavior
             pass
 
         # Retrieve Square access token: prefer v2 store via current session, fallback to legacy
