@@ -1572,7 +1572,7 @@ def _safe_audit_log(db: Session, *, tenant_id: str, actor_id: str, action: str, 
         else:
             db.execute(
                 _sql_text(
-                    "INSERT INTO audit_logs (tenant_id, actor_id, action, entity_ref, created_at) VALUES (:t,:a,:ac,:er, EXTRACT(epoch FROM now())::bigint)"
+                    "INSERT INTO audit_logs (tenant_id, actor_id, action, entity_ref, created_at) VALUES (:t,:a,:ac,:er, NOW())"
                 ),
                 {"t": tenant_id, "a": actor_id, "ac": action, "er": entity_ref},
             )
@@ -6965,6 +6965,8 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 saved_token_write = False
             post_rows = 0
             try:
+                db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": t_id})
+                db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
                 chk = db.execute(
                     _sql_text("SELECT COUNT(1) FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider = :p"),
                     {"t": t_id, "p": provider},
