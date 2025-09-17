@@ -37,6 +37,12 @@ Provider guides
 
 Diagnostics & playbooks
 - Endpoints: /integrations/rls/selfcheck, /integrations/rls/probe-insert-contact, /integrations/rls/probe-delete-contact, /integrations/booking/{square|acuity}/sync-contacts, /integrations/status, /integrations/events
+- Admin inspection: /admin/schema/inspect (owner_admin only) — returns:
+  - rls_tables: list of public tables and whether RLS is enabled
+  - policies: policy list with quals/with_check
+  - gucs_referenced: any app.* GUCs referenced by policies
+  - timestamps: per-table created_at/updated_at data types
+  - audit_logs_has_payload: whether payload column exists
 - Decision tree: 401 → auth; missing_access_token → token read/RLS; created=0 → write error/aborted txn; SSL closed → idle-in-transaction timeout
 - Logs to check (in order): Supabase Postgres logs → Render logs → diagnostics endpoints → policy SQL in Supabase
 
@@ -63,5 +69,6 @@ Appendix B: curl diagnostics (examples)
 - Probe insert: curl -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <token>" -d '{"tenant_id":"<tid>"}' "https://api.brandvx.io/integrations/rls/probe-insert-contact"
 - Probe delete: curl -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <token>" -d '{"tenant_id":"<tid>","contact_id":"probe:<id>"}' "https://api.brandvx.io/integrations/rls/probe-delete-contact"
 - Import: curl -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <token>" -d '{"tenant_id":"<tid>"}' "https://api.brandvx.io/integrations/booking/square/sync-contacts"
+- Admin inspect: curl -H "Authorization: Bearer <token>" "https://api.brandvx.io/admin/schema/inspect"
 
 
