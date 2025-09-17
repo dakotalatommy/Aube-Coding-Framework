@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Dict, Any
 import os
 import json
+from sqlalchemy import text as _sa_text
 
 _redis_client = None
 
@@ -45,8 +46,8 @@ def emit_event(name: str, payload: Dict[str, Any]) -> None:
         tenant_id = str(payload.get("tenant_id", ""))
         ts_epoch = int(__import__("time").time())
         with engine.begin() as conn:
-            conn.exec_driver_sql(
-                "INSERT INTO events_ledger (ts, tenant_id, name, payload) VALUES (:ts, :tenant_id, :name, :payload)",
+            conn.execute(
+                _sa_text("INSERT INTO events_ledger (ts, tenant_id, name, payload) VALUES (:ts, :tenant_id, :name, :payload)"),
                 {
                     "ts": ts_epoch,
                     "tenant_id": tenant_id,

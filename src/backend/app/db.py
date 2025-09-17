@@ -1,6 +1,6 @@
 import os
 from dotenv import load_dotenv
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text as _sa_text
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 from contextvars import ContextVar
 from typing import Optional
@@ -103,10 +103,10 @@ def _apply_rls_settings(session, transaction, connection):
             return
         tenant_id = CURRENT_TENANT_ID.get()
         if tenant_id:
-            connection.exec_driver_sql("SET LOCAL app.tenant_id = :t", {"t": tenant_id})
+            connection.execute(_sa_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
         role = CURRENT_ROLE.get()
         if role:
-            connection.exec_driver_sql("SET LOCAL app.role = :r", {"r": role})
+            connection.execute(_sa_text("SET LOCAL app.role = :r"), {"r": role})
     except Exception:
         # Non-fatal; skip GUCs entirely to avoid leaving transaction in failed state
         try:

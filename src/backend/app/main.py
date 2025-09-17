@@ -6966,7 +6966,7 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
             post_rows = 0
             try:
                 db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": t_id})
-                db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                db.execute(_sql_text("SET LOCAL app.role = :r"), {"r": "owner_admin"})
                 chk = db.execute(
                     _sql_text("SELECT COUNT(1) FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider = :p"),
                     {"t": t_id, "p": provider},
