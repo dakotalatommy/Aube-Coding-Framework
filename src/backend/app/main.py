@@ -7296,8 +7296,8 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                 try:
                     with engine.begin() as _conn:
                         try:
-                            _conn.exec_driver_sql("SET LOCAL app.tenant_id = :t", {"t": req.tenant_id})
-                            _conn.exec_driver_sql("SET LOCAL app.role = 'owner_admin'")
+                            _conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+                            _conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
                         except Exception:
                             pass
                         return work(_conn)
@@ -7518,8 +7518,8 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                 ts_update_expr = "EXTRACT(epoch FROM now())::bigint"
                 try:
                     with engine.begin() as _probe:
-                        _probe.exec_driver_sql("SET LOCAL app.tenant_id = :t", {"t": req.tenant_id})
-                        _probe.exec_driver_sql("SET LOCAL app.role = 'owner_admin'")
+                        _probe.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+                        _probe.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
                         row_type = _probe.execute(
                             _sql_text(
                                 """
@@ -10720,8 +10720,8 @@ def rls_probe_insert_contact(
         contact_id = req.contact_id or f"probe:{int(_time.time())}"
         with engine.begin() as conn:
             try:
-                conn.exec_driver_sql("SET LOCAL app.tenant_id = :t", {"t": req.tenant_id})
-                conn.exec_driver_sql("SET LOCAL app.role = 'owner_admin'")
+                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
             except Exception as e:
                 return {"status": "guc_error", "detail": str(e)[:200]}
             try:
