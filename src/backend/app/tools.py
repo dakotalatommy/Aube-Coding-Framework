@@ -1800,15 +1800,38 @@ def tool_contacts_list_top_ltv(
         .limit(max(1, min(int(limit or 10), 200)))
         .all()
     )
-    out = [
-        {
+    def _friendly_name_py(r: dbm.Contact) -> str:  # type: ignore
+        try:
+            first = (getattr(r, "first_name", None) or "").strip()
+            last = (getattr(r, "last_name", None) or "").strip()
+            disp = (getattr(r, "display_name", None) or "").strip()
+            email = (getattr(r, "email_hash", None) or "").strip()
+            phone = (getattr(r, "phone_hash", None) or "").strip()
+            name = f"{first} {last}".strip()
+            if name:
+                return name
+            # Avoid Square-ID style fallback like "Client ABC123"
+            if disp and not __import__("re").match(r"^Client [0-9A-Za-z]+$", disp):
+                return disp
+            if email and "@" in email:
+                return email.split("@", 1)[0]
+            if phone:
+                import re as _re
+                digits = _re.sub(r"\D", "", phone)
+                tail4 = digits[-4:] if digits else ""
+                return f"Client • {tail4}" if tail4 else "Client"
+            return "Client"
+        except Exception:
+            return "Client"
+    out = []
+    for r in rows:
+        out.append({
             "contact_id": r.contact_id,
+            "friendly_name": _friendly_name_py(r),
             "txn_count": int(getattr(r, "txn_count", 0) or 0),
             "lifetime_cents": int(getattr(r, "lifetime_cents", 0) or 0),
             "last_visit": int(getattr(r, "last_visit", 0) or 0),
-        }
-        for r in rows
-    ]
+        })
     return {"status": "ok", "items": out}
 
 
@@ -1909,7 +1932,18 @@ async def tool_db_query_named(
             if n == "contacts.top_ltv":
                 q = _sql_text(
                     """
-                    SELECT contact_id, lifetime_cents, last_visit, txn_count
+                    SELECT
+                      contact_id,
+                      lifetime_cents,
+                      last_visit,
+                      txn_count,
+                      CASE
+                        WHEN btrim(concat_ws(' ', coalesce(first_name,''), coalesce(last_name,''))) <> '' THEN btrim(concat_ws(' ', coalesce(first_name,''), coalesce(last_name,'')))
+                        WHEN display_name IS NOT NULL AND display_name !~ '^Client [0-9A-Za-z]+' THEN display_name
+                        WHEN email_hash IS NOT NULL AND position('@' in email_hash) > 0 THEN split_part(email_hash,'@',1)
+                        WHEN phone_hash IS NOT NULL THEN 'Client • ' || right(regexp_replace(phone_hash, '\\D', '', 'g'), 4)
+                        ELSE coalesce(display_name, 'Client')
+                      END AS friendly_name
                     FROM contacts
                     WHERE tenant_id = CAST(:t AS uuid) AND (deleted IS NULL OR deleted = false)
                     ORDER BY lifetime_cents DESC
