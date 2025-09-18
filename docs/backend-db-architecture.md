@@ -86,4 +86,78 @@ Impact if not following patterns
 - Swallowed DB exceptions → symptoms masked (e.g., fetched N, created 0)
 - Non‑robust token read → false “missing_access_token” under RLS
 
+Optional Appendix C: Timestamp migration runbook (bigint/integer → timestamptz)
+Purpose
+- Standardize created_at/updated_at to timestamptz. Safe with our adaptive writes; do off‑peak.
+
+Order:
+- contacts → calendar_events → inventory_items → inventory_summary → client_images → inbox_messages → share_links
+
+Pre‑check (optional example for contacts):
+```sql
+select min(created_at) as min_epoch, max(created_at) as max_epoch,
+       min(to_timestamp(created_at)) as min_ts, max(to_timestamp(created_at)) as max_ts
+from public.contacts;
+```
+
+Migrations (run one table at a time)
+- contacts
+```sql
+alter table public.contacts
+  alter column created_at type timestamptz using to_timestamp(created_at),
+  alter column updated_at type timestamptz using to_timestamp(updated_at),
+  alter column created_at set default now(),
+  alter column updated_at set default now();
+```
+- calendar_events
+```sql
+alter table public.calendar_events
+  alter column created_at type timestamptz using to_timestamp(created_at),
+  alter column created_at set default now();
+```
+- inventory_items
+```sql
+alter table public.inventory_items
+  alter column updated_at type timestamptz using to_timestamp(updated_at),
+  alter column updated_at set default now();
+```
+- inventory_summary
+```sql
+alter table public.inventory_summary
+  alter column updated_at type timestamptz using to_timestamp(updated_at),
+  alter column updated_at set default now();
+```
+- client_images
+```sql
+alter table public.client_images
+  alter column created_at type timestamptz using to_timestamp(created_at),
+  alter column created_at set default now();
+```
+- inbox_messages
+```sql
+alter table public.inbox_messages
+  alter column created_at type timestamptz using to_timestamp(created_at),
+  alter column created_at set default now();
+```
+- share_links
+```sql
+alter table public.share_links
+  alter column created_at type timestamptz using to_timestamp(created_at),
+  alter column created_at set default now();
+```
+
+Verification after each table
+- Call: `GET /admin/schema/inspect` and confirm the table’s created_at/updated_at show “timestamp with time zone”.
+- For contacts only: run a probe insert and list:
+```bash
+curl -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <token>" \
+  -d '{"tenant_id":"<tid>"}' https://api.brandvx.io/integrations/rls/probe-insert-contact
+
+curl -H "Authorization: Bearer <token>" \
+  "https://api.brandvx.io/contacts/list?tenant_id=<tid>&limit=1"
+```
+
+Rollback note
+- If needed, you can convert back using `extract(epoch from created_at)::bigint`, but this shouldn’t be necessary.
+
 
