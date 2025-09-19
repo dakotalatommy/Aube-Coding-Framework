@@ -46,17 +46,17 @@ const founderSlides = [
 
 const registry: Record<string, GuideStep[]> = {
   workspace_intro: [
-    { element: '[data-tour="nav-dashboard"]', popover: { title: 'Dashboard', description: 'KPIs up top; “Next Best Steps” shows Day N/14 and today’s tasks.' } },
-    { element: '[data-tour="nav-askvx"]', popover: { title: 'askVX', description: 'Ask in your voice. We suggest safe actions; you’re in control.' } },
-    { element: '[data-tour="nav-vision"]', popover: { title: 'brandVZN', description: 'Upload, analyze, and refine with natural, texture‑safe edits.' } },
-    { element: '[data-tour="nav-messages"]', popover: { title: 'Messages', description: 'Draft in one tap. Quiet hours + STOP/HELP are respected.' } },
-    { element: '[data-tour="nav-contacts"]', popover: { title: 'Clients', description: 'Predictive search, quick copy (email/phone), and context drafts.' } },
-    { element: '[data-tour="nav-calendar"]', popover: { title: 'Calendar', description: 'Unified week grid: Google + booking. Mirror events to Google.' } },
-    { element: '[data-tour="nav-cadences"]', popover: { title: 'Follow‑ups', description: 'Tomorrow, this week, 30‑day re‑engage, 45‑day win‑back — fast.' } },
-    { element: '[data-tour="nav-inventory"]', popover: { title: 'Inventory', description: 'Sync Shopify/Square. See low/out‑of‑stock at a glance.' } },
-    { element: '[data-tour="nav-approvals"]', popover: { title: 'To‑Do', description: 'Anything needing your OK lands here — resolve in one click.' } },
-    { element: '[data-tour="nav-integrations"]', popover: { title: 'Settings', description: 'Connect Square/Acuity/Google; Setup Progress updates live.' } },
-    { element: '[data-tour="book-onboarding"]', popover: { title: 'Book Onboarding', description: 'Book a 1-on-1 onboarding for an in-depth walk through of brand BX (beyond the brand)!' } },
+    { element: '[data-tour="nav-dashboard"]', popover: { title: 'Dashboard', description: 'Check your most important metrics, know the next best steps to take, and see the priority action to take today.' } },
+    { element: '[data-tour="nav-askvx"]', popover: { title: 'askVX', description: 'Ask general — ask any question about branding, marketing, or the beauty industry. You can also train brandVX on how you run your business.' } },
+    { element: '[data-tour="nav-vision"]', popover: { title: 'brandVZN', description: 'The easiest professional photo editor you’ve ever used. Showcase different looks and make basic photo edits with ease.' } },
+    { element: '[data-tour="nav-messages"]', popover: { title: 'Messages', description: 'Draft messages in your brand’s voice for clients in bulk. Currently supports creation; text sending support is coming soon.' } },
+    { element: '[data-tour="nav-contacts"]', popover: { title: 'Clients', description: 'Search your clients to view their individual information, and send quick messages.' } },
+    { element: '[data-tour="nav-calendar"]', popover: { title: 'Calendar', description: 'View all of your appointments and important events across your booking and Google Calendar.' } },
+    { element: '[data-tour="nav-cadences"]', popover: { title: 'Follow‑ups', description: 'Easily follow up with who you need to, when you need to, so you don’t miss any clients ever again.' } },
+    { element: '[data-tour="nav-inventory"]', popover: { title: 'Inventory', description: 'Connect your inventory for basic management. Inventory is in beta; we’ll expand this feature soon.' } },
+    { element: '[data-tour="nav-approvals"]', popover: { title: 'To‑Do', description: 'See all of your notifications, follow‑ups, and anything that needs your approval in brandVX.' } },
+    { element: '[data-tour="nav-integrations"]', popover: { title: 'Settings', description: 'Manage your brandVX settings.' } },
+    { element: '[data-tour="book-onboarding"]', popover: { title: 'Book onboarding', description: 'For an in‑depth walk‑through with one of our founders, click Book onboarding to open our schedule and set a time.' } },
   ],
   onboarding: [
     { element: '[data-tour="steps"]', popover: { title: 'Steps', description: 'Personalize your brandVX — you can jump around anytime.' } },
@@ -65,7 +65,7 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-tour="cta"]', popover: { title: 'Ready when you are', description: 'White‑glove or self-serve — you approve everything.' } },
   ],
   dashboard: [
-    { element: '#tour-welcome-anchor', popover: { title: 'Welcome to brandVX', description: 'Let’s do a quick walk-through of your workspace.' } },
+    { element: '#tour-welcome-anchor', popover: { title: 'Welcome to brandVX', description: 'Let’s do a quick walk‑through of your workspace, then get you running our 3 most powerful features.' } },
     { element: '[data-tour="nav-dashboard"]', popover: { title: 'Dashboard', description: 'Check KPIs, quick start wins, and your 14-day plan progress.' } },
     { element: '[data-tour="nav-askvx"]', popover: { title: 'askVX', description: 'Ask in your voice. We suggest safe actions; you approve everything.' } },
     { element: '[data-tour="nav-vision"]', popover: { title: 'brandVZN', description: 'Upload, analyze, and refine with natural, texture-safe edits.' } },
@@ -78,32 +78,18 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-tour="nav-integrations"]', popover: { title: 'Settings', description: 'Connect Square, Acuity, Google, and more.' } },
     { element: '[data-tour="book-onboarding"]', popover: { title: 'Book Onboarding', description: 'Schedule a 1-on-1 to go deeper whenever you’re ready.' } },
     { element: '#tour-billing-anchor', popover: { title: 'Choose your plan', description: 'Unlock the workspace with a founding plan or free trial.' } },
-    { element: '[data-guide="kpis"]', popover: { title: 'KPIs', description: 'Messages sent, time saved, rebook rate (30d), and revenue uplift live here.' } },
-    { element: '[data-guide="quickstart"]', popover: { title: 'Quick start', description: 'Kick off with brandVZN, import clients, or train VX — three fast wins.' } },
-    { element: '[data-guide="next-best-steps"]', popover: { title: 'Next Best Steps', description: 'See the current day in your 14-day plan and today’s recommended actions.' } },
+    { element: '[data-guide="kpis"]', popover: { title: 'Your metrics at the top', description: 'Review key metrics to track how brandVX is helping you grow.' } },
+    { element: '[data-guide="quickstart"]', popover: { title: 'Guided Walk‑through', description: 'Kick off with brandVZN, import clients, or train VX so you can showcase three fast wins and learn how to use brandVX.' } },
+    { element: '[data-guide="next-best-steps"]', popover: { title: 'Next Best Steps', description: 'Monitor and keep up with the next best actions to take to maximize your business.' } },
     {
       element: '[data-guide="quickstart-brandvzn"]',
       popover: {
-        title: 'Guided Walkthrough',
-        description: 'Let’s showcase three of brandVX’s most powerful tools!',
+        title: 'Guided Walk‑through',
+        description: 'Let’s showcase three of brandVX’s most powerful features.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Open brandVZN',
-        onNextClick: (_element, _step, { driver }) => {
-          const proceed = () => {
-            window.removeEventListener('bvx:guide:navigate:done', proceed as any);
-            setTimeout(() => {
-              try { driver.moveNext(); } catch {}
-            }, 120);
-          };
-          window.addEventListener('bvx:guide:navigate:done', proceed as any, { once: true } as any);
-          const fallback = window.setTimeout(() => {
-            try { driver.moveNext(); } catch {}
-          }, 1600);
-          const clear = () => {
-            window.clearTimeout(fallback);
-            window.removeEventListener('bvx:guide:navigate:done', clear as any);
-          };
-          window.addEventListener('bvx:guide:navigate:done', clear as any, { once: true } as any);
+        onNextClick: (_element, _step) => {
+          // Navigate on Next; no automatic advance after navigation
           try {
             window.dispatchEvent(new CustomEvent('bvx:guide:navigate', { detail: { pane: 'vision' } }));
           } catch {}
@@ -123,7 +109,7 @@ const registry: Record<string, GuideStep[]> = {
             <button data-color="jet" class="bvx-color-btn">Jet Black</button>
           </div>`,
         showButtons: ['previous'],
-        onPopoverRender: (dom: any, { driver }: { driver: any }) => {
+        onPopoverRender: (dom: any) => {
           const palette: Record<string, string> = {
             copper: 'Change the subject’s hair to a warm copper tone.',
             espresso: 'Change the subject’s hair to a rich espresso brown.',
@@ -140,9 +126,7 @@ const registry: Record<string, GuideStep[]> = {
               try {
                 window.dispatchEvent(new CustomEvent('bvx:guide:brandvzn:color', { detail: prompt }));
               } catch {}
-              setTimeout(() => {
-                try { driver.moveNext(); } catch {}
-              }, 120);
+              // No auto-advance; user will click Next
             });
           });
         },
@@ -173,7 +157,7 @@ const registry: Record<string, GuideStep[]> = {
         description:
           'Since booking was connected during onboarding, click Import from booking to bring everyone in.<div class="mt-3 grid gap-2">\n            <button class="bvx-onboard-btn" data-onboard-action="import-now">Import from booking</button>\n            <button class="bvx-onboard-btn-secondary" data-onboard-action="import-skip">Skip this step</button>\n          </div>\n          <div class="mt-4 hidden" data-onboard-panel="lite">\n            <div class="text-xs text-slate-700 mb-2">Prefer to start lighter? brandVZN Lite keeps Brand Vision + AskVX for $47/mo.</div>\n            <div class="flex flex-col gap-2 items-center" data-onboard-lite-root>\n              <stripe-buy-button buy-button-id="buy_btn_1S8t06KsdVcBvHY1b42SHXi9" publishable-key="pk_live_51RJwqnKsdVcBvHY1Uf3dyiHqrB3fsE35Qhgs5KfnPSJSsdalZpoJik9HYR4x6OY1ITiNJw6VJnqN9bHymiw9xE3r00WyZkg6kZ"></stripe-buy-button>\n              <button class="bvx-onboard-btn" data-onboard-action="skip-continue">Continue without importing</button>\n            </div>\n          </div>',
         showButtons: ['previous'],
-        onPopoverRender: (dom: any, { driver }: { driver: any }) => {
+        onPopoverRender: (dom: any) => {
           (window as any).__bvxSkipImport = false;
           const root = dom?.wrapper as HTMLElement | null;
           if (!root) return;
@@ -203,13 +187,11 @@ const registry: Record<string, GuideStep[]> = {
             (window as any).__bvxImportFailed = failed;
             if (failed) (window as any).__bvxSkipImport = true;
             cleanup();
-            setTimeout(() => { try { driver.moveNext(); } catch {} }, 180);
           };
 
           const skipHandler = () => {
             (window as any).__bvxSkipImport = true;
             cleanup();
-            setTimeout(() => { try { driver.moveNext(); } catch {} }, 120);
           };
 
           window.addEventListener('bvx:flow:contacts-imported', importedHandler as any, { once: true } as any);
@@ -231,7 +213,6 @@ const registry: Record<string, GuideStep[]> = {
           skipContinue?.addEventListener('click', () => {
             cleanup();
             try { window.dispatchEvent(new CustomEvent('bvx:onboarding:skip-import')); } catch {}
-            setTimeout(() => { try { driver.moveNext(); } catch {} }, 120);
           });
 
           // Navigate to contacts pane when this step mounts
@@ -248,11 +229,8 @@ const registry: Record<string, GuideStep[]> = {
         description: 'We’ll show your latest import status here. If something fails you can retry or skip ahead.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Continue',
-        onPopoverRender: (_dom: any, { driver }: { driver: any }) => {
-          if ((window as any).__bvxSkipImport) {
-            setTimeout(() => { try { driver.moveNext(); } catch {} }, 80);
-            return;
-          }
+        onPopoverRender: (_dom: any) => {
+          if ((window as any).__bvxSkipImport) return;
         },
       },
     },
@@ -268,100 +246,45 @@ const registry: Record<string, GuideStep[]> = {
         showButtons: ['previous', 'next'],
         nextBtnText: 'Go to askVX',
         onNextClick: (_element, _step, { driver }) => {
-          const proceed = () => {
-            window.removeEventListener('bvx:guide:navigate:done', proceed as any);
-            setTimeout(() => {
-              try { driver.moveNext(); } catch {}
-            }, 120);
-          };
-          window.addEventListener('bvx:guide:navigate:done', proceed as any, { once: true } as any);
-          const fallback = window.setTimeout(() => {
-            try { driver.moveNext(); } catch {}
-          }, 1600);
-          const clear = () => {
-            window.clearTimeout(fallback);
-            window.removeEventListener('bvx:guide:navigate:done', clear as any);
-          };
-          window.addEventListener('bvx:guide:navigate:done', clear as any, { once: true } as any);
-          try {
-            window.dispatchEvent(new CustomEvent('bvx:guide:navigate', { detail: { pane: 'askvx' } }));
-          } catch {}
+          try { window.dispatchEvent(new CustomEvent('bvx:guide:navigate', { detail: { pane: 'askvx' } })); } catch {}
+          try { driver.moveNext(); } catch {}
         },
       },
     },
-    { element: '[data-guide="askvx-import-count"]', popover: { title: 'Imported contacts', description: 'Here’s the new contact count from your booking sync.', showButtons: ['previous', 'next'] } },
-    { element: '[data-guide="askvx-digest"]', popover: { title: 'Since your last visit', description: 'Keep an eye on fresh contacts, appointments, and messages.', showButtons: ['previous', 'next'] } },
+    { element: '#tour-welcome-anchor', popover: { title: 'Imported contacts', description: 'Here’s the new contact count from your booking sync.', showButtons: ['previous', 'next'] } },
+    { element: '#tour-welcome-anchor', popover: { title: 'Since your last visit', description: 'Keep an eye on fresh contacts, appointments, and messages.', showButtons: ['previous', 'next'] } },
     {
-      element: '[data-guide="askvx-insights-cta"]',
+      element: '#tour-welcome-anchor',
       popover: {
         title: 'Generate insights',
-        description: 'Click “Generate snapshot” to preload the AskVX prompt with your data.',
+        description: 'Show last 3 months revenue and top 3 clients.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Next',
-        onPopoverRender: (_dom: any, { driver }: { driver: any }) => {
-          if ((window as any).__bvxSkipImport) {
-            setTimeout(() => { try { driver.moveNext(); } catch {} }, 120);
-            return;
-          }
+        onPopoverRender: (_dom: any) => {
+          if ((window as any).__bvxSkipImport) return;
           try {
             window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.run-insights' } }));
           } catch {}
-          let done = false;
-          const cleanup = () => {
-            if (done) return;
-            done = true;
-            window.removeEventListener('bvx:onboarding:askvx-prefill', handler as any);
-            window.clearTimeout(timer);
-          };
-          const handler = () => {
-            cleanup();
-            setTimeout(() => { try { driver.moveNext(); } catch {} }, 160);
-          };
-          const timer = window.setTimeout(() => {
-            cleanup();
-            try { driver.moveNext(); } catch {}
-          }, 60000);
-          window.addEventListener('bvx:onboarding:askvx-prefill', handler as any, { once: true } as any);
         },
       },
     },
     {
-      element: '[data-guide="composer"]',
+      element: '#tour-welcome-anchor',
       popover: {
         title: 'Send the prompt',
         description: 'Press Send to let AskVX crunch the numbers for you.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Next',
-        onPopoverRender: (_dom: any, { driver }: { driver: any }) => {
-          if ((window as any).__bvxSkipImport) {
-            setTimeout(() => { try { driver.moveNext(); } catch {} }, 120);
-            return;
-          }
-          let done = false;
-          const cleanup = () => {
-            if (done) return;
-            done = true;
-            window.removeEventListener('bvx:onboarding:askvx-sent', handler as any);
-            window.clearTimeout(timer);
-          };
-          const handler = (event: Event) => {
-            const detail = (event as CustomEvent).detail || {};
-            if (detail?.success === false) return;
-            cleanup();
-            setTimeout(() => { try { driver.moveNext(); } catch {} }, 160);
-          };
-          const timer = window.setTimeout(() => {
-            cleanup();
-            try { driver.moveNext(); } catch {}
-          }, 60000);
-          window.addEventListener('bvx:onboarding:askvx-sent', handler as any, { once: true } as any);
+        onPopoverRender: (_dom: any) => {
+          // Automation runs; user advances manually
         },
       },
     },
     {
+      element: '#tour-welcome-anchor',
       popover: {
         title: 'Plan your next 14 days',
-        description: 'We’ll preload a prompt that asks AskVX to build a 14-day strategy using your imports and brand profile.',
+        description: 'We’ll preload a prompt that asks AskVX to build a 14‑day strategy using your imports and brand profile.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Ready',
         onPopoverRender: () => {
@@ -385,116 +308,52 @@ const registry: Record<string, GuideStep[]> = {
       },
     },
     {
-      element: '[data-guide="askvx-strategy"]',
+      element: '#tour-welcome-anchor',
       popover: {
-        title: 'Build your 14-day strategy',
-        description: 'Generate and download the Markdown plan. We’ll also save it to your AI memory.',
+        title: 'Build your 14‑day strategy',
+        description: 'Generate and download the Markdown plan. We’ll also save it to your memory.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Next',
-        onPopoverRender: (_dom: any, { driver }: { driver: any }) => {
-          let done = false;
-          const cleanup = () => {
-            if (done) return;
-            done = true;
-            window.removeEventListener('bvx:onboarding:strategy-ready', handler as any);
-            window.clearTimeout(timer);
-          };
-          const handler = () => {
-            cleanup();
-            setTimeout(() => { try { driver.moveNext(); } catch {} }, 160);
-          };
-          const timer = window.setTimeout(() => {
-            cleanup();
-            try { driver.moveNext(); } catch {}
-          }, 90000);
-          window.addEventListener('bvx:onboarding:strategy-ready', handler as any, { once: true } as any);
+        onPopoverRender: () => {
+          // Wait for strategy ready; no auto-advance
         },
       },
     },
     {
+      element: '#tour-welcome-anchor',
       popover: {
         title: 'Next: Train VX',
         description: 'Switch to Train & Profile to add tone notes and review your brand profile.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Open Train VX',
         onNextClick: (_element, _step, { driver }) => {
-          let done = false;
-          const cleanup = () => {
-            if (done) return;
-            done = true;
-            window.removeEventListener('bvx:onboarding:askvx-tab-active', handler as any);
-            window.clearTimeout(timer);
-          };
-          const handler = (event: Event) => {
-            const detail = (event as CustomEvent).detail || {};
-            if (Number(detail?.index) === 1) {
-              cleanup();
-              setTimeout(() => { try { driver.moveNext(); } catch {} }, 160);
-            }
-          };
-          const timer = window.setTimeout(() => {
-            cleanup();
-            try { driver.moveNext(); } catch {}
-          }, 1600);
-          window.addEventListener('bvx:onboarding:askvx-tab-active', handler as any);
           try {
             window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.tab', tab: 'profile' } }));
           } catch {}
+          try { driver.moveNext(); } catch {}
         },
       },
     },
     {
-      element: '[data-guide="trainvx-notes"]',
+      element: '#tour-welcome-anchor',
       popover: {
         title: 'Add a brand fact',
         description: 'Type a tone note or preference, then press “Save to training”.',
-        showButtons: ['previous'],
-        onPopoverRender: (_dom: any, { driver }: { driver: any }) => {
-          let done = false;
-          const cleanup = () => {
-            if (done) return;
-            done = true;
-            window.removeEventListener('bvx:onboarding:trainvx-saved', handler as any);
-            window.clearTimeout(timer);
-          };
-          const handler = () => {
-            cleanup();
-            setTimeout(() => { try { driver.moveNext(); } catch {} }, 160);
-          };
-          const timer = window.setTimeout(() => {
-            cleanup();
-            try { driver.moveNext(); } catch {}
-          }, 90000);
-          window.addEventListener('bvx:onboarding:trainvx-saved', handler as any, { once: true } as any);
-        },
+        showButtons: ['previous', 'next'],
       },
     },
     {
-      element: '[data-guide="trainvx-profile"]',
+      element: '#tour-welcome-anchor',
       popover: {
         title: 'Review your brand profile',
         description: 'Use Edit → Save to adjust tone, story, and pricing anytime.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Next',
         onNextClick: (_element, _step, { driver }) => {
-          const proceed = () => {
-            window.removeEventListener('bvx:guide:navigate:done', proceed as any);
-            setTimeout(() => {
-              try { driver.moveNext(); } catch {}
-            }, 120);
-          };
-          window.addEventListener('bvx:guide:navigate:done', proceed as any, { once: true } as any);
-          const fallback = window.setTimeout(() => {
-            try { driver.moveNext(); } catch {}
-          }, 1600);
-          const clear = () => {
-            window.clearTimeout(fallback);
-            window.removeEventListener('bvx:guide:navigate:done', clear as any);
-          };
-          window.addEventListener('bvx:guide:navigate:done', clear as any, { once: true } as any);
           try {
             window.dispatchEvent(new CustomEvent('bvx:guide:navigate', { detail: { pane: 'dashboard' } }));
           } catch {}
+          try { driver.moveNext(); } catch {}
         },
       },
     },
@@ -579,7 +438,7 @@ const registry: Record<string, GuideStep[]> = {
 
 founderSlides.forEach((slide, idx) => {
   registry.dashboard.push({
-    element: 'body',
+    element: '#tour-welcome-anchor',
     popover: {
       title: slide.title,
       description: slide.html,
@@ -679,7 +538,7 @@ export function startGuide(page: string, _opts?: { step?: number }) {
           s.id = styleId;
           s.textContent = `
             .driver-overlay { z-index: 2147483600 !important; }
-            .driver-popover { z-index: 2147483601 !important; }
+            .driver-popover { z-index: 2147483601 !important; max-width: min(560px, 90vw) !important; }
           `;
           document.head.appendChild(s);
         }

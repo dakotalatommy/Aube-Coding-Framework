@@ -2,7 +2,7 @@ import React, { Suspense, lazy, useMemo, useRef, useEffect, useState, useCallbac
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import Button from './ui/Button';
-import { Home, MessageSquare, Users, Calendar, Layers, Package2, Plug, CheckCircle2, MessageCircle, Eye } from 'lucide-react';
+import { Home, MessageSquare, Users, Calendar, Layers, Package2, Plug, CheckCircle2, MessageCircle, Eye, ArrowUpRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { api, getTenant } from '../lib/api';
 import { startGuide } from '../lib/guide';
@@ -14,12 +14,13 @@ import { workspaceStorage } from '../onboarding/workspace/storage';
 import { useWorkspaceOnboardingController } from '../hooks/useWorkspaceOnboardingController';
 import type { OnboardingState } from '../onboarding/workspace/orchestrator';
 
-type PaneKey = 'dashboard' | 'messages' | 'contacts' | 'calendar' | 'cadences' | 'inventory' | 'integrations' | 'approvals' | 'askvx' | 'vision';
+type PaneKey = 'dashboard' | 'messages' | 'contacts' | 'calendar' | 'cadences' | 'inventory' | 'integrations' | 'approvals' | 'askvx' | 'vision' | 'upgradevx';
 
 const PANES: { key: PaneKey; label: string; icon: React.ReactNode }[] = [
   { key: 'dashboard', label: 'Dashboard', icon: <Home size={18} /> },
   { key: 'askvx', label: 'askVX', icon: <MessageCircle size={18} /> },
   { key: 'vision', label: 'brandVZN', icon: <Eye size={18} /> },
+  { key: 'upgradevx', label: 'upgradeVX', icon: <ArrowUpRight size={18} /> },
   { key: 'messages', label: 'Messages', icon: <MessageSquare size={18} /> },
   { key: 'contacts', label: 'Clients', icon: <Users size={18} /> },
   { key: 'calendar', label: 'Calendar', icon: <Calendar size={18} /> },
@@ -70,6 +71,7 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
   const [trialEndedOpen, setTrialEndedOpen] = useState<boolean>(false);
   const [trialDaysLeft, setTrialDaysLeft] = useState<number>(0);
   const [flowModal, setFlowModal] = useState<FlowModalConfig | null>(null);
+  const [isLiteTier, setIsLiteTier] = useState<boolean>(false);
   const [flowModalInput, setFlowModalInput] = useState('');
   const [debugEvents, setDebugEvents] = useState<string[]>([]);
   const debugEnabled = useMemo(()=>{
@@ -191,6 +193,7 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
     setBillingOpen(false);
     setBillingLoading(false);
     resolver?.(dismiss);
+    try { window.dispatchEvent(new CustomEvent('bvx:billing:closed')); } catch {}
   }, []);
 
   const ensureBillingEffect = useCallback(async () => {
@@ -473,6 +476,16 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
         const r = await api.get(`/settings${tid?`?tenant_id=${encodeURIComponent(tid)}`:''}`);
         const status = String(r?.data?.subscription_status || '');
         setBillingStatus(status);
+        // Determine $47 tier heuristically (plan_code or price hint). Apply only when Beta tools are off.
+        try {
+          const planCode = String(r?.data?.plan_code || '').toLowerCase();
+          const spid = String(r?.data?.subscription_price_id || '').toLowerCase();
+          const betaOpen = String((import.meta as any).env?.VITE_BETA_OPEN_TOOLS || '0') === '1';
+          const lite = !betaOpen && (
+            planCode.includes('lite') || planCode.includes('47') || spid.includes('price_1s8svi') || /(^|\b)47(\b|$)/.test(planCode)
+          );
+          setIsLiteTier(lite);
+        } catch {}
         const covered = status === 'active';
         // Only open billing modal when explicitly requested via query param, or forced
         const billingParam = sp.get('billing');
@@ -569,10 +582,28 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
       case 'approvals': return <LazyApprovals/>;
       case 'askvx': return <LazyAsk/>;
       case 'vision': return <LazyVision/>;
+      case 'upgradevx': {
+        // Open billing modal/route for upgrade
+        setTimeout(()=>{ try { window.dispatchEvent(new CustomEvent('bvx:billing:prompt')); } catch {}; try { nav('/billing'); } catch {} }, 0);
+        return <div/>;
+      }
       default: return <div/>;
     }
   })();
-  const items = useMemo(()=> PANES, []);
+  const items = useMemo(()=> {
+    const betaOpen = String((import.meta as any).env?.VITE_BETA_OPEN_TOOLS || '0') === '1';
+    if (isLiteTier && !betaOpen) {
+      // Only askVX, brandVZN, upgradeVX — in that exact order
+      const minimal: { key: PaneKey; label: string; icon: React.ReactNode }[] = [];
+      const pick = (k: PaneKey) => {
+        const p = PANES.find(x=> x.key===k);
+        if (p) minimal.push(p);
+      };
+      pick('askvx'); pick('vision'); pick('upgradevx');
+      return minimal;
+    }
+    return PANES;
+  }, [isLiteTier]);
   const [approvalsCount, setApprovalsCount] = useState<number>(0);
   const [queueCount, setQueueCount] = useState<number>(0);
   useEffect(()=>{
@@ -597,6 +628,16 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
   }, [loc.search]);
   const refs = useRef<HTMLButtonElement[]>([]);
   useEffect(()=>{ refs.current = refs.current.slice(0, items.length); }, [items.length]);
+
+  // If on lite tier, prevent navigation to hidden panes
+  useEffect(()=>{
+    const betaOpen = String((import.meta as any).env?.VITE_BETA_OPEN_TOOLS || '0') === '1';
+    if (!isLiteTier || betaOpen) return;
+    const allowed = new Set<PaneKey>(['askvx','vision','upgradevx']);
+    if (!allowed.has(pane)) {
+      try { setPane('askvx'); } catch {}
+    }
+  }, [isLiteTier, pane]);
 
   const onKeyDown: React.KeyboardEventHandler<HTMLDivElement> = (e) => {
     const idx = items.findIndex(p=>p.key===pane);
@@ -969,14 +1010,13 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
       )}
       {/* Trial ended modal (soft gate) */}
       {trialEndedOpen && (
-        <div className="fixed inset-0 z-[1200] grid place-items-center p-4">
-          <div aria-hidden className="absolute inset-0 bg-black/20" />
-          <div className="relative w-full max-w-md rounded-2xl border border-[var(--border)] bg-white p-5 shadow-soft text-center">
+        <div className="fixed inset-0 z-[2147483603] grid place-items-center p-4">
+          <div aria-hidden className="absolute inset-0 bg-black/40" />
+          <div className="relative w-full max-w-md rounded-2xl border border-[var(--border)] bg-white p-6 shadow-soft text-center">
             <div className="text-ink-900 text-lg font-semibold">Trial ended</div>
             <div className="text-ink-700 text-sm mt-1">Add payment method to access your brandVX!</div>
             <div className="mt-3 flex gap-2 justify-center">
               <Button onClick={()=> nav('/billing')}>Add payment</Button>
-              <Button variant="outline" onClick={()=> setTrialEndedOpen(false)}>Later</Button>
             </div>
           </div>
         </div>

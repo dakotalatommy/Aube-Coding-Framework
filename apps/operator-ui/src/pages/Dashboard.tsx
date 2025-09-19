@@ -403,6 +403,7 @@ export default function Dashboard(){
               <Button size="sm" className="rounded-full px-3" onClick={async()=>{ try{ await navigator.clipboard.writeText(refLink); trackEvent('referral.copy'); }catch{} }}>Copy</Button>
             </div>
             <div className="mt-1 text-[11px] text-slate-500 text-center">Referrals (30d): <span className="font-medium text-slate-700">{Number(metrics?.referrals_30d||0)}</span></div>
+            <div className="mt-1 text-[11px] text-slate-600 text-center">After two referrals, get $30 off the next month per referral.</div>
             <div className="mt-1 text-[11px] text-slate-600 text-center">
               {(() => {
                 try{
@@ -471,7 +472,7 @@ export default function Dashboard(){
       {/* Quick Start 3 WorkStyles (stacked vertically); hidden when initial three actions are complete */}
       {!quickStartDone && (
         <section className="rounded-2xl p-2 bg-white border border-white/60 shadow-sm" data-guide="quickstart">
-          <h4 className="text-base md:text-[17px] font-semibold text-slate-900 text-center">Quick Start</h4>
+          <h4 className="text-base md:text-[17px] font-semibold text-slate-900 text-center">Guided Walk‑through</h4>
           <div className="mt-2 max-w-sm mx-auto grid gap-2">
             <Button
               size="sm"
