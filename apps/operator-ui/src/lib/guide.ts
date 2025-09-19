@@ -65,7 +65,7 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-tour="cta"]', popover: { title: 'Ready when you are', description: 'White‑glove or self-serve — you approve everything.' } },
   ],
   dashboard: [
-    { element: '#tour-welcome-anchor', popover: { title: 'Welcome to brandVX', description: 'Let’s do a quick walk‑through of your workspace, then get you running our 3 most powerful features.' } },
+    { element: '#tour-center-anchor', popover: ({ title: 'Welcome to brandVX', description: 'Let’s do a quick walk‑through of your workspace, then get you running our 3 most powerful features.', side: 'top', align: 'center' } as any) },
     { element: '[data-tour="nav-dashboard"]', popover: { title: 'Dashboard', description: 'Check KPIs, quick start wins, and your 14-day plan progress.' } },
     { element: '[data-tour="nav-askvx"]', popover: { title: 'askVX', description: 'Ask in your voice. We suggest safe actions; you approve everything.' } },
     { element: '[data-tour="nav-vision"]', popover: { title: 'brandVZN', description: 'Upload, analyze, and refine with natural, texture-safe edits.' } },

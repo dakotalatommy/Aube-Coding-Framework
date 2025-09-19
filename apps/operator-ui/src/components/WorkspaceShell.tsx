@@ -793,7 +793,12 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
 
   return (
     <div className="max-w-6xl mx-auto">
-      <div id="tour-welcome-anchor" className="fixed inset-0 pointer-events-none flex items-center justify-center" style={{ zIndex: 2147483602 }} />
+      <div id="tour-welcome-anchor" className="fixed inset-0 pointer-events-none" style={{ zIndex: 2147483602 }} />
+      <div
+        id="tour-center-anchor"
+        className="fixed pointer-events-none"
+        style={{ top: '50%', left: '50%', width: 1, height: 1, transform: 'translate(-50%, -50%)', zIndex: 2147483602 }}
+      />
       <div id="tour-billing-anchor" className="fixed inset-0 pointer-events-none flex items-center justify-center" style={{ zIndex: 2147483602 }} />
       {/* E2E readiness marker */}
       <div id="e2e-ready" data-pane={pane} style={{ position:'absolute', opacity:0, pointerEvents:'none' }} />
