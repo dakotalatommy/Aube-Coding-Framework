@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import OverlayPortal from './OverlayPortal';
 import { api, getTenant } from '../lib/api';
 import { supabase } from '../lib/supabase';
 
@@ -165,8 +166,9 @@ export default function SupportBubble(){
   return (
     <>
       {/* Floating pill bubble */}
-      {!open && createPortal(
-        <div className="fixed inset-0 pointer-events-none" style={{ zIndex: 2147483647, isolation: 'isolate' }}>
+      {!open && (
+        <OverlayPortal>
+        <div className="fixed inset-0 pointer-events-none">
           <button
             aria-label="Open support"
             onClick={()=> setOpen(true)}
@@ -175,11 +177,12 @@ export default function SupportBubble(){
           >
             support
           </button>
-        </div>,
-        document.body
+        </div>
+        </OverlayPortal>
       )}
-      {open && createPortal(
-        <div className="fixed inset-0 pointer-events-none" style={{ zIndex: 2147483647, isolation: 'isolate' }}>
+      {open && (
+        <OverlayPortal>
+        <div className="fixed inset-0 pointer-events-none">
           {/* Click catcher to close when clicking outside */}
           <div className="absolute inset-0" onClick={()=> setOpen(false)} />
           <div className="absolute right-4 bottom-4 w-[min(36vw,420px)] max-w-[92vw] h-[min(48vh,560px)] max-h-[78vh] pointer-events-auto">
@@ -221,7 +224,7 @@ export default function SupportBubble(){
             </div>
           </div>
         </div>,
-        document.body
+        </OverlayPortal>
       )}
       {/* Optional debug chip (2.6s) */}
       {debugVisible && createPortal(

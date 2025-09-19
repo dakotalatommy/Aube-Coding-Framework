@@ -10,6 +10,11 @@ import { track } from '../lib/analytics';
 import { UI_STRINGS } from '../lib/strings';
 // import PaneManager from './pane/PaneManager';
 import { registerActions, registerMessageBridge } from '../lib/actions';
+import { workspaceStorage } from '../onboarding/workspace/storage';
+import { useWorkspaceOnboardingController } from '../hooks/useWorkspaceOnboardingController';
+import type { OnboardingState } from '../onboarding/workspace/orchestrator';
+import FounderFinale from './onboarding/FounderFinale';
+import foundersImage from '../assets/onboarding/IMG_7577.jpeg';
 
 type PaneKey = 'dashboard' | 'messages' | 'contacts' | 'calendar' | 'cadences' | 'inventory' | 'integrations' | 'approvals' | 'askvx' | 'vision';
 
@@ -56,6 +61,7 @@ export default function WorkspaceShell(){
   const PRICE_147 = (import.meta as any).env?.VITE_STRIPE_PRICE_147 || '';
   const PRICE_97 = (import.meta as any).env?.VITE_STRIPE_PRICE_97 || '';
   const TRIAL_DAYS = Number((import.meta as any).env?.VITE_STRIPE_TRIAL_DAYS || '7');
+const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_TOUR || '').toLowerCase() === '1';
 
   const [billingOpen, setBillingOpen] = useState(false);
   const [billingLoading, setBillingLoading] = useState(false);
@@ -63,9 +69,19 @@ export default function WorkspaceShell(){
   const [trialModalOpen, setTrialModalOpen] = useState<boolean>(false);
   const [trialEndedOpen, setTrialEndedOpen] = useState<boolean>(false);
   const [trialDaysLeft, setTrialDaysLeft] = useState<number>(0);
-  const [showWelcome, setShowWelcome] = useState(false);
   const [flowModal, setFlowModal] = useState<FlowModalConfig | null>(null);
   const [flowModalInput, setFlowModalInput] = useState('');
+  const [debugEvents, setDebugEvents] = useState<string[]>([]);
+  const debugEnabled = useMemo(()=>{
+    try { const sp = new URLSearchParams(loc.search); return sp.get('debug') === '1' || localStorage.getItem('bvx_debug') === '1'; } catch { return false; }
+  }, [loc.search]);
+  const debugLog = useCallback((msg: string) => {
+    try {
+      const ts = new Date().toLocaleTimeString();
+      setDebugEvents(evs => [`${ts} ${msg}`, ...evs].slice(0,5));
+      console.info('[WorkspaceShell]', msg);
+    } catch {}
+  }, []);
 
   const paneRef = useRef(pane);
   useEffect(()=>{ paneRef.current = pane; }, [pane]);
@@ -73,8 +89,8 @@ export default function WorkspaceShell(){
   useEffect(()=>{ billingOpenRef.current = billingOpen; }, [billingOpen]);
   const billingStatusRef = useRef(billingStatus);
   useEffect(()=>{ billingStatusRef.current = billingStatus; }, [billingStatus]);
-  const flowRunningRef = useRef(false);
   const flowModalResolveRef = useRef<((value: any) => void) | undefined>(undefined);
+  useEffect(()=>{ if (debugEnabled) debugLog(`billingOpen=${billingOpen?'1':'0'}`); }, [billingOpen, debugEnabled, debugLog]);
 
   useEffect(()=>{
     if (flowModal?.input) {
@@ -101,73 +117,32 @@ export default function WorkspaceShell(){
     if (resolver) resolver(resolvedValue);
   }, [flowModal, flowModalInput]);
 
-  const waitForCondition = useCallback(async (predicate: () => boolean, timeoutMs = 10000) => {
+  const waitForCondition = useCallback(async (predicate: () => boolean, timeoutMs?: number) => {
+    const limit = typeof timeoutMs === 'number' && timeoutMs > 0 ? timeoutMs : Infinity;
     const start = Date.now();
     while (!predicate()) {
-      if (Date.now() - start > timeoutMs) return false;
+      if (Date.now() - start > limit) return false;
       await sleep(80);
     }
     return true;
   }, [sleep]);
 
-  const waitForEvent = useCallback((eventName: string, predicate: ((event: Event) => boolean) | undefined = undefined, timeoutMs = 30000) => {
-    return new Promise<Event>((resolve, reject) => {
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const handler = (event: Event) => {
-        try {
-          if (!predicate || predicate(event)) {
-            cleanup();
-            resolve(event);
-          }
-        } catch (err) {
-          cleanup();
-          reject(err);
-        }
-      };
-      const cleanup = () => {
-        window.removeEventListener(eventName, handler as any);
-        if (timer) clearTimeout(timer);
-      };
-      window.addEventListener(eventName, handler as any);
-      if (timeoutMs > 0) {
-        timer = setTimeout(() => {
-          cleanup();
-          reject(new Error(`${eventName} timeout`));
-        }, timeoutMs);
-      }
-    });
+  const billingResolverRef = useRef<((dismiss?: boolean) => void) | null>(null);
+  const forceInitRef = useRef(false);
+  const autoStartRef = useRef(false);
+  const forcedRef = useRef(false);
+  const skipImportRef = useRef(false);
+  const importSummaryRef = useRef<{ imported?: number; updated?: number; error?: string } | null>(null);
+  const [founderFinaleOpen, setFounderFinaleOpen] = useState<boolean>(false);
+  const founderFinaleSeenInitial = useMemo(() => {
+    try { return localStorage.getItem('bvx_founder_finale_seen') === '1'; } catch { return false; }
   }, []);
+  const founderFinaleSeenRef = useRef<boolean>(founderFinaleSeenInitial);
+  const [onboardingState, setOnboardingState] = useState<OnboardingState>({ phase: 'idle', forced: false, running: false });
 
-  const highlightStep = useCallback(async (selector: string, title: string, description: string) => {
-    const found = await waitForCondition(() => !!document.querySelector(selector), 8000);
-    if (!found) return;
-    const mod: any = await import('driver.js');
-    const driverFactory = mod?.driver || mod;
-    const instance = driverFactory({
-      showProgress: false,
-      allowClose: false,
-      steps: [
-        {
-          element: selector,
-          popover: {
-            title,
-            description,
-            side: 'bottom',
-            align: 'start',
-          },
-        },
-      ],
-    } as any);
-    return new Promise<void>((resolve) => {
-      try {
-        instance.drive();
-      } catch {
-        resolve();
-        return;
-      }
-      instance.on('destroyed', () => resolve());
-    });
-  }, [waitForCondition]);
+  useEffect(() => {
+    console.info('[onboarding] phase ->', onboardingState.phase);
+  }, [onboardingState.phase]);
 
   const goToPane = useCallback(async (target: PaneKey) => {
     if (paneRef.current !== target) {
@@ -184,267 +159,243 @@ export default function WorkspaceShell(){
     await sleep(200);
   }, [nav, sleep, waitForCondition]);
 
-  const ensureBilling = useCallback(async () => {
-    const covered = () => {
-      const status = billingStatusRef.current || '';
-      return status === 'active' || status === 'trialing';
-    };
-    if (covered()) return;
-    setBillingOpen(true);
-    try { localStorage.removeItem('bvx_billing_dismissed'); } catch {}
-    const start = Date.now();
-    while (!covered()) {
-      if (!billingOpenRef.current) break;
-      if (Date.now() - start > 60000) break;
-      await sleep(600);
-    }
-    setBillingOpen(false);
-  }, [sleep]);
+  const showWelcomeEffect = useCallback(async ({ forced }: { forced: boolean }) => {
+    console.info('showWelcomeEffect', { forced });
+    if (forced) workspaceStorage.clearWelcome();
+  }, []);
 
-  const runUnifiedFlow = useCallback(async () => {
-    if (flowRunningRef.current) return;
-    if (localStorage.getItem('bvx_quickstart_completed') === '1') return;
-    flowRunningRef.current = true;
-    const hairOptions = [
-      'Copper',
-      'Espresso brown',
-      'Platinum blonde',
-      'Rose gold',
-      'Jet black',
-    ];
-    const planQuestions = [
-      {
-        id: 'goal',
-        title: 'Your focus',
-        placeholder: 'Example: Fill weekdays with high-ticket color clients',
-        prompt: 'What is your biggest business goal for the next two weeks?',
-      },
-      {
-        id: 'segments',
-        title: 'Who you want to serve',
-        placeholder: 'Example: Vivid color guests or bridal parties',
-        prompt: 'Which client segments are you focusing on (vivid color, bridal, lash refills, etc.)?',
-      },
-      {
-        id: 'time',
-        title: 'Time available',
-        placeholder: 'Example: 30 minutes per day, 2 hours on Mondays',
-        prompt: 'How much time per day can you realistically invest in follow-ups, content, or training?',
-      },
-    ];
+  const runUnifiedTour = useCallback(async ({ forced }: { forced: boolean }) => {
+    console.info('unifiedTour:start', { forced });
     try {
-      await sleep(400);
-      await ensureBilling();
-
-      await showFlowModalAsync({
-        title: 'Let’s start strong',
-        body: (
-          <div className="text-sm text-slate-700">
-            We’ll knock out three quick wins so your workspace delivers value right away.
-          </div>
-        ),
-        buttons: [{ label: 'Let’s go', value: 'continue', tone: 'primary' }],
+      document.body?.classList.remove('driver-active', 'driver-fade');
+      document.querySelectorAll('.driver-overlay, .driver-popover').forEach(el => {
+        try { el.parentElement?.removeChild(el); } catch {}
       });
-
-      await highlightStep('[data-guide="quickstart-brandvzn"]', 'Brand Vision', 'Tap Brand Vision to jump in and show a fast before & after.');
-      await goToPane('vision');
-      await sleep(400);
-      try { startGuide('vision'); } catch {}
-      await sleep(1600);
-
-      if (localStorage.getItem('bvx_done_vision') !== '1') {
-        await highlightStep('[data-guide="upload"]', 'Upload a photo', 'Pick a selfie or client look to get started.');
-        try {
-          await waitForEvent('bvx:flow:vision-uploaded', undefined, 90000);
-        } catch {
-          throw new Error('vision-upload-timeout');
-        }
-
-        const choice = await showFlowModalAsync({
-          title: 'Try a quick hair update',
-          body: (
-            <div className="text-sm text-slate-700">
-              Choose a shade to see how naturally Brand Vision edits.
-            </div>
-          ),
-          buttons: hairOptions.map(label => ({ label, value: label, tone: 'primary' })),
-        });
-        if (choice) {
-          window.dispatchEvent(new CustomEvent('bvx:flow:vision-command', {
-            detail: {
-              action: 'vision.run-edit',
-              prompt: `Change just the hair on the top of the subject's head to ${choice}`,
-            },
-          }));
-          try {
-            await waitForEvent('bvx:flow:vision-edit-complete', (event) => {
-              const detail = (event as CustomEvent).detail as any;
-              if (detail?.error) throw new Error(detail.error);
-              return true;
-            }, 120000);
-          } catch {
-            throw new Error('vision-edit-failed');
-          }
-        }
-
-        await highlightStep('[data-guide="slider"]', 'Compare the look', 'Drag the slider to show before vs after in real time.');
-        await showFlowModalAsync({
-          title: 'Brand Vision ready',
-          body: (
-            <div className="text-sm text-slate-700">
-              Your edit is saved in the Brand Vision library for future share-outs.
-            </div>
-          ),
-          buttons: [{ label: 'Back to dashboard', value: 'dashboard', tone: 'primary' }],
-        });
-        try { localStorage.setItem('bvx_done_vision','1'); } catch {}
-        window.dispatchEvent(new CustomEvent('bvx:quickstart:update', { detail: { step: 'vision' } }));
+    } catch {}
+    return new Promise<void>((resolve, reject) => {
+      const handler = () => {
+        window.removeEventListener('bvx:guide:dashboard:done', handler as any);
+        console.info('unifiedTour:complete');
+        resolve();
+      };
+      window.addEventListener('bvx:guide:dashboard:done', handler as any, { once: true } as any);
+      try {
+        if (debugEnabled) debugLog('tour:start dashboard');
+        startGuide('dashboard');
+      } catch (err) {
+        window.removeEventListener('bvx:guide:dashboard:done', handler as any);
+        reject(err instanceof Error ? err : new Error(String(err)));
       }
+    });
+  }, [debugEnabled, debugLog]);
 
-      await goToPane('dashboard');
-      await sleep(400);
+  const resolveBilling = useCallback((dismiss: boolean = true) => {
+    const resolver = billingResolverRef.current;
+    billingResolverRef.current = null;
+    if (dismiss) workspaceStorage.setBillingDismissed();
+    setBillingOpen(false);
+    setBillingLoading(false);
+    resolver?.(dismiss);
+  }, []);
 
-      if (localStorage.getItem('bvx_done_contacts') !== '1') {
-        await highlightStep('[data-guide="quickstart-import"]', 'Import clients', 'Bring in your Square or Acuity guests so metrics stay accurate.');
-        await goToPane('contacts');
-        await sleep(400);
-        try { startGuide('contacts'); } catch {}
-        await sleep(1400);
-        window.dispatchEvent(new CustomEvent('bvx:flow:contacts-command', { detail: { action: 'contacts.import' } }));
-        try {
-          await waitForEvent('bvx:flow:contacts-imported', (event) => {
-            const detail = (event as CustomEvent).detail as any;
-            if (detail?.error) throw new Error(detail.error);
-            return true;
-          }, 150000);
-        } catch {
-          throw new Error('contacts-import-failed');
-        }
-        await showFlowModalAsync({
-          title: 'Clients connected',
-          body: (
-            <div className="text-sm text-slate-700">
-              Your guests, spend, and visit history are synced. Let’s tap into insights now.
-            </div>
-          ),
-          buttons: [{ label: 'Continue', value: 'next', tone: 'primary' }],
-        });
-        try { localStorage.setItem('bvx_done_contacts','1'); } catch {}
-        window.dispatchEvent(new CustomEvent('bvx:quickstart:update', { detail: { step: 'contacts' } }));
+  const ensureBillingEffect = useCallback(async () => {
+    console.info('ensureBillingEffect noop');
+  }, []);
+
+  const completeEffect = useCallback(async (_ctx: { forced: boolean }) => {
+    void _ctx;
+    workspaceStorage.setGuideDone(true);
+    try { localStorage.setItem('bvx_quickstart_completed','1'); } catch {}
+    try { window.dispatchEvent(new CustomEvent('bvx:quickstart:completed')); } catch {}
+    try {
+      const tid = await getTenant();
+      if (tid) {
+        await api.post('/settings', { tenant_id: tid, guide_done: true });
       }
-
-      await goToPane('dashboard');
-      await highlightStep('[data-guide="quickstart-train"]', 'Train VX', 'Use Train VX to tailor a 14-day plan with your style and schedule.');
-      await goToPane('askvx');
-      await sleep(400);
-      try { startGuide('askvx'); } catch {}
-      await sleep(1500);
-
-      const analyticsPrompt = 'What was my revenue for the last three months and who are my top three clients?';
-      window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.prefill', prompt: analyticsPrompt } }));
-      await showFlowModalAsync({
-        title: 'Check your numbers',
-        body: (
-          <div className="text-sm text-slate-700">
-            Press Send to see revenue for the last three months and your top three clients.
-          </div>
-        ),
-        buttons: [{ label: 'Send now', value: 'send', tone: 'primary' }],
-      });
-      window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.send', prompt: analyticsPrompt, context: { flow: 'analytics' } } }));
-      await waitForEvent('bvx:flow:askvx-response', (event) => ((event as CustomEvent).detail as any)?.context?.flow === 'analytics', 60000);
-      await showFlowModalAsync({
-        title: 'Revenue ready',
-        body: (
-          <div className="text-sm text-slate-700">
-            Review the chat response for your three-month revenue snapshot. When you’re set, we’ll map your 14-day strategy.
-          </div>
-        ),
-        buttons: [{ label: 'Next', value: 'next', tone: 'primary' }],
-      });
-
-      if (localStorage.getItem('bvx_done_plan') !== '1') {
-        const answers: Record<string, string> = {};
-        for (const item of planQuestions) {
-        const response = await showFlowModalAsync({
-          title: item.prompt,
-          body: (
-            <div className="text-sm text-slate-700">
-              {item.title}
-            </div>
-          ),
-          input: {
-            placeholder: item.placeholder,
-            textarea: true,
-            required: true,
-            defaultValue: '',
-          },
-          buttons: [{ label: 'Save answer', tone: 'primary' }],
-        });
-          const value = typeof response === 'string' ? response.trim() : '';
-          if (!value) {
-            throw new Error('plan-question-missing');
-          }
-          answers[item.id] = value;
-        }
-
-        const planPrompt = `You are a beauty business coach. Create a warm, practical 14-day action plan with daily bullet points based on the owner’s answers. Goal: ${answers.goal}. Focused client segments: ${answers.segments}. Daily time available: ${answers.time}. Keep it friendly, no tech jargon, and include a mix of follow-ups, content, and training.`;
-        window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.send', prompt: planPrompt, context: { flow: 'plan' } } }));
-        const planEvent = await waitForEvent('bvx:flow:askvx-response', (event) => ((event as CustomEvent).detail as any)?.context?.flow === 'plan', 60000);
-        const planText = String(((planEvent as CustomEvent).detail as any)?.text || '').trim();
-
-        const planChoice = await showFlowModalAsync({
-          title: 'Your 14-day plan',
-          body: (
-            <div className="text-sm text-slate-700 whitespace-pre-wrap max-h-[40vh] overflow-y-auto">{planText || 'Plan available in chat window.'}</div>
-          ),
-          buttons: [
-            { label: 'Save plan', value: 'save', tone: 'primary', disabled: !planText },
-            { label: 'Skip for now', value: 'skip' },
-          ],
-        });
-
-        if (planChoice === 'save' && planText) {
-          try {
-            const tid = await getTenant();
-            await api.post('/ai/memories/upsert', { tenant_id: tid, key: 'plan.14day', value: planText, tags: 'onboarding,plan' });
-          } catch (err) {
-            console.error('plan save failed', err);
-          }
-        }
-        try { localStorage.setItem('bvx_done_plan','1'); } catch {}
-        window.dispatchEvent(new CustomEvent('bvx:quickstart:update', { detail: { step: 'plan' } }));
-      }
-
-      await goToPane('dashboard');
-      await showFlowModalAsync({
-        title: 'You’re all set',
-        body: (
-          <div className="text-sm text-slate-700">
-            Brand Vision edits, your client list, and your 14-day plan are ready. Explore the dashboard anytime.
-          </div>
-        ),
-        buttons: [{ label: 'Finish', value: 'done', tone: 'primary' }],
-      });
-
-      try { localStorage.setItem('bvx_quickstart_completed','1'); } catch {}
-      window.dispatchEvent(new CustomEvent('bvx:quickstart:completed'));
     } catch (err) {
-      console.error('Unified onboarding flow error', err);
-      await showFlowModalAsync({
-        title: 'Flow paused',
-        body: (
-          <div className="text-sm text-slate-700">
-            Something interrupted the guided steps. You can continue exploring manually and rerun the tour later.
-          </div>
-        ),
-        buttons: [{ label: 'Continue', value: 'ok', tone: 'primary' }],
-      });
-    } finally {
-      flowRunningRef.current = false;
-      setFlowModal(null);
+      console.error('guide_done update failed', err);
     }
-  }, [ensureBilling, goToPane, highlightStep, showFlowModalAsync, sleep, waitForEvent, waitForCondition]);
+    if (!founderFinaleSeenRef.current) {
+      setFounderFinaleOpen(true);
+    }
+  }, [setFounderFinaleOpen]);
+
+  const handleOnboardingError = useCallback(async ({ error }: { forced: boolean; error: Error }) => {
+    await showFlowModalAsync({
+      title: 'Flow paused',
+      body: (
+        <div className="text-sm text-slate-700">
+          Something interrupted the guided steps. {error?.message ? `(${error.message})` : 'You can continue exploring manually and rerun the tour later.'}
+        </div>
+      ),
+      buttons: [{ label: 'Continue', value: 'ok', tone: 'primary' }],
+    });
+  }, [showFlowModalAsync]);
+
+  const controllerLogger = useCallback((message: string, data?: any) => {
+    if (!debugEnabled) return;
+    try {
+      const suffix = data ? ` ${JSON.stringify(data)}` : '';
+      debugLog(`${message}${suffix}`);
+    } catch {
+      debugLog(message);
+    }
+  }, [debugEnabled, debugLog]);
+
+  const onboardingController = useWorkspaceOnboardingController(
+    {
+      showWelcome: showWelcomeEffect,
+      runTour: runUnifiedTour,
+      ensureBilling: ensureBillingEffect,
+      runDashboardGuide: async () => {},
+      runQuickstart: async () => {},
+      complete: completeEffect,
+      handleError: handleOnboardingError,
+    },
+    {
+      exposeDebugHelpers: debugEnabled,
+      logger: controllerLogger,
+    }
+  );
+
+  useEffect(() => {
+    setOnboardingState(onboardingController.getState());
+    const unsubscribe = onboardingController.subscribe(setOnboardingState);
+    return unsubscribe;
+  }, [onboardingController]);
+
+  useEffect(() => {
+    const onNavigate = (event: Event) => {
+      const detail = (event as CustomEvent<{ pane?: PaneKey }>).detail;
+      const target = detail?.pane;
+      if (!target) return;
+      (async () => {
+        try {
+          await goToPane(target);
+        } catch (err) {
+          console.error('guide navigate failed', err);
+        } finally {
+          try {
+            window.dispatchEvent(new CustomEvent('bvx:guide:navigate:done', { detail: { pane: target } }));
+          } catch {}
+        }
+      })();
+    };
+    const onColor = (event: Event) => {
+      const prompt = String((event as CustomEvent<string>).detail || '').trim();
+      if (!prompt) return;
+      try {
+        window.dispatchEvent(new CustomEvent('bvx:flow:vision-command', {
+          detail: {
+            action: 'vision.prefill-prompt',
+            prompt,
+          },
+        }));
+      } catch (err) {
+        console.error('prefill prompt failed', err);
+      }
+    };
+    const onImport = (event: Event) => {
+      const detail = (event as CustomEvent<any>).detail || {};
+      importSummaryRef.current = detail;
+      const failed = Boolean(detail?.error);
+      skipImportRef.current = failed;
+    };
+    const onSkip = () => {
+      skipImportRef.current = true;
+      importSummaryRef.current = null;
+    };
+    window.addEventListener('bvx:guide:navigate', onNavigate as any);
+    window.addEventListener('bvx:guide:brandvzn:color', onColor as any);
+    window.addEventListener('bvx:flow:contacts-imported', onImport as any);
+    window.addEventListener('bvx:onboarding:skip-import', onSkip as any);
+    return () => {
+      window.removeEventListener('bvx:guide:navigate', onNavigate as any);
+      window.removeEventListener('bvx:guide:brandvzn:color', onColor as any);
+      window.removeEventListener('bvx:flow:contacts-imported', onImport as any);
+      window.removeEventListener('bvx:onboarding:skip-import', onSkip as any);
+    };
+  }, [goToPane]);
+
+  useEffect(() => {
+    const onBillingStep = () => {
+      console.info('dashboard step: billing');
+      const status = billingStatusRef.current || '';
+      if (status === 'active') {
+        try { localStorage.setItem('bvx_billing_dismissed','1'); } catch {}
+        return;
+      }
+      workspaceStorage.clearBillingDismissed();
+      if (billingOpenRef.current) return;
+      setBillingOpen(true);
+      billingResolverRef.current = (dismiss = true) => {
+        if (dismiss) workspaceStorage.setBillingDismissed();
+        setBillingOpen(false);
+        setBillingLoading(false);
+        billingResolverRef.current = null;
+      };
+      if (forcedRef.current) {
+        setTimeout(() => resolveBilling(true), 800);
+      }
+    };
+    window.addEventListener('bvx:guide:dashboard:billing', onBillingStep as any);
+    return () => window.removeEventListener('bvx:guide:dashboard:billing', onBillingStep as any);
+  }, []);
+
+  useEffect(() => {
+    const sp = new URLSearchParams(loc.search);
+    const queryForce = sp.get('force') === '1' || sp.get('forceOnboard') === '1' || sp.get('welcome') === '1';
+    const forced = FORCE_ONBOARD_TOUR || queryForce;
+    forcedRef.current = forced;
+    if (forced && !forceInitRef.current) {
+      forceInitRef.current = true;
+      onboardingController.reset({
+        serverReset: async () => {
+          try {
+            const tid = await getTenant().catch(() => '') || '';
+            if (tid) await api.post('/settings', { tenant_id: tid, guide_done: false, welcome_seen: false });
+          } catch (err) {
+            console.error('onboarding forced server reset failed', err);
+          }
+        },
+      }).finally(() => {
+        onboardingController.start({ force: true }).catch(err => console.error('onboarding force start failed', err));
+      });
+      return;
+    }
+    if (!forced && !workspaceStorage.getGuideDone() && !autoStartRef.current) {
+      autoStartRef.current = true;
+      onboardingController.start({ force: false }).catch(err => console.error('onboarding start failed', err));
+    }
+  }, [FORCE_ONBOARD_TOUR, loc.search, onboardingController]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const tid = await getTenant();
+        if (!tid) return;
+        const res = await api.get(`/ai/memories/list?tenant_id=${encodeURIComponent(tid)}&limit=50`);
+        const cutoff = Date.now() - 30 * 86400000;
+        const items = Array.isArray(res?.items)
+          ? res.items.filter((item: any) => Number(item?.updated_at || 0) * 1000 >= cutoff)
+          : [];
+        try { (window as any).__bvxMemories = items; } catch {}
+      } catch (err) {
+        console.warn('workspace memories load failed', err);
+      }
+    })();
+  }, []);
+
+  const handleFinaleClose = useCallback(async () => {
+    setFounderFinaleOpen(false);
+    founderFinaleSeenRef.current = true;
+    try {
+      localStorage.setItem('bvx_founder_finale_seen', '1');
+      localStorage.setItem('bvx_quickstart_completed', '1');
+    } catch {}
+    try { window.dispatchEvent(new CustomEvent('bvx:quickstart:completed')); } catch {}
+    try { await goToPane('dashboard'); } catch {}
+  }, [goToPane, setFounderFinaleOpen]);
 
   // Workspace billing gate: open modal if not trialing/active
   useEffect(()=>{
@@ -456,7 +407,7 @@ export default function WorkspaceShell(){
           if (sp0.get('e2e') === '1') {
             localStorage.setItem('bvx_billing_dismissed','1');
             localStorage.setItem('bvx_tour_seen_workspace_intro','1');
-            sessionStorage.setItem('bvx_welcome_seen','1');
+            sessionStorage.setItem('bvx_intro_session','1');
           }
         } catch {}
         // Auth guard with tolerant resolver to avoid bounce loop
@@ -533,28 +484,29 @@ export default function WorkspaceShell(){
           } catch {}
           return;
         }
-        // Determine whether to show welcome based on onboarding status (or forced)
-        const forceWelcome = sp.get('welcome') === '1';
         const dismissed = localStorage.getItem('bvx_billing_dismissed') === '1';
         const tid = (await supabase.auth.getSession()).data.session ? (localStorage.getItem('bvx_tenant') || '') : '';
         const r = await api.get(`/settings${tid?`?tenant_id=${encodeURIComponent(tid)}`:''}`);
         const status = String(r?.data?.subscription_status || '');
         setBillingStatus(status);
-        const covered = status === 'active' || status === 'trialing';
-        // Only open billing modal when explicitly requested via query param
+        const covered = status === 'active';
+        // Only open billing modal when explicitly requested via query param, or forced
         const billingParam = sp.get('billing');
-        if (billingParam === 'prompt' && !covered && !dismissed) {
+        const forceBilling = sp.get('forceBilling') === '1';
+        if ((billingParam === 'prompt' && !covered && !dismissed) || forceBilling) {
           setBillingOpen(true); try { track('billing_modal_open'); } catch {}
         } else {
-          setBillingOpen(false);
+          if ((!billingOpenRef.current || covered || dismissed) && onboardingState.phase !== 'billing') {
+            setBillingOpen(false);
+          }
         }
         try {
           const doneServer = Boolean(r?.data?.onboarding_completed || r?.data?.onboarding_done);
           if (doneServer) { try { localStorage.setItem('bvx_onboarding_done','1'); } catch {} }
           const welcomeSeen = Boolean(r?.data?.welcome_seen);
-          if (welcomeSeen) { try { sessionStorage.setItem('bvx_welcome_seen','1'); } catch {} }
-          const guideDone = Boolean(r?.data?.guide_done);
-          if (guideDone) { try { localStorage.setItem('bvx_guide_done','1'); } catch {} }
+          if (welcomeSeen) { try { sessionStorage.setItem('bvx_intro_session','1'); } catch {} }
+          const guideDoneServer = Boolean(r?.data?.guide_done);
+          workspaceStorage.setGuideDone(guideDoneServer);
           // Trial status compute (prefer server ts)
           try {
             const trialEndTs = Number((r?.data?.trial_end_ts || r?.data?.trialEndsAt || 0));
@@ -580,54 +532,35 @@ export default function WorkspaceShell(){
           } catch {}
         } catch {}
 
-        // Optionally auto-start tour when ?tour=1 (Dashboard only to avoid conflicting with post-book chain)
+        // Booking nudge: highlight left-rail Book onboarding button once after onboarding
         try {
-          const wantTour = sp.get('tour') === '1';
-          const pane = sp.get('pane') || 'dashboard';
-          const billingParam = sp.get('billing');
-          if (wantTour && pane === 'dashboard' && billingParam !== 'prompt') {
-            setTimeout(()=>{ try{ startGuide('workspace_intro'); }catch{} }, 400);
+          const nudge = localStorage.getItem('bvx_booking_nudge') === '1';
+          if (nudge && BOOKING_URL) {
+            localStorage.removeItem('bvx_booking_nudge');
+            setTimeout(()=>{
+              try{
+                const target = document.querySelector('[data-tour="book-onboarding"]') as HTMLElement | null;
+                if (!target) return;
+                const tip = document.createElement('div');
+                tip.setAttribute('role','dialog');
+                tip.style.position = 'fixed';
+                const rect = target.getBoundingClientRect();
+                tip.style.left = `${rect.left}px`;
+                tip.style.top = `${Math.max(8, rect.top - 44)}px`;
+                tip.style.zIndex = '9999';
+                tip.className = 'pointer-events-auto';
+                tip.innerHTML = `<a href="${BOOKING_URL}" target="_blank" rel="noreferrer" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border bg-white shadow text-sm text-slate-900">Click here to book a one‑on‑one onboarding for brand VX</a>`;
+                document.body.appendChild(tip);
+                const remove = ()=>{ try{ document.body.removeChild(tip); }catch{} };
+                setTimeout(remove, 6000);
+                tip.addEventListener('click', remove, { once: true } as any);
+              } catch {}
+            }, 600);
           }
-        } catch {}
-        // Show welcome only once after onboarding_done=true
-        try {
-          const doneLocal = localStorage.getItem('bvx_onboarding_done') === '1';
-          const seenSession = sessionStorage.getItem('bvx_welcome_seen') === '1';
-          // Only show when onboarding completed and never seen before
-          if (forceWelcome || (doneLocal && !seenSession)) {
-            setTimeout(()=> setShowWelcome(true), 200);
-          }
-          // Booking nudge: highlight left-rail Book onboarding button once after onboarding
-          try {
-            const nudge = localStorage.getItem('bvx_booking_nudge') === '1';
-            if (nudge && BOOKING_URL) {
-              localStorage.removeItem('bvx_booking_nudge');
-              setTimeout(()=>{
-                try{
-                  const target = document.querySelector('[data-tour="book-onboarding"]') as HTMLElement | null;
-                  if (!target) return;
-                  const tip = document.createElement('div');
-                  tip.setAttribute('role','dialog');
-                  tip.style.position = 'fixed';
-                  const rect = target.getBoundingClientRect();
-                  tip.style.left = `${rect.left}px`;
-                  tip.style.top = `${Math.max(8, rect.top - 44)}px`;
-                  tip.style.zIndex = '9999';
-                  tip.className = 'pointer-events-auto';
-                  tip.innerHTML = `<a href="${BOOKING_URL}" target="_blank" rel="noreferrer" class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border bg-white shadow text-sm text-slate-900">Click here to book a one‑on‑one onboarding for brand VX</a>`;
-                  document.body.appendChild(tip);
-                  const remove = ()=>{ try{ document.body.removeChild(tip); }catch{} };
-                  setTimeout(remove, 6000);
-                  tip.addEventListener('click', remove, { once: true } as any);
-                } catch {}
-              }, 600);
-            }
-          } catch {}
         } catch {}
       } catch {}
     })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loc.search]);
+  }, [loc.search, onboardingState.phase, FORCE_ONBOARD_TOUR]);
 
   const setPane = (key: PaneKey) => {
     try {
@@ -655,21 +588,6 @@ export default function WorkspaceShell(){
       default: return <div/>;
     }
   })();
-  // When welcome opens, force viewport to top to ensure centered overlay
-  useEffect(()=>{
-    if (showWelcome) {
-      try { window.scrollTo(0,0); } catch {}
-    }
-  }, [showWelcome]);
-
-  useEffect(()=>{
-    const handler = () => {
-      runUnifiedFlow();
-    };
-    window.addEventListener('bvx:guide:workspace_intro:done', handler as any);
-    return () => window.removeEventListener('bvx:guide:workspace_intro:done', handler as any);
-  }, [runUnifiedFlow]);
-
   const items = useMemo(()=> PANES, []);
   const [approvalsCount, setApprovalsCount] = useState<number>(0);
   const [queueCount, setQueueCount] = useState<number>(0);
@@ -794,55 +712,6 @@ export default function WorkspaceShell(){
       'admin.clear_cache': { id:'admin.clear_cache', run: async(scope: string = 'all')=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/admin/cache/clear',{ tenant_id: tid, scope }); }catch{} } },
     });
     return unregister;
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // One-time workspace intro for any newly authenticated user (Google or email)
-  useEffect(()=>{
-    (async()=>{
-      try{
-        const session = (await supabase.auth.getSession()).data.session;
-        const uid = session?.user?.id;
-        if (!uid) return;
-        const key = `bvx_intro_seen_${uid}`;
-        if (localStorage.getItem(key) === '1') return;
-        const shownKey = `bvx_welcome_shown_${uid}`;
-        if (localStorage.getItem(shownKey) === '1') return;
-        // Ensure nav is mounted before running the guide
-        let tries = 24;
-        const waitForMarkers = async()=>{
-          while (tries-- > 0) {
-            if (document.querySelector('[data-tour="nav-dashboard"]')) return true;
-            await new Promise(r=> setTimeout(r, 120));
-          }
-          return false;
-        };
-        const ok = await waitForMarkers();
-        if (ok) {
-          {
-            setShowWelcome(true);
-            try { localStorage.setItem(shownKey, '1'); } catch {}
-          }
-        }
-      } catch {}
-    })();
-  }, [loc.pathname]);
-
-  // After workspace intro finishes, mark guide_done in settings
-  useEffect(()=>{
-    const handler = async () => {
-      try {
-        const uid = (await supabase.auth.getSession()).data.session?.user?.id;
-        if (uid) localStorage.setItem(`bvx_intro_seen_${uid}`, '1');
-        try {
-          const tid = localStorage.getItem('bvx_tenant')||'';
-          if (tid) await api.post('/settings', { tenant_id: tid, guide_done: true });
-        } catch {}
-      } catch {}
-      // After tour completes, billing is handled by guide.ts handoff; avoid duplicate prompts here
-    };
-    window.addEventListener('bvx:guide:workspace_intro:done', handler, { once: true } as any);
-    return () => window.removeEventListener('bvx:guide:workspace_intro:done', handler as any);
   }, []);
 
   // Billing prompt: open modal when guide/issues event, idempotent and re-usable
@@ -856,7 +725,7 @@ export default function WorkspaceShell(){
           if (tid) {
             const r = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
             const st = String(r?.data?.subscription_status || '');
-            const covered = st === 'active' || st === 'trialing';
+            const covered = st === 'active';
             if (covered) return;
           }
         } catch {}
@@ -871,8 +740,16 @@ export default function WorkspaceShell(){
 
   return (
     <div className="max-w-6xl mx-auto">
+      <div id="tour-welcome-anchor" className="fixed inset-0 pointer-events-none flex items-center justify-center" style={{ zIndex: 2147483602 }} />
+      <div id="tour-billing-anchor" className="fixed inset-0 pointer-events-none flex items-center justify-center" style={{ zIndex: 2147483602 }} />
       {/* E2E readiness marker */}
       <div id="e2e-ready" data-pane={pane} style={{ position:'absolute', opacity:0, pointerEvents:'none' }} />
+      {debugEnabled && (
+        <div className="fixed top-2 right-2 z-[3000] text-[11px] bg-yellow-100 border border-yellow-300 text-yellow-900 rounded-md px-2 py-1 shadow-sm">
+          <div>dbg pane={pane} status={billingStatus||'n/a'} open={billingOpen?'1':'0'} phase={onboardingState.phase} running={onboardingState.running?'1':'0'}</div>
+          {debugEvents.map((e,i)=> (<div key={i}>{e}</div>))}
+        </div>
+      )}
       <div className="h-[100dvh] grid grid-cols-[theme(spacing.64)_1fr] gap-4 md:gap-5 overflow-hidden pb-2 relative md:[--sticky-offset:88px] [--sticky-offset:70px]">
         {/* Left dock */}
         <aside className="h-full min-h-0 bg-white/70 backdrop-blur border border-b-0 rounded-2xl p-0 flex flex-col relative" aria-label="Primary navigation">
@@ -946,53 +823,6 @@ export default function WorkspaceShell(){
         </main>
         {/* Arrows removed per product decision */}
       </div>
-      {showWelcome && createPortal(
-        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4" id="bvx-welcome-modal" style={{position:'fixed',top:0,left:0,right:0,bottom:0,zIndex:2000,display:'flex',alignItems:'center',justifyContent:'center'}}>
-          <div aria-hidden className="absolute inset-0 bg-black/20" onClick={async()=>{ setShowWelcome(false); try{ sessionStorage.setItem('bvx_welcome_seen','1'); }catch{}; try{ const tid = localStorage.getItem('bvx_tenant')||''; if (tid) await api.post('/settings', { tenant_id: tid, welcome_seen: true }); }catch{} }} />
-          <div className="relative inline-block max-w-md w=[min(92vw,420px)] rounded-2xl border border-[var(--border)] p-6 shadow-soft text-center bvx-modal-card" style={{ backgroundColor:'#fff' }}>
-            <div className="text-lg font-semibold text-ink-900">Welcome to brandVX</div>
-            <div className="text-ink-700 text-sm mt-1">Let’s briefly walk through your different views.</div>
-            <div className="mt-4 flex items-center justify-center">
-              <button className="inline-flex rounded-xl px-5 py-2 bg-slate-900 text-white" onClick={async()=>{
-                setShowWelcome(false);
-                try{ sessionStorage.setItem('bvx_welcome_seen','1'); }catch{}
-                try{ const tid = localStorage.getItem('bvx_tenant')||''; if (tid) await api.post('/settings', { tenant_id: tid, welcome_seen: true }); }catch{}
-                try{
-                  const sp = new URLSearchParams(window.location.search);
-                  const returning = sp.get('postVerify') === '1' || sp.get('return') === 'workspace';
-                  if (returning) {
-                    // Default to Dashboard, no cross‑panel sequence on OAuth return
-                    try {
-                      const u = new URL(window.location.href);
-                      u.pathname = '/workspace';
-                      u.searchParams.set('pane','dashboard');
-                      window.history.replaceState({}, '', u.toString());
-                    } catch {}
-                    startGuide('workspace_intro');
-                  } else {
-                    // Force Dashboard context before starting intro tour
-                    try {
-                      const u = new URL(window.location.href);
-                      u.pathname = '/workspace';
-                      u.searchParams.set('pane','dashboard');
-                      window.history.replaceState({}, '', u.toString());
-                    } catch {}
-                    startGuide('workspace_intro');
-                  }
-                }catch{}
-              }}>Start</button>
-              {(() => {
-                try{
-                  const sp = new URLSearchParams(window.location.search);
-                  const shouldHide = sp.get('postVerify') === '1' || sp.get('return') === 'workspace' || localStorage.getItem('bvx_onboarding_done') === '1';
-                  if (shouldHide) return null;
-                } catch {}
-                return <a className="ml-2 inline-flex rounded-xl px-5 py-2 border bg-white hover:bg-slate-50" href="/onboarding">Go to onboarding</a>;
-              })()}
-            </div>
-          </div>
-        </div>, document.body)
-      }
       {flowModal && createPortal(
         <div className="fixed inset-0 z-[2100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/30" />
@@ -1041,22 +871,26 @@ export default function WorkspaceShell(){
         </div>,
         document.body
       )}
+      <FounderFinale open={founderFinaleOpen} imageSrc={foundersImage} onClose={() => { void handleFinaleClose(); }} />
       {/* Onboarding prompt for WorkStyles removed per simplification */}
       {/* Billing modal */}
       {billingOpen && (
         <div className="fixed inset-0 z-50 grid place-items-center p-4">
-          <div aria-hidden className="absolute inset-0 bg-black/20" onClick={()=>{ setBillingOpen(false); try{ localStorage.setItem('bvx_billing_dismissed','1'); }catch{} }} />
+          <div aria-hidden className="absolute inset-0 bg-black/20" onClick={()=> resolveBilling()} />
           <div className="relative w-full max-w-md rounded-2xl border border-[var(--border)] bg-white p-5 shadow-soft">
             <div className="text-ink-900 text-lg font-semibold">Start your BrandVX</div>
             <div className="text-ink-700 text-sm mt-1">Choose a plan to unlock your workspace. You can change anytime.</div>
             <div className="mt-4 grid gap-2">
               <button disabled={billingLoading} onClick={async()=>{
                 try { track('billing_trial_click'); } catch {}
-                if (!PRICE_147) { setBillingOpen(false); window.location.href='/billing'; return; }
+                if (!PRICE_147) { resolveBilling(); window.location.href='/billing'; return; }
                 setBillingLoading(true);
                 try{
                   const r = await api.post('/billing/create-checkout-session', { price_id: PRICE_147, mode: 'subscription', trial_days: TRIAL_DAYS });
-                  if (r?.url) window.location.href = r.url;
+                  if (r?.url) {
+                    resolveBilling();
+                    window.location.href = r.url;
+                  }
                 } finally { setBillingLoading(false); }
               }} className="w-full rounded-xl border bg-gradient-to-b from-sky-50 to-sky-100 hover:from-sky-100 hover:to-sky-200 text-slate-900 px-4 py-3 text-sm text-left">
                 <div className="font-medium">7‑day free trial → $147/mo</div>
@@ -1064,18 +898,21 @@ export default function WorkspaceShell(){
               </button>
               <button disabled={billingLoading} onClick={async()=>{
                 try { track('billing_97_click'); } catch {}
-                if (!PRICE_97) { setBillingOpen(false); window.location.href='/billing'; return; }
+                if (!PRICE_97) { resolveBilling(); window.location.href='/billing'; return; }
                 setBillingLoading(true);
                 try{
                   try { localStorage.setItem('bvx_founding_member', '1'); } catch {}
                   const r = await api.post('/billing/create-checkout-session', { price_id: PRICE_97, mode: 'subscription' });
-                  if (r?.url) window.location.href = r.url;
+                  if (r?.url) {
+                    resolveBilling();
+                    window.location.href = r.url;
+                  }
                 } finally { setBillingLoading(false); }
               }} className="w-full rounded-xl border bg-white hover:shadow-sm text-slate-900 px-4 py-3 text-sm text-left">
                 <div className="font-medium">$97 today → $97/mo (Founding price)</div>
                 <div className="text-slate-600 text-xs">Lock in $97/mo now; recurring thereafter.</div>
               </button>
-              <button className="w-full rounded-xl border bg-white hover:bg-slate-50 px-4 py-2 text-sm" onClick={()=>{ setBillingOpen(false); try{ localStorage.setItem('bvx_billing_dismissed','1'); }catch{} }}>Skip for now</button>
+              <button className="w-full rounded-xl border bg-white hover:bg-slate-50 px-4 py-2 text-sm" onClick={()=> resolveBilling()}>Skip for now</button>
             </div>
             <div className="text-[11px] text-ink-700 mt-2">Status: {billingStatus||'unavailable'}</div>
           </div>

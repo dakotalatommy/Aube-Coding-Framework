@@ -134,6 +134,23 @@ class ProgressStep(BaseModel):
     context: Optional[Dict[str, Any]] = None
 
 
+class AskVXInsightsRequest(BaseModel):
+    tenant_id: str
+    horizon_days: int = Field(90, ge=30, le=180)
+
+
+class StrategyDocumentRequest(BaseModel):
+    tenant_id: str
+    markdown: str
+    tags: Optional[List[str]] = None
+
+
+class FounderContactRequest(BaseModel):
+    tenant_id: str
+    email: Optional[str] = None
+    phone: Optional[str] = None
+
+
 @app.post("/onboarding/complete_step", tags=["Plans"])
 def onboarding_complete_step(req: ProgressStep, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
@@ -198,6 +215,130 @@ def onboarding_progress_status(tenant_id: str, db: Session = Depends(get_db), ct
         return {"status": "error", "detail": str(e)[:200]}
 
 
+# ----------------------- AskVX Onboarding Insights -----------------------
+@app.post("/onboarding/askvx/insights", tags=["Onboarding"])
+async def onboarding_askvx_insights(
+    req: AskVXInsightsRequest,
+    ctx: UserContext = Depends(get_user_context),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        raise HTTPException(status_code=403, detail="forbidden")
+    horizon = max(30, min(180, int(req.horizon_days)))
+    cutoff = int(_time.time()) - horizon * 86400
+    summary: Dict[str, Any] = {
+        "revenue_cents": 0,
+        "horizon_days": horizon,
+        "clients": [],
+    }
+    try:
+        rows = (
+            db.query(dbm.Contact)
+            .filter(dbm.Contact.tenant_id == req.tenant_id, dbm.Contact.deleted == False)
+            .order_by(dbm.Contact.lifetime_cents.desc())
+            .limit(5)
+            .all()
+        )
+        summary["clients"] = [
+            {
+                "contact_id": str(getattr(r, "contact_id", "unknown")),
+                "display_name": (getattr(r, "display_name", None) or '').strip(),
+                "first_name": getattr(r, "first_name", None),
+                "last_name": getattr(r, "last_name", None),
+                "txn_count": int(getattr(r, "txn_count", 0) or 0),
+                "lifetime_cents": int(getattr(r, "lifetime_cents", 0) or 0),
+                "last_visit": int(getattr(r, "last_visit", 0) or 0),
+            }
+            for r in rows
+        ]
+    except Exception:
+        summary["clients"] = []
+    try:
+        total = db.query(_sql_func.sum(dbm.Contact.lifetime_cents)).filter(
+            dbm.Contact.tenant_id == req.tenant_id,
+            dbm.Contact.deleted == False,
+            dbm.Contact.last_visit.isnot(None),
+            dbm.Contact.last_visit >= cutoff,
+        ).scalar()
+        summary["revenue_cents"] = int(total or 0)
+    except Exception:
+        summary["revenue_cents"] = 0
+
+    context_blob = _json.dumps(summary, ensure_ascii=False)
+    system = (
+        "You are the BrandVX onboarding concierge."
+        " Use the JSON context from the user message to produce a concise, upbeat recap."
+        " Report revenue for the provided horizon (±$100 tolerance is acceptable)."
+        " List the top three clients with visits, total spend, and a warm thank-you draft personalised with their name."
+        " Do not ask follow-up questions or request clarification."
+        " If data is missing, acknowledge it and suggest one actionable next step."
+    )
+    messages = [{"role": "user", "content": context_blob}]
+    client = AIClient()
+    try:
+        ai_text = await client.generate(system, messages, max_tokens=520)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e)[:200])
+    return {"status": "ok", "text": ai_text, "data": summary}
+
+
+@app.post("/onboarding/strategy/document", tags=["Onboarding"])
+def onboarding_strategy_document(
+    req: StrategyDocumentRequest,
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        raise HTTPException(status_code=403, detail="forbidden")
+    tags = ','.join(req.tags or ['strategy', 'onboarding'])
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                _sql_text("UPDATE ai_memories SET value=to_jsonb(:v::text), tags=to_jsonb(:tg::text), updated_at=NOW() WHERE tenant_id = CAST(:t AS uuid) AND key='plan.14day.onboarding.document'"),
+                {"t": req.tenant_id, "v": req.markdown, "tg": tags},
+            )
+            conn.execute(
+                _sql_text(
+                    "INSERT INTO ai_memories (tenant_id, key, value, tags) SELECT CAST(:t AS uuid), 'plan.14day.onboarding.document', to_jsonb(:v::text), to_jsonb(:tg::text) WHERE NOT EXISTS (SELECT 1 FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key='plan.14day.onboarding.document')"
+                ),
+                {"t": req.tenant_id, "v": req.markdown, "tg": tags},
+            )
+            key_hist = f"plan.14day.onboarding.{_secrets.token_hex(4)}"
+            conn.execute(
+                _sql_text("INSERT INTO ai_memories (tenant_id, key, value, tags) VALUES (CAST(:t AS uuid), :k, to_jsonb(:v::text), to_jsonb(:tg::text))"),
+                {"t": req.tenant_id, "k": key_hist, "v": req.markdown, "tg": tags},
+            )
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)[:200])
+
+
+@app.post("/onboarding/founder/contact", tags=["Onboarding"])
+def onboarding_founder_contact(
+    req: FounderContactRequest,
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        raise HTTPException(status_code=403, detail="forbidden")
+    email = (req.email or '').strip()
+    phone = (req.phone or '').strip()
+    if not email and not phone:
+        return {"status": "ok", "queued": False}
+    try:
+        from .integrations.email_sendgrid import sendgrid_send_email  # lazy import
+        to = os.getenv("FOUNDER_CONTACT_EMAIL", "latommy@aubecreativelabs.com")
+        subject = "BrandVX onboarding reach-out"
+        body_parts = ["<h3>New onboarding contact</h3>"]
+        if email:
+            body_parts.append(f"<div><strong>Email:</strong> {email}</div>")
+        if phone:
+            body_parts.append(f"<div><strong>Phone:</strong> {phone}</div>")
+        body_parts.append(f"<div><strong>Tenant:</strong> {req.tenant_id}</div>")
+        sendgrid_send_email(to, subject, ''.join(body_parts))
+        return {"status": "ok", "queued": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)[:200])
+
+
 # ----------------------- 14‑day Plan -----------------------
 class PlanDayComplete(BaseModel):
     tenant_id: str
@@ -256,6 +397,34 @@ def plan_day(tenant_id: str, day_index: Optional[int] = None, db: Session = Depe
         tasks = row[0] or []
         done = row[1] is not None
         return {"status": "ok", "day_index": int(day_index), "completed": bool(done), "tasks": tasks}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
+
+
+@app.get("/plan/14day/all", tags=["Plans"])
+def plan_all(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    try:
+        rows = db.execute(
+            _sql_text(
+                "SELECT day_index, tasks_json, completed_at FROM plan_14day WHERE tenant_id = CAST(:t AS uuid) ORDER BY day_index ASC"
+            ),
+            {"t": tenant_id},
+        ).fetchall()
+        days: List[Dict[str, Any]] = []
+        for r in rows:
+            try:
+                days.append(
+                    {
+                        "day_index": int(r[0]),
+                        "tasks": list(r[1] or []),
+                        "completed": r[2] is not None,
+                    }
+                )
+            except Exception:
+                continue
+        return {"status": "ok", "days": days}
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
 

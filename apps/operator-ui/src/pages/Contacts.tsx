@@ -19,6 +19,7 @@ export default function Contacts(){
   const isDemo = (()=>{ try{ return new URLSearchParams(window.location.search).get('demo')==='1'; } catch { return false; } })();
   const isOnboard = (()=>{ try{ return new URLSearchParams(window.location.search).get('onboard')==='1'; } catch { return false; } })();
   const [status, setStatus] = useState('');
+  const [importBanner, setImportBanner] = useState<{ status: 'success' | 'error'; message: string } | null>(null);
   const [importing, setImporting] = useState<boolean>(false);
   const [importReport, setImportReport] = useState<{ provider?: string; imported?: number; updated?: number; skipped?: number; reasonTop?: string }|null>(null);
   // contactId/search typeahead removed in simplified UI
@@ -101,6 +102,9 @@ export default function Contacts(){
         }
         setImportReport({ provider, imported, updated, skipped, reasonTop });
         try{ showToast({ title:'Import complete', description: `${imported} contacts imported` }); }catch{}
+        if (isOnboard) {
+          setImportBanner({ status: 'success', message: `${imported} contacts imported • ${updated} updated` });
+        }
         try{ await api.post('/onboarding/complete_step', { tenant_id: await getTenant(), step_key: 'contacts_imported', context: { provider, imported, updated, skipped } }); }catch{}
         try{ if (isOnboard) localStorage.setItem('bvx_done_contacts','1'); }catch{}
         try{ await loadList(); }catch{}
@@ -116,6 +120,10 @@ export default function Contacts(){
         const message = String((err as any)?.message || err);
         setStatus(message);
         try { window.dispatchEvent(new CustomEvent('bvx:flow:contacts-imported', { detail: { error: message } })); } catch {}
+        if (isOnboard) {
+          setImportBanner({ status: 'error', message });
+        }
+        try { window.dispatchEvent(new CustomEvent('bvx:onboarding:skip-import')); } catch {}
       }
     } finally {
       setImporting(false);
@@ -144,13 +152,22 @@ export default function Contacts(){
           <Button variant="outline" size="sm" onClick={()=>{ window.location.href='/ask'; }}>AskVX</Button>
         </div>
       </div>
+      {importBanner && (
+        <div
+          data-guide="clients-import-status"
+          className={`rounded-xl border px-3 py-2 text-xs shadow-sm flex items-center gap-2 ${importBanner.status === 'success' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'}`}
+        >
+          <span className="font-medium">{importBanner.status === 'success' ? 'Import successful' : 'Import failed'}</span>
+          <span className="truncate">{importBanner.message}</span>
+        </div>
+      )}
       <div className="grid gap-4">
         {/* Who to reach out to */}
         {/* Removed old import/HubSpot section per spec */}
 
-        <section className="border rounded-xl p-3 bg-white shadow-sm" data-guide="list">
+        <section className="border rounded-xl p-3 bg-white shadow-sm" data-guide="clients-list">
           <div className="flex items-center gap-1 mb-1">
-            <Button variant="outline" size="sm" disabled={busy || importing} onClick={()=> handleImport()}>Import from booking</Button>
+            <Button variant="outline" size="sm" data-guide="clients-import" disabled={busy || importing} onClick={()=> handleImport()}>Import from booking</Button>
             <Button variant="outline" size="sm" onClick={async()=>{
               try{
                 setListBusy(true);
@@ -173,7 +190,7 @@ export default function Contacts(){
                 finally{ setBusy(false); }
               }}>Run dedupe</Button>
             )}
-            <Button variant="outline" size="sm" onClick={async()=>{
+            <Button variant="outline" size="sm" data-guide="clients-export" onClick={async()=>{
               try{
                 const tid = await getTenant();
                 const url = `${API_BASE}/exports/contacts?tenant_id=${encodeURIComponent(tid)}`;
@@ -190,7 +207,7 @@ export default function Contacts(){
                 try { showToast({ title: 'Export ready', description: 'contacts.csv downloaded' }); } catch {}
               } catch(e:any){ setStatus(String(e?.message||e)); }
             }}>Export CSV</Button>
-            <Button variant="outline" size="sm" disabled={listBusy} onClick={async()=>{
+            <Button variant="outline" size="sm" data-guide="clients-refresh" disabled={listBusy} onClick={async()=>{
               try{
                 setListBusy(true);
                 // Detect provider
@@ -221,7 +238,7 @@ export default function Contacts(){
                 {items.map((r)=> (
                   <tr key={r.contact_id} className="border-t">
                     <td className="px-2 py-1 font-medium text-slate-900">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2" data-guide="clients-actions">
                         <button className="underline truncate max-w-[14rem]" title={nameOf(r)} onClick={()=> setExpert({open:true, contact:r})}>{nameOf(r)}</button>
                         <Button variant="outline" size="sm" className="ml-1" aria-label="Text client" onClick={async()=>{
                           try{
@@ -277,7 +294,9 @@ export default function Contacts(){
               </tbody>
             </table>
           </div>
-          <Pager page={page} pageSize={PAGE_SIZE} total={total||items.length} onPrev={()=> setPage(p=> Math.max(1, p-1))} onNext={()=> setPage(p=> Math.min(Math.ceil((total||items.length)/PAGE_SIZE)||1, p+1))} />
+          <div data-guide="clients-pagination">
+            <Pager page={page} pageSize={PAGE_SIZE} total={total||items.length} onPrev={()=> setPage(p=> Math.max(1, p-1))} onNext={()=> setPage(p=> Math.min(Math.ceil((total||items.length)/PAGE_SIZE)||1, p+1))} />
+          </div>
         </section>
 
         {/* Consent & Data and FAQ removed per spec to simplify the pane */}

@@ -64,11 +64,19 @@ export default function Vision(){
   useEffect(()=>{
     const handler = (event: Event) => {
       const detail = (event as CustomEvent).detail || {};
-      if (detail?.action === 'vision.run-edit') {
+      const action = String(detail?.action || '');
+      if (action === 'vision.run-edit') {
         const prompt = String(detail.prompt || '').trim();
         if (!prompt) return;
         setEditPrompt(prompt);
         if (!loading) void runEdit(prompt);
+        return;
+      }
+      if (action === 'vision.prefill-prompt') {
+        const prompt = String(detail.prompt || '').trim();
+        if (!prompt) return;
+        setEditPrompt(prompt);
+        try { inputRef.current?.focus(); } catch {}
       }
     };
     window.addEventListener('bvx:flow:vision-command' as any, handler as any);
@@ -128,9 +136,17 @@ export default function Vision(){
   // const [tryNight] = useState<string>('Evening: deepen crease +10%, warm shimmer center lid, richer lip; preserve texture.');
   const inputRef = useRef<HTMLInputElement|null>(null);
   const dropRef = useRef<HTMLDivElement|null>(null);
-  // Deep link tour
+  // Deep link tour: only fire when explicitly requested, not during unified dashboard walkthrough
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useState(()=>{ try{ if (new URLSearchParams(window.location.search).get('tour')==='1') setTimeout(()=> startGuide('vision'), 200); } catch {} return 0; });
+  useState(()=>{
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      if (sp.get('tour') !== '1') return 0;
+      // When the dashboard walkthrough navigates here it removes the flag; double-check to keep in sync
+      setTimeout(()=> startGuide('vision'), 200);
+    } catch {}
+    return 0;
+  });
 
   const pick = () => inputRef.current?.click();
   const processFile = (f: File) => {

@@ -203,8 +203,8 @@ function Shell() {
           {/* Command mode and Ask dock removed; keep ActionDrawer */}
           {!embed && !onAskPage && !onDemo && !onLanding && !onBilling && !onAuthRoute && !onOnboarding && <ActionDrawer />}
           {!embed && !onAskPage && !onDemo && !onBilling && !onAuthRoute && !onOnboarding && <QuietBadge />}
-          {/* Global support bubble (visible on all routes incl. landing) */}
-          {!embed && <SupportBubble />}
+          {/* Support bubble only on landing page */}
+          {!embed && onLanding && <SupportBubble />}
         </div>
       </div>
     </>

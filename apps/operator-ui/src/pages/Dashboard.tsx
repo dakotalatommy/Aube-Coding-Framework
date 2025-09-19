@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import Button, { ButtonLink } from '../components/ui/Button';
 import { api, getTenant } from '../lib/api';
-import { runUIAction } from '../lib/actions';
+// import { runUIAction } from '../lib/actions';
 import { trackEvent } from '../lib/analytics';
 import { motion } from 'framer-motion';
 import { useToast } from '../components/ui/Toast';
@@ -452,13 +452,13 @@ export default function Dashboard(){
         <div className="h-full grid place-items-center">
           <div className="max-w-5xl mx-auto grid grid-cols-4 place-items-center gap-6 px-3 py-6">
             <div className="flex-shrink-0" style={{ width: 'clamp(150px, 19vw, 200px)' }}>
-              <KpiAnimated title="Messages sent" value={Number(metrics?.messages_sent||0)} onClick={()=> nav('/messages')} />
+              <KpiAnimated title="Messages sent" value={Number(metrics?.messages_sent||0)} onClick={()=> nav('/workspace?pane=messages')} />
             </div>
             <div className="flex-shrink-0" style={{ width: 'clamp(150px, 19vw, 200px)' }}>
-              <TimeSavedAnimated title="Time saved" minutes={Number(timeSavedLive||0)} onClick={()=> nav('/cadences')} />
+              <TimeSavedAnimated title="Time saved" minutes={Number(timeSavedLive||0)} onClick={()=> nav('/workspace?pane=cadences')} />
             </div>
             <div className="flex-shrink-0" style={{ width: 'clamp(150px, 19vw, 200px)' }}>
-              <KpiAnimated title="Rebook rate (30d)" value={Number(Math.round((metrics?.rebook_rate_30d||0)))} prefix="%" onClick={()=> nav('/calendar')} />
+              <KpiAnimated title="Rebook rate (30d)" value={Number(Math.round((metrics?.rebook_rate_30d||0)))} prefix="%" onClick={()=> nav('/workspace?pane=calendar')} />
             </div>
             <div className="flex-shrink-0" style={{ width: 'clamp(150px, 19vw, 200px)' }}>
               <KpiAnimated title="Revenue uplift" value={Number(metrics?.revenue_uplift||0)} prefix="$" />
@@ -535,7 +535,7 @@ export default function Dashboard(){
         </div>
         <div className="mt-2 flex flex-wrap gap-2">
           <Button size="sm" variant="outline" onClick={async()=>{ try{ await api.post('/plan/14day/generate', { tenant_id: await getTenant(), step_key: 'init' }); } catch{} await loadPlan(); }}>Generate 14‑day plan</Button>
-          <Button size="sm" variant="outline" onClick={()=> window.location.assign('/ask')}>Open AskVX</Button>
+          <Button size="sm" variant="outline" onClick={()=> nav('/workspace?pane=askvx')}>Open AskVX</Button>
           {planStatus?.day_today && (
             <Button
               size="sm"
@@ -557,7 +557,7 @@ export default function Dashboard(){
             <div className="text-sm text-slate-800 whitespace-pre-wrap mt-1">{sessionSummary}</div>
             <div className="mt-2 flex gap-2">
               <Button size="sm" variant="outline" onClick={async()=>{ try{ await navigator.clipboard.writeText(sessionSummary); }catch{} }}>Copy</Button>
-              <Button size="sm" variant="outline" onClick={()=> window.location.assign('/ask')}>Open AskVX</Button>
+              <Button size="sm" variant="outline" onClick={()=> nav('/workspace?pane=askvx')}>Open AskVX</Button>
             </div>
           </div>
         )}
@@ -571,7 +571,7 @@ export default function Dashboard(){
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <div className="text-sm text-slate-700">Primary action:</div>
-          <Button size="sm" onClick={()=> runUIAction('appointments.confirm_friday')}>Confirm Friday appointments</Button>
+          <div className="text-sm text-slate-900">Confirm Friday appointments</div>
         </div>
       </section>
       {/* Bottom stack removed (trial/referral now at top) */}
