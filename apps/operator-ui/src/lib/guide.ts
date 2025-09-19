@@ -3,6 +3,8 @@ export type GuideStep = {
   popover: {
     title: string;
     description: string;
+    // When true, render the popover centered in the viewport (not docked to an element)
+    centered?: boolean;
     showButtons?: Array<'next' | 'previous' | 'close'>;
     nextBtnText?: string;
     onNextClick?: (
@@ -65,7 +67,8 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-tour="cta"]', popover: { title: 'Ready when you are', description: 'White‑glove or self-serve — you approve everything.' } },
   ],
   dashboard: [
-    { element: '#tour-center-anchor', popover: ({ title: 'Welcome to brandVX', description: 'Let’s do a quick walk‑through of your workspace, then get you running our 3 most powerful features.', side: 'top', align: 'center' } as any) },
+    // Center the welcome message in the viewport for a true modal feel
+    { element: '#tour-center-anchor', popover: ({ title: 'Welcome to brandVX', description: 'Let’s do a quick walk‑through of your workspace, then get you running our 3 most powerful features.', centered: true } as any) },
     { element: '[data-tour="nav-dashboard"]', popover: { title: 'Dashboard', description: 'Check KPIs, quick start wins, and your 14-day plan progress.' } },
     { element: '[data-tour="nav-askvx"]', popover: { title: 'askVX', description: 'Ask in your voice. We suggest safe actions; you approve everything.' } },
     { element: '[data-tour="nav-vision"]', popover: { title: 'brandVZN', description: 'Upload, analyze, and refine with natural, texture-safe edits.' } },
@@ -518,14 +521,30 @@ export function startGuide(page: string, _opts?: { step?: number }) {
         overlayOpacity: 0.55,
         stagePadding: 8,
         steps: steps.map((step) => {
-          const { title, description, ...restPopover } = step.popover;
+          const { title, description, onPopoverRender: originalOnRender, centered, ...restPopover } = step.popover as any;
+          // Compose a renderer that can force viewport-centering when requested
+          const composedOnRender = (dom: any, opts: { driver: any }) => {
+            try {
+              if (centered) {
+                const el: HTMLElement | null = (dom?.popover as HTMLElement) || null;
+                if (el) {
+                  el.classList.add('bvx-popover-centered');
+                  // Hide arrow when centered to avoid pointing at an edge
+                  try { (el.querySelector('.driver-popover-arrow') as HTMLElement | null)?.style?.setProperty('display','none'); } catch {}
+                }
+              }
+            } catch {}
+            try { if (typeof originalOnRender === 'function') originalOnRender(dom, opts); } catch {}
+          };
           return {
-            element: step.element || document.body,
+            // When centered, do not attach to a specific element; use the viewport
+            element: centered ? (document.body as any) : (step.element || document.body),
             popover: {
               title,
               description,
               side: 'bottom',
               align: 'start',
+              onPopoverRender: composedOnRender,
               ...restPopover,
             },
           };
@@ -541,6 +560,22 @@ export function startGuide(page: string, _opts?: { step?: number }) {
             .driver-popover { z-index: 2147483601 !important; max-width: min(560px, 90vw) !important; }
           `;
           document.head.appendChild(s);
+        }
+        // Global centering helper class
+        const centerStyleId = 'bvx-driver-center';
+        if (!document.getElementById(centerStyleId)) {
+          const sc = document.createElement('style');
+          sc.id = centerStyleId;
+          sc.textContent = `
+            .bvx-popover-centered {
+              position: fixed !important;
+              top: 50% !important;
+              left: 50% !important;
+              transform: translate(-50%, -50%) !important;
+              inset: auto !important;
+            }
+          `;
+          document.head.appendChild(sc);
         }
         const btnStyleId = 'bvx-onboard-styles';
         if (!document.getElementById(btnStyleId)) {
