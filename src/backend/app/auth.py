@@ -5,6 +5,8 @@ import os
 import time
 import jwt
 from jwt import PyJWKClient
+from sqlalchemy import text as _sql_text
+from .db import engine
 
 
 @dataclass
@@ -106,6 +108,41 @@ async def get_user_context(
                 or payload.get("sub")
                 or "t1"
             )
+            # Fallback: resolve tenant_id from DB mapping when JWT lacks it
+            def _looks_like_uuid(s: Optional[str]) -> bool:
+                try:
+                    x = str(s or "")
+                    return (len(x) == 36 and x.count("-") == 4)
+                except Exception:
+                    return False
+            if not _looks_like_uuid(_tenant_id):
+                try:
+                    with engine.begin() as _conn:
+                        try:
+                            _conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                        except Exception:
+                            pass
+                        # Prefer direct user_id mapping
+                        _row = _conn.execute(
+                            _sql_text(
+                                "SELECT tenant_id FROM profiles WHERE user_id = :u ORDER BY created_at DESC LIMIT 1"
+                            ),
+                            {"u": str(payload.get("sub", ""))},
+                        ).fetchone()
+                        if not _row:
+                            # Fallback by email if present
+                            _email = str(payload.get("email") or (payload.get("user_metadata") or {}).get("email") or "")
+                            if _email:
+                                _row = _conn.execute(
+                                    _sql_text(
+                                        "SELECT tenant_id FROM profiles WHERE email = :e ORDER BY created_at DESC LIMIT 1"
+                                    ),
+                                    {"e": _email},
+                                ).fetchone()
+                        if _row and _row[0] and _looks_like_uuid(_row[0]):
+                            _tenant_id = str(_row[0])
+                except Exception:
+                    pass
             return UserContext(
                 user_id=str(payload.get("sub", "user")),
                 role=str(payload.get("role", "practitioner")),
@@ -130,6 +167,39 @@ async def get_user_context(
                         or payload.get("sub")
                         or "t1"
                     )
+                    # DB fallback mapping (same as verified path)
+                    def _looks_like_uuid(s: Optional[str]) -> bool:
+                        try:
+                            x = str(s or "")
+                            return (len(x) == 36 and x.count("-") == 4)
+                        except Exception:
+                            return False
+                    if not _looks_like_uuid(_tenant_id):
+                        try:
+                            with engine.begin() as _conn:
+                                try:
+                                    _conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                                except Exception:
+                                    pass
+                                _row = _conn.execute(
+                                    _sql_text(
+                                        "SELECT tenant_id FROM profiles WHERE user_id = :u ORDER BY created_at DESC LIMIT 1"
+                                    ),
+                                    {"u": str(payload.get("sub", ""))},
+                                ).fetchone()
+                                if not _row:
+                                    _email = str(payload.get("email") or (payload.get("user_metadata") or {}).get("email") or "")
+                                    if _email:
+                                        _row = _conn.execute(
+                                            _sql_text(
+                                                "SELECT tenant_id FROM profiles WHERE email = :e ORDER BY created_at DESC LIMIT 1"
+                                            ),
+                                            {"e": _email},
+                                        ).fetchone()
+                                if _row and _row[0] and _looks_like_uuid(_row[0]):
+                                    _tenant_id = str(_row[0])
+                        except Exception:
+                            pass
                     return UserContext(
                         user_id=str(payload.get("sub", "user")),
                         role=str(payload.get("role", "authenticated")),
