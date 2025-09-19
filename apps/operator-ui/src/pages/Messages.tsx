@@ -30,13 +30,17 @@ export default function Messages(){
   const [allClients, setAllClients] = useState<Array<{ id:string; name:string }>>([]);
   const [recipientQuery, setRecipientQuery] = useState('');
   const [selectedRecipient, setSelectedRecipient] = useState<{ id:string; name:string }|null>(null);
+  const [selectedRecipients, setSelectedRecipients] = useState<Array<{ id:string; name:string }>>([]);
   const [suggestions, setSuggestions] = useState<Array<{id:string;name:string}>>([]);
   const [showSug, setShowSug] = useState(false);
-  const [inboxFilter, setInboxFilter] = useState<'all'|'unread'|'needs_reply'|'scheduled'|'failed'>(()=>{
+  const [inboxFilter/* , setInboxFilter */] = useState<'all'|'unread'|'needs_reply'|'scheduled'|'failed'>(()=>{
     try{ return (localStorage.getItem('bvx_messages_filter') as any) || 'all'; }catch{ return 'all'; }
   });
   const [showSlash, setShowSlash] = useState(false);
   const [slashQuery, setSlashQuery] = useState('');
+  const [bucket, setBucket] = useState<string>('lead_followup');
+  const [mdUrl, setMdUrl] = useState<string>('');
+  const [followupsInfo, setFollowupsInfo] = useState<{ bucket:string; ids:string[]; ts:number }|null>(null);
 
   const format12h = (hhmm?: string) => {
     try{
@@ -92,6 +96,35 @@ export default function Messages(){
   useEffect(()=>{ (async()=>{ try{ const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() }); if (a?.summary?.ts) setLastAnalyzed(Number(a.summary.ts)); } catch{} })(); },[]);
   useEffect(()=>{ try{ localStorage.setItem('bvx_messages_filter', inboxFilter); }catch{} }, [inboxFilter]);
   useEffect(()=>{ try{ localStorage.setItem('bvx_messages_recipient', JSON.stringify(selectedRecipient||null)); }catch{} }, [selectedRecipient]);
+  useEffect(()=>{ return ()=> { try{ if (mdUrl) URL.revokeObjectURL(mdUrl); }catch{} }; }, [mdUrl]);
+
+  // Detect follow-ups handoff
+  useEffect(()=>{
+    try{
+      const raw = sessionStorage.getItem('bvx_followups_bundle');
+      if (raw) {
+        const obj = JSON.parse(raw);
+        if (obj && Array.isArray(obj.ids)) {
+          setFollowupsInfo({ bucket: String(obj.bucket||'lead_followup'), ids: obj.ids.map(String), ts: Number(obj.ts||Date.now()) });
+          // Prefill SMS body based on bucket
+          const baseMap: Record<string,string> = {
+            reminder_24h: 'Hey {FirstName} — see you tomorrow. Need to change it? Tap here.',
+            waitlist_open: 'A spot opened for {Service} at {Time}. Want it? Reply YES and I’ll lock it in.',
+            lead_followup: 'Hi! I saw you were looking at {Service}. I’d be happy to help or get you scheduled!',
+            reengage_30d: 'Hey {FirstName}! It’s been about a month — want me to hold a spot this week?',
+            winback_45d: 'Hi {FirstName}! I’ve got a couple of times open — want to refresh your look?',
+            no_show_followup: 'We missed you! Want to pick a new time? I can share options.',
+            first_time_nurture: 'Welcome! I’d love to see you again — want me to send a few dates?'
+          };
+          setBucket(String(obj.bucket||'lead_followup'));
+          const body = baseMap[String(obj.bucket||'lead_followup')] || baseMap.lead_followup;
+          setSend(s=> ({ ...s, channel:'sms', body }));
+        }
+        // Clear after reading to avoid duplication on back/forward
+        sessionStorage.removeItem('bvx_followups_bundle');
+      }
+    } catch {}
+  },[]);
 
   // simulate kept for dev; currently unused after UI simplification
   // simulate removed entirely in simplified UI
@@ -109,28 +142,40 @@ export default function Messages(){
   }, [recipientQuery, allClients]);
   const draftSmart = async () => {
     try{
-      if (!selectedRecipient?.id) { setStatus('Pick a client first.'); showToast({ title:'Choose a client', description:'Search and select a client to draft for.' }); return; }
+      const group = selectedRecipients.length > 0 ? selectedRecipients : (selectedRecipient ? [selectedRecipient] : []);
+      if (group.length === 0) { setStatus('Pick at least one client.'); showToast({ title:'Choose clients', description:'Search and select one or more clients to draft for.' }); return; }
       const span = Sentry.startInactiveSpan?.({ name: 'messages.draft' });
       const t0 = performance.now();
-      try{ trackEvent('ask.smart_action.run', { tool: 'draft_message', contact_id: selectedRecipient.id }); } catch{}
-      const r = await api.post('/ai/tools/execute', {
-        tenant_id: await getTenant(),
-        name: 'draft_message',
-        params: { tenant_id: await getTenant(), contact_id: selectedRecipient.id, channel: 'sms' },
-        require_approval: false,
-      });
+      try{ trackEvent('messages.draft', { count: group.length, bucket, bulk: true }); } catch{}
+      // Ask GPT-5 for a combined Markdown document
+      const tenant = await getTenant();
+      const names = group.map(g=> g.name).join(', ');
+      const prompt = [
+        'Create a concise, friendly set of SMS drafts for beauty clients. Use beauty-friendly language and avoid jargon.',
+        `Bucket: ${bucket}`,
+        `Clients: ${names}`,
+        'Output as a Markdown document with one section per client:',
+        '- Heading as the client name',
+        '- 1–2 sentence SMS draft personalized for the client',
+        '- No code fences, no variables like {FirstName} — use the given name directly',
+      ].join('\n');
+      const r = await api.post('/ai/chat/raw', { tenant_id: tenant, messages: [{ role:'user', content: prompt }], mode: 'messages' }, { timeoutMs: 60000 });
       try {
         const ms = Math.round(performance.now() - t0);
-        trackEvent('messages.draft', { ms });
+        trackEvent('messages.draft', { ms, count: group.length });
         span?.end?.();
       } catch {}
-      const body = String(r?.draft || r?.text || r?.message || '').trim();
-      if (body) {
-        setSend(s=> ({ ...s, body, contact_id: selectedRecipient.id, channel: 'sms' }));
-        setStatus('Draft generated');
-      } else {
-        setStatus('No draft returned');
-      }
+      const text = String(r?.text || '').trim();
+      if (!text) { setStatus('No draft returned'); return; }
+      // Copy to clipboard
+      try{ await navigator.clipboard.writeText(text); showToast({ title:'Copied', description:'Markdown copied to clipboard' }); }catch{}
+      // Create download URL
+      try{ if (mdUrl) URL.revokeObjectURL(mdUrl); }catch{}
+      try{
+        const blob = new Blob([text], { type:'text/markdown;charset=utf-8;' });
+        const url = URL.createObjectURL(blob); setMdUrl(url);
+      }catch{}
+      setStatus('Bulk draft ready');
     } catch(e:any){ setStatus(String(e?.message||e)); }
   };
 
@@ -182,6 +227,9 @@ export default function Messages(){
       )}
       {!loading && (
         <>
+          {followupsInfo && (
+            <div className="rounded-md border bg-sky-50 text-sky-900 border-sky-200 text-xs px-2 py-1 inline-block">Follow-ups loaded ({followupsInfo.ids.length})</div>
+          )}
           {/* Toolbar removed for simplicity; history has its own refresh */}
           {lastAnalyzed && (
             <div className="text-[11px] text-slate-500">Last analyzed: {new Date(lastAnalyzed*1000).toLocaleString()}</div>
@@ -189,9 +237,23 @@ export default function Messages(){
 
           <div className="rounded-2xl p-4 bg-white/60 backdrop-blur border border-white/70 shadow-sm" data-guide="compose">
             <div className="font-semibold mb-2">Compose</div>
-            <div className="text-[11px] text-slate-600 mb-1">Coach: pick a client → Draft for me → tweak message → save quiet hours.</div>
-            <div className="mb-2 text-xs">
+            <div className="text-[11px] text-slate-600 mb-1">Pick one or more clients, choose a template, then Draft for me.</div>
+            <div className="mb-2 text-xs flex items-center gap-2">
+              <label className="inline-flex items-center gap-2">Template
+                <select className="border rounded-md px-2 py-1 text-xs" value={bucket} onChange={e=> setBucket(e.target.value)}>
+                  <option value="reminder_24h">Reminder 24h</option>
+                  <option value="waitlist_open">Waitlist open</option>
+                  <option value="lead_followup">Lead follow‑up</option>
+                  <option value="reengage_30d">Re‑engage 30d</option>
+                  <option value="winback_45d">Win‑back 45d</option>
+                  <option value="no_show_followup">No‑show follow‑up</option>
+                  <option value="first_time_nurture">First‑time guest nurture</option>
+                </select>
+              </label>
               <Button variant="outline" size="sm" onClick={draftSmart}>Draft for me</Button>
+              {mdUrl && (
+                <a href={mdUrl} download={`followups_${bucket}_${new Date().toISOString().slice(0,10)}.md`} className="px-3 py-1.5 rounded-md border bg-white text-xs">Download Markdown</a>
+              )}
             </div>
             <div className="mb-2 text-xs text-sky-800 bg-sky-50 border border-sky-100 rounded-md px-2 py-1 inline-block">Draft‑only for now — sending will enable after setup.</div>
             {!!quiet?.start && !!quiet?.end && (
@@ -199,23 +261,37 @@ export default function Messages(){
             )}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" role="form" aria-label="Send message form">
               <div className="relative" role="combobox" aria-expanded={showSug} aria-owns="recipient-listbox" aria-haspopup="listbox">
-                {/* Recipient chip */}
-                {selectedRecipient && (
+                {/* Recipient chips */}
+                {(selectedRecipients.length>0 || selectedRecipient) && (
                   <div className="mb-2 flex flex-wrap gap-2">
-                    <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full border bg-white text-xs">
-                      <span className="truncate max-w-[14rem]">{selectedRecipient.name}</span>
-                      <button className="text-slate-500 hover:text-slate-700" onClick={()=> { setSelectedRecipient(null); setRecipientQuery(''); setSend(s=> ({ ...s, contact_id:'' })); }} aria-label="Remove recipient">×</button>
-                    </span>
+                    {[...(selectedRecipients||[]), ...(selectedRecipient? [selectedRecipient]: [])].map((chip)=> (
+                      <span key={chip.id} className="inline-flex items-center gap-2 px-3 py-1 rounded-full border bg-white text-xs">
+                        <span className="truncate max-w-[14rem]">{chip.name}</span>
+                        <button className="text-slate-500 hover:text-slate-700" onClick={()=> {
+                          setSelectedRecipients(arr=> arr.filter(x=> x.id!==chip.id));
+                          if (selectedRecipient && selectedRecipient.id===chip.id) setSelectedRecipient(null);
+                          if (send.contact_id===chip.id) setSend(s=> ({ ...s, contact_id:'' }));
+                        }} aria-label="Remove recipient">×</button>
+                      </span>
+                    ))}
                   </div>
                 )}
                 <Input placeholder="Search client" value={selectedRecipient ? '' : recipientQuery} onFocus={()=>setShowSug(true)} onBlur={()=> setTimeout(()=>setShowSug(false), 120)} onChange={e=>{ setRecipientQuery(e.target.value); setSelectedRecipient(null); }} aria-autocomplete="list" aria-controls="recipient-listbox" aria-label="Search client" />
                 {showSug && suggestions.length > 0 && (
                   <div id="recipient-listbox" role="listbox" className="absolute z-10 mt-1 max-h-40 overflow-auto bg-white border rounded-md shadow-sm text-xs w-full">
-                    {suggestions.map((s) => (
-                      <button role="option" aria-selected={false} key={s.id} className="block w-full text-left px-2 py-1 hover:bg-slate-50" onMouseDown={(ev)=>{ ev.preventDefault(); setSelectedRecipient(s); setSend({...send, contact_id: s.id, channel:'sms' }); setShowSug(false); }}>
-                        {s.name || 'Client'}
-                      </button>
-                    ))}
+                    {suggestions.map((s) => {
+                      const added = selectedRecipients.some(x=> x.id===s.id) || (selectedRecipient?.id===s.id);
+                      return (
+                        <button role="option" aria-selected={false} key={s.id} className={`block w-full text-left px-2 py-1 hover:bg-slate-50 ${added? 'opacity-60':''}`} onMouseDown={(ev)=>{ ev.preventDefault();
+                          if (added) return;
+                          setSelectedRecipients(arr=> [...arr, s]);
+                          setSend({...send, contact_id: s.id, channel:'sms' });
+                          setShowSug(false);
+                        }}>
+                          {s.name || 'Client'}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -279,12 +355,7 @@ export default function Messages(){
           </div>
 
           <pre className="whitespace-pre-wrap text-sm text-slate-700" data-guide="status" aria-live="polite">{status}</pre>
-          {/* Inbox filters */}
-          <div className="mt-2 flex flex-wrap items-center gap-1 text-xs" data-guide="filters">
-            {(['all','unread','needs_reply','scheduled','failed'] as const).map((f)=> (
-              <button key={f} onClick={()=> { setInboxFilter(f); try{ trackEvent('messages.filter.change', { filter: f }); }catch{} }} className={`px-2 py-1 rounded border ${inboxFilter===f? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-800 border-slate-200 hover:bg-slate-50'}`} aria-pressed={inboxFilter===f} aria-label={`Filter ${f.replace('_',' ')}`}>{f.replace('_',' ')}</button>
-            ))}
-          </div>
+          {/* Inbox filters hidden per spec */}
           {itemsFiltered.length === 0 ? null : (
             <Table data-guide="list">
               <THead>

@@ -17,12 +17,32 @@ export type GuideStep = {
   };
 };
 import { track } from './analytics';
-import { api } from './api';
+import { api, getTenant } from './api';
+import foundersImage from '../assets/onboarding/IMG_7577.jpeg';
 import 'driver.js/dist/driver.css';
 // import { flags } from './flags';
 
 const DASHBOARD_WELCOME_STEP = 0;
 const DASHBOARD_BILLING_STEP = 12;
+
+const founderSlides = [
+  {
+    title: 'A brief note from Dakota',
+    html: '<p>Hi! My name is Dakota LaTommy and I created this platform for beauty professionals like <strong>you</strong>. In a world that underestimates your ability, hustle, and drive, I wanted to design something that lets you know I see you.</p>',
+  },
+  {
+    title: 'Our tribe',
+    html: `<p>From my girlfriend Rachel to my business partner Jaydn, I have deep connections with the beauty industry. You are hustlers, business-savvy <strong>artists</strong>, but the mounting pressure to survive has stripped the joy from a craft you once loved.</p><div class="mt-3 flex justify-center"><img src="${foundersImage}" alt="Dakota and Rachel" style="width:128px;height:128px;border-radius:16px;object-fit:cover;box-shadow:0 8px 20px rgba(15,23,42,0.18);"/></div>`,
+  },
+  {
+    title: 'Why brandVX exists',
+    html: '<p>brandVX is designed to help you optimize your business, save time, and generate more revenue. It grows with you — as a CEO, brand, salesperson, content-creator, and <strong>person</strong> — by accelerating every aspect of your passion. We are in open beta with 1,000 users and will keep shipping new features weekly. If you need anything, email <strong>support@aubecreativelabs.com</strong>.</p>',
+  },
+  {
+    title: 'Let’s stay in touch',
+    html: '<p>I appreciate you trying brandVX and would love any feedback. Drop your contact info below and I will personally reach out to thank you. Go be great!</p><div class="mt-3 grid gap-2">\n  <label class="grid gap-1 text-sm">\n    <span class="text-xs uppercase tracking-wide text-slate-500">Email</span>\n    <input type="email" data-founder-email class="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="you@example.com"/>\n  </label>\n  <label class="grid gap-1 text-sm">\n    <span class="text-xs uppercase tracking-wide text-slate-500">Phone</span>\n    <input type="tel" data-founder-phone class="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="(555) 555-5555"/>\n  </label>\n  <div class="text-[11px] text-slate-500">Optional — share either email or phone if you’d like me to follow up.</div>\n</div>',
+  },
+];
 
 const registry: Record<string, GuideStep[]> = {
   workspace_intro: [
@@ -236,11 +256,11 @@ const registry: Record<string, GuideStep[]> = {
         },
       },
     },
-    { element: '[data-guide="clients-list"]', popover: { title: 'Clients list', description: 'Review synced guests, visit history, and follow-up readiness in one place.' } },
-    { element: '[data-guide="clients-actions"]', popover: { title: 'Quick actions', description: 'Select text or email to copy contact info and launch ready-to-edit drafts.' } },
-    { element: '[data-guide="clients-pagination"]', popover: { title: 'Navigate pages', description: 'Use the arrows to move through larger client lists.' } },
-    { element: '[data-guide="clients-export"]', popover: { title: 'Export CSV', description: 'Download your imported contacts anytime for offline review.' } },
-    { element: '[data-guide="clients-refresh"]', popover: { title: 'Refresh data', description: 'Pull the latest booking updates whenever you reconnect providers.' } },
+    { element: '[data-guide="clients-list"]', popover: { title: 'Clients list', description: 'Review synced guests, visit history, and follow-up readiness in one place.', showButtons: ['previous', 'next'] } },
+    { element: '[data-guide="clients-actions"]', popover: { title: 'Quick actions', description: 'Select text or email to copy contact info and launch ready-to-edit drafts.', showButtons: ['previous', 'next'] } },
+    { element: '[data-guide="clients-pagination"]', popover: { title: 'Navigate pages', description: 'Use the arrows to move through larger client lists.', showButtons: ['previous', 'next'] } },
+    { element: '[data-guide="clients-export"]', popover: { title: 'Export CSV', description: 'Download your imported contacts anytime for offline review.', showButtons: ['previous', 'next'] } },
+    { element: '[data-guide="clients-refresh"]', popover: { title: 'Refresh data', description: 'Pull the latest booking updates whenever you reconnect providers.', showButtons: ['previous', 'next'] } },
     {
       popover: {
         title: 'Next: askVX',
@@ -269,19 +289,23 @@ const registry: Record<string, GuideStep[]> = {
         },
       },
     },
-    { element: '[data-guide="askvx-import-count"]', popover: { title: 'Imported contacts', description: 'Here’s the new contact count from your booking sync.' } },
-    { element: '[data-guide="askvx-digest"]', popover: { title: 'Since your last visit', description: 'Keep an eye on fresh contacts, appointments, and messages.' } },
+    { element: '[data-guide="askvx-import-count"]', popover: { title: 'Imported contacts', description: 'Here’s the new contact count from your booking sync.', showButtons: ['previous', 'next'] } },
+    { element: '[data-guide="askvx-digest"]', popover: { title: 'Since your last visit', description: 'Keep an eye on fresh contacts, appointments, and messages.', showButtons: ['previous', 'next'] } },
     {
       element: '[data-guide="askvx-insights-cta"]',
       popover: {
         title: 'Generate insights',
         description: 'Click “Generate snapshot” to preload the AskVX prompt with your data.',
-        showButtons: ['previous'],
+        showButtons: ['previous', 'next'],
+        nextBtnText: 'Next',
         onPopoverRender: (_dom: any, { driver }: { driver: any }) => {
           if ((window as any).__bvxSkipImport) {
             setTimeout(() => { try { driver.moveNext(); } catch {} }, 120);
             return;
           }
+          try {
+            window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.run-insights' } }));
+          } catch {}
           let done = false;
           const cleanup = () => {
             if (done) return;
@@ -306,7 +330,8 @@ const registry: Record<string, GuideStep[]> = {
       popover: {
         title: 'Send the prompt',
         description: 'Press Send to let AskVX crunch the numbers for you.',
-        showButtons: ['previous'],
+        showButtons: ['previous', 'next'],
+        nextBtnText: 'Next',
         onPopoverRender: (_dom: any, { driver }: { driver: any }) => {
           if ((window as any).__bvxSkipImport) {
             setTimeout(() => { try { driver.moveNext(); } catch {} }, 120);
@@ -334,11 +359,38 @@ const registry: Record<string, GuideStep[]> = {
       },
     },
     {
+      popover: {
+        title: 'Plan your next 14 days',
+        description: 'We’ll preload a prompt that asks AskVX to build a 14-day strategy using your imports and brand profile.',
+        showButtons: ['previous', 'next'],
+        nextBtnText: 'Ready',
+        onPopoverRender: () => {
+          if ((window as any).__bvxSkipImport) return;
+          if (!(window as any).__bvxStrategyPrefilled) {
+            (window as any).__bvxStrategyPrefilled = true;
+            try {
+              window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.prepare-strategy' } }));
+            } catch {}
+          }
+        },
+      },
+    },
+    {
+      element: '[data-guide="composer"]',
+      popover: {
+        title: 'Send the strategy prompt',
+        description: 'Press Send so AskVX can confirm any quick details and draft your 14-day plan.',
+        showButtons: ['previous', 'next'],
+        nextBtnText: 'Next',
+      },
+    },
+    {
       element: '[data-guide="askvx-strategy"]',
       popover: {
         title: 'Build your 14-day strategy',
         description: 'Generate and download the Markdown plan. We’ll also save it to your AI memory.',
-        showButtons: ['previous'],
+        showButtons: ['previous', 'next'],
+        nextBtnText: 'Next',
         onPopoverRender: (_dom: any, { driver }: { driver: any }) => {
           let done = false;
           const cleanup = () => {
@@ -423,7 +475,7 @@ const registry: Record<string, GuideStep[]> = {
         title: 'Review your brand profile',
         description: 'Use Edit → Save to adjust tone, story, and pricing anytime.',
         showButtons: ['previous', 'next'],
-        nextBtnText: 'Finish tour',
+        nextBtnText: 'Next',
         onNextClick: (_element, _step, { driver }) => {
           const proceed = () => {
             window.removeEventListener('bvx:guide:navigate:done', proceed as any);
@@ -525,6 +577,47 @@ const registry: Record<string, GuideStep[]> = {
   ],
 };
 
+founderSlides.forEach((slide, idx) => {
+  registry.dashboard.push({
+    element: 'body',
+    popover: {
+      title: slide.title,
+      description: slide.html,
+      showButtons: ['previous', 'next'],
+      nextBtnText: idx === founderSlides.length - 1 ? 'Finish tour' : 'Next',
+      onPopoverRender: (dom: any) => {
+        try {
+          const desc = dom?.popover?.querySelector?.('.driver-popover-description');
+          if (desc) desc.innerHTML = slide.html;
+        } catch {}
+      },
+      onNextClick: idx === founderSlides.length - 1
+        ? async (_element, _step, { driver }) => {
+            try {
+              const email = (document.querySelector('[data-founder-email]') as HTMLInputElement | null)?.value.trim() || '';
+              const phone = (document.querySelector('[data-founder-phone]') as HTMLInputElement | null)?.value.trim() || '';
+              if (email || phone) {
+                try {
+                  const tenant = (await getTenant().catch(()=>'')) || localStorage.getItem('bvx_tenant') || '';
+                  if (tenant) {
+                    await api.post('/onboarding/founder/contact', { tenant_id: tenant, email: email || undefined, phone: phone || undefined });
+                  }
+                } catch (err) {
+                  console.error('founder contact submission failed', err);
+                }
+              }
+            } finally {
+              try { localStorage.setItem('bvx_founder_finale_seen', '1'); } catch {}
+              try { localStorage.setItem('bvx_quickstart_completed', '1'); } catch {}
+              try { window.dispatchEvent(new CustomEvent('bvx:quickstart:completed')); } catch {}
+              try { driver?.destroy?.(); } catch {}
+            }
+          }
+        : undefined,
+    },
+  });
+});
+
 export function getGuideSteps(page: string): GuideStep[] {
   return registry[page] || [];
 }
@@ -533,6 +626,9 @@ export function startGuide(page: string, _opts?: { step?: number }) {
   const steps = getGuideSteps(page);
   if (!steps || steps.length === 0) return;
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  if (page === 'dashboard') {
+    try { delete (window as any).__bvxStrategyPrefilled; } catch {}
+  }
   try { localStorage.setItem('bvx_last_tour_page', page); } catch {}
   try { localStorage.setItem('bvx_last_tour_step', '0'); } catch {}
   try {

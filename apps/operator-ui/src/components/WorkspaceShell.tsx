@@ -13,8 +13,6 @@ import { registerActions, registerMessageBridge } from '../lib/actions';
 import { workspaceStorage } from '../onboarding/workspace/storage';
 import { useWorkspaceOnboardingController } from '../hooks/useWorkspaceOnboardingController';
 import type { OnboardingState } from '../onboarding/workspace/orchestrator';
-import FounderFinale from './onboarding/FounderFinale';
-import foundersImage from '../assets/onboarding/IMG_7577.jpeg';
 
 type PaneKey = 'dashboard' | 'messages' | 'contacts' | 'calendar' | 'cadences' | 'inventory' | 'integrations' | 'approvals' | 'askvx' | 'vision';
 
@@ -61,6 +59,8 @@ export default function WorkspaceShell(){
   const PRICE_147 = (import.meta as any).env?.VITE_STRIPE_PRICE_147 || '';
   const PRICE_97 = (import.meta as any).env?.VITE_STRIPE_PRICE_97 || '';
   const TRIAL_DAYS = Number((import.meta as any).env?.VITE_STRIPE_TRIAL_DAYS || '7');
+  const STRIPE_BUY_BUTTON_47 = String((import.meta as any).env?.VITE_STRIPE_BUY_BUTTON_47 || '');
+  const STRIPE_PK = String((import.meta as any).env?.VITE_STRIPE_PK || (import.meta as any).env?.VITE_STRIPE_PUBLISHABLE_KEY || '');
 const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_TOUR || '').toLowerCase() === '1';
 
   const [billingOpen, setBillingOpen] = useState(false);
@@ -133,11 +133,6 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
   const forcedRef = useRef(false);
   const skipImportRef = useRef(false);
   const importSummaryRef = useRef<{ imported?: number; updated?: number; error?: string } | null>(null);
-  const [founderFinaleOpen, setFounderFinaleOpen] = useState<boolean>(false);
-  const founderFinaleSeenInitial = useMemo(() => {
-    try { return localStorage.getItem('bvx_founder_finale_seen') === '1'; } catch { return false; }
-  }, []);
-  const founderFinaleSeenRef = useRef<boolean>(founderFinaleSeenInitial);
   const [onboardingState, setOnboardingState] = useState<OnboardingState>({ phase: 'idle', forced: false, running: false });
 
   useEffect(() => {
@@ -215,10 +210,7 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
     } catch (err) {
       console.error('guide_done update failed', err);
     }
-    if (!founderFinaleSeenRef.current) {
-      setFounderFinaleOpen(true);
-    }
-  }, [setFounderFinaleOpen]);
+  }, []);
 
   const handleOnboardingError = useCallback(async ({ error }: { forced: boolean; error: Error }) => {
     await showFlowModalAsync({
@@ -321,7 +313,9 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
     const onBillingStep = () => {
       console.info('dashboard step: billing');
       const status = billingStatusRef.current || '';
-      if (status === 'active') {
+      // Always show once as part of onboarding step, even if already active
+      let promptedOnce = false; try { promptedOnce = localStorage.getItem('bvx_billing_prompted_once') === '1'; } catch {}
+      if (status === 'active' && promptedOnce) {
         try { localStorage.setItem('bvx_billing_dismissed','1'); } catch {}
         return;
       }
@@ -334,6 +328,7 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
         setBillingLoading(false);
         billingResolverRef.current = null;
       };
+      try { localStorage.setItem('bvx_billing_prompted_once','1'); } catch {}
       if (forcedRef.current) {
         setTimeout(() => resolveBilling(true), 800);
       }
@@ -385,17 +380,6 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
       }
     })();
   }, []);
-
-  const handleFinaleClose = useCallback(async () => {
-    setFounderFinaleOpen(false);
-    founderFinaleSeenRef.current = true;
-    try {
-      localStorage.setItem('bvx_founder_finale_seen', '1');
-      localStorage.setItem('bvx_quickstart_completed', '1');
-    } catch {}
-    try { window.dispatchEvent(new CustomEvent('bvx:quickstart:completed')); } catch {}
-    try { await goToPane('dashboard'); } catch {}
-  }, [goToPane, setFounderFinaleOpen]);
 
   // Workspace billing gate: open modal if not trialing/active
   useEffect(()=>{
@@ -738,6 +722,34 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
     } catch {}
   }, []);
 
+  // Load Stripe Buy Button script once when the billing modal opens and an ID+PK are available
+  useEffect(() => {
+    try {
+      const isId = STRIPE_BUY_BUTTON_47.startsWith('buy_btn_');
+      if (!billingOpen || !isId || !STRIPE_PK) return;
+      if ((window as any).__bvxStripeBuyLoaded) return;
+      const scriptId = 'bvx-stripe-buy-button-js';
+      if (!document.getElementById(scriptId)) {
+        const s = document.createElement('script');
+        s.id = scriptId;
+        s.async = true;
+        s.src = 'https://js.stripe.com/v3/buy-button.js';
+        document.head.appendChild(s);
+      }
+      (window as any).__bvxStripeBuyLoaded = true;
+    } catch {}
+  }, [billingOpen, STRIPE_BUY_BUTTON_47, STRIPE_PK]);
+
+  const buyButton47Html = useMemo(() => {
+    const id = STRIPE_BUY_BUTTON_47;
+    const pk = STRIPE_PK;
+    const isId = id.startsWith('buy_btn_');
+    if (!isId || !pk) return '';
+    const safeId = id.replace(/"/g, '&quot;');
+    const safePk = pk.replace(/"/g, '&quot;');
+    return `<stripe-buy-button buy-button-id="${safeId}" publishable-key="${safePk}"></stripe-buy-button>`;
+  }, [STRIPE_BUY_BUTTON_47, STRIPE_PK]);
+
   return (
     <div className="max-w-6xl mx-auto">
       <div id="tour-welcome-anchor" className="fixed inset-0 pointer-events-none flex items-center justify-center" style={{ zIndex: 2147483602 }} />
@@ -871,7 +883,6 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
         </div>,
         document.body
       )}
-      <FounderFinale open={founderFinaleOpen} imageSrc={foundersImage} onClose={() => { void handleFinaleClose(); }} />
       {/* Onboarding prompt for WorkStyles removed per simplification */}
       {/* Billing modal */}
       {billingOpen && (
@@ -912,6 +923,30 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
                 <div className="font-medium">$97 today → $97/mo (Founding price)</div>
                 <div className="text-slate-600 text-xs">Lock in $97/mo now; recurring thereafter.</div>
               </button>
+              {/* $47/mo Stripe Buy Button (env-driven) */}
+              {STRIPE_BUY_BUTTON_47 && (
+                <div className="w-full grid place-items-center py-1">
+                  {STRIPE_BUY_BUTTON_47.startsWith('buy_btn_') && STRIPE_PK ? (
+                    <div
+                      className="w-full flex items-center justify-center"
+                      // eslint-disable-next-line react/no-danger
+                      dangerouslySetInnerHTML={{ __html: buyButton47Html }}
+                    />
+                  ) : (
+                    <a
+                      href={STRIPE_BUY_BUTTON_47}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="w-full inline-flex items-start rounded-xl border bg-white hover:shadow-sm text-slate-900 px-4 py-3 text-sm text-left"
+                    >
+                      <div>
+                        <div className="font-medium">brandVZN Lite — $47/mo</div>
+                        <div className="text-slate-600 text-xs">Opens secure Stripe checkout in a new tab.</div>
+                      </div>
+                    </a>
+                  )}
+                </div>
+              )}
               <button className="w-full rounded-xl border bg-white hover:bg-slate-50 px-4 py-2 text-sm" onClick={()=> resolveBilling()}>Skip for now</button>
             </div>
             <div className="text-[11px] text-ink-700 mt-2">Status: {billingStatus||'unavailable'}</div>

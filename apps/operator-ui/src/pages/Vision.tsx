@@ -548,6 +548,14 @@ export default function Vision(){
           )}
         </div>
         <div className="flex-1 space-y-3">
+          {/* Right-panel brief analysis (replaces on re-run) */}
+          <div className="rounded-xl border bg-white p-3 text-sm min-h-[96px]" aria-live="polite">
+            {output ? (
+              <div className="whitespace-pre-wrap">{output}</div>
+            ) : (
+              <div className="text-xs text-slate-500">Run Analyze to see a brief here.</div>
+            )}
+          </div>
         {false && (
           <div className="flex gap-2 items-center">
             <Button variant="outline" onClick={pick} data-guide="upload" aria-label="Upload image">Upload</Button>
@@ -669,7 +677,9 @@ export default function Vision(){
         </div>
       </div>
 
-      <div className="border rounded-xl bg-white shadow-sm p-3 min-h-24 whitespace-pre-wrap text-sm" style={{ display: output ? 'block' : 'none' }}>{output}</div>
+      {false && (
+        <div className="border rounded-xl bg-white shadow-sm p-3 min-h-24 whitespace-pre-wrap text-sm">{output}</div>
+      )}
 
       {/* Download original+edited */}
       {preview && (

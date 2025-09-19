@@ -578,12 +578,12 @@ def followups_candidates(tenant_id: str, scope: str = "this_week", db: Session =
             items = [{"contact_id": r[0], "reason": "appt_this_week"} for r in rows]
             return {"items": items}
         if scope == "reengage_30d":
-            q = _sql_text("SELECT contact_id::text FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND (last_visit IS NULL OR last_visit < (EXTRACT(EPOCH FROM now())::bigint - 30*86400)) ORDER BY last_visit NULLS FIRST LIMIT 200")
+            q = _sql_text("SELECT contact_id::text FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND (last_visit IS NULL OR last_visit < (EXTRACT(EPOCH FROM now())::bigint - 30*86400)) ORDER BY last_visit NULLS FIRST")
             rows = db.execute(q, {"t": tenant_id}).fetchall()
             items = [{"contact_id": r[0], "reason": "no_visit_30d"} for r in rows]
             return {"items": items}
         if scope == "winback_45d":
-            q = _sql_text("SELECT contact_id::text FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND (last_visit IS NULL OR last_visit < (EXTRACT(EPOCH FROM now())::bigint - 45*86400)) ORDER BY last_visit NULLS FIRST LIMIT 200")
+            q = _sql_text("SELECT contact_id::text FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND (last_visit IS NULL OR last_visit < (EXTRACT(EPOCH FROM now())::bigint - 45*86400)) ORDER BY last_visit NULLS FIRST")
             rows = db.execute(q, {"t": tenant_id}).fetchall()
             items = [{"contact_id": r[0], "reason": "no_visit_45d"} for r in rows]
             return {"items": items}

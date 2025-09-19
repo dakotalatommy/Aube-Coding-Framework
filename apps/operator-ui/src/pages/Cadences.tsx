@@ -115,6 +115,12 @@ export default function Cadences(){
                   const sim = await api.post('/messages/simulate',{ tenant_id: tid, contact_id: contactId, channel:'sms', generate:false });
                   setVxPanel(`Follow‑up plan for ${selectedName||contactId||'Client'}\n• Draft: ${sim?.body||'Draft prepared.'}`);
                 }catch{ setVxPanel(`Follow‑up plan for ${selectedName||contactId||'Client'}\n• Draft: Hi {FirstName}! Would you like to book your next visit?`); }
+                // Handoff to Messages: save bundle in session and navigate
+                try{
+                  const bundle = { bucket: 'lead_followup', ids: [contactId], ts: Date.now() };
+                  sessionStorage.setItem('bvx_followups_bundle', JSON.stringify(bundle));
+                  window.location.assign('/workspace?pane=messages&source=followups');
+                } catch {}
               });
             }}>Start</Button>
           </div>

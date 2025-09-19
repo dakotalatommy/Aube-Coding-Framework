@@ -26,7 +26,28 @@ function formatAssistant(text: string): string {
         return chunk;
       });
     // Join with blank lines to create paragraphs
-    return lines.join('\n\n');
+    let out = lines.join('\n\n');
+    // Humanize: strip raw placeholders/variables and prefer beauty‑friendly language
+    try {
+      // Remove inline code backticks
+      out = out.replace(/`([^`]+)`/g, '$1');
+      // Replace common placeholder syntaxes with friendly wording
+      out = out.replace(/\{\{[^}]+\}\}/g, 'this detail');
+      out = out.replace(/\[[^\]]+\]/g, (m) => {
+        const inner = m.slice(1, -1);
+        // Keep dates like [2025-09-01]
+        if (/^\d{4}-\d{2}-\d{2}$/.test(inner)) return inner;
+        return 'this detail';
+      });
+      out = out.replace(/<[^>]+>/g, 'this detail');
+      // De-jargonize common tech words
+      out = out.replace(/\b(var|vars|variable|variables|param|params|parameter|parameters|arg|args)\b/gi, 'detail');
+      // Collapse stray single-letter placeholders like P/N
+      out = out.replace(/\b(P|N)\b/g, 'detail');
+      // Normalize excessive whitespace from replacements
+      out = out.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+    } catch {}
+    return out;
   } catch {
     return text || '';
   }
@@ -186,7 +207,7 @@ export default function SupportBubble(){
           {/* Click catcher to close when clicking outside */}
           <div className="absolute inset-0" onClick={()=> setOpen(false)} />
           <div className="absolute right-4 bottom-4 w-[min(36vw,420px)] max-w-[92vw] h-[min(48vh,560px)] max-h-[78vh] pointer-events-auto">
-            <div className="flex h-full w-full flex-col rounded-2xl border bg-white shadow-2xl">
+            <div className="flex h-full w-full flex-col rounded-2xl border bg-white shadow-2xl" style={{ backgroundColor: 'rgba(255,255,255,1)' }}>
               <div className="flex items-center justify-between px-3 py-2 border-b">
                 <div className="text-sm font-semibold text-slate-900">brandVX support</div>
                 <button className="px-2 py-1 text-xs rounded-md border bg-white" onClick={()=> setOpen(false)}>Close</button>

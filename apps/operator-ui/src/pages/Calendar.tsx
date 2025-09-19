@@ -23,17 +23,13 @@ export default function Calendar(){
   const [lastUpdated, setLastUpdated] = useState<number>(0);
   const [actionBusy, setActionBusy] = useState<boolean>(false);
   const isDemo = (()=>{ try{ return new URLSearchParams(window.location.search).get('demo')==='1'; } catch { return false; } })();
-  // Group events by local day for a weekly grid
-  const startOfWeek = (()=>{
-    const now = new Date();
-    const day = now.getDay();
-    const diffToMonday = (day === 0 ? -6 : 1) - day; // Monday start
-    const monday = new Date(now);
-    monday.setDate(now.getDate() + diffToMonday);
-    monday.setHours(0,0,0,0);
-    return monday;
-  })();
-  const days: Date[] = Array.from({length:7}, (_,i)=>{ const d = new Date(startOfWeek); d.setDate(startOfWeek.getDate()+i); return d; });
+  // Month view cells (6x7 grid)
+  const today = new Date();
+  const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  const firstWeekday = firstOfMonth.getDay(); // 0..6 (Sun..Sat)
+  const gridStart = new Date(firstOfMonth);
+  gridStart.setDate(firstOfMonth.getDate() - firstWeekday);
+  const cells: Date[] = Array.from({ length: 42 }, (_, i) => { const d = new Date(gridStart); d.setDate(gridStart.getDate()+i); return d; });
   const byDay = (events||[]).reduce((acc:any, ev:any)=>{
     try{
       const raw = ev.start_ts; const ts = typeof raw==='number'? raw : Number(raw);
@@ -163,20 +159,34 @@ export default function Calendar(){
       {!!lastUpdated && (
         <div className="text-[11px] text-slate-500">Updated {new Date(lastUpdated).toLocaleTimeString()}</div>
       )}
-      {/* Weekly plan band: 7 vertical sections with dividers (compact height) */}
-      <div className="rounded-xl border bg-white/90 backdrop-blur p-3 shadow-sm" role="region" aria-label="Weekly plan">
+      {/* Month grid */}
+      <div className="rounded-xl border bg-white/90 backdrop-blur p-3 shadow-sm" role="region" aria-label="Month view">
         <div className="grid grid-cols-7 gap-2 text-xs text-slate-600 mb-2">
           {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=> <div key={d} className="text-center font-medium">{d}</div>)}
         </div>
-        <div className="relative rounded-lg border bg-white overflow-hidden" style={{ height: 'min(14vh, 140px)' }}>
-          {Array.from({length:6}).map((_, i)=> (
-            <div
-              key={i}
-              aria-hidden
-              className="absolute top-0 bottom-0 bg-slate-200"
-              style={{ left: `${((i+1) * (100/7))}%`, width: '1px' }}
-            />
-          ))}
+        <div className="grid grid-cols-7 gap-2">
+          {cells.map((d, i) => {
+            const key = d.toISOString().slice(0,10);
+            const list = (byDay[key]||[]).filter((e:any)=> provider==='all'? true : (e.provider||'')===provider);
+            const inMonth = d.getMonth() === today.getMonth();
+            return (
+              <div key={i} className={`min-h-[120px] border rounded-md bg-white ${inMonth? '':'opacity-60'}`}>
+                <div className="sticky top-0 z-10 px-2 py-1 text-xs font-medium border-b bg-slate-50 flex items-center justify-between">
+                  <span>{d.getDate()}</span>
+                </div>
+                <div className="p-2 space-y-1 text-xs">
+                  {list.length===0 ? <div className="text-slate-400">—</div> : list.slice(0,3).map((e:any, idx:number)=> (
+                    <div key={idx} className="px-2 py-1 rounded border bg-white flex items-center justify-between gap-2" title={e.title}>
+                      <div className="truncate"><span className="text-slate-500 mr-1">{fmtTime(e.start_ts)}</span>{e.title}</div>
+                    </div>
+                  ))}
+                  {list.length>3 && (
+                    <div className="text-[11px] text-slate-500">+{list.length-3} more</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
       {/* Demo-only recommendations */}
@@ -221,27 +231,8 @@ export default function Calendar(){
           </EmptyState>
         ) : (
           <div className="hidden md:grid grid-cols-7 gap-2">
-            {days.map((d, i)=>{
-              const key = d.toISOString().slice(0,10);
-              const list = (byDay[key]||[]).filter((e:any)=> provider==='all'? true : (e.provider||'')===provider);
-              return (
-                <div key={i} className="min-h-[220px] border rounded-md bg-white">
-                  <div className="sticky top-0 z-10 px-2 py-1 text-xs font-medium border-b bg-slate-50">{d.toLocaleDateString(undefined,{weekday:'short', month:'short', day:'numeric'})}</div>
-                  <div className="p-2 space-y-1 text-sm">
-                    {list.length===0 ? <div className="text-slate-400 text-xs">No events</div> : list.map((e:any, idx:number)=> (
-                      <div key={idx} className="px-2 py-1 rounded border bg-white flex items-center justify-between gap-2" title={e.title}>
-                        <div className="truncate"><span className="text-slate-500 mr-1">{fmtTime(e.start_ts)}</span>{e.title}</div>
-                        <div className="flex items-center gap-1">
-                          <button disabled={actionBusy} className="px-1.5 py-0.5 rounded-md border bg-white disabled:opacity-50 text-[11px]" onClick={()=> reschedule(e, 15)}>+15</button>
-                          <button disabled={actionBusy} className="px-1.5 py-0.5 rounded-md border bg-white disabled:opacity-50 text-[11px]" onClick={()=> reschedule(e, -15)}>-15</button>
-                          <button disabled={actionBusy} className="px-1.5 py-0.5 rounded-md border bg-white disabled:opacity-50 text-[11px]" onClick={()=> cancel(e)}>X</button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
+            {/* Month grid rendered above; keep weekly block removed */}
+            {[]}
           </div>
         )}
         {/* Mobile list */}

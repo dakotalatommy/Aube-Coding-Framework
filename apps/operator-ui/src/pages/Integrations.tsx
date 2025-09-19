@@ -53,73 +53,7 @@ export default function Integrations(){
   };
 
   // Setup Progress (moved from Dashboard)
-  const [setupPct, setSetupPct] = useState<number>(0);
-  const [setupList, setSetupList] = useState<Array<{label:string;done:boolean;doneTs?:number;action?:()=>void}>>([]);
-  const fmtRelative = (ts?: number) => {
-    try{
-      if (!ts) return '';
-      const d = new Date(ts*1000);
-      const now = new Date();
-      const sameDay = d.toDateString() === now.toDateString();
-      const yest = new Date(now); yest.setDate(now.getDate()-1);
-      const isYest = d.toDateString() === yest.toDateString();
-      const t = d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
-      if (sameDay) return `Today ${t}`;
-      if (isYest) return `Yesterday ${t}`;
-      return `${d.toLocaleDateString()} ${t}`;
-    } catch { return ''; }
-  };
-  const computeSetup = async () => {
-    try{
-      const tid = await getTenant();
-      // Prefer compact status view with percent and timestamps
-      let statusPercent = 0;
-      let statusItems: any = {};
-      try{
-        const stat = await api.get(`/onboarding/progress/status?tenant_id=${encodeURIComponent(tid)}`);
-        statusPercent = Number(stat?.percent||0);
-        statusItems = stat?.items || {};
-      } catch {}
-      // Fallback: expand from full progress list
-      let tsMap: Record<string, number> = {};
-      try{
-        if (!statusItems || Object.keys(statusItems).length===0){
-          const prog = await api.get(`/onboarding/progress?tenant_id=${encodeURIComponent(tid)}`);
-          tsMap = (()=>{
-            try{
-              const m: Record<string, number> = {};
-              for (const s of (prog?.steps||[])){
-                const k = String(s.step_key||'');
-                const t = Date.parse(String(s.completed_at||''));
-                if (k && isFinite(t)) m[k] = Math.floor(t/1000);
-              }
-              return m;
-            } catch { return {}; }
-          })();
-        }
-      } catch {}
-      // Provider states (for immediate connected badge)
-      const connected = (onboarding?.connectedMap || onboarding?.connected || {}) as Record<string,string>;
-      const isGoogle = String(connected?.google||'')==='connected';
-      const isSquare = String(connected?.square||'')==='connected';
-      const isAcuity = String(connected?.acuity||'')==='connected';
-      const hasQuiet = !!(settings?.quiet_hours?.start && settings?.quiet_hours?.end);
-      const imported = Boolean(statusItems?.contacts_imported?.done);
-      const trained  = Boolean(statusItems?.train_vx?.done);
-      // Timestamp map (prefer status items)
-      tsMap = Object.keys(statusItems||{}).reduce((acc:any,k:string)=>{ const ts = Number(statusItems[k]?.ts||0); if (ts) acc[k]=ts; return acc; }, tsMap||{});
-      const items = [
-        { label: 'Connect Google Calendar', done: Boolean(statusItems?.connect_google?.done) || isGoogle, doneTs: tsMap['connect_google'], action: () => window.location.assign('/workspace?pane=integrations&provider=google') },
-        { label: 'Connect booking (Square or Acuity)', done: Boolean(statusItems?.connect_booking?.done) || (isSquare || isAcuity), doneTs: tsMap['connect_booking'], action: () => window.location.assign('/workspace?pane=integrations&provider=square') },
-        { label: 'Import clients', done: imported, doneTs: tsMap['contacts_imported'], action: async ()=>{ await api.post('/ai/tools/execute',{ tenant_id: await getTenant(), name:'contacts.import.square', params:{ tenant_id: await getTenant() }, require_approval: true }); } },
-        { label: 'Set quiet hours', done: Boolean(statusItems?.quiet_hours?.done) || hasQuiet, doneTs: tsMap['quiet_hours'], action: () => {} },
-        { label: 'Train VX', done: trained, doneTs: tsMap['train_vx'], action: () => window.location.assign('/ask?train=1') },
-      ];
-      const pct = statusPercent || Math.round((items.filter(i=>i.done).length / items.length)*100);
-      setSetupList(items);
-      setSetupPct(pct);
-    } catch {}
-  };
+  // Setup Progress removed per spec; placeholders removed
 
   const isConnected = (provider: string): boolean => {
     try {
@@ -247,7 +181,6 @@ export default function Integrations(){
       try{
         if (new URLSearchParams(window.location.search).has('dev')) await loadEvents();
       }catch{}
-      try { await computeSetup(); } catch {}
     })();
   },[]);
 
@@ -362,15 +295,7 @@ export default function Integrations(){
     catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
   };
-  const fmt12 = (v?: string) => {
-    try{
-      if (!v) return '';
-      const [h,m] = String(v).split(':').map((x)=> parseInt(x,10));
-      const am = (h||0) < 12;
-      const hr = (((h||0) % 12) || 12);
-      return `${hr}:${String(m||0).padStart(2,'0')} ${am ? 'AM':'PM'}`;
-    } catch { return String(v||''); }
-  };
+  // fmt12 removed with quiet hours UI
   /* const saveTraining = async () => {
     try{
       setBusy(true);
@@ -647,25 +572,7 @@ export default function Integrations(){
             })}
           </div>
         </section>
-        {/* Setup Progress */}
-        <section className="rounded-2xl p-3 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
-          <div className="flex items-center justify-between">
-            <div className="font-semibold text-slate-900">Setup Progress</div>
-            <div className="text-xs text-slate-600">{setupPct}%</div>
-          </div>
-          <div className="mt-2 h-2 rounded bg-slate-100 overflow-hidden"><div className="h-full bg-pink-500" style={{ width: `${setupPct}%` }} /></div>
-          <div className="mt-3 grid sm:grid-cols-2 gap-2">
-            {setupList.map((s,i)=> (
-              <Button key={i} variant={s.done? 'outline' : 'outline'} className={`justify-start items-center ${s.done? '!bg-emerald-50 !border-emerald-200 !text-emerald-800' : ''}`} onClick={s.action} aria-pressed={s.done} aria-label={s.label}>
-                <span className="text-sm">{s.label}</span>
-                {s.done && <span className="ml-2 text-[11px]">✓</span>}
-                {s.done && s.doneTs && (
-                  <span className="ml-auto text-[11px] text-slate-500">{fmtRelative(s.doneTs)}</span>
-                )}
-              </Button>
-            ))}
-          </div>
-        </section>
+      {/* Setup Progress hidden per spec */}
         {/* Pending credentials and approval banners removed */}
         {lastCallback && (
           <div className="text-[11px] text-slate-600">Last OAuth callback: {new Date(Number(lastCallback?.ts||0)*1000).toLocaleString()} · {String(lastCallback?.action||'')}</div>
@@ -673,13 +580,7 @@ export default function Integrations(){
         {/* Tone, Brand profile, Metrics, and Primary goal removed per spec */}
         {/* Provider mode moved onto each integration card (Demo/Live) */}
         {/* SMS and Email toggles hidden per spec */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 items-center gap-2 text-sm">
-          <div className="text-slate-700">{UI_STRINGS.quietHours.sectionTitle}</div>
-          <input className="border rounded-md px-2 py-1 bg-white" type="time" value={settings.quiet_hours?.start||'21:00'} onChange={e=> setSettings({...settings, quiet_hours:{ ...(settings.quiet_hours||{}), start:e.target.value }})} aria-label="Quiet hours start" />
-          <input className="border rounded-md px-2 py-1 bg-white" type="time" value={settings.quiet_hours?.end||'08:00'} onChange={e=> setSettings({...settings, quiet_hours:{ ...(settings.quiet_hours||{}), end:e.target.value }})} aria-label="Quiet hours end" />
-        </div>
-        <div className="text-xs text-slate-600">{UI_STRINGS.quietHours.helper}</div>
-        <div className="text-[11px] text-slate-600">Preview: {fmt12(settings.quiet_hours?.start||'21:00')} – {fmt12(settings.quiet_hours?.end||'08:00')}</div>
+        {/* Quiet hours hidden per spec */}
         <div className="flex items-center gap-2 text-sm">
           <label className="flex items-center gap-2"> Auto-approve risky tools
             <input type="checkbox" checked={!!settings.auto_approve_all} onChange={async(e)=>{ const v=e.target.checked; setSettings({...settings, auto_approve_all: v}); try{ await api.post('/settings',{ tenant_id: await getTenant(), auto_approve_all: v }); }catch{} }} />

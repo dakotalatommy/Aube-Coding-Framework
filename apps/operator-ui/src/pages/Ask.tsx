@@ -171,6 +171,40 @@ const buildMemoryContextBlock = () => {
   }
 };
 
+const buildStrategyPrompt = (summary: any, brandContext: any) => {
+  const horizon = Number(summary?.horizon_days || 90);
+  const clients = normalizeClients(summary?.clients);
+  const brandProfile = brandContext?.brand_profile || {};
+  const goals = brandContext?.goals || {};
+  const voice = String(brandProfile?.voice || '').trim();
+  const about = String(brandProfile?.about || '').trim();
+  const goalPrimary = String(goals?.primary || '').trim();
+
+  const segments = [
+    'You are AskVX, the onboarding strategist for a beauty professional.',
+    `Use the revenue summary for the last ${horizon} days and the imported contacts to build a focused 14-day strategy.`,
+    'Ask up to two short clarifying questions if essential; otherwise move directly into the plan.',
+    'Return the plan as a markdown-friendly outline with each day numbered and 2-3 concrete actions.',
+    'Highlight ideal follow-up touchpoints, content ideas, and any retail or add-on suggestions.',
+  ];
+
+  if (voice || about || goalPrimary) {
+    const ctx: string[] = [];
+    if (voice) ctx.push(`Brand voice: ${voice}`);
+    if (about) ctx.push(`Brand profile: ${about}`);
+    if (goalPrimary) ctx.push(`Primary goal: ${goalPrimary}`);
+    segments.push(`Brand context:\n${ctx.join('\n')}`);
+  }
+
+  if (clients.length) {
+    const topLines = clients.map((client, idx) => `${idx + 1}. ${client.name} — ${client.visits} visits, ${formatCurrency(client.spend_cents)}`);
+    segments.push(`Top clients loaded:\n${topLines.join('\n')}`);
+  }
+
+  const prompt = `${segments.join('\n\n')}\n\nPlease confirm any assumptions briefly before presenting the final 14-day plan.`;
+  return prompt;
+};
+
 export default function Ask(){
   // const navigate = useNavigate();
   const { showToast } = useToast();
@@ -192,6 +226,7 @@ export default function Ask(){
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [insightsData, setInsightsData] = useState<any|null>(null);
   const [pendingInsights, setPendingInsights] = useState<any|null>(null);
+  const [pendingStrategy, setPendingStrategy] = useState<{ context: any } | null>(null);
   const [importSummary, setImportSummary] = useState<any|null>(()=>{
     try { return (window as any).__bvxLastImport || null; } catch { return null; }
   });
@@ -202,6 +237,7 @@ export default function Ask(){
   const [strategyMarkdown, setStrategyMarkdown] = useState<string>('');
   const [strategyDownloadUrl, setStrategyDownloadUrl] = useState<string>('');
   const [strategySaved, setStrategySaved] = useState(false);
+  const [brandContext, setBrandContext] = useState<any|null>(null);
   const [sessionId] = useState<string>(() => {
     const key = 'bvx_chat_session';
     const existing = localStorage.getItem(key);
@@ -343,10 +379,18 @@ export default function Ask(){
     const overrides: { mode?: string; context?: Record<string, unknown> } = {};
     if (isOnboard) overrides.mode = 'onboard';
     if (pendingInsights) overrides.context = { onboardingInsights: pendingInsights };
+    if (pendingStrategy) overrides.context = { ...(overrides.context||{}), onboardingStrategy: pendingStrategy.context };
     const result = await sendPrompt(prompt, Object.keys(overrides).length ? overrides : undefined);
     if (pendingInsights) {
       setPendingInsights(null);
       try { window.dispatchEvent(new CustomEvent('bvx:onboarding:askvx-sent', { detail: { success: !result?.error } })); } catch {}
+    }
+    if (pendingStrategy) {
+      if (!result?.error) {
+        await prepareStrategyDocument();
+        try { window.dispatchEvent(new CustomEvent('bvx:onboarding:strategy-ready', { detail: { success: true } })); } catch {}
+      }
+      setPendingStrategy(null);
     }
   };
 
@@ -387,28 +431,6 @@ export default function Ask(){
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(()=>{
-    const handler = (event: Event) => {
-      const detail = (event as CustomEvent).detail || {};
-      if (detail?.action === 'askvx.prefill') {
-        const prompt = String(detail.prompt || '');
-        setInput(prompt);
-        try { inputRef.current?.focus(); } catch {}
-      }
-      if (detail?.action === 'askvx.send') {
-        const prompt = String(detail.prompt || input).trim();
-        if (!prompt) return;
-        void sendPrompt(prompt, { mode: detail.mode, context: detail.context });
-      }
-      if (detail?.action === 'askvx.tab') {
-        const tab = String(detail.tab || 'chat').toLowerCase();
-        setPageIdx(tab === 'profile' ? 1 : 0);
-      }
-    };
-    window.addEventListener('bvx:flow:askvx-command' as any, handler as any);
-    return () => window.removeEventListener('bvx:flow:askvx-command' as any, handler as any);
-  }, [input, sendPrompt]);
-
   const runSmartAction = async () => {
     if (!smartAction || toolRunning) return;
     try{
@@ -432,7 +454,7 @@ export default function Ask(){
     }
   };
 
-  const handleRunInsights = useCallback(async () => {
+  const handleRunInsights = useCallback(async (opts?: { auto?: boolean }) => {
     if (insightsLoading || skipImport) return;
     try{
       setInsightsLoading(true);
@@ -453,7 +475,9 @@ export default function Ask(){
       try { inputRef.current?.focus(); } catch {}
       try { (window as any).__bvxAskInsights = { summary, prompt }; } catch {}
       try { window.dispatchEvent(new CustomEvent('bvx:onboarding:askvx-prefill', { detail: { summary, prompt } })); } catch {}
-      showToast({ title: 'Prompt ready', description: 'Send below to see your insights.' });
+      if (!opts?.auto) {
+        showToast({ title: 'Prompt ready', description: 'Send below to see your insights.' });
+      }
     } catch(e:any){
       const message = String(e?.message||e);
       showToast({ title: 'Snapshot failed', description: message });
@@ -461,6 +485,60 @@ export default function Ask(){
       setInsightsLoading(false);
     }
   }, [insightsLoading, showToast, skipImport]);
+
+  const injectStrategyPrompt = useCallback(async () => {
+    try {
+      const snapshot = insightsData || pendingInsights || ((window as any).__bvxAskInsights?.summary);
+      if (!snapshot) {
+        await handleRunInsights({ auto: true });
+        return;
+      }
+      let context = brandContext;
+      if (!context) {
+        try {
+          const tid = await getTenant();
+          const settings = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+          context = settings?.data || {};
+          setBrandContext(context);
+        } catch {}
+      }
+      const prompt = buildStrategyPrompt(snapshot, context);
+      setInput(prompt);
+      setPendingStrategy({ context: { snapshot, brand: context } });
+      try { inputRef.current?.focus(); } catch {}
+    } catch (err) {
+      console.error('strategy prompt injection failed', err);
+    }
+  }, [brandContext, handleRunInsights, insightsData, pendingInsights]);
+
+  useEffect(()=>{
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail || {};
+      const action = String(detail?.action || '').toLowerCase();
+      if (action === 'askvx.prefill') {
+        const prompt = String(detail.prompt || '');
+        setInput(prompt);
+        try { inputRef.current?.focus(); } catch {}
+      }
+      if (action === 'askvx.send') {
+        const prompt = String(detail.prompt || input).trim();
+        if (!prompt) return;
+        void sendPrompt(prompt, { mode: detail.mode, context: detail.context });
+      }
+      if (action === 'askvx.tab') {
+        const tab = String(detail.tab || 'chat').toLowerCase();
+        setPageIdx(tab === 'profile' ? 1 : 0);
+      }
+      if (action === 'askvx.run-insights') {
+        void handleRunInsights({ auto: true });
+      }
+      if (action === 'askvx.prepare-strategy') {
+        void injectStrategyPrompt();
+      }
+    };
+    window.addEventListener('bvx:flow:askvx-command' as any, handler as any);
+    return () => window.removeEventListener('bvx:flow:askvx-command' as any, handler as any);
+  }, [handleRunInsights, injectStrategyPrompt, input, sendPrompt]);
 
   const prepareStrategyDocument = useCallback(async () => {
     if (strategyLoading) return;
@@ -478,6 +556,7 @@ export default function Ask(){
       const settings = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
       const brandProfile = settings?.data?.brand_profile || {};
       const goals = settings?.data?.goals || {};
+      setBrandContext(settings?.data || {});
       const markdown = buildStrategyMarkdownDoc({
         snapshot,
         planDays,
@@ -614,6 +693,10 @@ export default function Ask(){
   const askIsDemo = sp.get('demo') === '1';
   const initialPage = sp.get('page') === '2' ? 1 : 0;
   const [pageIdx, setPageIdx] = useState<number>(initialPage);
+  const messagesBoxRef = useRef<HTMLDivElement|null>(null);
+  useEffect(()=>{
+    try{ messagesBoxRef.current?.scrollTo({ top: messagesBoxRef.current.scrollHeight, behavior: 'smooth' }); }catch{}
+  }, [messages.length, streaming, loading]);
   // Deep link tour
   useEffect(()=>{ try{ if (new URLSearchParams(window.location.search).get('tour')==='1') startGuide('askvx'); } catch {} },[]);
   useEffect(()=>{
@@ -633,10 +716,7 @@ export default function Ask(){
       )}
       {!embedded && (
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-end gap-2" data-guide="askvx-heading">
-            <h3 className="text-xl font-semibold" style={{fontFamily:'var(--font-display)'}}>askVX</h3>
-            <span className="text-xs uppercase tracking-wide text-slate-500">Insights & actions</span>
-          </div>
+          <h3 className="text-xl font-semibold text-slate-900" data-guide="askvx-heading" style={{fontFamily:'var(--font-display)'}}>AskVX</h3>
           <div className="flex items-center gap-2">
             <div className="inline-flex rounded-full bg-white overflow-hidden shadow-sm">
               <button className={`px-3 py-1 text-sm ${pageIdx===0? 'bg-slate-900 text-white':'text-slate-700'}`} onClick={()=> setPageIdx(0)}>Chat</button>
@@ -651,12 +731,11 @@ export default function Ask(){
       )}
       {pageIdx===0 && (
         <div className="mt-3 grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-          <div className={`rounded-xl border ${skipImport || importError ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-sky-200 bg-white text-slate-900'} p-3 shadow-sm`} data-guide="askvx-import-count">
-            <div className="text-xs uppercase tracking-wide text-slate-500">Contacts snapshot</div>
-            <div className="mt-1 text-lg font-semibold">{contactCardTitle}</div>
-            <div className="mt-1 text-xs text-slate-600">{importError ? importError : contactCardDetail}</div>
+          <div className={`rounded-xl border ${skipImport || importError ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-sky-200 bg-sky-50 text-slate-900'} p-3 shadow-sm`} data-guide="askvx-import-count">
+            <div className="text-sm font-semibold">{contactCardTitle}</div>
+            <div className="mt-1 text-sm text-slate-700">{importError ? importError : contactCardDetail}</div>
             {!skipImport && !importError && topClients.length > 0 && (
-              <div className="mt-2 text-[11px] text-slate-500">Top clients spotted: {topClients.map(c=>c.name).join(', ')}</div>
+              <div className="mt-2 text-[11px] text-slate-500">Top contacts spotted: {topClients.map(c=>c.name).join(', ')}</div>
             )}
           </div>
           <div className="rounded-xl border bg-white p-3 shadow-sm text-sm" data-guide="askvx-digest">
@@ -680,7 +759,7 @@ export default function Ask(){
       {pageIdx===0 && isOnboard && !skipImport && !importError && (
         <div className="mt-2 flex flex-wrap items-center gap-3 rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-slate-800" data-guide="askvx-insights-cta">
           <div className="font-medium">Ready to see what you just imported?</div>
-          <button className="rounded-full bg-slate-900 px-4 py-1.5 text-xs font-semibold text-white shadow" onClick={handleRunInsights} disabled={insightsLoading}>
+          <button className="rounded-full bg-slate-900 px-4 py-1.5 text-xs font-semibold text-white shadow" onClick={()=> handleRunInsights({ auto: false })} disabled={insightsLoading}>
             {insightsLoading ? 'Preparing…' : 'Generate snapshot'}
           </button>
           <button className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-600" onClick={reset} disabled={loading}>Clear chat</button>
@@ -693,17 +772,12 @@ export default function Ask(){
         </div>
       )}
       {pageIdx===0 && (
-        <div className="mt-2 flex items-center justify-between text-sm" data-guide="toolbar">
-          <div />
-          <div className="flex items-center gap-2 text-xs text-slate-500">
-            <span>Shift+Enter for newline</span>
-            <span aria-hidden="true">•</span>
-            <button className="underline" onClick={()=> startGuide('askvx')}>Tour</button>
-          </div>
+        <div className="mt-2 flex items-center justify-end text-xs text-slate-500">
+          <span>Shift+Enter for newline</span>
         </div>
       )}
       {pageIdx===0 && (
-      <div className={`rounded-xl bg-white shadow-sm p-3 border flex-1 min-h-0 overflow-y-auto min-w-0`} aria-live="polite" aria-atomic="false" role="log" data-guide="messages">
+      <div ref={messagesBoxRef} className={`rounded-xl bg-white shadow-sm p-3 border flex-1 min-h-0 overflow-y-auto min-w-0`} aria-live="polite" aria-atomic="false" role="log" data-guide="messages">
         {messages.length === 0 && (
           <div className="text-sm text-slate-500">Start a conversation below.</div>
         )}

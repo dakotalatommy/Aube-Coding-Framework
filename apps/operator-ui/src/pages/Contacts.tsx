@@ -193,11 +193,44 @@ export default function Contacts(){
             <Button variant="outline" size="sm" data-guide="clients-export" onClick={async()=>{
               try{
                 const tid = await getTenant();
-                const url = `${API_BASE}/exports/contacts?tenant_id=${encodeURIComponent(tid)}`;
                 const sess = (await supabase.auth.getSession()).data.session;
-                const res = await fetch(url, { headers: sess?.access_token ? { Authorization: `Bearer ${sess.access_token}` } : {} });
-                const text = await res.text();
-                const blob = new Blob([text], { type: 'text/csv;charset=utf-8;' });
+                const headers: Record<string,string> = sess?.access_token ? { Authorization: `Bearer ${sess.access_token}` } : {};
+                // Fetch in pages to avoid backend changes; cap at 10k for safety
+                let offset = 0; const limit = 1000; const max = 10000; const rows: any[] = [];
+                for (; offset < max; offset += limit) {
+                  const url = `${API_BASE}/contacts/list?tenant_id=${encodeURIComponent(tid)}&limit=${limit}&offset=${offset}`;
+                  const res = await fetch(url, { headers });
+                  if (!res.ok) break;
+                  const j = await res.json().catch(() => ({}));
+                  const pageItems = Array.isArray(j?.items) ? j.items : [];
+                  rows.push(...pageItems);
+                  if (pageItems.length < limit) break;
+                }
+                const head = ['first_name','last_name','display_name','email','phone','total_revenue','total_appointments','first_visit_at','last_visit_at','tags','sms_consent','email_consent'];
+                const csvLines = [head.join(',')];
+                const esc = (v: any) => {
+                  const s = (v==null? '' : String(v));
+                  return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s;
+                };
+                rows.forEach((r:any)=>{
+                  const first = String(r?.first_name||'').trim();
+                  const last = String(r?.last_name||'').trim();
+                  const disp = String(r?.display_name||'').trim();
+                  const email = String(r?.email||'').trim();
+                  const phone = String(r?.phone||'').trim();
+                  const total_revenue = Number(r?.lifetime_cents||0)/100;
+                  const total_appointments = Number(r?.txn_count||0);
+                  const first_visit_at = Number(r?.first_visit||0) ? new Date((Number(r.first_visit)<1e12? Number(r.first_visit)*1000 : Number(r.first_visit))).toISOString() : '';
+                  const last_visit_at = Number(r?.last_visit||0) ? new Date((Number(r.last_visit)<1e12? Number(r.last_visit)*1000 : Number(r.last_visit))).toISOString() : '';
+                  const tags = Array.isArray(r?.tags) ? r.tags.join(',') : '';
+                  const sms_consent = typeof r?.sms_consent==='boolean' ? (r.sms_consent?'yes':'no') : '';
+                  const email_consent = typeof r?.email_consent==='boolean' ? (r.email_consent?'yes':'no') : '';
+                  csvLines.push([
+                    esc(first), esc(last), esc(disp), esc(email), esc(phone), esc(total_revenue.toFixed(2)), esc(total_appointments), esc(first_visit_at), esc(last_visit_at), esc(tags), esc(sms_consent), esc(email_consent)
+                  ].join(','));
+                });
+                const csv = csvLines.join('\n');
+                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
                 const a = document.createElement('a');
                 a.href = URL.createObjectURL(blob);
                 a.download = 'contacts.csv';
