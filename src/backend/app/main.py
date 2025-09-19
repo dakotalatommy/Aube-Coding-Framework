@@ -5573,10 +5573,52 @@ class AcuityImportRequest(BaseModel):
 
 
 @app.post("/integrations/booking/acuity/import", tags=["Integrations"])
-def booking_import(req: AcuityImportRequest, ctx: UserContext = Depends(get_user_context)):
+def booking_import(req: AcuityImportRequest, ctx: UserContext = Depends(get_user_context_relaxed)):
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
     return booking_acuity.import_appointments(req.tenant_id, req.since, req.until, req.cursor)
+
+
+@app.get("/integrations/booking/acuity/status", tags=["Integrations"])  # relaxed-auth status probe
+def acuity_status(
+    tenant_id: str,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context_relaxed),
+):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"connected": False, "status": "forbidden"}
+    try:
+        # RLS-safe short-lived read
+        with engine.begin() as conn:
+            try:
+                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            except Exception:
+                pass
+            row = conn.execute(
+                _sql_text(
+                    """
+                    SELECT status, COALESCE(expires_at,0) AS exp, COALESCE(last_sync,0) AS ls, COALESCE(scopes,'') AS sc
+                    FROM connected_accounts_v2
+                    WHERE tenant_id = CAST(:t AS uuid) AND provider = 'acuity'
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"t": tenant_id},
+            ).fetchone()
+        if not row:
+            return {"connected": False, "status": "not_found"}
+        st, exp, ls, sc = row
+        return {
+            "connected": bool((st or "").strip() and (st or "").strip() != "revoked"),
+            "status": st or "",
+            "expires_at": int(exp or 0),
+            "last_sync": int(ls or 0),
+            "scopes": sc or "",
+        }
+    except Exception as e:
+        return {"connected": False, "status": "error", "detail": str(e)[:200]}
 
 
 @app.get("/metrics", tags=["Health"])
