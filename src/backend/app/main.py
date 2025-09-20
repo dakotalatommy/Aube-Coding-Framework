@@ -1993,20 +1993,20 @@ async def stripe_webhook(request: Request):
             else:
                 # Fallback: scan a limited window to match by customer id
                 rows = db.execute(_sql_text("SELECT tenant_id, data_json, id FROM settings ORDER BY id DESC LIMIT 200")).fetchall()
-                for tenant_id, data_json, sid in rows:
+            for tenant_id, data_json, sid in rows:
+                try:
+                    d = _json.loads(data_json or "{}")
+                except Exception:
+                    d = {}
+                if d.get("stripe_customer_id") == cust_id:
+                    d.update(t_update)
+                    db.execute(_sql_text("UPDATE settings SET data_json = :dj WHERE id = :sid"), {"dj": _json.dumps(d), "sid": sid})
+                    db.commit()
                     try:
-                        d = _json.loads(data_json or "{}")
+                        emit_event("BillingUpdated", {"tenant_id": tenant_id, "status": d.get("subscription_status", "unknown")})
                     except Exception:
-                        d = {}
-                    if d.get("stripe_customer_id") == cust_id:
-                        d.update(t_update)
-                        db.execute(_sql_text("UPDATE settings SET data_json = :dj WHERE id = :sid"), {"dj": _json.dumps(d), "sid": sid})
-                        db.commit()
-                        try:
-                            emit_event("BillingUpdated", {"tenant_id": tenant_id, "status": d.get("subscription_status", "unknown")})
-                        except Exception:
-                            pass
-                        break
+                        pass
+                    break
     except Exception:
         pass
     return JSONResponse({"status": "ok"})
@@ -2195,26 +2195,26 @@ def connected_accounts_list(
                     }
                 )
         else:
-        cols = _connected_accounts_columns(db)
-        name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
-        ts_col = 'connected_at' if 'connected_at' in cols else ('created_at' if 'created_at' in cols else None)
-        status_col = 'status' if 'status' in cols else None
-        if not name_col:
-            return {"items": [], "last_callback": None}
-        if not ts_col:
-            ts_col = '0'
-        select_cols = [f"{name_col} as provider", f"{ts_col} as ts"]
-        if status_col:
-            select_cols.insert(1, f"{status_col} as status")
-        is_uuid = _connected_accounts_tenant_is_uuid(db)
-        where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
-        sql = f"SELECT {', '.join(select_cols)} FROM connected_accounts WHERE {where_tid} ORDER BY id DESC LIMIT 12"
-        rows = db.execute(_sql_text(sql), {"t": tenant_id}).fetchall()
-        for r in (rows or []):
+            cols = _connected_accounts_columns(db)
+            name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
+            ts_col = 'connected_at' if 'connected_at' in cols else ('created_at' if 'created_at' in cols else None)
+            status_col = 'status' if 'status' in cols else None
+            if not name_col:
+                return {"items": [], "last_callback": None}
+            if not ts_col:
+                ts_col = '0'
+            select_cols = [f"{name_col} as provider", f"{ts_col} as ts"]
             if status_col:
-                items.append({"provider": str(r[0] or ""), "status": str(r[1] or ""), "ts": int(r[2] or 0)})
-            else:
-                items.append({"provider": str(r[0] or ""), "status": "unknown", "ts": int(r[1] or 0)})
+                select_cols.insert(1, f"{status_col} as status")
+            is_uuid = _connected_accounts_tenant_is_uuid(db)
+            where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
+            sql = f"SELECT {', '.join(select_cols)} FROM connected_accounts WHERE {where_tid} ORDER BY id DESC LIMIT 12"
+            rows = db.execute(_sql_text(sql), {"t": tenant_id}).fetchall()
+            for r in (rows or []):
+                if status_col:
+                    items.append({"provider": str(r[0] or ""), "status": str(r[1] or ""), "ts": int(r[2] or 0)})
+                else:
+                    items.append({"provider": str(r[0] or ""), "status": "unknown", "ts": int(r[1] or 0)})
         # Tolerate legacy audit_logs schemas missing 'payload'
         a_cols = _audit_logs_columns(db)
         sel_cols = ["action", "created_at"]
@@ -2293,12 +2293,12 @@ def integrations_status(
                     if not linked_map[p]:
                         linked_map[p] = True
                     if len(select_cols) >= 2 and select_cols[1] == 'status' and not status_map[p]:
-                            status_map[p] = str(r[1] or '')
+                        status_map[p] = str(r[1] or '')
                     if len(select_cols) >= 3 and select_cols[2] == 'expires_at' and not expires_map[p]:
-                            try:
-                                expires_map[p] = int(r[2] or 0)
-                            except Exception:
-                                expires_map[p] = 0
+                        try:
+                            expires_map[p] = int(r[2] or 0)
+                        except Exception:
+                            expires_map[p] = 0
                 except Exception:
                     continue
         # last oauth callback
@@ -5114,7 +5114,7 @@ async def ai_tool_execute(
                 return {"status": "forbidden", "reason": "tool_not_allowed_in_mode", "mode": mode}
         # Execute with one-time retry for transient DB disconnects
         try:
-        result = await execute_tool(req.name, dict(req.params or {}), db, ctx)
+            result = await execute_tool(req.name, dict(req.params or {}), db, ctx)
         except Exception as _exec_err:
             try:
                 db.rollback()
@@ -5573,28 +5573,26 @@ class AcuityImportRequest(BaseModel):
 
 
 @app.post("/integrations/booking/acuity/import", tags=["Integrations"])
-def booking_import(req: AcuityImportRequest, ctx: UserContext = Depends(get_user_context)):
-    # Canonicalize tenant like Square tools path
-    try:
-        req.tenant_id = ctx.tenant_id
-    except Exception:
-        pass
+def booking_import(req: AcuityImportRequest, ctx: UserContext = Depends(get_user_context_relaxed)):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
     return booking_acuity.import_appointments(req.tenant_id, req.since, req.until, req.cursor)
 
 
-@app.get("/integrations/booking/acuity/status", tags=["Integrations"])  # canonicalized status probe
+@app.get("/integrations/booking/acuity/status", tags=["Integrations"])  # relaxed-auth status probe
 def acuity_status(
     tenant_id: str,
     db: Session = Depends(get_db),
-    ctx: UserContext = Depends(get_user_context),
+    ctx: UserContext = Depends(get_user_context_relaxed),
 ):
-    tid = ctx.tenant_id
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"connected": False, "status": "forbidden"}
     try:
         # RLS-safe short-lived read
         with engine.begin() as conn:
             try:
                 conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tid})
+                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
             except Exception:
                 pass
             row = conn.execute(
@@ -5607,7 +5605,7 @@ def acuity_status(
                     LIMIT 1
                     """
                 ),
-                {"t": tid},
+                {"t": tenant_id},
             ).fetchone()
         if not row:
             return {"connected": False, "status": "not_found"}
@@ -5909,7 +5907,7 @@ def get_settings(
             try:
                 conn.execute(__t("SET LOCAL app.role = 'owner_admin'"))
                 conn.execute(__t("SET LOCAL app.tenant_id = :t"), {"t": tid})
-        except Exception:
+            except Exception:
                 pass
             r = conn.execute(__t("SELECT id, data_json FROM settings WHERE tenant_id = CAST(:t AS uuid) ORDER BY id DESC LIMIT 1"), {"t": tid}).fetchone()
             if not r or not ((r[1] or "").strip()):
@@ -5928,7 +5926,7 @@ def get_settings(
                     conn.execute(__t("UPDATE settings SET data_json=:d WHERE id=:id"), {"d": json.dumps(data), "id": r[0]})
                 return {"data": data} 
             except Exception:
-            return {"data": {}}
+                return {"data": {}}
     except Exception:
         # Fallback to ORM path (may be empty if RLS not satisfied by session GUCs)
         try:
@@ -5936,8 +5934,8 @@ def get_settings(
             if not row or not (row.data_json or "").strip():
                 return {"data": {}}
             return {"data": json.loads(row.data_json)}
-    except Exception:
-        return {"data": {}}
+        except Exception:
+            return {"data": {}}
 
 
 @app.post("/settings", tags=["Integrations"])
@@ -7057,8 +7055,8 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 state_verified = False
                 try:
                     emit_event("OauthStateMiss", {"tenant_id": t_id, "provider": provider})
-        except Exception:
-            pass
+                except Exception:
+                    pass
         except Exception:
             state_verified = True
         status = "pending_config" if not any([
@@ -7130,34 +7128,34 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
         try:
             # Upsert using the SAME session/connection that already has RLS GUCs set.
             # This avoids losing app.tenant_id/app.role when ENABLE_PG_RLS=1.
-                params: Dict[str, Any] = {
-                    "t": t_id,
-                    "prov": provider,
+            params: Dict[str, Any] = {
+                "t": t_id,
+                "prov": provider,
                 # Only mark connected when we actually exchanged a token
                 "st": ("connected" if (exchange_ok and bool(access_token_enc)) else "pending_config"),
                 "at": (access_token_enc if access_token_enc else None),
-                    "rt": (refresh_token_enc if refresh_token_enc is not None else None),
-                    "exp": (int(expires_at) if isinstance(expires_at, (int, float)) else None),
-                    "sc": scopes_str,
-                }
-                set_parts = ["status=:st", "connected_at=NOW()"]
+                "rt": (refresh_token_enc if refresh_token_enc is not None else None),
+                "exp": (int(expires_at) if isinstance(expires_at, (int, float)) else None),
+                "sc": scopes_str,
+            }
+            set_parts = ["status=:st", "connected_at=NOW()"]
             if params["at"]: set_parts.append("access_token_enc=:at")
             if params["rt"]: set_parts.append("refresh_token_enc=:rt")
             if params["exp"] is not None: set_parts.append("expires_at=:exp")
-                if scopes_str: set_parts.append("scopes=:sc")
-                upd = f"UPDATE connected_accounts_v2 SET {', '.join(set_parts)} WHERE tenant_id = CAST(:t AS uuid) AND provider = :prov"
+            if scopes_str: set_parts.append("scopes=:sc")
+            upd = f"UPDATE connected_accounts_v2 SET {', '.join(set_parts)} WHERE tenant_id = CAST(:t AS uuid) AND provider = :prov"
             res = db.execute(_sql_text(upd), params)
             try:
                 update_count = int(getattr(res, "rowcount", 0) or 0)
             except Exception:
                 update_count = 0
             if update_count == 0:
-                    cols = ["tenant_id","provider","status","connected_at"]
-                    vals = ["CAST(:t AS uuid)",":prov",":st","NOW()"]
+                cols = ["tenant_id","provider","status","connected_at"]
+                vals = ["CAST(:t AS uuid)",":prov",":st","NOW()"]
                 if params["at"]: cols.append("access_token_enc"); vals.append(":at")
                 if params["rt"]: cols.append("refresh_token_enc"); vals.append(":rt")
                 if params["exp"] is not None: cols.append("expires_at"); vals.append(":exp")
-                    if scopes_str: cols.append("scopes"); vals.append(":sc")
+                if scopes_str: cols.append("scopes"); vals.append(":sc")
                 ins = f"INSERT INTO connected_accounts_v2 ({', '.join(cols)}) VALUES ({', '.join(vals)}) RETURNING id"
                 try:
                     inserted_id = db.execute(_sql_text(ins), params).scalar()
@@ -7221,16 +7219,16 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
         # Emit explicit event about save attempt
         try:
             emit_event("OauthTokenSaved", {"tenant_id": t_id, "provider": provider, "saved": bool(saved_token_write), "exchange_ok": bool(exchange_ok)})
-                except Exception:
-                    pass
+        except Exception:
+            pass
         try:
             cid = request.query_params.get('cid') or ''
             payload = {"code": bool(code), "error": error or "", "exchange_ok": exchange_ok, **({} if not exchange_detail else exchange_detail)}
             if cid:
                 payload["cid"] = cid
             _safe_audit_log(db, tenant_id=t_id, actor_id="system", action=f"oauth.callback.{provider}", entity_ref="oauth", payload=str(payload))
-            except Exception:
-                pass
+        except Exception:
+            pass
         # Emit event for callback
         try:
             emit_event("OauthCallback", {"tenant_id": t_id, "provider": provider, "code_present": bool(code), "error": error or ""})
@@ -7842,15 +7840,15 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                 if outcome == "created":
                     created_total += 1
                 elif outcome == "updated":
-                            updated_total += 1
-                        else:
-                            existing_total += 1
+                    updated_total += 1
+                else:
+                    existing_total += 1
             except Exception as e:
                 # Surface the first write error to the response path via a lightweight cache hint
                 try:
                     emit_event("ImportWriteError", {"tenant_id": req.tenant_id, "provider": "square", "detail": str(e)[:180]})
-            except Exception:
-                pass
+                except Exception:
+                    pass
 
         headers = {
             "Authorization": f"Bearer {token}",
@@ -9637,7 +9635,7 @@ def onboarding_status(
         # Some Supabase schemas may not include user_id on connected_accounts.
         # Fallback: detect any connected account for this tenant via platform presence.
         try:
-        connected_accounts = asyncio.run(
+            connected_accounts = asyncio.run(
             adapter.select(
                 "connected_accounts",
                 {"select": "platform,connected_at", "user_id": f"eq.{ctx.user_id}", "limit": "10"},
@@ -9648,8 +9646,8 @@ def onboarding_status(
                 adapter.select(
                     "connected_accounts",
                     {"select": "platform,connected_at", "limit": "10"},
+                )
             )
-        )
         connected = bool(connected_accounts)
         # Lead status count as crude first-sync signal
         lead_rows = asyncio.run(adapter.get_lead_status(tenant_id))
@@ -10507,7 +10505,7 @@ def calendar_sync(req: SyncRequest, db: Session = Depends(get_db), ctx: UserCont
     # Scaffold provider adapters: populate some sample events depending on provider and persist
     def _add_events(new_events: List[Dict[str, object]]):
         try:
-        seen_ids = {str(r.event_id) for r in db.query(dbm.CalendarEvent).filter(dbm.CalendarEvent.tenant_id == req.tenant_id, dbm.CalendarEvent.event_id.isnot(None)).all()}
+            seen_ids = {str(r.event_id) for r in db.query(dbm.CalendarEvent).filter(dbm.CalendarEvent.tenant_id == req.tenant_id, dbm.CalendarEvent.event_id.isnot(None)).all()}
         except Exception:
             try:
                 db.rollback()
@@ -10516,18 +10514,18 @@ def calendar_sync(req: SyncRequest, db: Session = Depends(get_db), ctx: UserCont
             seen_ids = set()
         for e in new_events:
             try:
-            eid = str(e.get("id")) if e.get("id") is not None else None
-            if eid and eid in seen_ids:
-                continue
-            db.add(dbm.CalendarEvent(
-                tenant_id=req.tenant_id,
-                event_id=eid,
-                title=str(e.get("title") or e.get("service") or ""),
-                start_ts=int(e.get("start_ts") or 0),
-                end_ts=int(e.get("end_ts") or 0) or None,
-                provider=str(e.get("provider") or req.provider or ""),
-                status=str(e.get("status") or ""),
-            ))
+                eid = str(e.get("id")) if e.get("id") is not None else None
+                if eid and eid in seen_ids:
+                    continue
+                db.add(dbm.CalendarEvent(
+                    tenant_id=req.tenant_id,
+                    event_id=eid,
+                    title=str(e.get("title") or e.get("service") or ""),
+                    start_ts=int(e.get("start_ts") or 0),
+                    end_ts=int(e.get("end_ts") or 0) or None,
+                    provider=str(e.get("provider") or req.provider or ""),
+                    status=str(e.get("status") or ""),
+                ))
             except Exception:
                 try:
                     db.rollback()
@@ -10536,7 +10534,7 @@ def calendar_sync(req: SyncRequest, db: Session = Depends(get_db), ctx: UserCont
                 continue
     if prov == "google":
         try:
-        _add_events(cal_google.fetch_events(req.tenant_id))
+            _add_events(cal_google.fetch_events(req.tenant_id))
         except Exception:
             try:
                 db.rollback()
@@ -10544,7 +10542,7 @@ def calendar_sync(req: SyncRequest, db: Session = Depends(get_db), ctx: UserCont
                 pass
     elif prov == "apple":
         try:
-        _add_events(cal_apple.fetch_events(req.tenant_id))
+            _add_events(cal_apple.fetch_events(req.tenant_id))
         except Exception:
             try:
                 db.rollback()
@@ -10560,7 +10558,7 @@ def calendar_sync(req: SyncRequest, db: Session = Depends(get_db), ctx: UserCont
         except Exception:
             pass
     try:
-    db.commit()
+        db.commit()
     except Exception:
         try:
             db.rollback()
