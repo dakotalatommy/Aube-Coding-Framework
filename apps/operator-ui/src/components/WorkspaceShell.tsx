@@ -62,6 +62,7 @@ export default function WorkspaceShell(){
   const TRIAL_DAYS = Number((import.meta as any).env?.VITE_STRIPE_TRIAL_DAYS || '7');
   const STRIPE_BUY_BUTTON_47 = String((import.meta as any).env?.VITE_STRIPE_BUY_BUTTON_47 || '');
   const STRIPE_PK = String((import.meta as any).env?.VITE_STRIPE_PK || (import.meta as any).env?.VITE_STRIPE_PUBLISHABLE_KEY || '');
+  const DEV_ONBOARDING = String((import.meta as any).env?.VITE_ONBOARDING_DEV_MODE || '0') === '1';
 const FORCE_ONBOARD_TOUR = false;
 
   const [billingOpen, setBillingOpen] = useState(false);
@@ -285,6 +286,15 @@ const FORCE_ONBOARD_TOUR = false;
   useEffect(() => {
     try {
       const paneNow = new URLSearchParams(loc.search).get('pane') || 'dashboard';
+      if (DEV_ONBOARDING && paneNow === 'dashboard') {
+        // Tear down any lingering driver overlays before showing modal
+        try {
+          document.body?.classList.remove('driver-active','driver-fade');
+          document.querySelectorAll('.driver-overlay, .driver-popover').forEach(el => { try{ el.parentElement?.removeChild(el); }catch{} });
+        } catch {}
+        setWelcomeOpen(true);
+        return;
+      }
       const onboardingDone = localStorage.getItem('bvx_onboarding_done') === '1';
       const guideDone = workspaceStorage.getGuideDone();
       if (paneNow === 'dashboard' && onboardingDone && !guideDone) {
@@ -292,6 +302,56 @@ const FORCE_ONBOARD_TOUR = false;
       }
     } catch {}
   }, [loc.search]);
+
+  // Dev guard: if already in workspace while dev mode is on, send to /onboarding once per session
+  useEffect(() => {
+    if (!DEV_ONBOARDING) return;
+    try {
+      const already = sessionStorage.getItem('bvx_dev_onboard_routed') === '1';
+      const onOnboarding = window.location.pathname.startsWith('/onboarding');
+      if (!already && !onOnboarding) {
+        sessionStorage.setItem('bvx_dev_onboard_routed','1');
+        window.location.replace('/onboarding');
+      }
+    } catch {}
+  }, [DEV_ONBOARDING]);
+
+  // While WelcomeModal is open, ensure it stays top-most and no driver overlay blocks it
+  useEffect(() => {
+    if (!welcomeOpen) return;
+    try {
+      document.body?.classList.remove('driver-active','driver-fade');
+      document.querySelectorAll('.driver-overlay, .driver-popover').forEach(el => { try{ el.parentElement?.removeChild(el); }catch{} });
+    } catch {}
+    const t = setTimeout(() => {
+      try {
+        const hasOverlay = document.querySelectorAll('.driver-overlay').length > 0;
+        const hasPopover = document.querySelectorAll('.driver-popover').length > 0;
+        if (hasOverlay && !hasPopover) {
+          document.querySelectorAll('.driver-overlay, .driver-popover').forEach(el => { try{ el.parentElement?.removeChild(el); }catch{} });
+          document.body?.classList.remove('driver-active','driver-fade');
+        }
+      } catch {}
+    }, 700);
+    return () => clearTimeout(t);
+  }, [welcomeOpen]);
+
+  // Dev mode: reset tour-related local flags on mount so each run behaves like a fresh tenant
+  useEffect(() => {
+    if (!DEV_ONBOARDING) return;
+    try {
+      localStorage.removeItem('bvx_guide_done');
+      localStorage.removeItem('bvx_quickstart_completed');
+      localStorage.removeItem('bvx_tour_seen_workspace_intro');
+      localStorage.removeItem('bvx_billing_dismissed');
+      localStorage.removeItem('bvx_founder_finale_seen');
+      localStorage.removeItem('bvx_last_tour_step');
+      localStorage.removeItem('bvx_nocenter');
+      localStorage.removeItem('bvx_force_start_tour');
+      localStorage.removeItem('bvx_force_welcome_modal');
+      sessionStorage.removeItem('bvx_intro_session');
+    } catch {}
+  }, [DEV_ONBOARDING]);
 
   useEffect(() => {
     const onNavigate = (event: Event) => {
@@ -925,7 +985,7 @@ const FORCE_ONBOARD_TOUR = false;
         {/* Arrows removed per product decision */}
       </div>
       {welcomeOpen && createPortal(
-        <div className="fixed inset-0 z-[2147483642] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[2147483644] flex items-center justify-center p-4">
           <div aria-hidden className="absolute inset-0 bg-black/35" onClick={()=>{ setWelcomeOpen(false); try{ localStorage.removeItem('bvx_force_welcome_modal'); }catch{} }} />
           <div className="relative w-full max-w-lg rounded-2xl border border-[var(--border)] bg-white p-6 shadow-soft text-center">
             <div className="text-ink-900 text-xl font-semibold">Welcome to brandVX</div>

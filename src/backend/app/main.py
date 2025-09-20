@@ -1683,40 +1683,17 @@ def _connected_accounts_map(db: Session, tenant_id: str) -> Dict[str, str]:
     rows_v2 = _connected_accounts_v2_rows(db, tenant_id)
     if rows_v2:
         return {r["provider"]: r.get("status") or "connected" for r in rows_v2}
-    # Fallback to legacy table if no v2 rows available
-    cols = _connected_accounts_columns(db)
-    name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
-    if not name_col:
-        return {}
-    status_col = 'status' if 'status' in cols else None
-    select_cols = [f"{name_col} as provider"]
-    if status_col:
-        select_cols.append(f"{status_col} as status")
-    is_uuid = _connected_accounts_tenant_is_uuid(db)
-    where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
-    sql = f"SELECT {', '.join(select_cols)} FROM connected_accounts WHERE {where_tid}"
-    try:
-        rows = db.execute(_sql_text(sql), {"t": tenant_id}).fetchall()
-    except Exception:
-        return {}
-    out: Dict[str, str] = {}
-    for r in (rows or []):
-        prov = str(r[0] or '')
-        stat = str(r[1] or 'connected') if status_col else 'connected'
-        if prov:
-            out[prov] = stat
-    return out
+    # V2-only: if no rows in v2, report empty map
+    return {}
 
 def _has_connected_account(db: Session, tenant_id: str, provider: str) -> bool:
-    cols = _connected_accounts_columns(db)
-    name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
-    if not name_col:
-        return False
-    is_uuid = _connected_accounts_tenant_is_uuid(db)
-    where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
-    sql = f"SELECT 1 FROM connected_accounts WHERE {where_tid} AND {name_col} = :p ORDER BY id DESC LIMIT 1"
     try:
-        row = db.execute(_sql_text(sql), {"t": tenant_id, "p": provider}).fetchone()
+        row = db.execute(
+            _sql_text(
+                "SELECT 1 FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider = :p ORDER BY id DESC LIMIT 1"
+            ),
+            {"t": tenant_id, "p": provider},
+        ).fetchone()
         return bool(row)
     except Exception:
         return False
@@ -2070,18 +2047,14 @@ def debug_oauth(provider: str = "square"):
                 if row and row[0]:
                     tenant = str(row[0])
                 last_log = db.execute(_sql_text("SELECT action, created_at, payload FROM audit_logs WHERE action LIKE :a ORDER BY id DESC LIMIT 1"), {"a": f"oauth.callback.{provider}%"}).fetchone()
-                is_uuid = _connected_accounts_tenant_is_uuid(db)
-                where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
-                # Report access_token presence
-                cols = _connected_accounts_columns(db)
-                token_col = 'access_token_enc' if 'access_token_enc' in cols else ('access_token' if 'access_token' in cols else None)
-                ca = db.execute(_sql_text(f"SELECT status, created_at{', ' + token_col if token_col else ''} FROM connected_accounts WHERE {where_tid} AND provider = :p ORDER BY id DESC LIMIT 1"), {"t": tenant, "p": provider}).fetchone()
+                # v2-only: Report access_token presence from v2
+                ca = db.execute(_sql_text("SELECT status, connected_at, access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider = :p ORDER BY id DESC LIMIT 1"), {"t": tenant, "p": provider}).fetchone()
                 info["last_callback"] = {
                     "seen": bool(last_log),
                     "ts": int(last_log[1]) if last_log else None,
                 }
                 at_present = None
-                if ca and token_col:
+                if ca:
                     try:
                         at_present = bool(ca[2])
                     except Exception:
@@ -2185,36 +2158,14 @@ def connected_accounts_list(
     try:
         rows_v2 = _connected_accounts_v2_rows(db, tenant_id)
         items: List[Dict[str, Any]] = []
-        if rows_v2:
-            for r in rows_v2[:12]:
-                items.append(
-                    {
-                        "provider": r.get("provider", ""),
-                        "status": r.get("status") or "connected",
-                        "ts": int(r.get("ts") or 0),
-                    }
-                )
-        else:
-            cols = _connected_accounts_columns(db)
-            name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
-            ts_col = 'connected_at' if 'connected_at' in cols else ('created_at' if 'created_at' in cols else None)
-            status_col = 'status' if 'status' in cols else None
-            if not name_col:
-                return {"items": [], "last_callback": None}
-            if not ts_col:
-                ts_col = '0'
-            select_cols = [f"{name_col} as provider", f"{ts_col} as ts"]
-            if status_col:
-                select_cols.insert(1, f"{status_col} as status")
-            is_uuid = _connected_accounts_tenant_is_uuid(db)
-            where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
-            sql = f"SELECT {', '.join(select_cols)} FROM connected_accounts WHERE {where_tid} ORDER BY id DESC LIMIT 12"
-            rows = db.execute(_sql_text(sql), {"t": tenant_id}).fetchall()
-            for r in (rows or []):
-                if status_col:
-                    items.append({"provider": str(r[0] or ""), "status": str(r[1] or ""), "ts": int(r[2] or 0)})
-                else:
-                    items.append({"provider": str(r[0] or ""), "status": "unknown", "ts": int(r[1] or 0)})
+        for r in rows_v2[:12]:
+            items.append(
+                {
+                    "provider": r.get("provider", ""),
+                    "status": r.get("status") or "connected",
+                    "ts": int(r.get("ts") or 0),
+                }
+            )
         # Tolerate legacy audit_logs schemas missing 'payload'
         a_cols = _audit_logs_columns(db)
         sel_cols = ["action", "created_at"]
@@ -2273,34 +2224,7 @@ def integrations_status(
                     last_sync[p] = ls
             except Exception:
                 pass
-        cols = _connected_accounts_columns(db)
-        name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
-        if name_col:
-            is_uuid = _connected_accounts_tenant_is_uuid(db)
-            where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
-            select_cols = [name_col]
-            if 'status' in cols:
-                select_cols.append('status')
-            if 'expires_at' in cols:
-                select_cols.append('expires_at')
-            sql = f"SELECT {', '.join(select_cols)} FROM connected_accounts WHERE {where_tid}"
-            rows = db.execute(_sql_text(sql), {"t": tenant_id}).fetchall()
-            for r in rows or []:
-                try:
-                    p = str(r[0] or '').lower()
-                    if p not in linked_map:
-                        continue
-                    if not linked_map[p]:
-                        linked_map[p] = True
-                    if len(select_cols) >= 2 and select_cols[1] == 'status' and not status_map[p]:
-                        status_map[p] = str(r[1] or '')
-                    if len(select_cols) >= 3 and select_cols[2] == 'expires_at' and not expires_map[p]:
-                        try:
-                            expires_map[p] = int(r[2] or 0)
-                        except Exception:
-                            expires_map[p] = 0
-                except Exception:
-                    continue
+        # v2 is the source of truth; legacy is ignored
         # last oauth callback
         a_cols = _audit_logs_columns(db)
         sel_cols = ["action", "created_at"]

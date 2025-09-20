@@ -42,7 +42,7 @@ def _read_one(conn, sql: str, params: Dict[str, object]) -> Optional[Tuple[objec
 
 
 def _fetch_acuity_token(tenant_id: str) -> str:
-    """Return decrypted Acuity access token if present, else ''. Tries v2 then legacy."""
+    """Return decrypted Acuity access token if present in connected_accounts_v2, else ''."""
     token = ""
     # v2 via short-lived conn
     for _ in range(2):  # one retry on transient disconnect
@@ -60,19 +60,7 @@ def _fetch_acuity_token(tenant_id: str) -> str:
             time.sleep(0.05)
             continue
         break
-    # legacy table via short-lived conn: try provider, then platform columns
-    try:
-        with _with_conn(tenant_id) as conn:  # type: ignore
-            row = _read_one(conn, "SELECT access_token_enc FROM connected_accounts WHERE tenant_id = CAST(:t AS uuid) AND provider='acuity' ORDER BY id DESC LIMIT 1", {"t": tenant_id})
-            if not row:
-                row = _read_one(conn, "SELECT access_token_enc FROM connected_accounts WHERE tenant_id = CAST(:t AS uuid) AND platform='acuity' ORDER BY id DESC LIMIT 1", {"t": tenant_id})
-            if row and row[0]:
-                try:
-                    token = decrypt_text(str(row[0])) or str(row[0])
-                except Exception:
-                    token = str(row[0])
-    except Exception:
-        token = token
+    # Do not fallback to legacy connected_accounts; v2-only
     return token or ""
 
 
