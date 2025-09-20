@@ -72,7 +72,7 @@ const FORCE_ONBOARD_TOUR = false;
   const [trialEndedOpen, setTrialEndedOpen] = useState<boolean>(false);
   const [trialDaysLeft, setTrialDaysLeft] = useState<number>(0);
   const [flowModal, setFlowModal] = useState<FlowModalConfig | null>(null);
-  const [welcomeOpen, setWelcomeOpen] = useState<boolean>(false);
+  // Welcome step is now part of driver.js tour; no standalone modal
   const [isLiteTier, setIsLiteTier] = useState<boolean>(false);
   const [flowModalInput, setFlowModalInput] = useState('');
   const [debugEvents, setDebugEvents] = useState<string[]>([]);
@@ -282,59 +282,22 @@ const FORCE_ONBOARD_TOUR = false;
     return unsubscribe;
   }, [onboardingController]);
 
-  // Welcome modal bootstrap: show when tour is not done on first dashboard mount
-  useEffect(() => {
-    try {
-      const paneNow = new URLSearchParams(loc.search).get('pane') || 'dashboard';
-      if (DEV_ONBOARDING && paneNow === 'dashboard') {
-        // Tear down any lingering driver overlays before showing modal
-        try {
-          document.body?.classList.remove('driver-active','driver-fade');
-          document.querySelectorAll('.driver-overlay, .driver-popover').forEach(el => { try{ el.parentElement?.removeChild(el); }catch{} });
-        } catch {}
-        setWelcomeOpen(true);
-        return;
-      }
-      const onboardingDone = localStorage.getItem('bvx_onboarding_done') === '1';
-      const guideDone = workspaceStorage.getGuideDone();
-      if (paneNow === 'dashboard' && onboardingDone && !guideDone) {
-        setWelcomeOpen(true);
-      }
-    } catch {}
-  }, [loc.search]);
+  // No welcome modal bootstrap; driver tour will show the centered welcome as step 0
 
-  // Dev guard: if already in workspace while dev mode is on, send to /onboarding once per session
+  // Dev guard: if in workspace while dev mode is on, send to /onboarding once per session
   useEffect(() => {
     if (!DEV_ONBOARDING) return;
     try {
-      const already = sessionStorage.getItem('bvx_dev_onboard_routed') === '1';
       const onOnboarding = window.location.pathname.startsWith('/onboarding');
-      if (!already && !onOnboarding) {
+      const already = sessionStorage.getItem('bvx_dev_onboard_routed') === '1';
+      if (!onOnboarding && !already) {
         sessionStorage.setItem('bvx_dev_onboard_routed','1');
         window.location.replace('/onboarding');
       }
     } catch {}
   }, [DEV_ONBOARDING]);
 
-  // While WelcomeModal is open, ensure it stays top-most and no driver overlay blocks it
-  useEffect(() => {
-    if (!welcomeOpen) return;
-    try {
-      document.body?.classList.remove('driver-active','driver-fade');
-      document.querySelectorAll('.driver-overlay, .driver-popover').forEach(el => { try{ el.parentElement?.removeChild(el); }catch{} });
-    } catch {}
-    const t = setTimeout(() => {
-      try {
-        const hasOverlay = document.querySelectorAll('.driver-overlay').length > 0;
-        const hasPopover = document.querySelectorAll('.driver-popover').length > 0;
-        if (hasOverlay && !hasPopover) {
-          document.querySelectorAll('.driver-overlay, .driver-popover').forEach(el => { try{ el.parentElement?.removeChild(el); }catch{} });
-          document.body?.classList.remove('driver-active','driver-fade');
-        }
-      } catch {}
-    }, 700);
-    return () => clearTimeout(t);
-  }, [welcomeOpen]);
+  // Welcome handled by tour; no overlay coordination needed here
 
   // Dev mode: reset tour-related local flags on mount so each run behaves like a fresh tenant
   useEffect(() => {
@@ -442,18 +405,35 @@ const FORCE_ONBOARD_TOUR = false;
   }, []);
 
   useEffect(() => {
-    // Auto-start only when explicitly forced and welcome modal is not expected
+    // Auto-start unified tour on dashboard when onboarding is done and guide not done (or always in dev mode)
     const paneNow = new URLSearchParams(loc.search).get('pane') || 'dashboard';
     const onboardingDone = (()=>{ try{ return localStorage.getItem('bvx_onboarding_done')==='1'; }catch{ return false; }})();
     const guideDone = (()=>{ try{ return workspaceStorage.getGuideDone(); }catch{ return false; }})();
-    const wantWelcome = paneNow === 'dashboard' && onboardingDone && !guideDone;
-    const forceStart = (()=>{ try{ return localStorage.getItem('bvx_force_start_tour')==='1'; }catch{ return false; }})();
-    if (!wantWelcome && forceStart && !autoStartRef.current) {
+    const shouldStart = paneNow === 'dashboard' && (DEV_ONBOARDING || (onboardingDone && !guideDone));
+    if (shouldStart && !autoStartRef.current) {
       autoStartRef.current = true;
-      try { localStorage.removeItem('bvx_force_start_tour'); } catch {}
-      onboardingController.start({ force: false }).catch(err => console.error('onboarding start failed', err));
+      (async () => {
+        // Clean any lingering overlays before starting
+        try {
+          document.querySelectorAll('.driver-overlay, .driver-popover').forEach(el => { try{ el.parentElement?.removeChild(el); }catch{} });
+          document.body.classList.remove('driver-active','driver-fade','bvx-center-popover-body');
+        } catch {}
+        // Wait briefly for dashboard DOM to mount so underlying content renders correctly
+        try {
+          const ok = await waitForCondition(() => Boolean(
+            document.querySelector('[data-guide="kpis"]') ||
+            document.querySelector('[data-guide="quickstart"]') ||
+            document.querySelector('[data-guide="next-best-steps"]')
+          ), 2500);
+          if (!ok) {
+            // Still start, but after a small defer to avoid racing Suspense
+            await sleep(200);
+          }
+        } catch {}
+        onboardingController.start({ force: false }).catch(err => console.error('onboarding start failed', err));
+      })();
     }
-  }, [loc.search, onboardingController]);
+  }, [loc.search, onboardingController, DEV_ONBOARDING]);
 
   useEffect(() => {
     (async () => {
@@ -624,8 +604,8 @@ const FORCE_ONBOARD_TOUR = false;
             // Trial ended gating modal when not covered
             if (status !== 'active' && left <= 0) {
               setTrialEndedOpen(true);
-            }
-          } catch {}
+          }
+        } catch {}
         } catch {}
 
         // Booking nudge: highlight left-rail Book onboarding button once after onboarding
@@ -877,7 +857,7 @@ const FORCE_ONBOARD_TOUR = false;
         document.head.appendChild(s);
       }
       (window as any).__bvxStripeBuyLoaded = true;
-    } catch {}
+      } catch {}
   }, [billingOpen, STRIPE_BUY_BUTTON_47, STRIPE_PK]);
 
   const buyButton47Html = useMemo(() => {
@@ -908,6 +888,7 @@ const FORCE_ONBOARD_TOUR = false;
           data-debug-panel
         >
           <div>dbg pane={pane} status={billingStatus||'n/a'} open={billingOpen?'1':'0'} phase={onboardingState.phase} running={onboardingState.running?'1':'0'}</div>
+          <div>overlay={typeof document!=='undefined'?document.querySelectorAll('.driver-overlay').length:0} pop={typeof document!=='undefined'?document.querySelectorAll('.driver-popover').length:0}</div>
           {debugEvents.map((e,i)=> (<div key={i}>{e}</div>))}
         </div>
       )}
@@ -984,28 +965,7 @@ const FORCE_ONBOARD_TOUR = false;
         </main>
         {/* Arrows removed per product decision */}
       </div>
-      {welcomeOpen && createPortal(
-        <div className="fixed inset-0 z-[2147483644] flex items-center justify-center p-4">
-          <div aria-hidden className="absolute inset-0 bg-black/35" onClick={()=>{ setWelcomeOpen(false); try{ localStorage.removeItem('bvx_force_welcome_modal'); }catch{} }} />
-          <div className="relative w-full max-w-lg rounded-2xl border border-[var(--border)] bg-white p-6 shadow-soft text-center">
-            <div className="text-ink-900 text-xl font-semibold">Welcome to brandVX</div>
-            <div className="text-ink-700 text-sm mt-2">Let’s do a quick walk‑through of your workspace, then get you running our 3 most powerful features.</div>
-            <div className="mt-4 grid gap-2">
-              <Button onClick={()=>{
-                setWelcomeOpen(false);
-                try{ localStorage.removeItem('bvx_force_welcome_modal'); }catch{}
-                // Start unified tour via controller after a short delay
-                setTimeout(()=>{ try{ (window as any).__bvxTourRetried = false; onboardingController.start({ force: false }); }catch{} }, 250);
-              }}>Start walk‑through</Button>
-              <Button variant="outline" onClick={()=>{
-                setWelcomeOpen(false);
-                try{ localStorage.setItem('bvx_quickstart_completed','1'); }catch{}
-              }}>Skip for now</Button>
-            </div>
-          </div>
-        </div>,
-        document.body
-      )}
+      {/* No external WelcomeModal */}
       {flowModal && createPortal(
         <div className="fixed inset-0 z-[2100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/30" />
@@ -1113,7 +1073,7 @@ const FORCE_ONBOARD_TOUR = false;
                       <div>
                         <div className="font-medium">brandVZN Lite — $47/mo</div>
                         <div className="text-slate-600 text-xs">Opens secure Stripe checkout in a new tab.</div>
-                      </div>
+            </div>
                     </a>
                   )}
                 </div>

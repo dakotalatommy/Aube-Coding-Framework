@@ -67,7 +67,8 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-tour="cta"]', popover: { title: 'Ready when you are', description: 'White‑glove or self-serve — you approve everything.' } },
   ],
   dashboard: [
-    // Welcome is now handled by WorkspaceShell WelcomeModal; start driver from next step
+    // Centered welcome as step 0
+    { popover: { title: 'Welcome to brandVX', description: 'Let’s do a quick walk‑through of your workspace, then get you running our 3 most powerful features.', centered: true, showButtons: ['next'], nextBtnText: 'Start' } },
     { element: '[data-tour="nav-dashboard"]', popover: { title: 'Dashboard', description: 'Check KPIs, quick start wins, and your 14-day plan progress.' } },
     { element: '[data-tour="nav-askvx"]', popover: { title: 'askVX', description: 'Ask in your voice. We suggest safe actions; you approve everything.' } },
     { element: '[data-tour="nav-vision"]', popover: { title: 'brandVZN', description: 'Upload, analyze, and refine with natural, texture-safe edits.' } },
@@ -527,43 +528,22 @@ export function startGuide(page: string, _opts?: { step?: number }) {
             try {
               const effectiveCentered = !!centered && !nocenter;
               if (effectiveCentered) {
-                const el: HTMLElement | null = (dom?.popover as HTMLElement) || null;
-                const wrap: HTMLElement | null = (dom?.wrapper as HTMLElement) || (el ? el.parentElement : null);
-                const hideArrow = () => { try { (el?.querySelector('.driver-popover-arrow') as HTMLElement | null)?.style?.setProperty('display','none'); } catch {} };
-                const forceCenterNode = (node: HTMLElement | null) => {
-                  if (!node) return;
-                  try {
-                    node.style.setProperty('position','fixed','important');
-                    node.style.setProperty('top','50%','important');
-                    node.style.setProperty('left','50%','important');
-                    node.style.setProperty('right','auto','important');
-                    node.style.setProperty('bottom','auto','important');
-                    node.style.setProperty('transform','translate(-50%, -50%)','important');
-                    node.style.setProperty('inset','auto','important');
-                  } catch {}
-                };
-                const forceAll = () => { forceCenterNode(wrap); forceCenterNode(el); hideArrow(); };
-                forceAll();
-                try {
-                  const mo1 = wrap ? new MutationObserver(() => forceAll()) : null;
-                  mo1?.observe(wrap as Node, { attributes: true, attributeFilter: ['style','class'] });
-                  const mo2 = el ? new MutationObserver(() => forceAll()) : null;
-                  mo2?.observe(el as Node, { attributes: true, attributeFilter: ['style','class'] });
-                  window.addEventListener('resize', forceAll);
-                } catch {}
+                // Hide arrow for the centered welcome; placement is handled by anchor element
+                try { (dom?.popover?.querySelector?.('.driver-popover-arrow') as HTMLElement | null)?.style?.setProperty('display','none'); } catch {}
               }
             } catch {}
             try { if (typeof originalOnRender === 'function') originalOnRender(dom, opts); } catch {}
           };
           const effectiveCentered = !!centered && !nocenter;
+          const centerAnchor = document.getElementById('tour-center-anchor') as any;
           return {
-            // When centered, do not attach to a specific element; use the viewport
-            element: effectiveCentered ? (document.body as any) : (step.element || document.body),
+            // When centered, attach to our fixed anchor right at the viewport center
+            element: effectiveCentered ? (centerAnchor || (document.body as any)) : (step.element || document.body),
             popover: {
               title,
               description,
-              side: 'bottom',
-              align: 'start',
+              side: effectiveCentered ? 'bottom' : 'bottom',
+              align: effectiveCentered ? 'center' : 'start',
               onPopoverRender: composedOnRender,
               ...restPopover,
             },
@@ -581,33 +561,7 @@ export function startGuide(page: string, _opts?: { step?: number }) {
           `;
           document.head.appendChild(s);
         }
-        // Global centering helper class
-        const centerStyleId = 'bvx-driver-center';
-        if (!document.getElementById(centerStyleId)) {
-          const sc = document.createElement('style');
-          sc.id = centerStyleId;
-          sc.textContent = `
-            .bvx-popover-centered {
-              position: fixed !important;
-              top: 50% !important;
-              left: 50% !important;
-              transform: translate(-50%, -50%) !important;
-              inset: auto !important;
-            }
-            /* Body-scoped override for maximum compatibility */
-            .bvx-center-popover-body .driver-popover {
-              position: fixed !important;
-              top: 50% !important;
-              left: 50% !important;
-              right: auto !important;
-              bottom: auto !important;
-              transform: translate(-50%, -50%) !important;
-              inset: auto !important;
-            }
-            .bvx-center-popover-body .driver-popover-arrow { display: none !important; }
-          `;
-          document.head.appendChild(sc);
-        }
+        // Remove legacy body-based centering helpers; anchor-based centering handles placement
         const btnStyleId = 'bvx-onboard-styles';
         if (!document.getElementById(btnStyleId)) {
           const s2 = document.createElement('style');
@@ -684,11 +638,7 @@ export function startGuide(page: string, _opts?: { step?: number }) {
             if (idx === DASHBOARD_BILLING_STEP) {
               try { window.dispatchEvent(new CustomEvent('bvx:guide:dashboard:billing')); } catch {}
             }
-            // Centering toggle: add/remove a body class exactly on the welcome step
-            try {
-              document.body.classList.remove('bvx-center-popover-body');
-  } catch {}
-            // Removed postVerify early-stop logic to simplify flow
+            // Removed legacy body-based centering toggles
           } catch {}
         });
       }
@@ -713,8 +663,8 @@ export function startGuide(page: string, _opts?: { step?: number }) {
               setTimeout(wait, 150);
             } catch {}
           });
-        } catch {}
-      }
+  } catch {}
+}
       if (typeof instance.drive === 'function') {
         instance.drive();
       }

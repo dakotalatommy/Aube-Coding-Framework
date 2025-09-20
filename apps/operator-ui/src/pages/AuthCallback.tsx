@@ -10,8 +10,16 @@ export default function AuthCallback() {
     const consumeAuthReturn = async () => {
       try {
         const u = new URL(window.location.href);
-        const at = u.searchParams.get('access_token');
-        const rt = u.searchParams.get('refresh_token');
+        // Prefer tokens from the hash fragment when present (some providers return them there)
+        let at = u.searchParams.get('access_token');
+        let rt = u.searchParams.get('refresh_token');
+        try {
+          if ((!at || !rt) && u.hash) {
+            const hs = new URLSearchParams(u.hash.replace(/^#/, ''));
+            at = at || hs.get('access_token') || undefined as any;
+            rt = rt || hs.get('refresh_token') || undefined as any;
+          }
+        } catch {}
         if (at && rt) {
           try {
             await supabase.auth.setSession({ access_token: at, refresh_token: rt } as any);
@@ -40,14 +48,24 @@ export default function AuthCallback() {
       } catch {}
     };
     const main = async () => {
-      await consumeAuthReturn();
+      // Do not let session consumption block navigation indefinitely
+      try {
+        await Promise.race([
+          consumeAuthReturn(),
+          new Promise<void>(resolve => setTimeout(() => resolve(), 700)),
+        ]);
+      } catch {}
+      // Drop the hash immediately to keep the URL clean even if redirect is delayed
+      try { if (window.location.hash) window.history.replaceState({}, '', window.location.pathname + window.location.search); } catch {}
       // Decide target synchronously (dev mode overrides)
       const DEV_MODE = String((import.meta as any).env?.VITE_ONBOARDING_DEV_MODE || '0') === '1';
       const sp = new URLSearchParams(window.location.search);
       const forcedFlag = sp.get('force') === '1' || sp.get('forceOnboard') === '1' || sp.get('welcome') === '1';
       const forcedOnboarding = forcedFlag;
       let onboardingDone = false; try { onboardingDone = localStorage.getItem('bvx_onboarding_done') === '1'; } catch {}
-      const target = DEV_MODE ? '/onboarding' : ((!onboardingDone || forcedOnboarding) ? '/onboarding' : '/workspace?pane=dashboard');
+      const nextParam = sp.get('next');
+      const nextTarget = nextParam && nextParam.startsWith('/') ? decodeURIComponent(nextParam) : '';
+      const target = DEV_MODE ? '/onboarding' : (nextTarget || ((!onboardingDone || forcedOnboarding) ? '/onboarding' : '/workspace?pane=dashboard'));
 
       // Sanitize non-sensitive URL parts
       try {
@@ -62,8 +80,11 @@ export default function AuthCallback() {
       try { localStorage.removeItem('bvx_auth_in_progress'); } catch {}
       try { (window.opener as any)?.postMessage('bvx_auth_ready', window.location.origin); } catch {}
 
-      // Hard redirect to avoid router timing races
+      // Hard redirect to avoid router timing races (immediate)
       window.location.replace(target);
+      // Backstops: retry if still on /auth after a short delay, and once more after 2s
+      try { setTimeout(() => { try{ if (window.location.pathname.includes('/auth')) window.location.replace(target); } catch {} }, 800); } catch {}
+      try { setTimeout(() => { try{ if (window.location.pathname.includes('/auth')) window.location.assign(target); } catch {} }, 2000); } catch {}
     };
     void main();
     }, [loc.search]);

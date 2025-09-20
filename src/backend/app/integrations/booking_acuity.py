@@ -113,6 +113,12 @@ def import_appointments(tenant_id: str, since: Optional[str] = None, until: Opti
     imported = 0
     updated = 0
     skipped = 0
+    dbg_clients_status: Optional[int] = None
+    dbg_clients_count = 0
+    dbg_clients_error: Optional[str] = None
+    dbg_appts_status: Optional[int] = None
+    dbg_appts_count = 0
+    dbg_appts_error: Optional[str] = None
     # 1) ensure tenant row for FK
     try:
         with _with_conn(tenant_id) as conn:  # type: ignore
@@ -131,13 +137,22 @@ def import_appointments(tenant_id: str, since: Optional[str] = None, until: Opti
             while True:
                 params: Dict[str, object] = {"limit": limit, "offset": offset}
                 r = client.get(f"{base}/clients", params=params)
+                dbg_clients_status = r.status_code
                 if r.status_code >= 400:
+                    try:
+                        dbg_clients_error = (r.text or "")[:300]
+                    except Exception:
+                        dbg_clients_error = None
                     break
                 arr = r.json() or []
                 if not isinstance(arr, list):
                     break
                 if not arr:
                     break
+                try:
+                    dbg_clients_count += len(arr)
+                except Exception:
+                    pass
                 # upsert contacts in batches
                 for c in arr:
                     try:
@@ -208,11 +223,20 @@ def import_appointments(tenant_id: str, since: Optional[str] = None, until: Opti
                 if until:
                     params["maxDate"] = until
                 r = client.get(f"{base}/appointments", params=params)
+                dbg_appts_status = r.status_code
                 if r.status_code >= 400:
+                    try:
+                        dbg_appts_error = (r.text or "")[:300]
+                    except Exception:
+                        dbg_appts_error = None
                     break
                 arr = r.json() or []
                 if not isinstance(arr, list) or not arr:
                     break
+                try:
+                    dbg_appts_count += len(arr)
+                except Exception:
+                    pass
                 for a in arr:
                     try:
                         aid = str(a.get("id") or "")
@@ -245,7 +269,18 @@ def import_appointments(tenant_id: str, since: Optional[str] = None, until: Opti
         emit_event("AcuityImportCompleted", {"tenant_id": tenant_id, "contacts": int(imported), "appointments": int(appt_imported)})
     except Exception:
         pass
-    return {"imported": appt_imported, "updated": int(updated), "skipped_duplicates": int(skipped), "next_cursor": None}
+    return {
+        "imported": appt_imported,
+        "updated": int(updated),
+        "skipped_duplicates": int(skipped),
+        "clients_status": dbg_clients_status,
+        "clients_count": dbg_clients_count,
+        "appointments_status": dbg_appts_status,
+        "appointments_count": dbg_appts_count,
+        **({"clients_error": dbg_clients_error} if dbg_clients_error else {}),
+        **({"appointments_error": dbg_appts_error} if dbg_appts_error else {}),
+        "next_cursor": None,
+    }
 
 
 def acuity_verify_signature(secret: str, payload: bytes, signature: str) -> bool:
