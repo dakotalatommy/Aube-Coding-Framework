@@ -1548,6 +1548,7 @@ def upsert_usage_limit(body: UsageLimitUpsert, db: Session = Depends(get_db), ct
     db.commit()
     return {"ok": True}
 # --- OAuth scaffolding helpers (env-driven) ---
+
 def _square_env_mode() -> str:
     """Resolve Square environment mode.
     Priority: explicit SQUARE_ENV -> infer from client_id prefix -> default sandbox.
@@ -3024,6 +3025,8 @@ def cache_health() -> Dict[str, object]:
 @app.get("/")
 def root_info() -> Dict[str, str]:
     return {"spa": "http://127.0.0.1:5174/"}
+
+
 # NOTE: catch-all route removed to avoid intercepting API routes.
 
 
@@ -3049,14 +3052,11 @@ def debug_state(db: Session = Depends(get_db)) -> Dict[str, int]:
 
 # Prometheus metrics (basic request counters)
 try:
-    REQ_COUNTER = Counter("brandvx_requests_total", "Total requests", ["endpoint"])  
-    TENANT_MISMATCH = Counter("brandvx_tenant_mismatch_total", "Requests where ctx.tenant_id != body/query tenant", ["endpoint"])  
+    REQ_COUNTER = Counter("brandvx_requests_total", "Total requests", ["endpoint"]) 
 except ValueError:
     # Tests may import the app multiple times; avoid duplicate metric registration
     _tmp_registry = CollectorRegistry()
     REQ_COUNTER = Counter("brandvx_requests_total", "Total requests", ["endpoint"], registry=_tmp_registry)
-    TENANT_MISMATCH = Counter("brandvx_tenant_mismatch_total", "Requests where ctx.tenant_id != body/query tenant", ["endpoint"], registry=_tmp_registry)
-    TENANT_MISMATCH = Counter("brandvx_tenant_mismatch_total", "Requests where ctx.tenant_id != body/query tenant", ["endpoint"], registry=_tmp_registry)
 
 
 @app.get("/metrics/prometheus", tags=["Health"])
@@ -4413,7 +4413,12 @@ def ai_memories_upsert(req: MemoryUpsertRequest, db: Session = Depends(get_db), 
         return {"status": "forbidden"}
     try:
         with engine.begin() as conn:
-            _set_rls_gucs(conn, req.tenant_id, 'owner_admin')
+            # Respect RLS policies via per-transaction GUCs
+            try:
+                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+            except Exception:
+                pass
 
             # Detect column types to avoid running invalid SQL inside a transaction
             def _col_type(col: str) -> str:
@@ -4487,10 +4492,15 @@ def ai_memories_list(tenant_id: str, limit: int = 20, db: Session = Depends(get_
         return {"items": []}
     try:
         # Use GUC-backed connection to satisfy RLS
+        from sqlalchemy import text as __t
         with engine.begin() as conn:
-            _set_rls_gucs(conn, tenant_id, 'owner_admin')
+            try:
+                conn.execute(__t("SET LOCAL app.role = 'owner_admin'"))
+                conn.execute(__t("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            except Exception:
+                pass
             rows = conn.execute(
-                _sql_text(
+                __t(
                     "SELECT key, value, tags, EXTRACT(EPOCH FROM updated_at)::bigint FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) ORDER BY updated_at DESC LIMIT :lim"
                 ),
                 {"t": tenant_id, "lim": max(1, min(int(limit or 20), 200))},
@@ -4505,9 +4515,14 @@ def ai_memories_delete(key: str, tenant_id: str, db: Session = Depends(get_db), 
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
     try:
+        from sqlalchemy import text as __t
         with engine.begin() as conn:
-            _set_rls_gucs(conn, tenant_id, 'owner_admin')
-            n = conn.execute(_sql_text("DELETE FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key = :k"), {"t": tenant_id, "k": key}).rowcount
+            try:
+                conn.execute(__t("SET LOCAL app.role = 'owner_admin'"))
+                conn.execute(__t("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            except Exception:
+                pass
+            n = conn.execute(__t("DELETE FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key = :k"), {"t": tenant_id, "k": key}).rowcount
         return {"status": "ok", "deleted": int(n or 0)}
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
@@ -4522,6 +4537,7 @@ def admin_db_sweep(ctx: UserContext = Depends(get_user_context)) -> Dict[str, ob
         sweep_path = os.path.join(base_dir, "db", "migrations", "2025-09-11_brandvx_sweep.sql")
         with open(sweep_path, "r", encoding="utf-8") as f:
             sql_script = f.read()
+        from sqlalchemy import text as __t
         # Execute statement-by-statement to tolerate CREATE POLICY on older PG (no IF NOT EXISTS)
         stmts: list[str] = []
         buf: list[str] = []
@@ -4535,7 +4551,10 @@ def admin_db_sweep(ctx: UserContext = Depends(get_user_context)) -> Dict[str, ob
         applied = 0
         skipped = 0
         with engine.begin() as conn:
-            _set_rls_gucs(conn, 'global', 'owner_admin')
+            try:
+                conn.execute(__t("SET LOCAL app.role = 'owner_admin'"))
+            except Exception:
+                pass
             for raw in stmts:
                 stmt = raw.strip()
                 if not stmt or stmt.startswith("--"):
@@ -5556,10 +5575,6 @@ class AcuityImportRequest(BaseModel):
 @app.post("/integrations/booking/acuity/import", tags=["Integrations"])
 def booking_import(req: AcuityImportRequest, ctx: UserContext = Depends(get_user_context_relaxed)):
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
-        try:
-            TENANT_MISMATCH.labels(endpoint="/integrations/booking/acuity/import").inc()  # type: ignore
-        except Exception:
-            pass
         return {"status": "forbidden"}
     return booking_acuity.import_appointments(req.tenant_id, req.since, req.until, req.cursor)
 
@@ -5571,15 +5586,15 @@ def acuity_status(
     ctx: UserContext = Depends(get_user_context_relaxed),
 ):
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
-        try:
-            TENANT_MISMATCH.labels(endpoint="/integrations/booking/acuity/status").inc()  # type: ignore
-        except Exception:
-            pass
         return {"connected": False, "status": "forbidden"}
     try:
         # RLS-safe short-lived read
         with engine.begin() as conn:
-            _set_rls_gucs(conn, tenant_id, 'owner_admin')
+            try:
+                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            except Exception:
+                pass
             row = conn.execute(
                 _sql_text(
                     """
@@ -5887,14 +5902,19 @@ def get_settings(
         if ctx.tenant_id != tid and ctx.role != "owner_admin":
             return {"data": {}}
         # Use a GUC-backed read to satisfy RLS
+        from sqlalchemy import text as __t
         with engine.begin() as conn:
-            _set_rls_gucs(conn, tid, 'owner_admin')
-            r = conn.execute(_sql_text("SELECT id, data_json FROM settings WHERE tenant_id = CAST(:t AS uuid) ORDER BY id DESC LIMIT 1"), {"t": tid}).fetchone()
+            try:
+                conn.execute(__t("SET LOCAL app.role = 'owner_admin'"))
+                conn.execute(__t("SET LOCAL app.tenant_id = :t"), {"t": tid})
+            except Exception:
+                pass
+            r = conn.execute(__t("SELECT id, data_json FROM settings WHERE tenant_id = CAST(:t AS uuid) ORDER BY id DESC LIMIT 1"), {"t": tid}).fetchone()
             if not r or not ((r[1] or "").strip()):
                 # Seed a default settings row with trial for new tenants
                 import time as __time
                 __trial = {"subscription_status": "trialing", "trial_end_ts": int(__time.time()) + 7*86400}
-                conn.execute(_sql_text("INSERT INTO settings(tenant_id, data_json, created_at) VALUES (CAST(:t AS uuid), :d, NOW())"), {"t": tid, "d": json.dumps(__trial)})
+                conn.execute(__t("INSERT INTO settings(tenant_id, data_json, created_at) VALUES (CAST(:t AS uuid), :d, NOW())"), {"t": tid, "d": json.dumps(__trial)})
                 return {"data": __trial}
             try:
                 data = json.loads(r[1] or "{}")
@@ -5903,7 +5923,7 @@ def get_settings(
                     import time as __time
                     data["subscription_status"] = "trialing"
                     data.setdefault("trial_end_ts", int(__time.time()) + 7*86400)
-                    conn.execute(_sql_text("UPDATE settings SET data_json=:d WHERE id=:id"), {"d": json.dumps(data), "id": r[0]})
+                    conn.execute(__t("UPDATE settings SET data_json=:d WHERE id=:id"), {"d": json.dumps(data), "id": r[0]})
                 return {"data": data} 
             except Exception:
                 return {"data": {}}
@@ -5928,6 +5948,7 @@ def update_settings(
         return {"status": "forbidden"}
     # Write under tenant RLS via SET LOCAL and upsert semantics
     import json as _json
+    from sqlalchemy import text as __t
     payload = {
         "tone": req.tone,
         "services": req.services,
@@ -5957,8 +5978,12 @@ def update_settings(
     wrote_quiet = False
     wrote_train = False
     with engine.begin() as conn:
-        _set_rls_gucs(conn, req.tenant_id, 'owner_admin')
-        row = conn.execute(_sql_text("SELECT id, data_json FROM settings WHERE tenant_id = CAST(:t AS uuid) ORDER BY id DESC LIMIT 1"), {"t": req.tenant_id}).fetchone()
+        try:
+            conn.execute(__t("SET LOCAL app.role = 'owner_admin'"))
+            conn.execute(__t("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+        except Exception:
+            pass
+        row = conn.execute(__t("SELECT id, data_json FROM settings WHERE tenant_id = CAST(:t AS uuid) ORDER BY id DESC LIMIT 1"), {"t": req.tenant_id}).fetchone()
         if row and row[0]:
             try:
                 current = _json.loads(row[1] or "{}")
@@ -5966,9 +5991,9 @@ def update_settings(
                 current = {}
             # Merge new payload; drop None handled above
             current.update(payload)
-            conn.execute(_sql_text("UPDATE settings SET data_json=:d WHERE id=:id"), {"d": _json.dumps(current), "id": row[0]})
+            conn.execute(__t("UPDATE settings SET data_json=:d WHERE id=:id"), {"d": _json.dumps(current), "id": row[0]})
         else:
-            conn.execute(_sql_text("INSERT INTO settings(tenant_id, data_json, created_at) VALUES (CAST(:t AS uuid), :d, NOW())"), {"t": req.tenant_id, "d": _json.dumps(payload or {})})
+            conn.execute(__t("INSERT INTO settings(tenant_id, data_json, created_at) VALUES (CAST(:t AS uuid), :d, NOW())"), {"t": req.tenant_id, "d": _json.dumps(payload or {})})
     # Mark onboarding progress based on keys present
     try:
         if req.quiet_hours and isinstance(req.quiet_hours, dict):
@@ -6908,6 +6933,8 @@ def api_oauth_start(provider: str, return_: Optional[str] = Query(None, alias="r
         return RedirectResponse(url=url)
     except Exception as e:
         return JSONResponse({"error": {"code": "start_failed", "message": str(e)}}, status_code=500)
+
+
 ## Removed legacy alias /api/oauth/{provider}/callback to avoid duplicate callback handling
 
 @app.get("/oauth/{provider}/login", tags=["Integrations"])  # single canonical login
@@ -7392,7 +7419,6 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
         if not tenant_id:
             return {"imported": 0, "error": "missing_tenant_id"}
         with engine.begin() as conn:
-            _set_rls_gucs(conn, tenant_id, 'owner_admin')
             row = conn.execute(_sql_text("SELECT access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider='square' ORDER BY id DESC LIMIT 1"), {"t": tenant_id}).fetchone()
         if not row or not row[0]:
             return {"imported": 0, "error": "missing_access_token"}
@@ -7480,7 +7506,11 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
             for _attempt in range(2):
                 try:
                     with engine.begin() as _conn:
-                        _set_rls_gucs(_conn, req.tenant_id, 'owner_admin')
+                        try:
+                            _conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+                            _conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                        except Exception:
+                            pass
                         return work(_conn)
                 except Exception as _e:
                     err_s = str(_e)
@@ -7699,7 +7729,8 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                 ts_update_expr = "EXTRACT(epoch FROM now())::bigint"
                 try:
                     with engine.begin() as _probe:
-                        _set_rls_gucs(_probe, req.tenant_id, 'owner_admin')
+                        _probe.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+                        _probe.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
                         row_type = _probe.execute(
                             _sql_text(
                                 """
@@ -7903,8 +7934,10 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
         # Update v2 connected account last_sync
         try:
             with engine.begin() as conn:
-                _set_rls_gucs(conn, req.tenant_id, 'owner_admin')
-                conn.execute(_sql_text("UPDATE connected_accounts_v2 SET last_sync = EXTRACT(epoch FROM now())::bigint WHERE tenant_id = CAST(:t AS uuid) AND provider='square'"), {"t": req.tenant_id})
+                conn.execute(
+                    _sql_text("UPDATE connected_accounts_v2 SET last_sync = EXTRACT(epoch FROM now())::bigint WHERE tenant_id = CAST(:t AS uuid) AND provider='square'"),
+                    {"t": req.tenant_id},
+                )
         except Exception:
             pass
         # Trigger a calendar sync after import to surface bookings immediately
@@ -7954,7 +7987,6 @@ def square_backfill_metrics(req: SquareBackfillMetricsRequest, ctx: UserContext 
         token = ""
         try:
             with engine.begin() as conn:
-                _set_rls_gucs(conn, req.tenant_id, 'owner_admin')
                 row_v2 = conn.execute(_sql_text("SELECT access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider='square' ORDER BY id DESC LIMIT 1"), {"t": req.tenant_id}).fetchone()
             if row_v2 and row_v2[0]:
                 try:
@@ -8037,7 +8069,6 @@ def square_backfill_metrics(req: SquareBackfillMetricsRequest, ctx: UserContext 
             try:
                 missing_sqids: list[str] = []
                 with engine.begin() as conn:
-                    _set_rls_gucs(conn, req.tenant_id, 'owner_admin')
                     rows_missing = conn.execute(
                         _sql_text(
                             """
@@ -8091,7 +8122,6 @@ def square_backfill_metrics(req: SquareBackfillMetricsRequest, ctx: UserContext 
                             if not display_name:
                                 display_name = f"Client {str(sqid)[:6]}"
                             with engine.begin() as conn:
-                                _set_rls_gucs(conn, req.tenant_id, 'owner_admin')
                                 conn.execute(
                                     _sql_text(
                                         """
@@ -8120,7 +8150,12 @@ def square_backfill_metrics(req: SquareBackfillMetricsRequest, ctx: UserContext 
                 pass
             # Write back to contacts by square_customer_id
             with engine.begin() as conn:
-                _set_rls_gucs(conn, req.tenant_id, 'owner_admin')
+                # Set RLS GUCs
+                try:
+                    conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                    conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+                except Exception:
+                    pass
                 for sqid, m in per.items():
                     try:
                         conn.execute(
@@ -8156,8 +8191,10 @@ def square_backfill_metrics(req: SquareBackfillMetricsRequest, ctx: UserContext 
         # Update v2 connected account last_sync
         try:
             with engine.begin() as conn:
-                _set_rls_gucs(conn, req.tenant_id, 'owner_admin')
-                conn.execute(_sql_text("UPDATE connected_accounts_v2 SET last_sync = EXTRACT(epoch FROM now())::bigint WHERE tenant_id = CAST(:t AS uuid) AND provider='square'"), {"t": req.tenant_id})
+                conn.execute(
+                    _sql_text("UPDATE connected_accounts_v2 SET last_sync = EXTRACT(epoch FROM now())::bigint WHERE tenant_id = CAST(:t AS uuid) AND provider='square'"),
+                    {"t": req.tenant_id},
+                )
         except Exception:
             pass
         # Invalidate rollup caches
@@ -10232,6 +10269,8 @@ def gmail_thread(tenant_id: str, id: str, db: Session = Depends(get_db), ctx: Us
         return {"messages": out}
     except Exception:
         return {"messages": []}
+
+
 @app.post("/gmail/send", tags=["Integrations"])
 def gmail_send(req: dict, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
     tenant_id = str(req.get("tenant_id", ctx.tenant_id or ""))
@@ -10891,30 +10930,40 @@ def rls_probe_insert_contact(
         ts_expr = "EXTRACT(epoch FROM now())::bigint"
         contact_id = req.contact_id or f"probe:{int(_time.time())}"
         with engine.begin() as conn:
-            _set_rls_gucs(conn, req.tenant_id, 'owner_admin')
-            row_type = conn.execute(
-                _sql_text(
-                    """
-                    SELECT data_type FROM information_schema.columns
-                    WHERE table_name='contacts' AND table_schema='public' AND column_name='created_at'
-                    """
-                )
-            ).fetchone()
-            if row_type and isinstance(row_type[0], str) and 'timestamp' in row_type[0].lower():
-                ts_expr = "NOW()"
-            conn.execute(
-                _sql_text(
-                    f"""
-                    INSERT INTO contacts (
-                        tenant_id, contact_id, consent_sms, consent_email, display_name, created_at, updated_at
-                    ) VALUES (
-                        CAST(:t AS uuid), :cid, :cs, :ce, :dn, {ts_expr}, {ts_expr}
+            try:
+                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+            except Exception as e:
+                return {"status": "guc_error", "detail": str(e)[:200]}
+            try:
+                row_type = conn.execute(
+                    _sql_text(
+                        """
+                        SELECT data_type FROM information_schema.columns
+                        WHERE table_name='contacts' AND table_schema='public' AND column_name='created_at'
+                        """
                     )
-                    ON CONFLICT DO NOTHING
-                    """
-                ),
-                {"t": req.tenant_id, "cid": contact_id, "cs": False, "ce": False, "dn": "Probe Contact"},
-            )
+                ).fetchone()
+                if row_type and isinstance(row_type[0], str) and 'timestamp' in row_type[0].lower():
+                    ts_expr = "NOW()"
+            except Exception as e:
+                return {"status": "schema_probe_error", "detail": str(e)[:200]}
+            try:
+                conn.execute(
+                    _sql_text(
+                        f"""
+                        INSERT INTO contacts (
+                            tenant_id, contact_id, consent_sms, consent_email, display_name, created_at, updated_at
+                        ) VALUES (
+                            CAST(:t AS uuid), :cid, :cs, :ce, :dn, {ts_expr}, {ts_expr}
+                        )
+                        ON CONFLICT DO NOTHING
+                        """
+                    ),
+                    {"t": req.tenant_id, "cid": contact_id, "cs": False, "ce": False, "dn": "Probe Contact"},
+                )
+            except Exception as e:
+                return {"status": "insert_error", "detail": str(e)[:200]}
         return {"status": "ok", "contact_id": contact_id}
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
@@ -10934,7 +10983,11 @@ def rls_probe_delete_contact(
         return {"status": "forbidden"}
     try:
         with engine.begin() as conn:
-            _set_rls_gucs(conn, req.tenant_id, 'owner_admin')
+            try:
+                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+            except Exception:
+                pass
             res = conn.execute(
                 _sql_text(
                     "DELETE FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid"
@@ -10962,7 +11015,6 @@ def connectors_normalize(req: ConnectorsNormalizeRequest, db: Session = Depends(
     migrated = 0
     try:
         with engine.begin() as conn:
-            _set_rls_gucs(conn, req.tenant_id or ctx.tenant_id, ctx.role)
             # Dedupe v2 by keeping the latest id per tenant/provider
             if req.dedupe:
                 if req.tenant_id:
