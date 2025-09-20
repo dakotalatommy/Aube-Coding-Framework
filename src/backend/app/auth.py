@@ -115,6 +115,9 @@ async def get_user_context(
                     return (len(x) == 36 and x.count("-") == 4)
                 except Exception:
                     return False
+            # Header fallback (only when Bearer is present and verified, and header looks like UUID)
+            if not _looks_like_uuid(_tenant_id) and x_tenant_id and _looks_like_uuid(x_tenant_id):
+                _tenant_id = str(x_tenant_id)
             if not _looks_like_uuid(_tenant_id):
                 try:
                     with engine.begin() as _conn:
