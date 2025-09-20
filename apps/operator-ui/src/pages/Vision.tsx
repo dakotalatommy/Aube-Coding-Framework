@@ -141,9 +141,11 @@ export default function Vision(){
   useState(()=>{
     try {
       const sp = new URLSearchParams(window.location.search);
-      if (sp.get('tour') !== '1') return 0;
-      // When the dashboard walkthrough navigates here it removes the flag; double-check to keep in sync
-      setTimeout(()=> startGuide('vision'), 200);
+      const tour = sp.get('tour');
+      const tourPage = sp.get('tourPage');
+      if (tour === '1' && tourPage === 'vision') {
+        setTimeout(()=> startGuide('vision'), 200);
+      }
     } catch {}
     return 0;
   });
@@ -487,7 +489,7 @@ export default function Vision(){
         </div>
       </div>
       <div className="flex items-center">
-        <h3 className="text-lg font-semibold">brandVZN</h3>
+      <h3 className="text-lg font-semibold">brandVZN</h3>
         <div className="ml-auto flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={()=>{ window.location.href='/ask'; }}>AskVX</Button>
         </div>
@@ -667,7 +669,7 @@ export default function Vision(){
                   </button>
                 ))}
               </div>
-            </div>
+        </div>
           )}
           {/* Dimensions chip hidden */}
           {false && (origW>0 && currW>0) && (<div />)}
@@ -678,7 +680,7 @@ export default function Vision(){
       </div>
 
       {false && (
-        <div className="border rounded-xl bg-white shadow-sm p-3 min-h-24 whitespace-pre-wrap text-sm">{output}</div>
+      <div className="border rounded-xl bg-white shadow-sm p-3 min-h-24 whitespace-pre-wrap text-sm">{output}</div>
       )}
 
       {/* Download original+edited */}

@@ -5573,18 +5573,25 @@ class AcuityImportRequest(BaseModel):
 
 
 @app.post("/integrations/booking/acuity/import", tags=["Integrations"])
-def booking_import(req: AcuityImportRequest, ctx: UserContext = Depends(get_user_context_relaxed)):
+def booking_import(req: AcuityImportRequest, ctx: UserContext = Depends(get_user_context)):
+    # Canonicalize to context tenant to mirror Square behavior
+    try:
+        req.tenant_id = ctx.tenant_id
+    except Exception:
+        pass
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
     return booking_acuity.import_appointments(req.tenant_id, req.since, req.until, req.cursor)
 
 
-@app.get("/integrations/booking/acuity/status", tags=["Integrations"])  # relaxed-auth status probe
+@app.get("/integrations/booking/acuity/status", tags=["Integrations"])  # strict-auth status probe
 def acuity_status(
     tenant_id: str,
     db: Session = Depends(get_db),
-    ctx: UserContext = Depends(get_user_context_relaxed),
+    ctx: UserContext = Depends(get_user_context),
 ):
+    # Canonicalize to context tenant to mirror Square behavior
+    tenant_id = ctx.tenant_id
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"connected": False, "status": "forbidden"}
     try:

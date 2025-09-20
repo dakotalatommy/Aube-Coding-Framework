@@ -24,7 +24,7 @@ import foundersImage from '../assets/onboarding/IMG_7577.jpeg';
 import 'driver.js/dist/driver.css';
 // import { flags } from './flags';
 
-const DASHBOARD_WELCOME_STEP = 0;
+// Welcome handled by WelcomeModal; previously 0
 const DASHBOARD_BILLING_STEP = 12;
 
 const founderSlides = [
@@ -67,8 +67,7 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-tour="cta"]', popover: { title: 'Ready when you are', description: 'White‑glove or self-serve — you approve everything.' } },
   ],
   dashboard: [
-    // Center the welcome message in the viewport for a true modal feel
-    { element: '#tour-center-anchor', popover: ({ title: 'Welcome to brandVX', description: 'Let’s do a quick walk‑through of your workspace, then get you running our 3 most powerful features.', centered: true } as any) },
+    // Welcome is now handled by WorkspaceShell WelcomeModal; start driver from next step
     { element: '[data-tour="nav-dashboard"]', popover: { title: 'Dashboard', description: 'Check KPIs, quick start wins, and your 14-day plan progress.' } },
     { element: '[data-tour="nav-askvx"]', popover: { title: 'askVX', description: 'Ask in your voice. We suggest safe actions; you approve everything.' } },
     { element: '[data-tour="nav-vision"]', popover: { title: 'brandVZN', description: 'Upload, analyze, and refine with natural, texture-safe edits.' } },
@@ -91,11 +90,10 @@ const registry: Record<string, GuideStep[]> = {
         description: 'Let’s showcase three of brandVX’s most powerful features.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Open brandVZN',
-        onNextClick: (_element, _step) => {
-          // Navigate on Next; no automatic advance after navigation
-          try {
-            window.dispatchEvent(new CustomEvent('bvx:guide:navigate', { detail: { pane: 'vision' } }));
-          } catch {}
+        onNextClick: (_element, _step, { driver }) => {
+          // Navigate on Next; advance unified tour to avoid stall
+          try { window.dispatchEvent(new CustomEvent('bvx:guide:navigate', { detail: { pane: 'vision' } })); } catch {}
+          try { driver.moveNext(); } catch {}
         },
       },
     },
@@ -514,6 +512,8 @@ export function startGuide(page: string, _opts?: { step?: number }) {
       const driverFactory = mod?.driver || mod?.default || mod;
       if (!driverFactory) return;
       // Ensure popovers/overlay are above app content but below our global overlay root if present
+      // Runtime toggle: allow skipping special centering for diagnosis via ?nocenter=1 or localStorage('bvx_nocenter')
+      const nocenter = (()=>{ try{ const sp = new URLSearchParams(window.location.search); return sp.get('nocenter')==='1' || localStorage.getItem('bvx_nocenter')==='1'; }catch{ return false; } })();
       const instance = driverFactory({
         showProgress: steps.length > 1,
         allowClose: false,
@@ -525,20 +525,40 @@ export function startGuide(page: string, _opts?: { step?: number }) {
           // Compose a renderer that can force viewport-centering when requested
           const composedOnRender = (dom: any, opts: { driver: any }) => {
             try {
-              if (centered) {
+              const effectiveCentered = !!centered && !nocenter;
+              if (effectiveCentered) {
                 const el: HTMLElement | null = (dom?.popover as HTMLElement) || null;
-                if (el) {
-                  el.classList.add('bvx-popover-centered');
-                  // Hide arrow when centered to avoid pointing at an edge
-                  try { (el.querySelector('.driver-popover-arrow') as HTMLElement | null)?.style?.setProperty('display','none'); } catch {}
-                }
+                const wrap: HTMLElement | null = (dom?.wrapper as HTMLElement) || (el ? el.parentElement : null);
+                const hideArrow = () => { try { (el?.querySelector('.driver-popover-arrow') as HTMLElement | null)?.style?.setProperty('display','none'); } catch {} };
+                const forceCenterNode = (node: HTMLElement | null) => {
+                  if (!node) return;
+                  try {
+                    node.style.setProperty('position','fixed','important');
+                    node.style.setProperty('top','50%','important');
+                    node.style.setProperty('left','50%','important');
+                    node.style.setProperty('right','auto','important');
+                    node.style.setProperty('bottom','auto','important');
+                    node.style.setProperty('transform','translate(-50%, -50%)','important');
+                    node.style.setProperty('inset','auto','important');
+                  } catch {}
+                };
+                const forceAll = () => { forceCenterNode(wrap); forceCenterNode(el); hideArrow(); };
+                forceAll();
+                try {
+                  const mo1 = wrap ? new MutationObserver(() => forceAll()) : null;
+                  mo1?.observe(wrap as Node, { attributes: true, attributeFilter: ['style','class'] });
+                  const mo2 = el ? new MutationObserver(() => forceAll()) : null;
+                  mo2?.observe(el as Node, { attributes: true, attributeFilter: ['style','class'] });
+                  window.addEventListener('resize', forceAll);
+                } catch {}
               }
             } catch {}
             try { if (typeof originalOnRender === 'function') originalOnRender(dom, opts); } catch {}
           };
+          const effectiveCentered = !!centered && !nocenter;
           return {
             // When centered, do not attach to a specific element; use the viewport
-            element: centered ? (document.body as any) : (step.element || document.body),
+            element: effectiveCentered ? (document.body as any) : (step.element || document.body),
             popover: {
               title,
               description,
@@ -556,8 +576,8 @@ export function startGuide(page: string, _opts?: { step?: number }) {
           const s = document.createElement('style');
           s.id = styleId;
           s.textContent = `
-            .driver-overlay { z-index: 2147483600 !important; }
-            .driver-popover { z-index: 2147483601 !important; max-width: min(560px, 90vw) !important; }
+            .driver-overlay { z-index: 2147483641 !important; }
+            .driver-popover { z-index: 2147483642 !important; max-width: min(560px, 90vw) !important; }
           `;
           document.head.appendChild(s);
         }
@@ -574,6 +594,17 @@ export function startGuide(page: string, _opts?: { step?: number }) {
               transform: translate(-50%, -50%) !important;
               inset: auto !important;
             }
+            /* Body-scoped override for maximum compatibility */
+            .bvx-center-popover-body .driver-popover {
+              position: fixed !important;
+              top: 50% !important;
+              left: 50% !important;
+              right: auto !important;
+              bottom: auto !important;
+              transform: translate(-50%, -50%) !important;
+              inset: auto !important;
+            }
+            .bvx-center-popover-body .driver-popover-arrow { display: none !important; }
           `;
           document.head.appendChild(sc);
         }
@@ -634,8 +665,8 @@ export function startGuide(page: string, _opts?: { step?: number }) {
             }
           `;
           document.head.appendChild(s2);
-        }
-      } catch {}
+    }
+  } catch {}
       const persistIndex = () => {
         try {
           const idx = instance?.getState?.()?.activeIndex;
@@ -649,15 +680,40 @@ export function startGuide(page: string, _opts?: { step?: number }) {
         instance.on?.('highlighted', () => {
           try {
             const idx = instance?.getState?.()?.activeIndex ?? -1;
-            if (idx === DASHBOARD_WELCOME_STEP) {
-              localStorage.setItem('bvx_welcome_seen', '1');
-              sessionStorage.setItem('bvx_intro_session', '1');
-            }
+            // Welcome step handled by modal; treat first dashboard step as already seen
             if (idx === DASHBOARD_BILLING_STEP) {
-              window.dispatchEvent(new CustomEvent('bvx:guide:dashboard:billing'));
+              try { window.dispatchEvent(new CustomEvent('bvx:guide:dashboard:billing')); } catch {}
             }
+            // Centering toggle: add/remove a body class exactly on the welcome step
+            try {
+              document.body.classList.remove('bvx-center-popover-body');
+  } catch {}
+            // Removed postVerify early-stop logic to simplify flow
           } catch {}
         });
+      }
+      if (page === 'dashboard') {
+        // Handle brandVZN jump: wait for pane and target element before advancing
+        try {
+          window.addEventListener('bvx:guide:navigate', (ev: any) => {
+            try {
+              const target = (ev?.detail?.pane || '').toString();
+              if (target !== 'vision') return;
+              const start = Date.now();
+              const wait = () => {
+                try {
+                  const sp = new URLSearchParams(window.location.search);
+                  const pane = sp.get('pane');
+                  const ready = pane === 'vision' && document.querySelector('[data-guide="upload"]');
+                  if (ready) { try { instance.moveNext?.(); } catch {} return; }
+                  if (Date.now() - start > 3000) { return; }
+                  setTimeout(wait, 120);
+                } catch {}
+              };
+              setTimeout(wait, 150);
+            } catch {}
+          });
+        } catch {}
       }
       if (typeof instance.drive === 'function') {
         instance.drive();
@@ -665,6 +721,7 @@ export function startGuide(page: string, _opts?: { step?: number }) {
       try { (window as any).__driverDashboard = instance; } catch {}
       instance.on?.('destroyed', () => {
         persistIndex();
+        try { document.body.classList.remove('bvx-center-popover-body'); } catch {}
         try { track('tour_complete', { page }); } catch {}
         if (page === 'workspace_intro') {
           try { localStorage.setItem('bvx_tour_seen_workspace_intro', '1'); } catch {}
@@ -673,8 +730,8 @@ export function startGuide(page: string, _opts?: { step?: number }) {
         }
         if (page === 'dashboard') {
           try { window.dispatchEvent(new CustomEvent('bvx:guide:dashboard:done')); } catch {}
-          return;
-        }
+      return;
+    }
       });
     } catch (err) {
       console.error('startGuide error', err);

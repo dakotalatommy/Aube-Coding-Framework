@@ -22,7 +22,7 @@ export default function Integrations(){
   const SHOW_REDIRECT_URIS = ((import.meta as any).env?.VITE_SHOW_REDIRECT_URIS === '1') || (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('dev'));
   const DEV_MODE = (()=>{ try{ return new URLSearchParams(window.location.search).has('dev'); } catch { return false; } })();
   const [settings, setSettings] = useState<any>({ tone:'helpful', services:['sms','email'], auto_approve_all:false, pause_automations:false, quiet_hours:{ start:'21:00', end:'08:00' }, brand_profile:{ name:'', voice:'', about:'' }, metrics:{ monthly_revenue:'', avg_service_price:'', avg_service_time:'', rent:'' }, goals:{ primary_goal:'' }, preferences:{} });
-  const [statusPill, setStatusPill] = useState<{providers:Record<string,{linked:boolean;status?:string;last_sync?:number}>; loaded:boolean}>({ providers:{}, loaded:false });
+  const [statusPill, setStatusPill] = useState<{providers:Record<string,{linked:boolean;status?:string;last_sync?:number}>; loaded:boolean}>({ providers:{}, loaded:false }); void statusPill;
   const isDemo = (()=>{ try{ return new URLSearchParams(window.location.search).get('demo')==='1'; } catch { return false; } })();
   const [status, setStatus] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
@@ -295,6 +295,37 @@ export default function Integrations(){
     catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
   };
+  const restartOnboarding = async () => {
+    try {
+      setBusy(true);
+      try {
+        await api.post('/settings', { tenant_id: await getTenant(), guide_done: false, welcome_seen: false });
+      } catch {}
+      try {
+        // Mark onboarding as done so the dashboard walkthrough can auto-start
+        localStorage.setItem('bvx_onboarding_done','1');
+        // Ensure guide is considered not done
+        localStorage.removeItem('bvx_guide_done');
+        localStorage.removeItem('bvx_quickstart_completed');
+        localStorage.removeItem('bvx_tour_seen_workspace_intro');
+        localStorage.removeItem('bvx_billing_dismissed');
+        sessionStorage.removeItem('bvx_intro_session');
+        // Force showing the new Welcome modal and auto-start the 45-step tour
+        localStorage.setItem('bvx_force_welcome_modal','1');
+        localStorage.removeItem('bvx_force_start_tour');
+      } catch {}
+      // Clean any lingering driver overlays before navigation
+      try {
+        document.querySelectorAll('.driver-overlay, .driver-popover').forEach(el=>{ try{ el.parentElement?.removeChild(el); }catch{} });
+        document.body.classList.remove('driver-active','driver-fade','bvx-center-popover-body');
+      } catch {}
+      try { showToast({ title: 'Walkthrough restarted', description: 'Returning to Dashboard…' }); } catch {}
+      // Small defer to let server flags persist
+      setTimeout(()=>{ try { window.location.assign('/workspace?pane=dashboard'); } catch { window.location.href = '/workspace?pane=dashboard'; } }, 150);
+    } finally {
+      setBusy(false);
+    }
+  };
   // fmt12 removed with quiet hours UI
   /* const saveTraining = async () => {
     try{
@@ -501,6 +532,7 @@ export default function Integrations(){
           <span className="text-xs text-slate-600 px-2 py-1 rounded-md border bg-white/70">
             TZ: {Intl.DateTimeFormat().resolvedOptions().timeZone} (UTC{computeOffsetHours()>=0?'+':''}{computeOffsetHours()})
           </span>
+          <Button variant="outline" size="sm" aria-label="Restart onboarding" disabled={busy} onClick={restartOnboarding}>Restart onboarding</Button>
           {/* Re-analyze removed per cleanup */}
           <Button variant="outline" size="sm" aria-label="Open integrations guide" onClick={()=>{
             try { trackEvent('integrations.guide.open', { area: 'integrations' }); } catch {}
@@ -560,19 +592,7 @@ export default function Integrations(){
         </div>
       )}
       <div className="grid gap-3 max-w-xl">
-        {/* System Status pill */}
-        <section className="rounded-2xl p-2 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
-          <div className="flex items-center gap-2 text-[11px]">
-            <span className="text-slate-700">System status:</span>
-            {['google','square','acuity'].map((p)=>{
-              const s = (statusPill.providers as any)[p] || {} as any;
-              const linked = !!s.linked;
-              const st = linked ? 'connected' : 'pending';
-              return <MinimalBadge key={p} status={st as any} label={`${p}: ${linked? 'Connected':'Needs auth'}`} />
-            })}
-          </div>
-        </section>
-      {/* Setup Progress hidden per spec */}
+        {/* Setup Progress hidden per spec */}
         {/* Pending credentials and approval banners removed */}
         {lastCallback && (
           <div className="text-[11px] text-slate-600">Last OAuth callback: {new Date(Number(lastCallback?.ts||0)*1000).toLocaleString()} · {String(lastCallback?.action||'')}</div>
@@ -581,19 +601,6 @@ export default function Integrations(){
         {/* Provider mode moved onto each integration card (Demo/Live) */}
         {/* SMS and Email toggles hidden per spec */}
         {/* Quiet hours hidden per spec */}
-        <div className="flex items-center gap-2 text-sm">
-          <label className="flex items-center gap-2"> Auto-approve risky tools
-            <input type="checkbox" checked={!!settings.auto_approve_all} onChange={async(e)=>{ const v=e.target.checked; setSettings({...settings, auto_approve_all: v}); try{ await api.post('/settings',{ tenant_id: await getTenant(), auto_approve_all: v }); }catch{} }} />
-          </label>
-          <span className="text-[11px] text-slate-600" title="Examples: send message, reschedule/cancel, start campaign, bulk import">(?)</span>
-        </div>
-        <div className="flex items-center gap-2 text-sm">
-          <label className="flex items-center gap-2"> Pause automations
-            <input type="checkbox" checked={!!settings.pause_automations} onChange={async(e)=>{ const v=e.target.checked; setSettings({...settings, pause_automations: v}); try{ await api.post('/settings',{ tenant_id: await getTenant(), pause_automations: v }); }catch{} }} />
-          </label>
-          <span className="text-[11px] text-slate-600" title="When on, risky tool actions go to To‑Do for approval.">(?)</span>
-        </div>
-        <div className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-md px-2 py-1 inline-block">Some actions may require approval when auto-approve is off. Review in <a className="underline" href="/workspace?pane=approvals">To‑Do</a>.</div>
         {/* Save/Send test buttons removed per spec */}
         <section className="rounded-2xl p-3 bg-white/60 backdrop-blur border border-white/70 shadow-sm">
           {/* Train VX section removed per spec */}
@@ -729,7 +736,7 @@ export default function Integrations(){
                 try { await reanalyze(); } catch {}
               } catch(e:any) { setErrorMsg(String(e?.message||e)); }
               finally { setBusy(false); }
-            }}>Import</Button>
+            }}>Import contacts</Button>
             {linked.acuity && lastSync.acuity && (
               <span className="text:[11px] text-slate-600">Last sync: {new Date(Number(lastSync.acuity)*1000).toLocaleString()}</span>
             )}

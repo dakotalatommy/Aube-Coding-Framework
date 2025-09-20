@@ -1,78 +1,71 @@
 import { useEffect } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 
 export default function AuthCallback() {
-  const nav = useNavigate();
   const loc = useLocation();
 
   useEffect(() => {
-    const sp = new URLSearchParams(loc.search);
-    let next = sp.get('next') || '';
-    const wantsWorkspace = sp.get('return') === 'workspace';
-    if (wantsWorkspace) {
-      // Always land on Dashboard for workspace returns, regardless of connect flow
-      next = '/workspace?pane=dashboard&postVerify=1&return=workspace';
-    }
-    if (!next) next = '/onboarding';
-
-    // Sanitize any pane=integrations to dashboard (no exceptions)
-    try {
-      const u = new URL(window.location.origin + next);
-      const pane = u.searchParams.get('pane');
-      if (pane === 'integrations') {
-        u.searchParams.set('pane','dashboard');
-        u.searchParams.delete('provider');
-        u.searchParams.delete('connected');
-        u.searchParams.delete('error');
-        next = u.pathname + '?' + u.searchParams.toString();
-      }
-    } catch {}
-
-    // Broadcast to the opener/original tab that auth is ready
-    const signalReady = () => {
+    // 1) Consume OAuth/PKCE return (code/tokens) and set session, if present
+    const consumeAuthReturn = async () => {
       try {
-        const bc = new (window as any).BroadcastChannel('bvx_auth');
-        bc.postMessage({ type: 'auth_ready' });
+        const u = new URL(window.location.href);
+        const at = u.searchParams.get('access_token');
+        const rt = u.searchParams.get('refresh_token');
+        if (at && rt) {
+          try {
+            await supabase.auth.setSession({ access_token: at, refresh_token: rt } as any);
+          } catch {}
+        } else {
+          try {
+            await supabase.auth.exchangeCodeForSession(window.location.href as any);
+          } catch {}
+        }
       } catch {}
+      // Scrub sensitive params from the URL
+      try {
+        const u = new URL(window.location.href);
+        const SENSITIVE = ['access_token','refresh_token','token_type','expires_in','provider_token','code','scope'];
+        SENSITIVE.forEach(k => u.searchParams.delete(k));
+        // Also scrub from hash if present
+        if (u.hash) {
+          try {
+            const hs = new URLSearchParams(u.hash.replace(/^#/, ''));
+            SENSITIVE.forEach(k => hs.delete(k));
+            const hstr = hs.toString();
+            u.hash = hstr ? '#' + hstr : '';
+          } catch {}
+        }
+        window.history.replaceState({}, '', u.toString());
+      } catch {}
+    };
+    const main = async () => {
+      await consumeAuthReturn();
+      // Decide target synchronously
+      const sp = new URLSearchParams(window.location.search);
+      const forcedFlag = sp.get('force') === '1' || sp.get('forceOnboard') === '1' || sp.get('welcome') === '1';
+      const forcedOnboarding = forcedFlag;
+      let onboardingDone = false; try { onboardingDone = localStorage.getItem('bvx_onboarding_done') === '1'; } catch {}
+      const target = (!onboardingDone || forcedOnboarding) ? '/onboarding' : '/workspace?pane=dashboard';
+
+      // Sanitize non-sensitive URL parts
+      try {
+        const u = new URL(window.location.href);
+        ['provider','connected','error','postVerify','tour'].forEach(k => u.searchParams.delete(k));
+        window.history.replaceState({}, '', u.toString());
+      } catch {}
+      // Broadcast readiness
+      try { const bc = new (window as any).BroadcastChannel('bvx_auth'); bc.postMessage({ type: 'auth_ready' }); } catch {}
       try { localStorage.setItem('bvx_auth_ready', '1'); } catch {}
       try { localStorage.removeItem('bvx_intro_pending'); } catch {}
       try { localStorage.removeItem('bvx_auth_in_progress'); } catch {}
       try { (window.opener as any)?.postMessage('bvx_auth_ready', window.location.origin); } catch {}
-    };
 
-    let unsub: any;
-    const init = async () => {
-      // If session already exists, go immediately
-      const sess = (await supabase.auth.getSession()).data.session;
-      if (sess) {
-        signalReady();
-        nav(next, { replace: true });
-        return;
-      }
-      // Otherwise, wait for it
-      unsub = supabase.auth.onAuthStateChange((_, session) => {
-        if (session) {
-          signalReady();
-          nav(next, { replace: true });
-        }
-      });
-      // Fallback polling in case the event misses
-      const t = window.setInterval(async () => {
-        const s = (await supabase.auth.getSession()).data.session;
-        if (s) {
-          window.clearInterval(t);
-          signalReady();
-          nav(next, { replace: true });
-        }
-      }, 1200);
-      // hard timeout: after 12s, go to next anyway (if cookies lag)
-      const hard = window.setTimeout(()=>{ try{ signalReady(); }catch{}; nav(next, { replace: true }); }, 12000);
-      return () => { window.clearInterval(t); window.clearTimeout(hard); };
+      // Hard redirect to avoid router timing races
+      window.location.replace(target);
     };
-    init();
-    return () => { try { unsub?.data?.subscription?.unsubscribe?.(); } catch {} };
-  }, [loc.search, nav]);
+    void main();
+    }, [loc.search]);
 
   return (
     <div className="max-w-md mx-auto py-10">
@@ -83,5 +76,3 @@ export default function AuthCallback() {
     </div>
   );
 }
-
-

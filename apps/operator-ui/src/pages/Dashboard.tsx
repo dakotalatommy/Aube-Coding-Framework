@@ -471,9 +471,9 @@ export default function Dashboard(){
       {/* Micro-wins and quick wins CTAs removed per UI trim */}
       {/* Quick Start 3 WorkStyles (stacked vertically); hidden when initial three actions are complete */}
       {!quickStartDone && (
-        <section className="rounded-2xl p-2 bg-white border border-white/60 shadow-sm" data-guide="quickstart">
+      <section className="rounded-2xl p-2 bg-white border border-white/60 shadow-sm" data-guide="quickstart">
           <h4 className="text-base md:text-[17px] font-semibold text-slate-900 text-center">Guided Walk‑through</h4>
-          <div className="mt-2 max-w-sm mx-auto grid gap-2">
+        <div className="mt-2 max-w-sm mx-auto grid gap-2">
             <Button
               size="sm"
               variant="outline"

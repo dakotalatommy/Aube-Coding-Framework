@@ -62,7 +62,7 @@ export default function WorkspaceShell(){
   const TRIAL_DAYS = Number((import.meta as any).env?.VITE_STRIPE_TRIAL_DAYS || '7');
   const STRIPE_BUY_BUTTON_47 = String((import.meta as any).env?.VITE_STRIPE_BUY_BUTTON_47 || '');
   const STRIPE_PK = String((import.meta as any).env?.VITE_STRIPE_PK || (import.meta as any).env?.VITE_STRIPE_PUBLISHABLE_KEY || '');
-const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_TOUR || '').toLowerCase() === '1';
+const FORCE_ONBOARD_TOUR = false;
 
   const [billingOpen, setBillingOpen] = useState(false);
   const [billingLoading, setBillingLoading] = useState(false);
@@ -71,6 +71,7 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
   const [trialEndedOpen, setTrialEndedOpen] = useState<boolean>(false);
   const [trialDaysLeft, setTrialDaysLeft] = useState<number>(0);
   const [flowModal, setFlowModal] = useState<FlowModalConfig | null>(null);
+  const [welcomeOpen, setWelcomeOpen] = useState<boolean>(false);
   const [isLiteTier, setIsLiteTier] = useState<boolean>(false);
   const [flowModalInput, setFlowModalInput] = useState('');
   const [debugEvents, setDebugEvents] = useState<string[]>([]);
@@ -130,7 +131,7 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
   }, [sleep]);
 
   const billingResolverRef = useRef<((dismiss?: boolean) => void) | null>(null);
-  const forceInitRef = useRef(false);
+  // const forceInitRef = useRef(false);
   const autoStartRef = useRef(false);
   const forcedRef = useRef(false);
   const skipImportRef = useRef(false);
@@ -178,7 +179,28 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
       window.addEventListener('bvx:guide:dashboard:done', handler as any, { once: true } as any);
       try {
         if (debugEnabled) debugLog('tour:start dashboard');
-        startGuide('dashboard');
+        // Delay slightly to allow dashboard DOM to stabilize before showing welcome
+        setTimeout(() => { try { startGuide('dashboard'); } catch {} }, 350);
+        // Safety: if overlay mounts but no popover appears quickly, teardown once and retry without centering
+        setTimeout(() => {
+          try {
+            const hasOverlay = document.querySelectorAll('.driver-overlay').length > 0;
+            const hasPopover = document.querySelectorAll('.driver-popover').length > 0;
+            const retried = (window as any).__bvxTourRetried === true;
+            if (hasOverlay && !hasPopover && !retried) {
+              (window as any).__bvxTourRetried = true;
+              document.querySelectorAll('.driver-overlay, .driver-popover').forEach(el => { try{ el.parentElement?.removeChild(el); }catch{} });
+              document.body.classList.remove('driver-active','driver-fade','bvx-center-popover-body');
+              // Retry with nocenter to isolate centering issues
+              try {
+                const url = new URL(window.location.href);
+                url.searchParams.set('nocenter','1');
+                window.history.replaceState({}, '', url.toString());
+              } catch {}
+              startGuide('dashboard');
+            }
+          } catch {}
+        }, 700);
       } catch (err) {
         window.removeEventListener('bvx:guide:dashboard:done', handler as any);
         reject(err instanceof Error ? err : new Error(String(err)));
@@ -259,6 +281,18 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
     return unsubscribe;
   }, [onboardingController]);
 
+  // Welcome modal bootstrap: show when tour is not done on first dashboard mount
+  useEffect(() => {
+    try {
+      const paneNow = new URLSearchParams(loc.search).get('pane') || 'dashboard';
+      const onboardingDone = localStorage.getItem('bvx_onboarding_done') === '1';
+      const guideDone = workspaceStorage.getGuideDone();
+      if (paneNow === 'dashboard' && onboardingDone && !guideDone) {
+        setWelcomeOpen(true);
+      }
+    } catch {}
+  }, [loc.search]);
+
   useEffect(() => {
     const onNavigate = (event: Event) => {
       const detail = (event as CustomEvent<{ pane?: PaneKey }>).detail;
@@ -266,6 +300,13 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
       if (!target) return;
       (async () => {
         try {
+          // Strip legacy tour flag when leaving dashboard to prevent page-level tours
+          try {
+            if (target !== 'dashboard') {
+              const u = new URL(window.location.href);
+              if (u.searchParams.get('tour') === '1') { u.searchParams.delete('tour'); window.history.replaceState({}, '', u.toString()); }
+            }
+          } catch {}
           await goToPane(target);
         } catch (err) {
           console.error('guide navigate failed', err);
@@ -341,31 +382,18 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
   }, []);
 
   useEffect(() => {
-    const sp = new URLSearchParams(loc.search);
-    const queryForce = sp.get('force') === '1' || sp.get('forceOnboard') === '1' || sp.get('welcome') === '1';
-    const forced = FORCE_ONBOARD_TOUR || queryForce;
-    forcedRef.current = forced;
-    if (forced && !forceInitRef.current) {
-      forceInitRef.current = true;
-      onboardingController.reset({
-        serverReset: async () => {
-          try {
-            const tid = await getTenant().catch(() => '') || '';
-            if (tid) await api.post('/settings', { tenant_id: tid, guide_done: false, welcome_seen: false });
-          } catch (err) {
-            console.error('onboarding forced server reset failed', err);
-          }
-        },
-      }).finally(() => {
-        onboardingController.start({ force: true }).catch(err => console.error('onboarding force start failed', err));
-      });
-      return;
-    }
-    if (!forced && !workspaceStorage.getGuideDone() && !autoStartRef.current) {
+    // Auto-start only when explicitly forced and welcome modal is not expected
+    const paneNow = new URLSearchParams(loc.search).get('pane') || 'dashboard';
+    const onboardingDone = (()=>{ try{ return localStorage.getItem('bvx_onboarding_done')==='1'; }catch{ return false; }})();
+    const guideDone = (()=>{ try{ return workspaceStorage.getGuideDone(); }catch{ return false; }})();
+    const wantWelcome = paneNow === 'dashboard' && onboardingDone && !guideDone;
+    const forceStart = (()=>{ try{ return localStorage.getItem('bvx_force_start_tour')==='1'; }catch{ return false; }})();
+    if (!wantWelcome && forceStart && !autoStartRef.current) {
       autoStartRef.current = true;
+      try { localStorage.removeItem('bvx_force_start_tour'); } catch {}
       onboardingController.start({ force: false }).catch(err => console.error('onboarding start failed', err));
     }
-  }, [FORCE_ONBOARD_TOUR, loc.search, onboardingController]);
+  }, [loc.search, onboardingController]);
 
   useEffect(() => {
     (async () => {
@@ -401,18 +429,29 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
         {
           let session = (await supabase.auth.getSession()).data.session;
           if (!session) {
+            const ready = localStorage.getItem('bvx_auth_ready') === '1';
             const inProgress = localStorage.getItem('bvx_auth_in_progress') === '1';
-            if (inProgress) {
+            if (ready || inProgress) {
               // wait briefly for session propagation
-              for (let i=0; i<8; i++) {
-                await new Promise(r=> setTimeout(r, 700));
+              for (let i=0; i<10; i++) {
+                await new Promise(r=> setTimeout(r, 600));
                 session = (await supabase.auth.getSession()).data.session;
                 if (session) break;
               }
             }
             if (!session) { nav('/login'); return; }
           }
+          // Do not redirect here; AuthCallback owns forced onboarding routing
         }
+
+        // Clean up any stale driver overlays before unified tour
+        try {
+          document.querySelectorAll('.driver-overlay, .driver-popover').forEach(el => {
+            try { el.parentElement?.removeChild(el); } catch {}
+          });
+          document.body.classList.remove('bvx-center-popover-body');
+        } catch {}
+
         const sp = new URLSearchParams(loc.search); void sp;
         // Strip and normalize: never land on Settings due to stale query; prefer Dashboard
         try{
@@ -494,7 +533,7 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
           setBillingOpen(true); try { track('billing_modal_open'); } catch {}
         } else {
           if ((!billingOpenRef.current || covered || dismissed) && onboardingState.phase !== 'billing') {
-            setBillingOpen(false);
+          setBillingOpen(false);
           }
         }
         try {
@@ -754,13 +793,13 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
             if (covered) return;
           }
         } catch {}
-        setBillingOpen(true);
+          setBillingOpen(true);
         try { track('billing_modal_open'); } catch {}
       };
       window.addEventListener('bvx:billing:prompt' as any, onBilling as any);
       // Clean up on unmount
       return () => window.removeEventListener('bvx:billing:prompt' as any, onBilling as any);
-    } catch {}
+      } catch {}
   }, []);
 
   // Load Stripe Buy Button script once when the billing modal opens and an ID+PK are available
@@ -803,7 +842,11 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
       {/* E2E readiness marker */}
       <div id="e2e-ready" data-pane={pane} style={{ position:'absolute', opacity:0, pointerEvents:'none' }} />
       {debugEnabled && (
-        <div className="fixed top-2 right-2 z-[3000] text-[11px] bg-yellow-100 border border-yellow-300 text-yellow-900 rounded-md px-2 py-1 shadow-sm">
+        <div
+          className="fixed right-2 z-[3000] text-[11px] bg-yellow-100 border border-yellow-300 text-yellow-900 rounded-md px-2 py-1 shadow-sm pointer-events-auto"
+          style={{ bottom: 'calc(env(safe-area-inset-bottom,0px) + 96px)' }}
+          data-debug-panel
+        >
           <div>dbg pane={pane} status={billingStatus||'n/a'} open={billingOpen?'1':'0'} phase={onboardingState.phase} running={onboardingState.running?'1':'0'}</div>
           {debugEvents.map((e,i)=> (<div key={i}>{e}</div>))}
         </div>
@@ -881,6 +924,28 @@ const FORCE_ONBOARD_TOUR = String((import.meta as any).env?.VITE_FORCE_ONBOARD_T
         </main>
         {/* Arrows removed per product decision */}
       </div>
+      {welcomeOpen && createPortal(
+        <div className="fixed inset-0 z-[2147483642] flex items-center justify-center p-4">
+          <div aria-hidden className="absolute inset-0 bg-black/35" onClick={()=>{ setWelcomeOpen(false); try{ localStorage.removeItem('bvx_force_welcome_modal'); }catch{} }} />
+          <div className="relative w-full max-w-lg rounded-2xl border border-[var(--border)] bg-white p-6 shadow-soft text-center">
+            <div className="text-ink-900 text-xl font-semibold">Welcome to brandVX</div>
+            <div className="text-ink-700 text-sm mt-2">Let’s do a quick walk‑through of your workspace, then get you running our 3 most powerful features.</div>
+            <div className="mt-4 grid gap-2">
+              <Button onClick={()=>{
+                setWelcomeOpen(false);
+                try{ localStorage.removeItem('bvx_force_welcome_modal'); }catch{}
+                // Start unified tour via controller after a short delay
+                setTimeout(()=>{ try{ (window as any).__bvxTourRetried = false; onboardingController.start({ force: false }); }catch{} }, 250);
+              }}>Start walk‑through</Button>
+              <Button variant="outline" onClick={()=>{
+                setWelcomeOpen(false);
+                try{ localStorage.setItem('bvx_quickstart_completed','1'); }catch{}
+              }}>Skip for now</Button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
       {flowModal && createPortal(
         <div className="fixed inset-0 z-[2100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/30" />
