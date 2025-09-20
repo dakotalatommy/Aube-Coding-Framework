@@ -41,12 +41,13 @@ export default function AuthCallback() {
     };
     const main = async () => {
       await consumeAuthReturn();
-      // Decide target synchronously
+      // Decide target synchronously (dev mode overrides)
+      const DEV_MODE = String((import.meta as any).env?.VITE_ONBOARDING_DEV_MODE || '0') === '1';
       const sp = new URLSearchParams(window.location.search);
       const forcedFlag = sp.get('force') === '1' || sp.get('forceOnboard') === '1' || sp.get('welcome') === '1';
       const forcedOnboarding = forcedFlag;
       let onboardingDone = false; try { onboardingDone = localStorage.getItem('bvx_onboarding_done') === '1'; } catch {}
-      const target = (!onboardingDone || forcedOnboarding) ? '/onboarding' : '/workspace?pane=dashboard';
+      const target = DEV_MODE ? '/onboarding' : ((!onboardingDone || forcedOnboarding) ? '/onboarding' : '/workspace?pane=dashboard');
 
       // Sanitize non-sensitive URL parts
       try {

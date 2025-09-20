@@ -115,7 +115,10 @@ async def get_user_context(
                     return (len(x) == 36 and x.count("-") == 4)
                 except Exception:
                     return False
-            # Header fallback (only when Bearer is present and verified, and header looks like UUID)
+            # Header fallback: if JWT lacks explicit tenant_id claim, allow X-Tenant-Id to override
+            if not bool(payload.get("tenant_id")) and x_tenant_id and _looks_like_uuid(x_tenant_id):
+                _tenant_id = str(x_tenant_id)
+            # If still not a UUID, try header as last resort (legacy/dev cases)
             if not _looks_like_uuid(_tenant_id) and x_tenant_id and _looks_like_uuid(x_tenant_id):
                 _tenant_id = str(x_tenant_id)
             if not _looks_like_uuid(_tenant_id):
@@ -170,6 +173,9 @@ async def get_user_context(
                         or payload.get("sub")
                         or "t1"
                     )
+                    # Header fallback when JWT lacks tenant_id claim
+                    if not bool(payload.get("tenant_id")) and x_tenant_id and _looks_like_uuid(x_tenant_id):
+                        _tenant_id = str(x_tenant_id)
                     # DB fallback mapping (same as verified path)
                     def _looks_like_uuid(s: Optional[str]) -> bool:
                         try:
