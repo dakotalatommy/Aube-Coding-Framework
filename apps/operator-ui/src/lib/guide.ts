@@ -88,13 +88,42 @@ const registry: Record<string, GuideStep[]> = {
       element: '[data-guide="quickstart-brandvzn"]',
       popover: {
         title: 'Guided Walk‑through',
-        description: 'Let’s showcase three of brandVX’s most powerful features.',
-        showButtons: ['previous', 'next'],
-        nextBtnText: 'Open brandVZN',
-        onNextClick: (_element, _step, { driver }) => {
-          // Navigate on Next; advance unified tour to avoid stall
-          try { window.dispatchEvent(new CustomEvent('bvx:guide:navigate', { detail: { pane: 'vision' } })); } catch {}
-          try { driver.moveNext(); } catch {}
+        description: 'Let’s showcase three of brandVX’s most powerful features.<div class="mt-3"><button class="bvx-onboard-btn" data-open-vision>Open brandVZN</button></div>',
+        showButtons: ['previous'],
+        onPopoverRender: (dom: any, { driver }: { driver: any }) => {
+          try {
+            let navStarted = false;
+            const triggerNavigate = () => {
+              if (navStarted) return; navStarted = true;
+              try { window.dispatchEvent(new CustomEvent('bvx:dbg', { detail: { type: 'nav.req', pane: 'vision' } })); } catch {}
+              try { window.dispatchEvent(new CustomEvent('bvx:guide:navigate', { detail: { pane: 'vision' } })); } catch {}
+              const start = Date.now();
+              const wait = () => {
+                try {
+                  const sp = new URLSearchParams(window.location.search);
+                  const pane = sp.get('pane');
+                  const ready = pane === 'vision' && document.querySelector('[data-guide="upload"]');
+                  if (ready) { try { driver.moveNext?.(); } catch {} return; }
+                  if (Date.now() - start > 8000) { return; }
+                  setTimeout(wait, 120);
+                } catch {}
+              };
+              setTimeout(wait, 120);
+            };
+            // Bind button (check both popover and wrapper roots)
+            const btn = dom?.popover?.querySelector?.('[data-open-vision]') || dom?.wrapper?.querySelector?.('[data-open-vision]') || document.querySelector('[data-open-vision]');
+            btn?.addEventListener('click', (e: Event) => { try{ e.preventDefault(); }catch{} triggerNavigate(); });
+            // Unify ArrowRight to perform the same navigate+wait
+            const keyHandler = (e: KeyboardEvent) => { if (e.key === 'ArrowRight') { e.stopPropagation(); e.preventDefault(); triggerNavigate(); } };
+            document.addEventListener('keydown', keyHandler, true);
+            window.addEventListener('keydown', keyHandler, true);
+            const cleanup = () => {
+              document.removeEventListener('keydown', keyHandler, true);
+              window.removeEventListener('keydown', keyHandler, true);
+            };
+            // Cleanup when this popover is replaced
+            setTimeout(() => { try { cleanup(); } catch {} }, 9000);
+          } catch {}
         },
       },
     },
@@ -159,7 +188,7 @@ const registry: Record<string, GuideStep[]> = {
         description:
           'Since booking was connected during onboarding, click Import from booking to bring everyone in.<div class="mt-3 grid gap-2">\n            <button class="bvx-onboard-btn" data-onboard-action="import-now">Import from booking</button>\n            <button class="bvx-onboard-btn-secondary" data-onboard-action="import-skip">Skip this step</button>\n          </div>\n          <div class="mt-4 hidden" data-onboard-panel="lite">\n            <div class="text-xs text-slate-700 mb-2">Prefer to start lighter? brandVZN Lite keeps Brand Vision + AskVX for $47/mo.</div>\n            <div class="flex flex-col gap-2 items-center" data-onboard-lite-root>\n              <stripe-buy-button buy-button-id="buy_btn_1S8t06KsdVcBvHY1b42SHXi9" publishable-key="pk_live_51RJwqnKsdVcBvHY1Uf3dyiHqrB3fsE35Qhgs5KfnPSJSsdalZpoJik9HYR4x6OY1ITiNJw6VJnqN9bHymiw9xE3r00WyZkg6kZ"></stripe-buy-button>\n              <button class="bvx-onboard-btn" data-onboard-action="skip-continue">Continue without importing</button>\n            </div>\n          </div>',
         showButtons: ['previous'],
-        onPopoverRender: (dom: any) => {
+        onPopoverRender: (dom: any, { driver }: { driver: any }) => {
           (window as any).__bvxSkipImport = false;
           const root = dom?.wrapper as HTMLElement | null;
           if (!root) return;
@@ -217,9 +246,35 @@ const registry: Record<string, GuideStep[]> = {
             try { window.dispatchEvent(new CustomEvent('bvx:onboarding:skip-import')); } catch {}
           });
 
-          // Navigate to contacts pane when this step mounts
+          // Navigate to contacts pane when this step mounts; treat ArrowRight as gated advance
           try {
+            const triggerNext = () => { try { driver.moveNext?.(); } catch {} };
+            const keyHandler = (e: KeyboardEvent) => { if (e.key === 'ArrowRight') { e.stopPropagation(); e.preventDefault(); /* do nothing until ready; wait loop will advance */ } };
+            document.addEventListener('keydown', keyHandler, true);
+            window.addEventListener('keydown', keyHandler, true);
+            const cleanupKeys = () => { document.removeEventListener('keydown', keyHandler, true); window.removeEventListener('keydown', keyHandler, true); };
             window.dispatchEvent(new CustomEvent('bvx:guide:navigate', { detail: { pane: 'contacts' } }));
+            window.dispatchEvent(new CustomEvent('bvx:dbg', { detail: { type: 'nav.req', pane: 'contacts' } }));
+            const start = Date.now();
+            const onReady = () => {
+              try { window.removeEventListener('bvx:contacts:ready', onReady as any); } catch {}
+              triggerNext();
+              cleanupKeys();
+            };
+            window.addEventListener('bvx:contacts:ready', onReady as any, { once: true } as any);
+            // Backstop in case event is missed
+            const waitNext = () => {
+              try {
+                const sp = new URLSearchParams(window.location.search);
+                const pane = sp.get('pane');
+                const targetEl = document.querySelector('[data-guide="clients-import-status"]') || document.querySelector('[data-guide="clients-list"]');
+                const ready = pane === 'contacts' && targetEl;
+                if (ready) { onReady(); return; }
+                if (Date.now() - start > 7000) { cleanupKeys(); return; }
+                setTimeout(waitNext, 120);
+              } catch {}
+            };
+            setTimeout(waitNext, 200);
           } catch {}
         },
       },
@@ -236,7 +291,7 @@ const registry: Record<string, GuideStep[]> = {
         },
       },
     },
-    { element: '[data-guide="clients-list"]', popover: { title: 'Clients list', description: 'Review synced guests, visit history, and follow-up readiness in one place.', showButtons: ['previous', 'next'] } },
+    { element: '[data-guide="clients-list"]', popover: { title: 'Clients list', description: 'Review synced guests, visit history, and follow-up readiness in one place.', showButtons: ['previous', 'next'], onPopoverRender: ()=>{ try{ window.dispatchEvent(new CustomEvent('bvx:dbg',{ detail:{ type:'clients.ready' } })); }catch{} } } },
     { element: '[data-guide="clients-actions"]', popover: { title: 'Quick actions', description: 'Select text or email to copy contact info and launch ready-to-edit drafts.', showButtons: ['previous', 'next'] } },
     { element: '[data-guide="clients-pagination"]', popover: { title: 'Navigate pages', description: 'Use the arrows to move through larger client lists.', showButtons: ['previous', 'next'] } },
     { element: '[data-guide="clients-export"]', popover: { title: 'Export CSV', description: 'Download your imported contacts anytime for offline review.', showButtons: ['previous', 'next'] } },
@@ -532,6 +587,11 @@ export function startGuide(page: string, _opts?: { step?: number }) {
                 try { (dom?.popover?.querySelector?.('.driver-popover-arrow') as HTMLElement | null)?.style?.setProperty('display','none'); } catch {}
               }
             } catch {}
+            // Instrumentation: report active step transitions for debugging
+            try {
+              const idx = typeof opts?.driver?.getActiveIndex === 'function' ? opts.driver.getActiveIndex() : null;
+              window.dispatchEvent(new CustomEvent('bvx:tour:step', { detail: { page, index: idx, title } }));
+            } catch {}
             try { if (typeof originalOnRender === 'function') originalOnRender(dom, opts); } catch {}
           };
           const effectiveCentered = !!centered && !nocenter;
@@ -556,7 +616,11 @@ export function startGuide(page: string, _opts?: { step?: number }) {
           const s = document.createElement('style');
           s.id = styleId;
           s.textContent = `
-            .driver-overlay { z-index: 2147483641 !important; }
+            .driver-overlay {
+              z-index: 2147483641 !important;
+              background: rgba(17,24,39,0.55) !important; /* enforce dim */
+              pointer-events: auto !important; /* ensure overlay captures clicks */
+            }
             .driver-popover { z-index: 2147483642 !important; max-width: min(560px, 90vw) !important; }
           `;
           document.head.appendChild(s);
@@ -643,25 +707,40 @@ export function startGuide(page: string, _opts?: { step?: number }) {
         });
       }
       if (page === 'dashboard') {
-        // Handle brandVZN jump: wait for pane and target element before advancing
+        // Handle brandVZN jump: wait for explicit page-ready event before advancing
         try {
           window.addEventListener('bvx:guide:navigate', (ev: any) => {
             try {
               const target = (ev?.detail?.pane || '').toString();
               if (target !== 'vision') return;
               const start = Date.now();
+              const onReady = () => {
+                try { window.removeEventListener('bvx:vision:ready', onReady as any); } catch {}
+                try { instance.moveNext?.(); } catch {}
+              };
+              window.addEventListener('bvx:vision:ready', onReady as any, { once: true } as any);
+              // Backstop: if ready event is missed, fallback to selector presence
               const wait = () => {
                 try {
                   const sp = new URLSearchParams(window.location.search);
                   const pane = sp.get('pane');
                   const ready = pane === 'vision' && document.querySelector('[data-guide="upload"]');
-                  if (ready) { try { instance.moveNext?.(); } catch {} return; }
-                  if (Date.now() - start > 3000) { return; }
+                  if (ready) { onReady(); return; }
+                  if (Date.now() - start > 6000) { return; }
                   setTimeout(wait, 120);
                 } catch {}
               };
-              setTimeout(wait, 150);
+              setTimeout(wait, 200);
             } catch {}
+          });
+  } catch {}
+        // Instrumentation: log navigation lifecycle
+        try {
+          window.addEventListener('bvx:guide:navigate', (ev: any) => {
+            try { window.dispatchEvent(new CustomEvent('bvx:dbg', { detail: { type: 'nav.req', pane: ev?.detail?.pane } })); } catch {}
+          });
+          window.addEventListener('bvx:guide:navigate:done', (ev: any) => {
+            try { window.dispatchEvent(new CustomEvent('bvx:dbg', { detail: { type: 'nav.done', pane: ev?.detail?.pane } })); } catch {}
           });
   } catch {}
 }

@@ -18,11 +18,11 @@ export default function Vision(){
   const [mime, setMime] = useState<string>('image/jpeg');
   // const [linkContactId] = useState<string>('');
   const [editPrompt, setEditPrompt] = useState<string>('');
-  const [igItems, setIgItems] = useState<string[]>([]);
+  const [igItems] = useState<string[]>([]);
   // const [contactId, setContactId] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
   const [preserveDims, setPreserveDims] = useState<boolean>(true);
-  const [saving, setSaving] = useState(false);
+  // Removed Save-to-Library UI; keep minimal state only as needed
   const [lastEditAt, setLastEditAt] = useState<number | null>(null);
   const [baselinePreview, setBaselinePreview] = useState<string>(''); // input used for last edit
   const [comparePos, setComparePos] = useState<number>(50); // before/after slider position (0..100)
@@ -30,7 +30,7 @@ export default function Vision(){
   const prefersReducedMotion = (()=>{ try{ return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches; }catch{ return false; } })();
   const [showBefore, setShowBefore] = useState<boolean>(false);
   const [versions, setVersions] = useState<string[]>([]); // recent prior states (max 3)
-  const [intensity, setIntensity] = useState<number>(60);
+  const [intensity] = useState<number>(60);
   const [origW, setOrigW] = useState<number>(0);
   const [_origH, setOrigH] = useState<number>(0);
   const [currW, setCurrW] = useState<number>(0);
@@ -43,7 +43,6 @@ export default function Vision(){
 
   const [clientName, setClientName] = useState<string>('');
   const [clientSuggestions, setClientSuggestions] = useState<Array<{contact_id:string; display_name:string}>>([]);
-  const [selectedContactId, setSelectedContactId] = useState<string>('');
   useEffect(()=>{
     const t = setTimeout(async()=>{
       try{
@@ -53,9 +52,7 @@ export default function Vision(){
         const r = await api.get(`/contacts/search?tenant_id=${encodeURIComponent(tid)}&q=${encodeURIComponent(q)}&limit=8`);
         const items = (r?.items||[]).map((it: any)=> ({ contact_id: String(it.contact_id||''), display_name: String(it.display_name||'Client')}));
         setClientSuggestions(items);
-        // auto-select if exact match
-        const exact = items.find((it: { contact_id: string; display_name: string }) => it.display_name.toLowerCase() === q.toLowerCase());
-        setSelectedContactId(exact ? exact.contact_id : '');
+        // auto-select removed with simplified library flow
       } catch { setClientSuggestions([]); }
     }, 220);
     return ()=> clearTimeout(t);
@@ -149,6 +146,28 @@ export default function Vision(){
     } catch {}
     return 0;
   });
+
+  // Signal: Vision page is fully ready for guided step placement
+  useEffect(() => {
+    let cancelled = false;
+    const signalReady = () => {
+      if (cancelled) return;
+      try {
+        const el = document.querySelector('[data-guide="upload"]') as HTMLElement | null;
+        if (el) {
+          const r = el.getBoundingClientRect?.();
+          if (r && r.width > 0 && r.height > 0) {
+            try { window.dispatchEvent(new CustomEvent('bvx:vision:ready')); } catch {}
+            try { window.dispatchEvent(new CustomEvent('bvx:dbg', { detail: { type: 'ready', pane: 'vision' } })); } catch {}
+            return;
+          }
+        }
+      } catch {}
+      setTimeout(() => { try { requestAnimationFrame(signalReady); } catch { signalReady(); } }, 60);
+    };
+    try { requestAnimationFrame(() => { requestAnimationFrame(signalReady); }); } catch { setTimeout(signalReady, 60); }
+    return () => { cancelled = true; };
+  }, []);
 
   const pick = () => inputRef.current?.click();
   const processFile = (f: File) => {
@@ -267,7 +286,7 @@ export default function Vision(){
         name: 'vision.analyze.gpt5',
         params: { tenant_id: await getTenant(), ...(b64?{ inputImageBase64: b64, inputMime: mime }:{ imageUrl: srcUrl }), question: (notes||'').trim() || undefined },
         require_approval: false,
-      });
+      }, { timeoutMs: 60000 });
       try { span?.end?.(); } catch {}
       try { window.clearTimeout(slowTimer); } catch {}
       const brief = String(r?.brief || '');
@@ -295,6 +314,16 @@ export default function Vision(){
     try{
       setSlowHint(false);
       const slowTimer = window.setTimeout(()=> setSlowHint(true), 2500);
+      // Hard watchdog: if nothing returns in 45s, surface timeout and stop spinner
+      const editWatchdog = window.setTimeout(() => {
+        try {
+          if (loading) {
+            setLoading(false);
+            setLastError('timeout');
+            setOutput('This edit is taking too long. Please retry, reduce size, or toggle Preserve Dimensions off.');
+          }
+        } catch {}
+      }, 45000);
       const span = Sentry.startInactiveSpan?.({ name: 'vision.run_edit' });
       const t0 = performance.now ? performance.now() : Date.now();
       const r = await api.post('/ai/tools/execute', {
@@ -302,7 +331,7 @@ export default function Vision(){
         name: 'image.edit',
         params: { tenant_id: await getTenant(), mode: 'edit', prompt: `${p}\nRefinement intensity: ${intensity}/100.${notes?`\nAdditional notes: ${notes}`:''}`, ...(b64?{ inputImageBase64: b64, inputMime: mime }:{ imageUrl: srcUrl }), outputFormat: 'png', preserveDims },
         require_approval: false,
-      });
+      }, { timeoutMs: 90000 });
       if (r?.data_url || r?.preview_url) {
         setLastError('');
         const next = String(r?.data_url || r?.preview_url || '');
@@ -365,6 +394,7 @@ export default function Vision(){
         } catch {}
         try { span?.end?.(); } catch {}
         try { window.clearTimeout(slowTimer); } catch {}
+        try { window.clearTimeout(editWatchdog); } catch {}
       } else {
         const friendly = humanizeError(r);
         // Surface exact backend error details to aid debugging (status/detail/body/rid)
@@ -413,43 +443,14 @@ export default function Vision(){
         }
       } catch {}
     }
-    finally { setLoading(false); }
+    finally { try { setLoading(false); } catch {} }
   };
 
   // Brand analysis available on Instagram tab (flows added separately)
 
   // const importInstagram = async () => {};
 
-  const saveToLibrary = async () => {
-    try{
-      if (!preview) { setOutput('Nothing to save — upload or import first.'); return; }
-      setSaving(true);
-      const tid = await getTenant();
-      const cid = (selectedContactId || (clientName ? clientName : 'library')).trim();
-      await api.post('/client-images/save', { tenant_id: tid, contact_id: cid, url: preview, notes });
-      setOutput('Saved to library.');
-    } catch(e:any){ setOutput(String(e?.message||e)); }
-    finally { setSaving(false); }
-  };
-
-  const loadLibrary = async () => {
-    try{
-    setLoading(true);
-      const tid = await getTenant();
-      const cid = (selectedContactId || (clientName ? clientName : 'library')).trim();
-      const r = await api.get(`/client-images/list?tenant_id=${encodeURIComponent(tid)}&contact_id=${encodeURIComponent(cid)}`);
-      const items = (r?.items || []).map((it:any)=> String(it?.url||'')).filter(Boolean);
-      setIgItems(items);
-      if (items.length) {
-        setPreview(items[0]); setSrcUrl(items[0]); setB64('');
-        setBaselinePreview(items[0]);
-        setOutput('Loaded from library.');
-      } else {
-        setOutput('No saved images found for this contact.');
-      }
-    } catch(e:any){ setOutput(String(e?.message||e)); }
-    finally { setLoading(false); }
-  };
+  // saveToLibrary / loadLibrary helpers removed with UI
 
   // saveToClient handled elsewhere
 
@@ -495,7 +496,7 @@ export default function Vision(){
         </div>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-3 items-start pb-16 md:pb-0">
+      <div className="flex flex-col gap-3 items-start pb-16 md:pb-0">
         <div
           ref={dropRef}
           className="w-full h-[420px] md:h-[460px] border rounded-xl bg-white shadow-sm overflow-hidden relative select-none z-10"
@@ -550,38 +551,32 @@ export default function Vision(){
           )}
         </div>
         <div className="flex-1 space-y-3">
-          {/* Right-panel brief analysis (replaces on re-run) */}
-          <div className="rounded-xl border bg-white p-3 text-sm min-h-[96px]" aria-live="polite">
-            {output ? (
-              <div className="whitespace-pre-wrap">{output}</div>
-            ) : (
-              <div className="text-xs text-slate-500">Run Analyze to see a brief here.</div>
-            )}
-          </div>
-        {false && (
-          <div className="flex gap-2 items-center">
-            <Button variant="outline" onClick={pick} data-guide="upload" aria-label="Upload image">Upload</Button>
-            <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.dng,image/*" className="hidden" onChange={onFile} />
-            <Button variant="outline" disabled={(!b64 && !srcUrl) || loading} onClick={analyze} data-guide="analyze" aria-label="Analyze photo">{loading ? 'Analyzing…' : 'Analyze Photo'}</Button>
-            <Button variant="outline" disabled={(!b64 && !srcUrl) || loading} onClick={()=> runEdit(editPrompt)} data-guide="edit" aria-label="Run edit">{loading ? 'Editing…' : 'Run Edit'}</Button>
-            <Button variant="outline" onClick={() => runEdit(editPrompt)} disabled={!canRun || !lastEditAt} title={!lastEditAt ? 'Run an edit first' : 'Refine using the same prompt'} aria-label="Refine again">
-              Refine again
-            </Button>
-            <div className="flex items-center gap-2 text-xs text-slate-600">
-              <span>Intensity</span>
-              <input type="range" min={10} max={100} value={intensity} onChange={e=> setIntensity(parseInt(e.target.value))} aria-label="Refinement intensity" />
-              <span>{intensity}</span>
+          {/* Compact 3‑column row: textarea | actions | brief */}
+          <div className="grid gap-3 items-start md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+            {/* Col 1: Prompt textarea */}
+            <textarea
+              className="w-full border rounded-md px-3 py-2"
+              rows={3}
+              value={editPrompt}
+              onChange={e=>setEditPrompt(e.target.value)}
+              placeholder={preview ? 'Type an edit prompt (e.g., “Change hair color to copper”)' : 'Click here to start editing or upload a photo to begin'}
+            />
+            {/* Col 2: Vertical actions */}
+            <div className="shrink-0 flex flex-col gap-2">
+              <Button variant="outline" onClick={pick} data-guide="upload" aria-label="Upload image">Upload</Button>
+              <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.dng,image/*" className="hidden" onChange={onFile} />
+              <Button variant="outline" disabled={(!b64 && !srcUrl) || loading} onClick={analyze} data-guide="analyze" aria-label="Analyze photo">{loading ? 'Analyzing…' : 'Analyze Photo'}</Button>
+              <Button variant="outline" disabled={(!b64 && !srcUrl) || loading} onClick={()=> runEdit(editPrompt)} data-guide="edit" aria-label="Run edit">{loading ? 'Editing…' : 'Run Edit'}</Button>
             </div>
-            <div className="flex items-center gap-2 ml-auto">
-              <Button variant="outline" disabled={saving || !preview} onClick={saveToLibrary}>{saving ? 'Saving…' : 'Save to Library'}</Button>
-              <Button variant="outline" disabled={loading} onClick={loadLibrary}>My Images</Button>
+            {/* Col 3: Brief panel */}
+            <div className="rounded-xl border bg-white p-3 text-sm min-h-[96px] min-w-[260px] md:min-w-[320px]" aria-live="polite">
+              {output ? (
+                <div className="whitespace-pre-wrap">{output}</div>
+              ) : (
+                <div className="text-xs text-slate-500">Run Analyze to see a brief here.</div>
+              )}
             </div>
           </div>
-        )}
-
-          {false && !isOnboard && (
-            <div className="mt-1 flex flex-wrap gap-2 text-xs" aria-label="Curated edits" />
-          )}
 
           {/* Hair / Eye color quick chips — onboarding only */}
           {isOnboard && (
@@ -600,22 +595,6 @@ export default function Vision(){
               </div>
             </div>
           )}
-
-          <div className="flex items-start gap-3">
-            <textarea
-              className="w-full border rounded-md px-3 py-2"
-              rows={3}
-              value={editPrompt}
-              onChange={e=>setEditPrompt(e.target.value)}
-              placeholder={preview ? 'Type an edit prompt (e.g., “Change hair color to copper”)' : 'Click here to start editing or upload a photo to begin'}
-            />
-            <div className="shrink-0 flex flex-col gap-2">
-              <Button variant="outline" onClick={pick} data-guide="upload" aria-label="Upload image">Upload</Button>
-              <input ref={inputRef} type="file" accept=".jpg,.jpeg,.png,.dng,image/*" className="hidden" onChange={onFile} />
-              <Button variant="outline" disabled={(!b64 && !srcUrl) || loading} onClick={analyze} data-guide="analyze" aria-label="Analyze photo">{loading ? 'Analyzing…' : 'Analyze Photo'}</Button>
-              <Button variant="outline" disabled={(!b64 && !srcUrl) || loading} onClick={()=> runEdit(editPrompt)} data-guide="edit" aria-label="Run edit">{loading ? 'Editing…' : 'Run Edit'}</Button>
-            </div>
-          </div>
           {false && !isOnboard && (
             <div className="mt-1 flex flex-wrap gap-2 text-xs" aria-label="Starter prompts" />
           )}

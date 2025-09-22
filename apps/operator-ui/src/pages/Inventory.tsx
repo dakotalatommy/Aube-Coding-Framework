@@ -27,7 +27,7 @@ export default function Inventory(){
       if (sp.get('tour') === '1') startGuide('inventory');
     } catch {}
   },[]);
-  useEffect(()=>{ (async()=>{ try{ const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() }); if (a?.summary?.ts) setLastAnalyzed(Number(a.summary.ts)); } catch{} })(); },[]);
+  useEffect(()=>{ (async()=>{ try{ const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() }); if (a?.summary?.ts) setLastAnalyzed(Number(a.summary.ts)); } catch{} finally { try{ (window as any).__bvxInventoryReady = 1; window.dispatchEvent(new CustomEvent('bvx:inventory:ready')); } catch {} } })(); },[]);
   const syncNow = async (provider?: string) => {
     const r = await api.post('/inventory/sync', { tenant_id: await getTenant(), provider });
     setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })());
@@ -41,7 +41,14 @@ export default function Inventory(){
     const m = await api.get(`/inventory/metrics?tenant_id=${encodeURIComponent(await getTenant())}`);
     setSummary(m?.summary||{}); setLastSync(m?.last_sync||{}); setItems(m?.items||[]); setLastUpdated(Date.now());
   };
-  if (loading) return <div>Loading…</div>;
+  if (loading) return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {Array.from({ length: 4 }).map((_,i)=> <div key={i} className="h-16 rounded-lg bg-white border animate-pulse" />)}
+      </div>
+      <div className="h-24 rounded-lg bg-white border animate-pulse" />
+    </div>
+  );
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">

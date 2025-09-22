@@ -80,15 +80,16 @@ def _timestamp_expr(conn) -> str:
 
 
 def _acuity_headers(tenant_id: str) -> Dict[str, str]:
-    t = _fetch_acuity_token(tenant_id)
-    if t:
-        return {"Authorization": f"Bearer {t}", "Accept": "application/json"}
-    # Basic fallback
+    # Prefer Basic for Acuity v1 if available
     user_id = os.getenv("ACUITY_USER_ID", os.getenv("ACUITY_CLIENT_ID", "")).strip()
     api_key = os.getenv("ACUITY_API_KEY", "").strip()
     if user_id and api_key:
         raw = f"{user_id}:{api_key}".encode("utf-8")
         return {"Authorization": f"Basic {base64.b64encode(raw).decode('utf-8')}", "Accept": "application/json"}
+    # Fallback to OAuth Bearer if present
+    t = _fetch_acuity_token(tenant_id)
+    if t:
+        return {"Authorization": f"Bearer {t}", "Accept": "application/json"}
     return {"Accept": "application/json"}
 
 
@@ -108,8 +109,13 @@ def _parse_epoch(s: Optional[str]) -> int:
 
 
 def import_appointments(tenant_id: str, since: Optional[str] = None, until: Optional[str] = None, cursor: Optional[str] = None) -> Dict[str, Any]:
-    base = (os.getenv("ACUITY_API_BASE", "https://acuityscheduling.com/api/v1").rstrip("/"))
+    base = (os.getenv("ACUITY_API_BASE", "https://acuityscheduling.com/api/v1").strip().rstrip(" /."))
     headers = _acuity_headers(tenant_id)
+    try:
+        auth_hdr = str(headers.get("Authorization", ""))
+        auth_mode = "basic" if auth_hdr.startswith("Basic ") else ("bearer" if auth_hdr.startswith("Bearer ") else "none")
+    except Exception:
+        auth_mode = "none"
     imported = 0
     updated = 0
     skipped = 0
@@ -277,6 +283,7 @@ def import_appointments(tenant_id: str, since: Optional[str] = None, until: Opti
         "clients_count": dbg_clients_count,
         "appointments_status": dbg_appts_status,
         "appointments_count": dbg_appts_count,
+        "auth_mode": auth_mode,
         **({"clients_error": dbg_clients_error} if dbg_clients_error else {}),
         **({"appointments_error": dbg_appts_error} if dbg_appts_error else {}),
         "next_cursor": None,

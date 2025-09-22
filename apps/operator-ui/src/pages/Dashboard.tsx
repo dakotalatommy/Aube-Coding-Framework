@@ -71,6 +71,14 @@ export default function Dashboard(){
           api.post('/messages/simulate', { tenant_id: tid, contact_id: 'demo', channel: 'email' }, { signal: abort.signal, timeoutMs }),
           api.post('/onboarding/analyze', { tenant_id: tid }, { signal: abort.signal, timeoutMs })
         ];
+        // Soft-ready: allow UI to paint quickly while data loads in background
+        try {
+          window.setTimeout(() => {
+            if (!mounted) return;
+            setLoading(false);
+            try { (window as any).__bvxDashReady = 1; window.dispatchEvent(new CustomEvent('bvx:dashboard:ready')); } catch {}
+          }, 120);
+        } catch {}
         const [mRes,qRes,fRes,_simRes,anRes] = await Promise.allSettled(tasks);
         if (!mounted) return;
         const m = mRes.status==='fulfilled'? mRes.value : {};
@@ -116,6 +124,14 @@ export default function Dashboard(){
   },[isDemo]);
 
   // Chart prefetch/observer removed
+
+  // Signal dashboard readiness once initial loading completes
+  useEffect(() => {
+    if (!loading) {
+      try { (window as any).__bvxDashReady = 1; } catch {}
+      try { window.dispatchEvent(new CustomEvent('bvx:dashboard:ready')); } catch {}
+    }
+  }, [loading]);
 
   useEffect(()=>{
     try{

@@ -323,6 +323,7 @@ const FORCE_ONBOARD_TOUR = false;
       if (!target) return;
       (async () => {
         try {
+          if (debugEnabled) debugLog(`guide:navigate -> ${target}`);
           // Strip legacy tour flag when leaving dashboard to prevent page-level tours
           try {
             if (target !== 'dashboard') {
@@ -331,6 +332,10 @@ const FORCE_ONBOARD_TOUR = false;
             }
           } catch {}
           await goToPane(target);
+          // Emit pane-ready synthetic event when the pane becomes active to help tour waits
+          try {
+            window.dispatchEvent(new CustomEvent('bvx:pane:ready', { detail: { pane: target } }));
+          } catch {}
         } catch (err) {
           console.error('guide navigate failed', err);
         } finally {
@@ -418,22 +423,34 @@ const FORCE_ONBOARD_TOUR = false;
           document.querySelectorAll('.driver-overlay, .driver-popover').forEach(el => { try{ el.parentElement?.removeChild(el); }catch{} });
           document.body.classList.remove('driver-active','driver-fade','bvx-center-popover-body');
         } catch {}
-        // Wait briefly for dashboard DOM to mount so underlying content renders correctly
+        // Wait for explicit dashboard ready event (or flag)
+        // Wait for ready; but if not fired in ~3s, still start the tour
         try {
-          const ok = await waitForCondition(() => Boolean(
-            document.querySelector('[data-guide="kpis"]') ||
-            document.querySelector('[data-guide="quickstart"]') ||
-            document.querySelector('[data-guide="next-best-steps"]')
-          ), 2500);
-          if (!ok) {
-            // Still start, but after a small defer to avoid racing Suspense
-            await sleep(200);
+          const readyNow = (window as any).__bvxDashReady === 1;
+          if (!readyNow) {
+            await new Promise<void>((resolve) => {
+              let done = false;
+              const to = window.setTimeout(() => { if (!done) { done = true; resolve(); } }, 3000);
+              const handler = () => { if (!done) { done = true; window.clearTimeout(to); resolve(); } };
+              window.addEventListener('bvx:dashboard:ready', handler as any, { once: true } as any);
+            });
           }
         } catch {}
         onboardingController.start({ force: false }).catch(err => console.error('onboarding start failed', err));
       })();
     }
   }, [loc.search, onboardingController, DEV_ONBOARDING]);
+
+  // Dev mode: only start tour once per session to avoid restarts when navigating back to dashboard
+  useEffect(() => {
+    if (!DEV_ONBOARDING) return;
+    try {
+      if (sessionStorage.getItem('bvx_dev_tour_started') === '1') return;
+      const handler = () => { try{ sessionStorage.setItem('bvx_dev_tour_started','1'); }catch{} };
+      window.addEventListener('bvx:guide:dashboard:done', handler as any, { once: true } as any);
+      return () => window.removeEventListener('bvx:guide:dashboard:done', handler as any);
+    } catch {}
+  }, [DEV_ONBOARDING]);
 
   useEffect(() => {
     (async () => {
@@ -889,6 +906,10 @@ const FORCE_ONBOARD_TOUR = false;
         >
           <div>dbg pane={pane} status={billingStatus||'n/a'} open={billingOpen?'1':'0'} phase={onboardingState.phase} running={onboardingState.running?'1':'0'}</div>
           <div>overlay={typeof document!=='undefined'?document.querySelectorAll('.driver-overlay').length:0} pop={typeof document!=='undefined'?document.querySelectorAll('.driver-popover').length:0}</div>
+          <div>ready dash={(window as any).__bvxDashReady? '1':'0'} msgs={(window as any).__bvxMessagesReady? '1':'0'} inv={(window as any).__bvxInventoryReady? '1':'0'}</div>
+          <div>
+            <button className="underline" onClick={()=>{ try{ startGuide('dashboard'); }catch{} }}>Restart tour</button>
+          </div>
           {debugEvents.map((e,i)=> (<div key={i}>{e}</div>))}
         </div>
       )}

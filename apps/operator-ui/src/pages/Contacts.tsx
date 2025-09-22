@@ -63,6 +63,31 @@ export default function Contacts(){
     finally { setListBusy(false); }
   };
   useEffect(()=>{ void loadList(); }, [isDemo, page]);
+  // Signal: Contacts page is ready and in view for tour placement
+  useEffect(() => {
+    let cancelled = false;
+    const signalReady = () => {
+      if (cancelled) return;
+      try {
+        const target = (document.querySelector('[data-guide="clients-import-status"]') || document.querySelector('[data-guide="clients-list"]')) as HTMLElement | null;
+        if (target) {
+          // Ensure it is visible inside our inner scroller
+          try {
+            const scroller = document.querySelector('main .overflow-y-auto') as HTMLElement | null;
+            target.scrollIntoView?.({ block: 'center' });
+            scroller?.scrollBy?.(0, 1); scroller?.scrollBy?.(0, -1);
+          } catch {}
+          try { window.dispatchEvent(new CustomEvent('bvx:contacts:ready')); } catch {}
+          try { window.dispatchEvent(new CustomEvent('bvx:dbg', { detail: { type: 'ready', pane: 'contacts' } })); } catch {}
+          return;
+        }
+      } catch {}
+      setTimeout(() => { try { requestAnimationFrame(signalReady); } catch { signalReady(); } }, 60);
+    };
+    try { requestAnimationFrame(() => { requestAnimationFrame(signalReady); }); } catch { setTimeout(signalReady, 60); }
+    return () => { cancelled = true; };
+  }, [loc.search]);
+
 
   // Sync page -> URL (replace to avoid history spam)
   useEffect(()=>{ try{ syncParamToState('page', String(page), true); } catch {} }, [page]);

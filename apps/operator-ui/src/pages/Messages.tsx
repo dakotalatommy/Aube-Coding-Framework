@@ -79,7 +79,7 @@ export default function Messages(){
     const res = await api.get(`/messages/list?tenant_id=${encodeURIComponent(await getTenant())}${qs ? '&'+qs : ''}`);
     setItems(res.items || []);
   };
-  useEffect(()=>{ (async()=>{ try { setLoading(true); await load(); setPage(1); } finally { setLoading(false); } })(); }, [inboxFilter]);
+  useEffect(()=>{ (async()=>{ try { setLoading(true); await load(); setPage(1); } finally { setLoading(false); try{ (window as any).__bvxMessagesReady = 1; window.dispatchEvent(new CustomEvent('bvx:messages:ready')); } catch {} } })(); }, [inboxFilter]);
   useEffect(()=>{ (async()=>{ try { const r = await api.get(`/settings?tenant_id=${encodeURIComponent(await getTenant())}`); setQuiet(r?.data?.quiet_hours||{}); } catch{} })(); },[]);
   // Preload clients for local typeahead (first 500)
   useEffect(()=>{ (async()=>{
