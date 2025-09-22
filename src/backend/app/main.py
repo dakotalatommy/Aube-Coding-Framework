@@ -5667,19 +5667,21 @@ def acuity_debug_rls(
     tenant_id: str,
     ctx: UserContext = Depends(get_user_context),
 ):
-    """Report RLS context inside _with_conn: current app.tenant_id and visible v2 row count for acuity."""
+    """Report RLS context: current app.tenant_id and visible v2 row count for acuity using engine.begin()."""
     try:
         if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
             return {"ok": False, "error": "forbidden"}
-        # Use the same helper semantics as token fetch
-        with booking_acuity._with_conn(tenant_id) as conn:  # type: ignore
-            # Read current GUC value if present
+        with engine.begin() as conn:
+            try:
+                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            except Exception:
+                pass
             try:
                 guc_row = conn.execute(_sql_text("SELECT current_setting('app.tenant_id', true)")).fetchone()
                 guc_tenant = str(guc_row[0] or "") if guc_row else ""
             except Exception:
                 guc_tenant = ""
-            # Count visible rows and capture latest id
             cnt_row = conn.execute(
                 _sql_text(
                     "SELECT COUNT(*), COALESCE(MAX(id),0) FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider='acuity'"
