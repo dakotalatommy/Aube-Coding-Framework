@@ -5569,22 +5569,42 @@ def acuity_debug_token(
                 conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
             except Exception:
                 pass
-            row = conn.execute(
+            # Build dynamic SELECT to avoid undefined-column errors under schema drift
+            cols = conn.execute(
                 _sql_text(
                     """
-                    SELECT
-                      (access_token_enc IS NOT NULL AND access_token_enc <> '') AS has_enc,
-                      (access_token IS NOT NULL AND access_token <> '') AS has_plain,
-                      (token IS NOT NULL AND token <> '') AS has_token,
-                      status
-                    FROM connected_accounts_v2
-                    WHERE tenant_id = CAST(:t AS uuid) AND provider='acuity'
-                    ORDER BY id DESC
-                    LIMIT 1
+                    SELECT array_agg(column_name)::text
+                    FROM information_schema.columns
+                    WHERE table_schema='public'
+                      AND table_name='connected_accounts_v2'
+                      AND column_name IN ('access_token_enc','access_token','token')
                     """
-                ),
-                {"t": tenant_id},
+                )
             ).fetchone()
+            present = []
+            try:
+                txt = str(cols[0] or "").strip("{}")
+                present = [c.strip() for c in txt.split(',') if c.strip()]
+            except Exception:
+                present = []
+            has_exprs = []
+            if 'access_token_enc' in present:
+                has_exprs.append("(access_token_enc IS NOT NULL AND access_token_enc <> '') AS has_enc")
+            else:
+                has_exprs.append("FALSE AS has_enc")
+            if 'access_token' in present:
+                has_exprs.append("(access_token IS NOT NULL AND access_token <> '') AS has_plain")
+            else:
+                has_exprs.append("FALSE AS has_plain")
+            if 'token' in present:
+                has_exprs.append("(token IS NOT NULL AND token <> '') AS has_token")
+            else:
+                has_exprs.append("FALSE AS has_token")
+            sql = (
+                "SELECT " + ", ".join(has_exprs) + ", status FROM connected_accounts_v2 "
+                "WHERE tenant_id = CAST(:t AS uuid) AND provider='acuity' ORDER BY id DESC LIMIT 1"
+            )
+            row = conn.execute(_sql_text(sql), {"t": tenant_id}).fetchone()
         if not row:
             return {"ok": True, "row_seen": False}
         has_enc, has_plain, has_token, status = row
