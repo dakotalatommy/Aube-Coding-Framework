@@ -77,8 +77,17 @@ export default function Contacts(){
             target.scrollIntoView?.({ block: 'center' });
             scroller?.scrollBy?.(0, 1); scroller?.scrollBy?.(0, -1);
           } catch {}
+          // Unified tour continues; no segmented resume from session token
           try { window.dispatchEvent(new CustomEvent('bvx:contacts:ready')); } catch {}
           try { window.dispatchEvent(new CustomEvent('bvx:dbg', { detail: { type: 'ready', pane: 'contacts' } })); } catch {}
+          // If Vision requested auto-import, run it now that Contacts is ready
+          try {
+            const auto = sessionStorage.getItem('bvx_auto_import') === '1';
+            if (auto) {
+              sessionStorage.removeItem('bvx_auto_import');
+              setTimeout(() => { try { void handleImport(); } catch {} }, 0);
+            }
+          } catch {}
           return;
         }
       } catch {}

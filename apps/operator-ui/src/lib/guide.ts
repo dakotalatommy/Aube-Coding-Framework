@@ -89,31 +89,18 @@ const registry: Record<string, GuideStep[]> = {
       popover: {
         title: 'Guided Walk‑through',
         description: 'Let’s showcase three of brandVX’s most powerful features.<div class="mt-3"><button class="bvx-onboard-btn" data-open-vision>Open brandVZN</button></div>',
+        centered: true,
         showButtons: ['previous'],
-        onPopoverRender: (dom: any, { driver }: { driver: any }) => {
+        onPopoverRender: (dom: any) => {
           try {
-            let navStarted = false;
             const triggerNavigate = () => {
-              if (navStarted) return; navStarted = true;
-              try { window.dispatchEvent(new CustomEvent('bvx:dbg', { detail: { type: 'nav.req', pane: 'vision' } })); } catch {}
+              // Unified flow: keep current driver alive and rely on page-ready gating
               try { window.dispatchEvent(new CustomEvent('bvx:guide:navigate', { detail: { pane: 'vision' } })); } catch {}
-              const start = Date.now();
-              const wait = () => {
-                try {
-                  const sp = new URLSearchParams(window.location.search);
-                  const pane = sp.get('pane');
-                  const ready = pane === 'vision' && document.querySelector('[data-guide="upload"]');
-                  if (ready) { try { driver.moveNext?.(); } catch {} return; }
-                  if (Date.now() - start > 8000) { return; }
-                  setTimeout(wait, 120);
-                } catch {}
-              };
-              setTimeout(wait, 120);
             };
             // Bind button (check both popover and wrapper roots)
             const btn = dom?.popover?.querySelector?.('[data-open-vision]') || dom?.wrapper?.querySelector?.('[data-open-vision]') || document.querySelector('[data-open-vision]');
             btn?.addEventListener('click', (e: Event) => { try{ e.preventDefault(); }catch{} triggerNavigate(); });
-            // Unify ArrowRight to perform the same navigate+wait
+            // Unify ArrowRight to perform the same navigate (no cross-route moveNext)
             const keyHandler = (e: KeyboardEvent) => { if (e.key === 'ArrowRight') { e.stopPropagation(); e.preventDefault(); triggerNavigate(); } };
             document.addEventListener('keydown', keyHandler, true);
             window.addEventListener('keydown', keyHandler, true);
@@ -127,6 +114,8 @@ const registry: Record<string, GuideStep[]> = {
         },
       },
     },
+    // Centered intro on Vision to avoid anchoring races right after navigation
+    { popover: { title: 'brandVZN', description: 'Let’s do a quick color change so you can see how edits work. Then we’ll continue the tour.', centered: true, showButtons: ['previous', 'next'], nextBtnText: 'Next' } },
     { element: '[data-guide="upload"]', popover: { title: 'Upload a look', description: 'Pick a photo that shows the subject’s face and hair, then press Upload.' } },
     {
       popover: {
@@ -187,8 +176,9 @@ const registry: Record<string, GuideStep[]> = {
         title: 'Import your guests',
         description:
           'Since booking was connected during onboarding, click Import from booking to bring everyone in.<div class="mt-3 grid gap-2">\n            <button class="bvx-onboard-btn" data-onboard-action="import-now">Import from booking</button>\n            <button class="bvx-onboard-btn-secondary" data-onboard-action="import-skip">Skip this step</button>\n          </div>\n          <div class="mt-4 hidden" data-onboard-panel="lite">\n            <div class="text-xs text-slate-700 mb-2">Prefer to start lighter? brandVZN Lite keeps Brand Vision + AskVX for $47/mo.</div>\n            <div class="flex flex-col gap-2 items-center" data-onboard-lite-root>\n              <stripe-buy-button buy-button-id="buy_btn_1S8t06KsdVcBvHY1b42SHXi9" publishable-key="pk_live_51RJwqnKsdVcBvHY1Uf3dyiHqrB3fsE35Qhgs5KfnPSJSsdalZpoJik9HYR4x6OY1ITiNJw6VJnqN9bHymiw9xE3r00WyZkg6kZ"></stripe-buy-button>\n              <button class="bvx-onboard-btn" data-onboard-action="skip-continue">Continue without importing</button>\n            </div>\n          </div>',
-        showButtons: ['previous'],
-        onPopoverRender: (dom: any, { driver }: { driver: any }) => {
+        showButtons: ['previous', 'next'],
+        nextBtnText: 'Go to Clients',
+        onPopoverRender: (dom: any) => {
           (window as any).__bvxSkipImport = false;
           const root = dom?.wrapper as HTMLElement | null;
           if (!root) return;
@@ -230,9 +220,8 @@ const registry: Record<string, GuideStep[]> = {
 
           importBtn?.addEventListener('click', () => {
             (window as any).__bvxSkipImport = false;
-            try {
-              window.dispatchEvent(new CustomEvent('bvx:flow:contacts-command', { detail: { action: 'contacts.import' } }));
-            } catch {}
+            try { sessionStorage.setItem('bvx_auto_import','1'); } catch {}
+            try { window.dispatchEvent(new CustomEvent('bvx:guide:navigate', { detail: { pane: 'contacts' } })); } catch {}
           });
 
           skipBtn?.addEventListener('click', () => {
@@ -245,40 +234,17 @@ const registry: Record<string, GuideStep[]> = {
             cleanup();
             try { window.dispatchEvent(new CustomEvent('bvx:onboarding:skip-import')); } catch {}
           });
-
-          // Navigate to contacts pane when this step mounts; treat ArrowRight as gated advance
-          try {
-            const triggerNext = () => { try { driver.moveNext?.(); } catch {} };
-            const keyHandler = (e: KeyboardEvent) => { if (e.key === 'ArrowRight') { e.stopPropagation(); e.preventDefault(); /* do nothing until ready; wait loop will advance */ } };
-            document.addEventListener('keydown', keyHandler, true);
-            window.addEventListener('keydown', keyHandler, true);
-            const cleanupKeys = () => { document.removeEventListener('keydown', keyHandler, true); window.removeEventListener('keydown', keyHandler, true); };
-            window.dispatchEvent(new CustomEvent('bvx:guide:navigate', { detail: { pane: 'contacts' } }));
-            window.dispatchEvent(new CustomEvent('bvx:dbg', { detail: { type: 'nav.req', pane: 'contacts' } }));
-            const start = Date.now();
-            const onReady = () => {
-              try { window.removeEventListener('bvx:contacts:ready', onReady as any); } catch {}
-              triggerNext();
-              cleanupKeys();
-            };
-            window.addEventListener('bvx:contacts:ready', onReady as any, { once: true } as any);
-            // Backstop in case event is missed
-            const waitNext = () => {
-              try {
-                const sp = new URLSearchParams(window.location.search);
-                const pane = sp.get('pane');
-                const targetEl = document.querySelector('[data-guide="clients-import-status"]') || document.querySelector('[data-guide="clients-list"]');
-                const ready = pane === 'contacts' && targetEl;
-                if (ready) { onReady(); return; }
-                if (Date.now() - start > 7000) { cleanupKeys(); return; }
-                setTimeout(waitNext, 120);
-              } catch {}
-            };
-            setTimeout(waitNext, 200);
-          } catch {}
+          // Navigation to Contacts is now triggered on Next; global gate will advance on bvx:contacts:ready
+        },
+        onNextClick: (_el, _step, { driver }) => {
+          void driver;
+          try { window.dispatchEvent(new CustomEvent('bvx:guide:navigate', { detail: { pane: 'contacts' } })); } catch {}
+          try { window.dispatchEvent(new CustomEvent('bvx:dbg', { detail: { type: 'nav.req', pane: 'contacts' } })); } catch {}
         },
       },
     },
+    // Centered intro on Contacts to stabilize first step after navigation
+    { popover: { title: 'Contacts', description: 'We’ll import your guests so AskVX can analyze recent revenue and surface top clients.', centered: true, showButtons: ['previous', 'next'], nextBtnText: 'Next' } },
     {
       element: '[data-guide="clients-import-status"]',
       popover: {
@@ -303,11 +269,13 @@ const registry: Record<string, GuideStep[]> = {
         showButtons: ['previous', 'next'],
         nextBtnText: 'Go to askVX',
         onNextClick: (_element, _step, { driver }) => {
+          void driver; // advance will occur after askvx ready via gating listener
           try { window.dispatchEvent(new CustomEvent('bvx:guide:navigate', { detail: { pane: 'askvx' } })); } catch {}
-          try { driver.moveNext(); } catch {}
         },
       },
     },
+    // Centered intro on AskVX to orient users after navigation
+    { popover: { title: 'askVX', description: 'We’ll load a prompt that summarizes your last 3 months revenue and top 3 clients. You’ll press Send to run it.', centered: true, showButtons: ['previous', 'next'], nextBtnText: 'Next' } },
     { element: '#tour-welcome-anchor', popover: { title: 'Imported contacts', description: 'Here’s the new contact count from your booking sync.', showButtons: ['previous', 'next'] } },
     { element: '#tour-welcome-anchor', popover: { title: 'Since your last visit', description: 'Keep an eye on fresh contacts, appointments, and messages.', showButtons: ['previous', 'next'] } },
     {
@@ -326,19 +294,16 @@ const registry: Record<string, GuideStep[]> = {
       },
     },
     {
-      element: '#tour-welcome-anchor',
+      element: '[data-guide="composer"]',
       popover: {
         title: 'Send the prompt',
         description: 'Press Send to let AskVX crunch the numbers for you.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Next',
-        onPopoverRender: (_dom: any) => {
-          // Automation runs; user advances manually
-        },
       },
     },
     {
-      element: '#tour-welcome-anchor',
+      element: '[data-guide="askvx-strategy"]',
       popover: {
         title: 'Plan your next 14 days',
         description: 'We’ll preload a prompt that asks AskVX to build a 14‑day strategy using your imports and brand profile.',
@@ -387,30 +352,33 @@ const registry: Record<string, GuideStep[]> = {
           try {
             window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.tab', tab: 'profile' } }));
           } catch {}
-          try { driver.moveNext(); } catch {}
+          const start = Date.now();
+          const advance = () => { try { driver.moveNext?.(); } catch {} };
+          const wait = () => {
+            try {
+              const ready = document.querySelector('[data-guide="trainvx-notes"]') || document.querySelector('[data-guide="trainvx-profile"]');
+              if (ready) { advance(); return; }
+              if (Date.now() - start > 6000) { advance(); return; }
+              setTimeout(wait, 120);
+            } catch { advance(); }
+          };
+          setTimeout(wait, 120);
         },
       },
     },
+    { element: '[data-guide="trainvx-notes"]', popover: { title: 'Add a brand fact', description: 'Type a tone note or preference, then press “Save to training”.', showButtons: ['previous', 'next'] } },
     {
-      element: '#tour-welcome-anchor',
-      popover: {
-        title: 'Add a brand fact',
-        description: 'Type a tone note or preference, then press “Save to training”.',
-        showButtons: ['previous', 'next'],
-      },
-    },
-    {
-      element: '#tour-welcome-anchor',
+      element: '[data-guide="trainvx-profile"]',
       popover: {
         title: 'Review your brand profile',
         description: 'Use Edit → Save to adjust tone, story, and pricing anytime.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Next',
         onNextClick: (_element, _step, { driver }) => {
+          void driver; // advance will occur after dashboard ready via gating listener
           try {
             window.dispatchEvent(new CustomEvent('bvx:guide:navigate', { detail: { pane: 'dashboard' } }));
           } catch {}
-          try { driver.moveNext(); } catch {}
         },
       },
     },
@@ -499,6 +467,7 @@ founderSlides.forEach((slide, idx) => {
     popover: {
       title: slide.title,
       description: slide.html,
+      centered: true,
       showButtons: ['previous', 'next'],
       nextBtnText: idx === founderSlides.length - 1 ? 'Finish tour' : 'Next',
       onPopoverRender: (dom: any) => {
@@ -552,6 +521,14 @@ export function startGuide(page: string, _opts?: { step?: number }) {
     if (tenantId) void api.post('/onboarding/complete_step', { tenant_id: tenantId, step_key: `tour.start.${page}`, context: {} });
   } catch {}
   try { track('tour_start', { page }); } catch {}
+  // Ensure centered steps remain enabled in production: strip ?nocenter=1 unless debugging
+  try {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('nocenter') === '1' && localStorage.getItem('bvx_debug') !== '1') {
+      url.searchParams.delete('nocenter');
+      window.history.replaceState({}, '', url.toString());
+    }
+  } catch {}
   // Mount driver.js overlay into the canonical overlay root if available
   try {
     const root = document.getElementById('bvx-overlay-root');
@@ -702,6 +679,21 @@ export function startGuide(page: string, _opts?: { step?: number }) {
             if (idx === DASHBOARD_BILLING_STEP) {
               try { window.dispatchEvent(new CustomEvent('bvx:guide:dashboard:billing')); } catch {}
             }
+            // Billing step: let users click the modal buttons under the tour overlay
+            try {
+              const styleId = 'bvx-driver-pe';
+              const existing = document.getElementById(styleId);
+              if (idx === DASHBOARD_BILLING_STEP) {
+                if (!existing) {
+                  const s = document.createElement('style');
+                  s.id = styleId;
+                  s.textContent = `.driver-overlay{ pointer-events: none !important; }`;
+                  document.head.appendChild(s);
+                }
+              } else if (existing) {
+                existing.parentElement?.removeChild(existing);
+              }
+            } catch {}
             // Removed legacy body-based centering toggles
           } catch {}
         });
@@ -736,6 +728,32 @@ export function startGuide(page: string, _opts?: { step?: number }) {
             } catch {}
           });
   } catch {}
+        // Handle Contacts jump: wait for explicit page-ready event before advancing
+        try {
+          window.addEventListener('bvx:guide:navigate', (ev: any) => {
+            try {
+              const target = (ev?.detail?.pane || '').toString();
+              if (target !== 'contacts') return;
+              const start = Date.now();
+              const onReady = () => {
+                try { window.removeEventListener('bvx:contacts:ready', onReady as any); } catch {}
+                try { instance.moveNext?.(); } catch {}
+              };
+              window.addEventListener('bvx:contacts:ready', onReady as any, { once: true } as any);
+              const wait = () => {
+                try {
+                  const sp = new URLSearchParams(window.location.search);
+                  const pane = sp.get('pane');
+                  const ready = pane === 'contacts' && (document.querySelector('[data-guide="clients-import-status"]') || document.querySelector('[data-guide="clients-list"]'));
+                  if (ready) { onReady(); return; }
+                  if (Date.now() - start > 7000) { return; }
+                  setTimeout(wait, 120);
+                } catch {}
+              };
+              setTimeout(wait, 200);
+            } catch {}
+          });
+        } catch {}
         // Instrumentation: log navigation lifecycle
         try {
           window.addEventListener('bvx:guide:navigate', (ev: any) => {
@@ -746,6 +764,32 @@ export function startGuide(page: string, _opts?: { step?: number }) {
           });
   } catch {}
 }
+      // Handle return to Dashboard: wait for page-ready event before advancing
+      try {
+        window.addEventListener('bvx:guide:navigate', (ev: any) => {
+          try {
+            const target = (ev?.detail?.pane || '').toString();
+            if (target !== 'dashboard') return;
+            const start = Date.now();
+            const onReady = () => {
+              try { window.removeEventListener('bvx:dashboard:ready', onReady as any); } catch {}
+              try { instance.moveNext?.(); } catch {}
+            };
+            window.addEventListener('bvx:dashboard:ready', onReady as any, { once: true } as any);
+            const wait = () => {
+              try {
+                const sp = new URLSearchParams(window.location.search);
+                const pane = sp.get('pane');
+                const ready = pane === 'dashboard' && document.getElementById('tour-welcome-anchor');
+                if (ready) { onReady(); return; }
+                if (Date.now() - start > 6000) { return; }
+                setTimeout(wait, 120);
+              } catch {}
+            };
+            setTimeout(wait, 200);
+          } catch {}
+        });
+      } catch {}
       // New: Handle AskVX jump readiness similar to Vision/Contacts
       try {
         window.addEventListener('bvx:guide:navigate', (ev: any) => {

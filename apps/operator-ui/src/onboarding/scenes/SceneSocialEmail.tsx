@@ -2,14 +2,14 @@ import { useState } from 'react'
 import { startOAuth } from '../../sdk/connectionsClient'
 import { api, getTenant } from '../../lib/api'
 
-export default function SceneSocialEmail({ state, next, back, save }: any){
+export default function SceneSocialEmail({ state, back }: any){
   const prev = state.data.social || { instagram: '', email: '' }
   const [instagram, setInstagram] = useState(prev.instagram)
   const [email, setEmail] = useState(prev.email)
   const [analyzing, setAnalyzing] = useState(false)
   const [analyzed, setAnalyzed] = useState(false)
   const [error, setError] = useState('')
-  const onContinue = async()=> { await save({ social: { instagram, email }}); next(); }
+  // Social step removed from primary flow; keep save helper available if needed
   const runAnalysis = async()=>{
     try{
       setError(''); setAnalyzing(true)
@@ -50,10 +50,8 @@ export default function SceneSocialEmail({ state, next, back, save }: any){
       <div className="mt-2 text-[11px] text-slate-600">No Instagram? Add your handle; we’ll still draft with your brand voice. Draft confidence shows when IG isn’t connected.</div>
       <div className="mt-6 flex gap-2">
         <button className="rounded-full border px-3 py-2 text-sm bg-white" onClick={back}>Back</button>
-        <button className="rounded-full border px-3 py-2 text-sm bg-white" onClick={onContinue}>Continue</button>
+        <button className="rounded-full border px-3 py-2 text-sm bg-white" onClick={back}>Back to connections</button>
       </div>
     </section>
   )
 }
-
-

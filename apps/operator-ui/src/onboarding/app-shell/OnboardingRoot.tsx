@@ -25,7 +25,8 @@ export type OBState = {
   data: Record<string, any>
 }
 
-const order: StepId[] = ['welcome','voice','basics','ops','connections','social','goals','styles','review']
+// Limit onboarding to 5 steps; remove Instagram/social handoff and anything beyond
+const order: StepId[] = ['welcome','voice','basics','ops','connections']
 
 export default function OnboardingRoot(){
   const navigate = useNavigate()
@@ -58,12 +59,13 @@ export default function OnboardingRoot(){
       } else if (connected) {
         // Handle booking vs. social providers separately
         if (provider === 'instagram') {
+          // Record linkage but do not navigate to a non-existent sixth step
           const payload = { social: { oauth: { instagram: { provider, linked: true } } } }
           void saveStep('social', payload)
-          setState(s => ({ ...s, step: 'social', data: { ...s.data, ...payload } }))
-          // Stay on Social step so user can run analyze/generate
-          try { showToast({ title: 'Connected', description: 'Instagram linked. Ready to generate your plan.' }) } catch {}
+          setState(s => ({ ...s, data: { ...s.data, ...payload } }))
+          try { showToast({ title: 'Connected', description: 'Instagram linked. You can manage this later in Integrations.' }) } catch {}
           try { track('oauth_linked', { provider }) } catch {}
+          // Remain on current step
         } else {
           // Booking providers (square/acuity): mark connected, then bounce to Dashboard
           const payload = { connections: { bookingProvider: provider, oauth: { provider, linked: true } } }
@@ -95,11 +97,14 @@ export default function OnboardingRoot(){
   const next = async (payload?: Record<string, any>) => {
     const merged = { ...state.data, ...(payload||{}) }
     try { await saveStep(state.step, payload||{}) } catch {}
+    // If we are on the final (5th) step, finish onboarding instead of advancing
+    if (state.step === 'connections') {
+      setState({ step: 'connections', data: merged })
+      finish()
+      return
+    }
     const nextStep = order[Math.min(idx+1, order.length-1)]
     setState({ step: nextStep, data: merged })
-    if (nextStep === 'review') {
-      try { localStorage.setItem('bvx_onboarding_last', JSON.stringify(merged)) } catch {}
-    }
   }
   const back = () => {
     const prev = order[Math.max(idx-1, 0)]
@@ -113,9 +118,11 @@ export default function OnboardingRoot(){
 
   const finish = () => {
     try { localStorage.setItem('bvx_onboarding_done', '1') } catch {}
+    try { localStorage.removeItem('bvx_guide_done') } catch {}
+    try { sessionStorage.removeItem('bvx_resume') } catch {}
     try { if (BOOKING_URL) localStorage.setItem('bvx_booking_nudge','1') } catch {}
     try { (window as any).posthog?.capture?.('onboarding_complete'); } catch {}
-    navigate('/workspace?pane=dashboard')
+    navigate('/workspace?pane=dashboard&tour=1')
   }
 
   const sceneProps = { state, next, back, save, startOAuth }

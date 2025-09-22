@@ -156,6 +156,7 @@ export default function Vision(){
         if (el) {
           const r = el.getBoundingClientRect?.();
           if (r && r.width > 0 && r.height > 0) {
+            // Unified tour continues from Dashboard; no segmented resume here
             try { window.dispatchEvent(new CustomEvent('bvx:vision:ready')); } catch {}
             try { window.dispatchEvent(new CustomEvent('bvx:dbg', { detail: { type: 'ready', pane: 'vision' } })); } catch {}
             return;
@@ -551,7 +552,7 @@ export default function Vision(){
         </div>
         <div className="flex-1 space-y-3">
           {/* Compact 3‑column row: textarea | actions | brief */}
-          <div className="grid gap-3 items-start md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+          <div className="grid gap-3 items-start grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
             {/* Col 1: Prompt textarea */}
             <textarea
               className="w-full border rounded-md px-3 py-2"

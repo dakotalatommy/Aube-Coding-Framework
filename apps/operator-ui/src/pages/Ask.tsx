@@ -713,6 +713,7 @@ export default function Ask(){
         if (el) {
           const r = el.getBoundingClientRect?.();
           if (r && r.width > 0 && r.height > 0) {
+            // Unified tour continues; no segmented resume on AskVX
             try { window.dispatchEvent(new CustomEvent('bvx:ask:ready')); } catch {}
             try { window.dispatchEvent(new CustomEvent('bvx:dbg', { detail: { type: 'ready', pane: 'askvx' } })); } catch {}
             return;

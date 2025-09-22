@@ -42,18 +42,34 @@ def _read_one(conn, sql: str, params: Dict[str, object]) -> Optional[Tuple[objec
 
 
 def _fetch_acuity_token(tenant_id: str) -> str:
-    """Return decrypted Acuity access token if present in connected_accounts_v2, else ''."""
+    """Return decrypted Acuity access token (Bearer) if present; tolerate legacy column names.
+
+    Reads from connected_accounts_v2 using RLS GUCs, preferring access_token_enc but
+    falling back to access_token/token when present (schema drift tolerance).
+    """
     token = ""
     # v2 via short-lived conn
     for _ in range(2):  # one retry on transient disconnect
         try:
             with _with_conn(tenant_id) as conn:  # type: ignore
-                row = _read_one(conn, "SELECT access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider='acuity' ORDER BY id DESC LIMIT 1", {"t": tenant_id})
+                row = _read_one(
+                    conn,
+                    """
+                    SELECT COALESCE(access_token_enc, access_token, token) AS tok
+                    FROM connected_accounts_v2
+                    WHERE tenant_id = CAST(:t AS uuid) AND provider='acuity'
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """,
+                    {"t": tenant_id},
+                )
                 if row and row[0]:
+                    candidate = str(row[0])
+                    # Try decrypt; if fails, assume plaintext token already
                     try:
-                        token = decrypt_text(str(row[0])) or str(row[0])
+                        token = decrypt_text(candidate) or candidate
                     except Exception:
-                        token = str(row[0])
+                        token = candidate
                 if token:
                     return token
         except Exception:

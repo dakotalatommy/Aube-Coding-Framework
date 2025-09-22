@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react'
 import { startOAuth } from '../../sdk/connectionsClient'
+import { useNavigate } from 'react-router-dom'
 import { api, getTenant } from '../../lib/api'
 
-export default function SceneConnections({ next, back }: any){
+export default function SceneConnections({ back }: any){
+  const navigate = useNavigate()
   const [busy, setBusy] = useState<boolean>(false)
   const [status, setStatus] = useState<string>('')
   const [error, setError] = useState<string>('')
@@ -31,6 +33,12 @@ export default function SceneConnections({ next, back }: any){
     finally{ setBusy(false) }
   }
 
+  const finishToDashboard = async ()=>{
+    try{ localStorage.setItem('bvx_onboarding_done','1') }catch{}
+    try{ (window as any).posthog?.capture?.('onboarding_complete') }catch{}
+    navigate('/workspace?pane=dashboard')
+  }
+
   return (
     <section className="rounded-2xl shadow-xl bg-white border border-white/80 p-5">
       <h2 className="text-xl font-semibold text-slate-900">Let’s look up your book</h2>
@@ -52,7 +60,8 @@ export default function SceneConnections({ next, back }: any){
       )}
       <div className="mt-6 flex gap-2">
         <button className="rounded-full border px-3 py-2 text-sm bg-white" disabled={busy} onClick={back}>Back</button>
-        <button className="rounded-full border px-3 py-2 text-sm bg-white" disabled={busy} onClick={()=> next({ connections: { bookingProvider: null } })}>Skip for now</button>
+        <button className="rounded-full border px-3 py-2 text-sm bg-white" disabled={busy} onClick={finishToDashboard}>Skip for now</button>
+        <button className="rounded-full border px-3 py-2 text-sm bg-white" disabled={busy} onClick={finishToDashboard}>Continue to dashboard</button>
       </div>
     </section>
   )

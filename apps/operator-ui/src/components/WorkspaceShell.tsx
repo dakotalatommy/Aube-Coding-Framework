@@ -501,13 +501,7 @@ const FORCE_ONBOARD_TOUR = false;
           // Do not redirect here; AuthCallback owns forced onboarding routing
         }
 
-        // Clean up any stale driver overlays before unified tour
-        try {
-          document.querySelectorAll('.driver-overlay, .driver-popover').forEach(el => {
-            try { el.parentElement?.removeChild(el); } catch {}
-          });
-          document.body.classList.remove('bvx-center-popover-body');
-        } catch {}
+        // Do not clear driver overlays here; tour bootstrap (runUnifiedTour) already handles cleanup safely.
 
         const sp = new URLSearchParams(loc.search); void sp;
         // Strip and normalize: never land on Settings due to stale query; prefer Dashboard

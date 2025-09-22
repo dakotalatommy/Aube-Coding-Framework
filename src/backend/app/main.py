@@ -5552,6 +5552,54 @@ def acuity_status(
         return {"connected": False, "status": "error", "detail": str(e)[:200]}
 
 
+@app.get("/integrations/booking/acuity/debug-token", tags=["Integrations"])  # auth-gated, no secrets
+def acuity_debug_token(
+    tenant_id: str,
+    ctx: UserContext = Depends(get_user_context),
+):
+    """Report which token columns are populated for Acuity in connected_accounts_v2.
+    Does not return token contents. Useful to diagnose schema drift under RLS.
+    """
+    try:
+        if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+            return {"ok": False, "error": "forbidden"}
+        with engine.begin() as conn:
+            try:
+                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            except Exception:
+                pass
+            row = conn.execute(
+                _sql_text(
+                    """
+                    SELECT
+                      (access_token_enc IS NOT NULL AND access_token_enc <> '') AS has_enc,
+                      (access_token IS NOT NULL AND access_token <> '') AS has_plain,
+                      (token IS NOT NULL AND token <> '') AS has_token,
+                      status
+                    FROM connected_accounts_v2
+                    WHERE tenant_id = CAST(:t AS uuid) AND provider='acuity'
+                    ORDER BY id DESC
+                    LIMIT 1
+                    """
+                ),
+                {"t": tenant_id},
+            ).fetchone()
+        if not row:
+            return {"ok": True, "row_seen": False}
+        has_enc, has_plain, has_token, status = row
+        return {
+            "ok": True,
+            "row_seen": True,
+            "has_access_token_enc": bool(has_enc),
+            "has_access_token": bool(has_plain),
+            "has_token": bool(has_token),
+            "status": status or "",
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
 @app.get("/metrics", tags=["Health"])
 def get_metrics(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
