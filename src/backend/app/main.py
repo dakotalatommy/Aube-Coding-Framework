@@ -5643,6 +5643,25 @@ def acuity_debug_headers(
         return {"ok": False, "error": str(e)[:200]}
 
 
+@app.get("/integrations/booking/acuity/debug-fetch", tags=["Integrations"])  # auth-gated, no secrets
+def acuity_debug_fetch(
+    tenant_id: str,
+    ctx: UserContext = Depends(get_user_context),
+):
+    """Return non-sensitive metadata from the token fetch path: token_present and token_length."""
+    try:
+        if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+            return {"ok": False, "error": "forbidden"}
+        t = booking_acuity._fetch_acuity_token(tenant_id)
+        try:
+            ln = len(t)
+        except Exception:
+            ln = 0
+        return {"ok": True, "token_present": bool(t), "token_length": ln}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
 @app.get("/metrics", tags=["Health"])
 def get_metrics(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":

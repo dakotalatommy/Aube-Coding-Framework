@@ -906,7 +906,7 @@ export default function Ask(){
           ref={inputRef}
         />
         <div className="flex flex-col gap-2">
-          <button className="border rounded-full px-4 py-2 bg-gradient-to-r from-blue-100 to-blue-300 hover:from-blue-200 hover:to-blue-400 shadow text-slate-900" onClick={send} disabled={loading || streaming}>
+          <button data-guide="ask-send" className="border rounded-full px-4 py-2 bg-gradient-to-r from-blue-100 to-blue-300 hover:from-blue-200 hover:to-blue-400 shadow text-slate-900" onClick={send} disabled={loading || streaming}>
             {loading ? 'Sending…' : 'Send'}
           </button>
           <button className="text-sm text-slate-600 hover:underline" onClick={reset}>Clear</button>

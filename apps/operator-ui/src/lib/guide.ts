@@ -7,6 +7,8 @@ export type GuideStep = {
     centered?: boolean;
     showButtons?: Array<'next' | 'previous' | 'close'>;
     nextBtnText?: string;
+    // Lighten overlay and allow pointer events to pass through for interactive steps
+    allowClicks?: boolean;
     onNextClick?: (
       element: Element | undefined,
       step: unknown,
@@ -83,7 +85,7 @@ const registry: Record<string, GuideStep[]> = {
     { element: '#tour-billing-anchor', popover: { title: 'Choose your plan', description: 'Unlock the workspace with a founding plan or free trial.' } },
     { element: '[data-guide="kpis"]', popover: { title: 'Your metrics at the top', description: 'Review key metrics to track how brandVX is helping you grow.' } },
     { element: '[data-guide="quickstart"]', popover: { title: 'Guided Walk‑through', description: 'Kick off with brandVZN, import clients, or train VX so you can showcase three fast wins and learn how to use brandVX.' } },
-    { element: '[data-guide="next-best-steps"]', popover: { title: 'Next Best Steps', description: 'Monitor and keep up with the next best actions to take to maximize your business.' } },
+    { element: '[data-guide="next-best-steps"]', popover: { title: 'Next Best Steps', description: 'Monitor and keep up with the next best actions to take to maximize your business.', allowClicks: true } },
     {
       element: '[data-guide="quickstart-brandvzn"]',
       popover: {
@@ -276,8 +278,8 @@ const registry: Record<string, GuideStep[]> = {
     },
     // Centered intro on AskVX to orient users after navigation
     { popover: { title: 'askVX', description: 'We’ll load a prompt that summarizes your last 3 months revenue and top 3 clients. You’ll press Send to run it.', centered: true, showButtons: ['previous', 'next'], nextBtnText: 'Next' } },
-    { element: '#tour-welcome-anchor', popover: { title: 'Imported contacts', description: 'Here’s the new contact count from your booking sync.', showButtons: ['previous', 'next'] } },
-    { element: '#tour-welcome-anchor', popover: { title: 'Since your last visit', description: 'Keep an eye on fresh contacts, appointments, and messages.', showButtons: ['previous', 'next'] } },
+    { element: '[data-guide="askvx-import-count"]', popover: { title: 'Imported contacts', description: 'Here’s the new contact count from your booking sync.', showButtons: ['previous', 'next'] } },
+    { element: '[data-guide="askvx-digest"]', popover: { title: 'Since your last visit', description: 'Keep an eye on fresh contacts, appointments, and messages.', showButtons: ['previous', 'next'] } },
     {
       element: '#tour-welcome-anchor',
       popover: {
@@ -294,13 +296,37 @@ const registry: Record<string, GuideStep[]> = {
       },
     },
     {
-      element: '[data-guide="composer"]',
+      element: '[data-guide="ask-send"]',
       popover: {
         title: 'Send the prompt',
         description: 'Press Send to let AskVX crunch the numbers for you.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Next',
         allowClicks: true,
+      },
+    },
+    {
+      element: '[data-guide="messages"]',
+      popover: {
+        title: 'Waiting for reply',
+        description: 'We’ll highlight the conversation while AskVX responds.',
+        showButtons: ['previous', 'next'],
+        nextBtnText: 'Continue',
+        allowClicks: true,
+        onPopoverRender: (_dom: any, { driver }) => {
+          const start = Date.now();
+          const advance = () => { try { driver.moveNext?.(); } catch {} };
+          const wait = () => {
+            try {
+              const root = document.querySelector('[data-guide="messages"]') as HTMLElement | null;
+              const replied = !!root && Array.from(root.querySelectorAll('.text-left .inline-block')).some((el: Element) => !String(el.textContent||'').includes('AskVX is typing'));
+              if (replied) { advance(); return; }
+              if (Date.now() - start > 9000) { advance(); return; }
+              setTimeout(wait, 220);
+            } catch { advance(); }
+          };
+          setTimeout(wait, 200);
+        },
       },
     },
     {
@@ -322,7 +348,7 @@ const registry: Record<string, GuideStep[]> = {
       },
     },
     {
-      element: '[data-guide="composer"]',
+      element: '[data-guide="ask-send"]',
       popover: {
         title: 'Send the strategy prompt',
         description: 'Press Send so AskVX can confirm any quick details and draft your 14-day plan.',
@@ -332,14 +358,77 @@ const registry: Record<string, GuideStep[]> = {
       },
     },
     {
+      element: '[data-guide="messages"]',
+      popover: {
+        title: 'Waiting for reply',
+        description: 'We’ll highlight the conversation while AskVX drafts your 14‑day plan.',
+        showButtons: ['previous', 'next'],
+        nextBtnText: 'Continue',
+        allowClicks: true,
+        onPopoverRender: (_dom: any, { driver }) => {
+          const start = Date.now();
+          const advance = () => { try { driver.moveNext?.(); } catch {} };
+          const wait = () => {
+            try {
+              const root = document.querySelector('[data-guide="messages"]') as HTMLElement | null;
+              const replied = !!root && Array.from(root.querySelectorAll('.text-left .inline-block')).some((el: Element) => !String(el.textContent||'').includes('AskVX is typing'));
+              if (replied) { advance(); return; }
+              if (Date.now() - start > 12000) { advance(); return; }
+              setTimeout(wait, 250);
+            } catch { advance(); }
+          };
+          setTimeout(wait, 200);
+        },
+      },
+    },
+    {
       element: '#tour-welcome-anchor',
       popover: {
         title: 'Build your 14‑day strategy',
-        description: 'Generate and download the Markdown plan. We’ll also save it to your memory.',
+        description: 'Generate and download the Markdown plan. We’ll also save it to your memory.\n\n<div class="mt-3"><button class="bvx-onboard-btn" data-onboard-generate>Generate & Download</button></div>',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Next',
-        onPopoverRender: () => {
-          // Wait for strategy ready; no auto-advance
+        allowClicks: true,
+        onPopoverRender: (dom: any) => {
+          try {
+            const btn = dom?.popover?.querySelector?.('[data-onboard-generate]') || dom?.wrapper?.querySelector?.('[data-onboard-generate]');
+            if (!btn) return;
+            const trigger = async () => {
+              try {
+                // If a strategy doc is already available on window, download immediately
+                const existing = (window as any).__bvxStrategyDoc?.markdown as string | undefined;
+                if (existing && typeof existing === 'string' && existing.length > 0) {
+                  const blob = new Blob([existing], { type: 'text/markdown;charset=utf-8' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url; a.download = 'brandvx-14-day-strategy.md';
+                  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                  setTimeout(()=>{ try{ URL.revokeObjectURL(url); }catch{} }, 1500);
+                  return;
+                }
+                // Otherwise ask AskVX pane to prepare, then poll for availability and download
+                try { window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.prepare-strategy' } })); } catch {}
+                const start = Date.now();
+                const check = () => {
+                  try {
+                    const md = (window as any).__bvxStrategyDoc?.markdown as string | undefined;
+                    if (md && md.length > 0) {
+                      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a'); a.href = url; a.download = 'brandvx-14-day-strategy.md';
+                      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                      setTimeout(()=>{ try{ URL.revokeObjectURL(url); }catch{} }, 1500);
+                      return;
+                    }
+                    if (Date.now() - start > 15000) return;
+                    setTimeout(check, 400);
+                  } catch {}
+                };
+                setTimeout(check, 500);
+              } catch {}
+            };
+            btn.addEventListener('click', (e: Event) => { try{ e.preventDefault(); }catch{} trigger(); });
+          } catch {}
         },
       },
     },
