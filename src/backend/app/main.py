@@ -5662,6 +5662,37 @@ def acuity_debug_fetch(
         return {"ok": False, "error": str(e)[:200]}
 
 
+@app.get("/integrations/booking/acuity/debug-rls", tags=["Integrations"])  # auth-gated, no secrets
+def acuity_debug_rls(
+    tenant_id: str,
+    ctx: UserContext = Depends(get_user_context),
+):
+    """Report RLS context inside _with_conn: current app.tenant_id and visible v2 row count for acuity."""
+    try:
+        if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+            return {"ok": False, "error": "forbidden"}
+        # Use the same helper semantics as token fetch
+        with booking_acuity._with_conn(tenant_id) as conn:  # type: ignore
+            # Read current GUC value if present
+            try:
+                guc_row = conn.execute(_sql_text("SELECT current_setting('app.tenant_id', true)")).fetchone()
+                guc_tenant = str(guc_row[0] or "") if guc_row else ""
+            except Exception:
+                guc_tenant = ""
+            # Count visible rows and capture latest id
+            cnt_row = conn.execute(
+                _sql_text(
+                    "SELECT COUNT(*), COALESCE(MAX(id),0) FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider='acuity'"
+                ),
+                {"t": tenant_id},
+            ).fetchone()
+            v2_count = int(cnt_row[0] or 0) if cnt_row else 0
+            latest_id = int(cnt_row[1] or 0) if cnt_row else 0
+        return {"ok": True, "guc_tenant": guc_tenant, "v2_count": v2_count, "latest_id": latest_id}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
 @app.get("/metrics", tags=["Health"])
 def get_metrics(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
