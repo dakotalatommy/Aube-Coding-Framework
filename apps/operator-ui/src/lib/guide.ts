@@ -116,11 +116,11 @@ const registry: Record<string, GuideStep[]> = {
     },
     // Centered intro on Vision to avoid anchoring races right after navigation
     { popover: { title: 'brandVZN', description: 'Let’s do a quick color change so you can see how edits work. Then we’ll continue the tour.', centered: true, showButtons: ['previous', 'next'], nextBtnText: 'Next' } },
-    { element: '[data-guide="upload"]', popover: { title: 'Upload a look', description: 'Pick a photo that shows the subject’s face and hair, then press Upload.' } },
+    { element: '[data-guide="upload"]', popover: { title: 'Upload a look', description: 'Pick a photo that shows the subject’s face and hair, then press Upload.', allowClicks: true } },
     {
       popover: {
         title: 'Select a color',
-        description: `What color would you like to transform their hair to?<br/><br/>
+        description: `What color would you like to transform their hair to? Select a color, then hit Continue.<br/><br/>
           <div class="grid gap-2">
             <button data-color="copper" class="bvx-color-btn">Copper</button>
             <button data-color="espresso" class="bvx-color-btn">Espresso Brown</button>
@@ -128,7 +128,7 @@ const registry: Record<string, GuideStep[]> = {
             <button data-color="rose" class="bvx-color-btn">Rose Gold</button>
             <button data-color="jet" class="bvx-color-btn">Jet Black</button>
           </div>`,
-        showButtons: ['previous'],
+        showButtons: ['previous','next'],
         onPopoverRender: (dom: any) => {
           const palette: Record<string, string> = {
             copper: 'Change the subject’s hair to a warm copper tone.',
@@ -152,7 +152,7 @@ const registry: Record<string, GuideStep[]> = {
         },
       },
     },
-    { element: '[data-guide="edit"]', popover: { title: 'Run edit', description: 'Click Run Edit to apply your selected color.' } },
+    { element: '[data-guide="edit"]', popover: { title: 'Run edit', description: 'Click Run Edit to apply your selected color.', allowClicks: true } },
     {
       element: '[data-guide="preview"]',
       popover: {
@@ -300,6 +300,7 @@ const registry: Record<string, GuideStep[]> = {
         description: 'Press Send to let AskVX crunch the numbers for you.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Next',
+        allowClicks: true,
       },
     },
     {
@@ -327,6 +328,7 @@ const registry: Record<string, GuideStep[]> = {
         description: 'Press Send so AskVX can confirm any quick details and draft your 14-day plan.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Next',
+        allowClicks: true,
       },
     },
     {
@@ -366,7 +368,7 @@ const registry: Record<string, GuideStep[]> = {
         },
       },
     },
-    { element: '[data-guide="trainvx-notes"]', popover: { title: 'Add a brand fact', description: 'Type a tone note or preference, then press “Save to training”.', showButtons: ['previous', 'next'] } },
+    { element: '[data-guide="trainvx-notes"]', popover: { title: 'Add a brand fact', description: 'Type a tone note or preference, then press “Save to training”.', showButtons: ['previous', 'next'], allowClicks: true } },
     {
       element: '[data-guide="trainvx-profile"]',
       popover: {
@@ -380,6 +382,7 @@ const registry: Record<string, GuideStep[]> = {
             window.dispatchEvent(new CustomEvent('bvx:guide:navigate', { detail: { pane: 'dashboard' } }));
           } catch {}
         },
+        allowClicks: true,
       },
     },
   ],
@@ -396,9 +399,9 @@ const registry: Record<string, GuideStep[]> = {
   vision: [
     { popover: { title: 'Brand Vision', description: 'Analyze and refine photos — fast, natural, beauty‑friendly.' } },
     { element: '[data-guide="preview"]', popover: { title: 'Preview', description: 'Your working image; press/hold for before/after.' } },
-    { element: '[data-guide="upload"]', popover: { title: 'Upload', description: 'Pick a photo or screenshot to analyze or edit.' } },
-    { element: '[data-guide\="analyze"]', popover: { title: 'Analyze', description: 'GPT‑5 returns a short brief (lighting, color, texture). Use Notes to ask a specific question.' } },
-    { element: '[data-guide="edit"]', popover: { title: 'Edit', description: 'Run subtle edits using the prompt to the left.' } },
+    { element: '[data-guide="upload"]', popover: { title: 'Upload', description: 'Pick a photo or screenshot to analyze or edit.', allowClicks: true } },
+    { element: '[data-guide\="analyze"]', popover: { title: 'Analyze', description: 'GPT‑5 returns a short brief (lighting, color, texture). Use Notes to ask a specific question.', allowClicks: true } },
+    { element: '[data-guide="edit"]', popover: { title: 'Edit', description: 'Run subtle edits using the prompt to the left.', allowClicks: true } },
     { element: '[data-guide="save"]', popover: { title: 'Save to client', description: 'Link images to a client record for before/after.' } },
   ],
   integrations: [
@@ -583,6 +586,8 @@ export function startGuide(page: string, _opts?: { step?: number }) {
               align: effectiveCentered ? 'center' : 'start',
               onPopoverRender: composedOnRender,
               ...restPopover,
+              // Preserve a flag for click-through overlay handling
+              bvxAllowClicks: (step.popover as any)?.allowClicks === true
             },
           };
         }),
@@ -662,6 +667,24 @@ export function startGuide(page: string, _opts?: { step?: number }) {
           document.head.appendChild(s2);
     }
   } catch {}
+      // Helper: toggle overlay pointer events for clickable steps
+      const setOverlayClicks = (allow: boolean) => {
+        try {
+          const id = 'bvx-driver-pe';
+          const existing = document.getElementById(id);
+          if (allow) {
+            if (!existing) {
+              const s = document.createElement('style');
+              s.id = id;
+              s.textContent = `.driver-overlay{ pointer-events: none !important; background: rgba(17,24,39,0.35) !important; }`;
+              document.head.appendChild(s);
+            }
+          } else if (existing) {
+            existing.parentElement?.removeChild(existing);
+          }
+        } catch {}
+      };
+
       const persistIndex = () => {
         try {
           const idx = instance?.getState?.()?.activeIndex;
@@ -670,7 +693,17 @@ export function startGuide(page: string, _opts?: { step?: number }) {
       };
       instance.on?.('next', persistIndex);
       instance.on?.('previous', persistIndex);
-      instance.on?.('highlighted', persistIndex);
+      instance.on?.('highlighted', () => {
+        persistIndex();
+        // Toggle click-through overlay if this step requests it
+        try {
+          const state = instance?.getState?.();
+          const idx = state?.activeIndex ?? -1;
+          const cfg = (instance as any)?._options?.steps?.[idx]?.popover || {};
+          const allow = !!cfg?.bvxAllowClicks;
+          setOverlayClicks(allow);
+        } catch {}
+      });
       if (page === 'dashboard') {
         instance.on?.('highlighted', () => {
           try {

@@ -886,8 +886,8 @@ const FORCE_ONBOARD_TOUR = false;
       <div id="tour-welcome-anchor" className="fixed inset-0 pointer-events-none" style={{ zIndex: 2147483602 }} />
       <div
         id="tour-center-anchor"
-        className="fixed pointer-events-none"
-        style={{ top: '50%', left: '50%', width: 1, height: 1, transform: 'translate(-50%, -50%)', zIndex: 2147483602 }}
+        className="fixed"
+        style={{ top: '50%', left: '50%', width: 0, height: 0, opacity: 0, pointerEvents: 'none', transform: 'translate(-50%, -50%)', zIndex: 2147483602 }}
       />
       <div id="tour-billing-anchor" className="fixed inset-0 pointer-events-none flex items-center justify-center" style={{ zIndex: 2147483602 }} />
       {/* E2E readiness marker */}

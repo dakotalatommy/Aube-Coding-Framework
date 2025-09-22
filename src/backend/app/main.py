@@ -1548,7 +1548,6 @@ def upsert_usage_limit(body: UsageLimitUpsert, db: Session = Depends(get_db), ct
     db.commit()
     return {"ok": True}
 # --- OAuth scaffolding helpers (env-driven) ---
-
 def _square_env_mode() -> str:
     """Resolve Square environment mode.
     Priority: explicit SQUARE_ENV -> infer from client_id prefix -> default sandbox.
@@ -5616,6 +5615,30 @@ def acuity_debug_token(
             "has_token": bool(has_token),
             "status": status or "",
         }
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
+@app.get("/integrations/booking/acuity/debug-headers", tags=["Integrations"])  # auth-gated, no secrets
+def acuity_debug_headers(
+    tenant_id: str,
+    ctx: UserContext = Depends(get_user_context),
+):
+    """Return which auth mode the Acuity client would use (bearer|basic|none). No secrets."""
+    try:
+        if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+            return {"ok": False, "error": "forbidden"}
+        headers = booking_acuity._acuity_headers(tenant_id)
+        auth = str(headers.get("Authorization", ""))
+        mode = "none"
+        try:
+            if auth.startswith("Bearer "):
+                mode = "bearer"
+            elif auth.startswith("Basic "):
+                mode = "basic"
+        except Exception:
+            mode = "none"
+        return {"ok": True, "auth_mode": mode}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
 
@@ -10268,8 +10291,6 @@ def gmail_thread(tenant_id: str, id: str, db: Session = Depends(get_db), ctx: Us
         return {"messages": out}
     except Exception:
         return {"messages": []}
-
-
 @app.post("/gmail/send", tags=["Integrations"])
 def gmail_send(req: dict, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
     tenant_id = str(req.get("tenant_id", ctx.tenant_id or ""))
