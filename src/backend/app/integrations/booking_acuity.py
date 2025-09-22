@@ -80,16 +80,16 @@ def _timestamp_expr(conn) -> str:
 
 
 def _acuity_headers(tenant_id: str) -> Dict[str, str]:
-    # Prefer Basic for Acuity v1 if available
+    # Prefer OAuth Bearer first for multi-tenant app connect flow
+    t = _fetch_acuity_token(tenant_id)
+    if t:
+        return {"Authorization": f"Bearer {t}", "Accept": "application/json"}
+    # Fallback to Basic only if Bearer absent
     user_id = os.getenv("ACUITY_USER_ID", os.getenv("ACUITY_CLIENT_ID", "")).strip()
     api_key = os.getenv("ACUITY_API_KEY", "").strip()
     if user_id and api_key:
         raw = f"{user_id}:{api_key}".encode("utf-8")
         return {"Authorization": f"Basic {base64.b64encode(raw).decode('utf-8')}", "Accept": "application/json"}
-    # Fallback to OAuth Bearer if present
-    t = _fetch_acuity_token(tenant_id)
-    if t:
-        return {"Authorization": f"Bearer {t}", "Accept": "application/json"}
     return {"Accept": "application/json"}
 
 

@@ -52,7 +52,6 @@ export default function Vision(){
         const r = await api.get(`/contacts/search?tenant_id=${encodeURIComponent(tid)}&q=${encodeURIComponent(q)}&limit=8`);
         const items = (r?.items||[]).map((it: any)=> ({ contact_id: String(it.contact_id||''), display_name: String(it.display_name||'Client')}));
         setClientSuggestions(items);
-        // auto-select removed with simplified library flow
       } catch { setClientSuggestions([]); }
     }, 220);
     return ()=> clearTimeout(t);

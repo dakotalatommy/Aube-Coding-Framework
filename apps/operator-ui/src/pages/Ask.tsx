@@ -703,6 +703,28 @@ export default function Ask(){
     try { window.dispatchEvent(new CustomEvent('bvx:onboarding:askvx-tab-active', { detail: { index: pageIdx } })); } catch {}
   }, [pageIdx]);
 
+  // Signal: Ask page is ready for tour placement
+  useEffect(() => {
+    let cancelled = false;
+    const signal = () => {
+      if (cancelled) return;
+      try {
+        const el = (document.querySelector('[data-guide="ask-input"]') || inputRef.current) as HTMLElement | null;
+        if (el) {
+          const r = el.getBoundingClientRect?.();
+          if (r && r.width > 0 && r.height > 0) {
+            try { window.dispatchEvent(new CustomEvent('bvx:ask:ready')); } catch {}
+            try { window.dispatchEvent(new CustomEvent('bvx:dbg', { detail: { type: 'ready', pane: 'askvx' } })); } catch {}
+            return;
+          }
+        }
+      } catch {}
+      setTimeout(() => { try { requestAnimationFrame(signal); } catch { signal(); } }, 60);
+    };
+    try { requestAnimationFrame(() => { requestAnimationFrame(signal); }); } catch { setTimeout(signal, 60); }
+    return () => { cancelled = true; };
+  }, []);
+
   return (
     <div className={`h-full min-h-0 flex flex-col min-w-0 overflow-x-hidden overflow-y-hidden pb-3`}>
       {askIsDemo && (

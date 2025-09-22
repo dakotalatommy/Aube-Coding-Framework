@@ -638,11 +638,11 @@ export function startGuide(page: string, _opts?: { step?: number }) {
               width: 100%;
               padding: 0.55rem 0.75rem;
               border-radius: 0.75rem;
-              border: 1px solid rgb(14 165 233 / 0.6);
-              background: linear-gradient(180deg, rgb(224 242 254) 0%, rgb(186 230 253) 100%);
+              border: 1px solid rgb(148 163 184 / 0.6);
+              background: linear-gradient(180deg, rgb(219 234 254) 0%, rgb(191 219 254) 100%);
               font-size: 0.78rem;
               font-weight: 600;
-              color: rgb(12 74 110);
+              color: rgb(30 58 138);
               cursor: pointer;
             }
             .bvx-onboard-btn:hover {
@@ -714,7 +714,9 @@ export function startGuide(page: string, _opts?: { step?: number }) {
               const target = (ev?.detail?.pane || '').toString();
               if (target !== 'vision') return;
               const start = Date.now();
+              let advanced = false;
               const onReady = () => {
+                if (advanced) return; advanced = true;
                 try { window.removeEventListener('bvx:vision:ready', onReady as any); } catch {}
                 try { instance.moveNext?.(); } catch {}
               };
@@ -744,6 +746,32 @@ export function startGuide(page: string, _opts?: { step?: number }) {
           });
   } catch {}
 }
+      // New: Handle AskVX jump readiness similar to Vision/Contacts
+      try {
+        window.addEventListener('bvx:guide:navigate', (ev: any) => {
+          try {
+            const target = (ev?.detail?.pane || '').toString();
+            if (target !== 'askvx') return;
+            const start = Date.now();
+            const onReady = () => {
+              try { window.removeEventListener('bvx:ask:ready', onReady as any); } catch {}
+              try { instance.moveNext?.(); } catch {}
+            };
+            window.addEventListener('bvx:ask:ready', onReady as any, { once: true } as any);
+            const wait = () => {
+              try {
+                const sp = new URLSearchParams(window.location.search);
+                const pane = sp.get('pane');
+                const ready = pane === 'askvx' && (document.querySelector('[data-guide="ask-input"]') || document.querySelector('input'));
+                if (ready) { onReady(); return; }
+                if (Date.now() - start > 6000) { return; }
+                setTimeout(wait, 120);
+              } catch {}
+            };
+            setTimeout(wait, 200);
+          } catch {}
+        });
+      } catch {}
       if (typeof instance.drive === 'function') {
         instance.drive();
       }
