@@ -17,27 +17,27 @@ import logging
 @contextmanager
 def _with_conn(tenant_id: str, role: str = "owner_admin"):
     """Yield a short-lived connection with RLS GUCs set. Caller must not hold across network calls."""
-    conn = engine.begin()
+    conn_cm = engine.begin()
     # Set GUCs (tolerant)
     try:
-        conn.__enter__()
+        conn = conn_cm.__enter__()
         try:
             # Parameter binding is not supported for SET LOCAL, so escape manually.
             safe_role = role.replace("'", "''")
-            conn.exec_driver_sql(f"SET LOCAL app.role = '{safe_role}'")
+            conn.execute(_sql_text(f"SET LOCAL app.role = '{safe_role}'"))
         except Exception:
             logger.exception("Failed to set app.role GUC (role=%s)", role)
             raise
         try:
             safe_tenant = tenant_id.replace("'", "''")
-            conn.exec_driver_sql(f"SET LOCAL app.tenant_id = '{safe_tenant}'")
+            conn.execute(_sql_text(f"SET LOCAL app.tenant_id = '{safe_tenant}'"))
         except Exception:
             logger.exception("Failed to set app.tenant_id GUC (tenant_id=%s)", tenant_id)
             raise
         yield conn
     finally:
         try:
-            conn.__exit__(None, None, None)
+            conn_cm.__exit__(None, None, None)
         except Exception:
             pass
 
