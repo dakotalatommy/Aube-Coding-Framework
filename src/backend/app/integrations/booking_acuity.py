@@ -57,7 +57,7 @@ def _fetch_acuity_token(tenant_id: str) -> str:
     """
     token = ""
     # v2 via short-lived conn
-    for _ in range(2):  # one retry on transient disconnect
+    for attempt in range(2):  # one retry on transient disconnect
         try:
             with _with_conn(tenant_id) as conn:  # type: ignore
                 # Simplified: mirror Square. Read newest non-empty access_token_enc only.
@@ -91,8 +91,11 @@ def _fetch_acuity_token(tenant_id: str) -> str:
                 if token:
                     return token
         except Exception:
-            time.sleep(0.05)
-            continue
+            logger.exception("Error fetching Acuity token (attempt %s)", attempt + 1)
+            if attempt == 0:
+                time.sleep(0.05)
+                continue
+            raise
         break
     # Do not fallback to legacy connected_accounts; v2-only
     return token or ""
