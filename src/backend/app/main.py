@@ -5715,9 +5715,7 @@ def acuity_debug_token_lens(
                 _sql_text(
                     """
                     SELECT id,
-                           COALESCE(LENGTH(access_token_enc),0) AS len_enc,
-                           CASE WHEN column_name_present('public','connected_accounts_v2','access_token') THEN COALESCE(LENGTH(access_token),0) ELSE 0 END AS len_plain,
-                           CASE WHEN column_name_present('public','connected_accounts_v2','token') THEN COALESCE(LENGTH(token),0) ELSE 0 END AS len_token
+                           COALESCE(LENGTH(access_token_enc),0) AS len_enc
                     FROM connected_accounts_v2
                     WHERE tenant_id = CAST(:t AS uuid) AND provider='acuity'
                     ORDER BY id DESC
@@ -5729,7 +5727,7 @@ def acuity_debug_token_lens(
         out = []
         for r in rows or []:
             try:
-                out.append({"id": int(r[0] or 0), "len_enc": int(r[1] or 0), "len_access_token": int(r[2] or 0), "len_token": int(r[3] or 0)})
+                out.append({"id": int(r[0] or 0), "len_enc": int(r[1] or 0)})
             except Exception:
                 continue
         return {"ok": True, "rows": out}

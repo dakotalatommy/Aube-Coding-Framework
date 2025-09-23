@@ -118,7 +118,7 @@ const registry: Record<string, GuideStep[]> = {
     },
     // Centered intro on Vision to avoid anchoring races right after navigation
     { popover: { title: 'brandVZN', description: 'Let’s do a quick color change so you can see how edits work. Then we’ll continue the tour.', centered: true, showButtons: ['previous', 'next'], nextBtnText: 'Next' } },
-    { element: '[data-guide="upload"]', popover: { title: 'Upload a look', description: 'Pick a photo that shows the subject’s face and hair, then press Upload.', allowClicks: true } },
+    { element: '[data-guide="upload"]', popover: { title: 'Upload a look', description: 'Pick a photo that shows the subject’s face and hair, then press Upload.', allowClicks: true, onPopoverRender: () => { try { const id='bvx-driver-pe'; if (!document.getElementById(id)) { const s=document.createElement('style'); s.id=id; s.textContent = `.driver-overlay{ pointer-events:none !important; background: rgba(17,24,39,0.35) !important; } .driver-stage{ pointer-events:none !important; background: rgba(17,24,39,0.35) !important; }`; document.head.appendChild(s); } } catch {} } } },
     {
       popover: {
         title: 'Select a color',
