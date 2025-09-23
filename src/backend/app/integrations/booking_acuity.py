@@ -87,11 +87,17 @@ def _fetch_acuity_token(tenant_id: str) -> str:
                 )
                 row = _read_one(conn, sql, {"t": tenant_id})
                 if row and row[0]:
-                    candidate = str(row[0])
-                    # Try decrypt; if fails, assume plaintext token already
+                    candidate = str(row[0]).strip()
+                    # Prefer decrypt; if decrypt returns falsy, fall back to raw only if it
+                    # looks like an OAuth bearer (non-empty, not obviously base64 garbage)
+                    dec = None
                     try:
-                        token = decrypt_text(candidate) or candidate
+                        dec = decrypt_text(candidate)
                     except Exception:
+                        dec = None
+                    if dec and dec.strip():
+                        token = dec.strip()
+                    elif candidate:
                         token = candidate
                 if token:
                     return token
