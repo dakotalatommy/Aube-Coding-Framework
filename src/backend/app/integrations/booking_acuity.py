@@ -1,6 +1,7 @@
 import hashlib
 import time
 from typing import Dict, Any, Optional, List, Tuple
+from contextlib import contextmanager
 import base64
 import os
 import httpx
@@ -12,6 +13,7 @@ import hmac
 import hashlib
 
 
+@contextmanager
 def _with_conn(tenant_id: str, role: str = "owner_admin"):
     """Yield a short-lived connection with RLS GUCs set. Caller must not hold across network calls."""
     conn = engine.begin()
