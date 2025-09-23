@@ -21,11 +21,14 @@ def _with_conn(tenant_id: str, role: str = "owner_admin"):
     try:
         conn.__enter__()
         try:
-            conn.execute(_sql_text("SET LOCAL app.role = :r"), {"r": role})
+            # Parameter binding is not supported for SET LOCAL, so escape manually.
+            safe_role = role.replace("'", "''")
+            conn.exec_driver_sql(f"SET LOCAL app.role = '{safe_role}'")
         except Exception:
             pass
         try:
-            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            safe_tenant = tenant_id.replace("'", "''")
+            conn.exec_driver_sql(f"SET LOCAL app.tenant_id = '{safe_tenant}'")
         except Exception:
             pass
         yield conn
@@ -346,4 +349,3 @@ def fetch_bookings(tenant_id: str) -> List[Dict[str, object]]:
     return [
         {"id": f"ac-{now}", "title": "Booking: Follow-up (Acuity)", "start_ts": now + 10800, "provider": "acuity"},
     ]
-
