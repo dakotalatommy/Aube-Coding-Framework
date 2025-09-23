@@ -73,6 +73,7 @@ import io
 import csv
 import os.path as _osp
 from pathlib import Path as _Path
+from types import SimpleNamespace
 from sqlalchemy import text as _sql_text
 from sqlalchemy import func as _sql_func
 import secrets as _secrets
@@ -1580,68 +1581,6 @@ def _new_cid() -> str:
         except Exception:
             return str(int(_time.time()*1000))
 
-# --- Connected account helpers (handle legacy 'platform' column) ---
-def _connected_accounts_columns(db: Session) -> set:
-    try:
-        rows = db.execute(_sql_text("""
-            SELECT column_name FROM information_schema.columns
-            WHERE table_name = 'connected_accounts' AND table_schema = 'public'
-        """)).fetchall()
-        return {str(r[0]) for r in rows}
-    except Exception:
-        return set()
-
-def _connected_accounts_user_is_uuid(db: Session) -> bool:
-    try:
-        row = db.execute(_sql_text(
-            """
-            SELECT data_type FROM information_schema.columns
-            WHERE table_name = 'connected_accounts' AND table_schema = 'public' AND column_name = 'user_id'
-            """
-        )).fetchone()
-        dt = (row[0] if row else '').lower()
-        return 'uuid' in dt
-    except Exception:
-        return False
-
-def _connected_accounts_user_is_nullable(db: Session) -> bool:
-    try:
-        row = db.execute(_sql_text(
-            """
-            SELECT is_nullable FROM information_schema.columns
-            WHERE table_name = 'connected_accounts' AND table_schema = 'public' AND column_name = 'user_id'
-            """
-        )).fetchone()
-        nv = (row[0] if row else 'YES').upper()
-        return nv == 'YES'
-    except Exception:
-        return True
-
-def _connected_accounts_col_type(db: Session, col: str) -> str:
-    try:
-        row = db.execute(_sql_text(
-            """
-            SELECT data_type FROM information_schema.columns
-            WHERE table_name = 'connected_accounts' AND table_schema = 'public' AND column_name = :c
-            """
-        ), {"c": col}).fetchone()
-        return (row[0] if row else '').lower()
-    except Exception:
-        return ''
-
-def _connected_accounts_tenant_is_uuid(db: Session) -> bool:
-    try:
-        row = db.execute(_sql_text(
-            """
-            SELECT data_type FROM information_schema.columns
-            WHERE table_name = 'connected_accounts' AND table_schema = 'public' AND column_name = 'tenant_id'
-            """
-        )).fetchone()
-        dt = (row[0] if row else '').lower()
-        return 'uuid' in dt
-    except Exception:
-        return False
-
 def _connected_accounts_v2_rows(db: Session, tenant_id: str) -> List[Dict[str, Any]]:
     try:
         rows = db.execute(
@@ -1727,47 +1666,6 @@ def _safe_audit_log(db: Session, *, tenant_id: str, actor_id: str, action: str, 
             db.rollback()
         except Exception:
             pass
-def _insert_connected_account(db: Session, tenant_id: str, user_id: str, provider: str,
-                              status: str, access_token_enc: Optional[str],
-                              refresh_token_enc: Optional[str], expires_at: Optional[int],
-                              scopes: Optional[str]) -> None:
-    cols = _connected_accounts_columns(db)
-    # Try ORM first when 'provider' column exists
-    try:
-        if 'provider' in cols:
-            db.add(dbm.ConnectedAccount(
-                tenant_id=tenant_id, user_id=user_id, provider=provider, scopes=scopes,
-                access_token_enc=access_token_enc, refresh_token_enc=refresh_token_enc,
-                expires_at=expires_at, status=status
-            ))
-            db.commit();
-            return
-    except Exception:
-        try: db.rollback()
-        except Exception: pass
-    # Fallback: legacy schema with 'platform'
-    try:
-        fields = ["tenant_id","user_id","status","connected_at","created_at"]
-        values = {"tenant_id": tenant_id, "user_id": user_id, "status": status, "connected_at": int(_time.time()), "created_at": int(_time.time())}
-        if 'platform' in cols:
-            fields.append('platform'); values['platform'] = provider
-        if 'provider' in cols:
-            fields.append('provider'); values['provider'] = provider
-        if 'access_token_enc' in cols:
-            fields.append('access_token_enc'); values['access_token_enc'] = access_token_enc
-        if 'refresh_token_enc' in cols:
-            fields.append('refresh_token_enc'); values['refresh_token_enc'] = refresh_token_enc
-        if 'expires_at' in cols:
-            fields.append('expires_at'); values['expires_at'] = expires_at
-        if 'scopes' in cols:
-            fields.append('scopes'); values['scopes'] = scopes
-        cols_sql = ",".join(fields)
-        params_sql = ",".join([":"+k for k in fields])
-        db.execute(_sql_text(f"INSERT INTO connected_accounts ({cols_sql}) VALUES ({params_sql})"), values)
-        db.commit()
-    except Exception:
-        try: db.rollback()
-        except Exception: pass
 # --------------------------- Billing (Stripe) ---------------------------
 def _stripe_client():
     secret = _env("STRIPE_SECRET_KEY")
@@ -2070,83 +1968,6 @@ def debug_oauth(provider: str = "square"):
         return {"error": str(e)}
 
 # Admin: upsert a Square connected-account row for the current tenant (tolerant schema)
-class UpsertSquareRequest(BaseModel):
-    tenant_id: str
-@app.post("/integrations/admin/upsert-square", tags=["Integrations"])
-def upsert_square_account(req: UpsertSquareRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
-    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
-        return {"ok": False, "error": "forbidden"}
-    try:
-        # Use a fresh connection-bound transaction to avoid inactive session state
-        cols = _connected_accounts_columns(db)
-        name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
-        if not name_col:
-            return {"ok": False, "error": "missing provider/platform column"}
-        tid_type = _connected_accounts_col_type(db, 'tenant_id')
-        with engine.begin() as conn:
-            # UPDATE first
-            where_tid = "tenant_id = CAST(:tenant_id AS uuid)" if 'uuid' in tid_type else "tenant_id = :tenant_id"
-            set_parts: List[str] = []
-            if 'status' in cols:
-                set_parts.append("status = 'connected'")
-            if 'connected_at' in cols:
-                set_parts.append("connected_at = NOW()")
-            if 'created_at' in cols:
-                set_parts.append("created_at = NOW()")
-            updated = False
-            if set_parts:
-                upd_sql = f"UPDATE connected_accounts SET {', '.join(set_parts)} WHERE {where_tid} AND {name_col} = :prov"
-                params = {"tenant_id": req.tenant_id, "prov": "square"}
-                try:
-                    res = conn.execute(_sql_text(upd_sql), params)
-                except Exception:
-                    # Fallback: literal SQL (provider fixed; tenant_id sanitized)
-                    safe_tid = str(req.tenant_id).replace("'", "''")
-                    where_tid_lit = (
-                        f"tenant_id = CAST('{safe_tid}' AS uuid)" if 'uuid' in tid_type else f"tenant_id = '{safe_tid}'"
-                    )
-                    upd_sql2 = f"UPDATE connected_accounts SET {', '.join(set_parts)} WHERE {where_tid_lit} AND {name_col} = 'square'"
-                    res = conn.exec_driver_sql(upd_sql2)
-                try:
-                    updated = bool(getattr(res, 'rowcount', 0) and int(res.rowcount) > 0)
-                except Exception:
-                    updated = False
-            if updated:
-                return {"ok": True, "updated": True}
-            # INSERT minimal row
-            ins_cols: List[str] = ["tenant_id", name_col]
-            placeholders: List[str] = ["CAST(:tenant_id AS uuid)" if 'uuid' in tid_type else ":tenant_id", ":prov"]
-            if 'status' in cols:
-                ins_cols.append('status'); placeholders.append("'connected'")
-            if 'connected_at' in cols:
-                ins_cols.append('connected_at'); placeholders.append('NOW()')
-            if 'created_at' in cols:
-                ins_cols.append('created_at'); placeholders.append('NOW()')
-            ins_sql = f"INSERT INTO connected_accounts ({', '.join(ins_cols)}) VALUES ({', '.join(placeholders)})"
-            try:
-                conn.execute(_sql_text(ins_sql), {"tenant_id": req.tenant_id, "prov": "square"})
-            except Exception:
-                safe_tid = str(req.tenant_id).replace("'", "''")
-                lit_vals: List[str] = [
-                    f"CAST('{safe_tid}' AS uuid)" if 'uuid' in tid_type else f"'{safe_tid}'",
-                    "'square'",
-                ]
-                if 'status' in cols:
-                    lit_vals.append("'connected'")
-                if 'connected_at' in cols:
-                    lit_vals.append("NOW()")
-                if 'created_at' in cols:
-                    lit_vals.append("NOW()")
-                ins_sql2 = f"INSERT INTO connected_accounts ({', '.join(ins_cols)}) VALUES ({', '.join(lit_vals)})"
-                conn.exec_driver_sql(ins_sql2)
-            return {"ok": True, "inserted": True}
-    except Exception as e:
-        try:
-            db.rollback()
-        except Exception:
-            pass
-        return {"ok": False, "error": str(e)[:300]}
-
 # Read-only: list recent connected accounts and last oauth callbacks for a tenant
 @app.get("/integrations/connected-accounts", tags=["Integrations"])
 def connected_accounts_list(
@@ -2717,148 +2538,71 @@ def oauth_refresh(req: OAuthRefreshRequest, db: Session = Depends(get_db), ctx: 
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
     try:
-        cols = _connected_accounts_columns(db)
-        name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
-        if not name_col:
-            return {"status": "not_found"}
-        # Identify columns present in this schema
-        id_col = 'id'  # primary key should exist
-        rt_enc_col = 'refresh_token_enc' if 'refresh_token_enc' in cols else None
-        rt_plain_col = 'refresh_token' if 'refresh_token' in cols else None
-        at_enc_col = 'access_token_enc' if 'access_token_enc' in cols else None
-        at_plain_col = 'access_token' if 'access_token' in cols else None
-        status_col = 'status' if 'status' in cols else None
-        exp_col = 'expires_at' if 'expires_at' in cols else None
-
-        # Select latest row for this provider/tenant
-        select_cols = [id_col]
-        for c in (rt_enc_col, rt_plain_col, at_enc_col, at_plain_col, status_col, exp_col):
-            if c and c not in select_cols:
-                select_cols.append(c)
-        is_uuid = _connected_accounts_tenant_is_uuid(db)
-        where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
-        sql = f"SELECT {', '.join(select_cols)} FROM connected_accounts WHERE {where_tid} AND {name_col} = :p ORDER BY id DESC LIMIT 1"
-        row = db.execute(_sql_text(sql), {"t": req.tenant_id, "p": req.provider}).fetchone()
+        with engine.begin() as conn:
+            row = conn.execute(
+                _sql_text(
+                    "SELECT id, refresh_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider = :p ORDER BY id DESC LIMIT 1"
+                ),
+                {"t": req.tenant_id, "p": req.provider},
+            ).fetchone()
         if not row:
-            # Fallback to v2 token store
-            try:
-                with engine.begin() as conn:
-                    row_v2 = conn.execute(
-                        _sql_text(
-                            "SELECT id, refresh_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider = :p ORDER BY id DESC LIMIT 1"
-                        ),
-                        {"t": req.tenant_id, "p": req.provider},
-                    ).fetchone()
-            except Exception:
-                row_v2 = None
-            if not row_v2:
-                return {"status": "not_found"}
-            # Extract RT and refresh
-            try:
-                rt_val_v2 = decrypt_text(str(row_v2[1] or "")) or ""
-            except Exception:
-                rt_val_v2 = str(row_v2[1] or "")
-            if not rt_val_v2:
-                return {"status": "no_refresh_token"}
-            token_v2 = _oauth_refresh_token(req.provider, rt_val_v2, _redirect_uri(req.provider)) or {}
-            if not token_v2:
-                try:
-                    with engine.begin() as conn:
-                        conn.execute(
-                            _sql_text("UPDATE connected_accounts_v2 SET status='error', last_error=:e WHERE id=:id"),
-                            {"e": "refresh_failed", "id": row_v2[0]},
-                        )
-                except Exception:
-                    pass
-                return {"status": "error"}
-            new_at_v2 = str(token_v2.get("access_token") or "")
-            exp_v2 = token_v2.get("expires_in")
-            sc_v2 = token_v2.get("scope") or token_v2.get("scopes")
-            try:
-                with engine.begin() as conn:
-                    parts = ["status='connected'"]
-                    params: Dict[str, Any] = {"id": row_v2[0]}
-                    if new_at_v2:
-                        parts.append("access_token_enc=:at"); params["at"] = encrypt_text(new_at_v2)
-                    if isinstance(exp_v2, (int, float)):
-                        parts.append("expires_at=:exp"); params["exp"] = int(_time.time()) + int(exp_v2)
-                    if sc_v2:
-                        parts.append("scopes=:sc"); params["sc"] = (" ".join(sc_v2) if isinstance(sc_v2, list) else str(sc_v2))
-                    conn.execute(_sql_text(f"UPDATE connected_accounts_v2 SET {', '.join(parts)} WHERE id=:id"), params)
-            except Exception:
-                pass
-            return {"status": "ok"}
-
-        # Extract refresh token
-        rt_val = None
-        col_to_idx = {select_cols[i]: i for i in range(len(select_cols))}
-        if rt_enc_col and rt_enc_col in col_to_idx and row[col_to_idx[rt_enc_col]]:
-            try:
-                rt_val = decrypt_text(str(row[col_to_idx[rt_enc_col]])) or ""
-            except Exception:
-                rt_val = str(row[col_to_idx[rt_enc_col]])
-        elif rt_plain_col and rt_plain_col in col_to_idx and row[col_to_idx[rt_plain_col]]:
-            rt_val = str(row[col_to_idx[rt_plain_col]])
-        if not rt_val:
+            return {"status": "not_found"}
+        row_id, refresh_token_enc = row
+        try:
+            refresh_token = decrypt_text(str(refresh_token_enc or "")) or ""
+        except Exception:
+            refresh_token = str(refresh_token_enc or "")
+        if not refresh_token:
             return {"status": "no_refresh_token"}
 
-        # Refresh via provider
-        token = _oauth_refresh_token(req.provider, rt_val, _redirect_uri(req.provider)) or {}
+        token = _oauth_refresh_token(req.provider, refresh_token, _redirect_uri(req.provider)) or {}
         if not token:
-            # best-effort mark error if status column exists
-            if status_col:
-                db.execute(_sql_text(f"UPDATE connected_accounts SET {status_col} = :s WHERE id = :id"), {"s": "error", "id": row[col_to_idx[id_col]]})
-                db.commit()
+            try:
+                with engine.begin() as conn:
+                    conn.execute(
+                        _sql_text(
+                            "UPDATE connected_accounts_v2 SET status='error', last_error=:err WHERE id=:id"
+                        ),
+                        {"err": "refresh_failed", "id": row_id},
+                    )
+            except Exception:
+                pass
             return {"status": "error"}
 
-        new_at = str(token.get("access_token") or "")
-        new_rt = token.get("refresh_token")
-        exp = token.get("expires_in")
-        sc = token.get("scope") or token.get("scopes")
+        new_access = str(token.get("access_token") or "")
+        new_refresh = token.get("refresh_token")
+        expires_in = token.get("expires_in")
+        scopes = token.get("scope") or token.get("scopes")
 
-        # Build update
-        sets: Dict[str, object] = {}
-        if new_at:
-            if at_enc_col:
-                sets[at_enc_col] = encrypt_text(new_at)
-            elif at_plain_col:
-                sets[at_plain_col] = new_at
-        if new_rt:
-            if rt_enc_col:
-                sets[rt_enc_col] = encrypt_text(str(new_rt))
-            elif rt_plain_col:
-                sets[rt_plain_col] = str(new_rt)
-        if isinstance(exp, (int, float)) and exp_col:
-            sets[exp_col] = int(_time.time()) + int(exp)
-        try:
-            if sc and 'scopes' in cols:
-                sets['scopes'] = (" ".join(sc) if isinstance(sc, list) else str(sc))
-        except Exception:
-            pass
-        if status_col:
-            sets[status_col] = 'connected'
+        update_parts = ["status='connected'", "last_error=NULL"]
+        params: Dict[str, Any] = {"id": row_id}
+        if new_access:
+            params["access_token_enc"] = encrypt_text(new_access)
+            update_parts.append("access_token_enc=:access_token_enc")
+        if new_refresh:
+            params["refresh_token_enc"] = encrypt_text(str(new_refresh))
+            update_parts.append("refresh_token_enc=:refresh_token_enc")
+        if isinstance(expires_in, (int, float)):
+            params["expires_at"] = int(_time.time()) + int(expires_in)
+            update_parts.append("expires_at=:expires_at")
+        if scopes:
+            params["scopes"] = " ".join(scopes) if isinstance(scopes, list) else str(scopes)
+            update_parts.append("scopes=:scopes")
 
-        if sets:
-            set_clause = ", ".join([f"{k} = :{k}" for k in sets.keys()])
-            params = dict(sets)
-            params["id"] = row[col_to_idx[id_col]]
-            db.execute(_sql_text(f"UPDATE connected_accounts SET {set_clause} WHERE id = :id"), params)
-        # Add audit log (tolerant)
+        sql = f"UPDATE connected_accounts_v2 SET {', '.join(update_parts)} WHERE id=:id"
+        with engine.begin() as conn:
+            conn.execute(_sql_text(sql), params)
+
         try:
             _safe_audit_log(db, tenant_id=req.tenant_id, actor_id=ctx.user_id, action=f"oauth.refresh.{req.provider}", entity_ref="oauth", payload="{}")
         except Exception:
             pass
-        db.commit()
         try:
             emit_event("OauthRefreshed", {"tenant_id": req.tenant_id, "provider": req.provider})
         except Exception:
             pass
         return {"status": "ok"}
     except Exception as e:
-        try:
-            db.rollback()
-        except Exception:
-            pass
         return {"status": "error", "message": str(e)}
 
 class Contact(BaseModel):
@@ -7060,10 +6804,17 @@ def oauth_login(provider: str, tenant_id: Optional[str] = None, return_: Optiona
     if os.getenv("DEV_OAUTH_AUTOCONNECT", "0") == "1" and provider in {"facebook", "instagram", "google", "shopify", "square"}:
         try:
             with next(get_db()) as db:  # type: ignore
-                db.add(dbm.ConnectedAccount(
-                    tenant_id=ctx.tenant_id, user_id=ctx.user_id, provider=provider, scopes=None,
-                    access_token_enc=encrypt_text("dev"), refresh_token_enc=None, expires_at=None, status="connected"
-                ))
+                db.execute(
+                    _sql_text(
+                        """
+                        INSERT INTO connected_accounts_v2(tenant_id, provider, status, access_token_enc, refresh_token_enc, expires_at, connected_at)
+                        VALUES (CAST(:t AS uuid), :p, 'connected', :at, NULL, NULL, NOW())
+                        ON CONFLICT (tenant_id, provider)
+                        DO UPDATE SET status='connected', access_token_enc=EXCLUDED.access_token_enc, connected_at=NOW()
+                        """
+                    ),
+                    {"t": ctx.tenant_id, "p": provider, "at": encrypt_text("dev")},
+                )
                 db.commit()
         except Exception:
             pass
@@ -7447,79 +7198,6 @@ def hubspot_import(req: HubspotImportRequest, db: Session = Depends(get_db), ctx
         pass
     return {"imported": created}
 
-# Admin: migrate legacy connected_accounts rows to connected_accounts_v2 for a tenant
-class MigrateTenantRequest(BaseModel):
-    tenant_id: str
-
-@app.post("/integrations/admin/migrate-connected-accounts", tags=["Integrations"])
-def migrate_connected_accounts_v2(req: MigrateTenantRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
-    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
-        return {"ok": False, "error": "forbidden"}
-    try:
-        # Resolve legacy columns dynamically and upsert into v2
-        cols = _connected_accounts_columns(db)
-        name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
-        if not name_col:
-            return {"ok": False, "error": "legacy_table_missing_provider_column"}
-        is_uuid = _connected_accounts_tenant_is_uuid(db)
-        at_col = 'access_token_enc' if 'access_token_enc' in cols else ('access_token' if 'access_token' in cols else None)
-        rt_col = 'refresh_token_enc' if 'refresh_token_enc' in cols else ('refresh_token' if 'refresh_token' in cols else None)
-        st_col = 'status' if 'status' in cols else None
-        exp_col = 'expires_at' if 'expires_at' in cols else None
-        where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
-        select_cols = [name_col]
-        if st_col: select_cols.append(st_col)
-        if at_col: select_cols.append(at_col)
-        if rt_col: select_cols.append(rt_col)
-        if exp_col: select_cols.append(exp_col)
-        sql = f"SELECT {', '.join(select_cols)} FROM connected_accounts WHERE {where_tid}"
-        rows = db.execute(_sql_text(sql), {"t": req.tenant_id}).fetchall()
-        migrated = 0
-        for r in rows or []:
-            try:
-                p = str(r[0] or '').lower()
-                st = (str(r[1]) if st_col else 'connected') if len(r) > 1 else 'connected'
-                atv = None
-                rtv = None
-                expv = None
-                idx = 2
-                if at_col and len(r) > idx:
-                    atv = r[idx]; idx += 1
-                if rt_col and len(r) > idx:
-                    rtv = r[idx]; idx += 1
-                if exp_col and len(r) > idx:
-                    try: expv = int(r[idx] or 0)
-                    except Exception: expv = None
-                params = {
-                    "t": req.tenant_id,
-                    "prov": p,
-                    "st": st or 'connected',
-                    "at": atv,
-                    "rt": rtv,
-                    "exp": expv,
-                    "sc": None,
-                }
-                # Upsert minimal columns into v2
-                upd = "UPDATE connected_accounts_v2 SET status=:st" + (", access_token_enc=:at" if atv else "") + (", refresh_token_enc=:rt" if rtv else "") + (", expires_at=:exp" if expv is not None else "") + " WHERE tenant_id = CAST(:t AS uuid) AND provider=:prov"
-                res = db.execute(_sql_text(upd), params)
-                saved = bool(getattr(res, 'rowcount', 0))
-                if not saved:
-                    cols2 = ["tenant_id","provider","status"]
-                    vals2 = ["CAST(:t AS uuid)",":prov",":st"]
-                    if atv: cols2.append("access_token_enc"); vals2.append(":at")
-                    if rtv: cols2.append("refresh_token_enc"); vals2.append(":rt")
-                    if expv is not None: cols2.append("expires_at"); vals2.append(":exp")
-                    ins = f"INSERT INTO connected_accounts_v2 ({', '.join(cols2)}) VALUES ({', '.join(vals2)})"
-                    db.execute(_sql_text(ins), params)
-                migrated += 1
-            except Exception:
-                continue
-        db.commit()
-        return {"ok": True, "migrated": migrated}
-    except Exception as e:
-        try: db.rollback()
-        except Exception: pass
-        return {"ok": False, "error": str(e)[:200]}
 @app.post("/integrations/booking/square/sync-contacts", tags=["Integrations"])
 def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context_relaxed)) -> Dict[str, object]:
     if os.getenv("INTEGRATIONS_V1_DISABLED", "0") == "1":
@@ -7596,7 +7274,7 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
         except Exception as e:
             return {"imported": 0, "error": "internal_error", "detail": str(e)[:200], "meta": {"mode": "v1_disabled", "base": base}}
     """Pull Square customers and upsert into contacts using the Square Customers API.
-    Requires a connected Square account. Uses stored access token from connected_accounts.
+    Requires a connected Square account. Uses stored access token from connected_accounts_v2.
     Always returns JSON (including on errors) to avoid CORS confusion in the browser.
     """
     try:
@@ -7651,8 +7329,7 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
             # If this fails due to permissions/RLS, downstream FK will surface; we keep read-only behavior
             pass
 
-        # Retrieve Square access token robustly: short-lived conn first, then Session fallback,
-        # then legacy table in both modes. Immediately end any Session txn afterward.
+        # Retrieve Square access token robustly: short-lived conn first, then Session fallback.
         token = ""
         def _read_v2_conn(_conn):
             return _conn.execute(
@@ -7680,54 +7357,6 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                         token = decrypt_text(str(row_v2s[0])) or ""
                     except Exception:
                         token = str(row_v2s[0])
-            except Exception:
-                token = token
-            finally:
-                try: db.rollback()
-                except Exception: pass
-        if not token:
-            # Legacy table via conn
-            try:
-                def _read_legacy_conn(_conn):
-                    cols = _connected_accounts_columns(db)
-                    name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
-                    if not name_col:
-                        return None
-                    token_col = 'access_token_enc' if 'access_token_enc' in cols else ('access_token' if 'access_token' in cols else None)
-                    if not token_col:
-                        token_col = 'access_token_enc'
-                    is_uuid = _connected_accounts_tenant_is_uuid(db)
-                    where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
-                    sql = f"SELECT {token_col} FROM connected_accounts WHERE {where_tid} AND {name_col} = 'square' ORDER BY id DESC LIMIT 1"
-                    return _conn.execute(_sql_text(sql), {"t": req.tenant_id}).fetchone()
-                row_legacy = _with_conn_do(_read_legacy_conn)
-                if row_legacy and row_legacy[0]:
-                    try:
-                        token = decrypt_text(str(row_legacy[0])) or ""
-                    except Exception:
-                        token = str(row_legacy[0])
-            except Exception:
-                token = token
-        if not token:
-            # Legacy table via Session (last resort), then rollback
-            try:
-                cols = _connected_accounts_columns(db)
-                name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
-                if name_col:
-                    token_col = 'access_token_enc' if 'access_token_enc' in cols else ('access_token' if 'access_token' in cols else None)
-                    if not token_col:
-                        token_col = 'access_token_enc'
-                    is_uuid = _connected_accounts_tenant_is_uuid(db)
-                    where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
-                    sql = f"SELECT {token_col} FROM connected_accounts WHERE {where_tid} AND {name_col} = 'square' ORDER BY id DESC LIMIT 1"
-                    row = db.execute(_sql_text(sql), {"t": req.tenant_id}).fetchone()
-                    if row and row[0]:
-                        try:
-                            token = decrypt_text(str(row[0])) or ""
-                        except Exception:
-                            token = str(row[0])
-                        if not token:
-                            token = str(row[0])
             except Exception:
                 token = token
             finally:
@@ -9396,10 +9025,17 @@ def oauth_login(provider: str, tenant_id: Optional[str] = None, ctx: UserContext
     if os.getenv("DEV_OAUTH_AUTOCONNECT", "0") == "1" and provider in {"facebook", "instagram", "google", "shopify", "square"}:
         try:
             with next(get_db()) as db:  # type: ignore
-                db.add(dbm.ConnectedAccount(
-                    tenant_id=ctx.tenant_id, user_id=ctx.user_id, provider=provider, scopes=None,
-                    access_token_enc=encrypt_text("dev"), refresh_token_enc=None, expires_at=None, status="connected"
-                ))
+                db.execute(
+                    _sql_text(
+                        """
+                        INSERT INTO connected_accounts_v2(tenant_id, provider, status, access_token_enc, refresh_token_enc, expires_at, connected_at)
+                        VALUES (CAST(:t AS uuid), :p, 'connected', :at, NULL, NULL, NOW())
+                        ON CONFLICT (tenant_id, provider)
+                        DO UPDATE SET status='connected', access_token_enc=EXCLUDED.access_token_enc, connected_at=NOW()
+                        """
+                    ),
+                    {"t": ctx.tenant_id, "p": provider, "at": encrypt_text("dev")},
+                )
                 db.commit()
         except Exception:
             pass
@@ -9745,23 +9381,16 @@ def onboarding_status(
     try:
         import asyncio
 
-        # Check connected accounts
-        # Some Supabase schemas may not include user_id on connected_accounts.
-        # Fallback: detect any connected account for this tenant via platform presence.
+        # Check connected accounts (v2 only)
         try:
             connected_accounts = asyncio.run(
-            adapter.select(
-                "connected_accounts",
-                {"select": "platform,connected_at", "user_id": f"eq.{ctx.user_id}", "limit": "10"},
-            )
-        )
-        except Exception:
-            connected_accounts = asyncio.run(
                 adapter.select(
-                    "connected_accounts",
-                    {"select": "platform,connected_at", "limit": "10"},
+                    "connected_accounts_v2",
+                    {"select": "provider,connected_at", "limit": "10"},
                 )
             )
+        except Exception:
+            connected_accounts = []
         connected = bool(connected_accounts)
         # Lead status count as crude first-sync signal
         lead_rows = asyncio.run(adapter.get_lead_status(tenant_id))
@@ -9789,37 +9418,7 @@ def _get_provider_access_token(tenant_id: str, provider: str) -> str:
                 token = str(row[0])
     except Exception:
         token = ""
-    if token:
-        return token
-    # Fallback to legacy table if present
-    try:
-        cols = _connected_accounts_columns(next(get_db()))  # type: ignore
-    except Exception:
-        cols = []
-    name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
-    if name_col:
-        token_col = 'access_token_enc' if 'access_token_enc' in cols else ('access_token' if 'access_token' in cols else None)
-        if not token_col:
-            token_col = 'access_token_enc'
-        try:
-            is_uuid = _connected_accounts_tenant_is_uuid(next(get_db()))  # type: ignore
-        except Exception:
-            is_uuid = True
-        where_tid = "tenant_id = CAST(:t AS uuid)" if is_uuid else "tenant_id = :t"
-        try:
-            with engine.begin() as conn:
-                row = conn.execute(
-                    _sql_text(f"SELECT {token_col} FROM connected_accounts WHERE {where_tid} AND {name_col} = :p ORDER BY id DESC LIMIT 1"),
-                    {"t": tenant_id, "p": provider},
-                ).fetchone()
-            if row and row[0]:
-                try:
-                    return decrypt_text(str(row[0])) or str(row[0])
-                except Exception:
-                    return str(row[0])
-        except Exception:
-            return ""
-    return ""
+    return token
 
 
 @app.get("/instagram/profile", tags=["Integrations"])
@@ -10265,11 +9864,22 @@ def _google_oauth_creds() -> tuple[str, str]:
 
 
 def _load_connected_account(db: Session, tenant_id: str, provider: str):
-    return (
-        db.query(dbm.ConnectedAccount)
-        .filter(dbm.ConnectedAccount.tenant_id == tenant_id, dbm.ConnectedAccount.provider == provider)
-        .order_by(dbm.ConnectedAccount.id.desc())
-        .first()
+    row = db.execute(
+        _sql_text(
+            "SELECT id, status, access_token_enc, refresh_token_enc, expires_at FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider = :p ORDER BY id DESC LIMIT 1"
+        ),
+        {"t": tenant_id, "p": provider},
+    ).fetchone()
+    if not row:
+        return None
+    return SimpleNamespace(
+        id=row[0],
+        tenant_id=tenant_id,
+        provider=provider,
+        status=str(row[1] or ""),
+        access_token_enc=row[2],
+        refresh_token_enc=row[3],
+        expires_at=row[4],
     )
 
 
@@ -10296,11 +9906,22 @@ def _maybe_refresh_google_token(db: Session, ca) -> str:
             at = str(j.get("access_token") or "")
             expires_in = int(j.get("expires_in") or 0)
             if at:
-                ca.access_token_enc = encrypt_text(at)
-                if expires_in:
-                    ca.expires_at = int(_time.time()) + int(expires_in)
-                db.add(ca)
-                db.commit()
+                encrypted_at = encrypt_text(at)
+                expires_at = int(_time.time()) + int(expires_in) if expires_in else None
+                params: Dict[str, Any] = {"id": ca.id, "access_token_enc": encrypted_at}
+                set_parts = ["access_token_enc=:access_token_enc"]
+                if expires_at is not None:
+                    params["expires_at"] = expires_at
+                    set_parts.append("expires_at=:expires_at")
+                with engine.begin() as conn:
+                    conn.execute(
+                        _sql_text(
+                            f"UPDATE connected_accounts_v2 SET {', '.join(set_parts)}, last_error=NULL WHERE id=:id"
+                        ),
+                        params,
+                    )
+                ca.access_token_enc = encrypted_at
+                ca.expires_at = expires_at
                 return at
     except Exception:
         pass
@@ -10732,16 +10353,16 @@ async def integrations_check_expiry(
     try:
         now = int(_time.time())
         horizon = now + int(max(1, req.days)) * 86400
-        rows = (
-            db.query(dbm.ConnectedAccount)
-            .filter(dbm.ConnectedAccount.tenant_id == req.tenant_id)
-            .filter(dbm.ConnectedAccount.status == "connected")
-            .all()
-        )
+        rows = db.execute(
+            _sql_text(
+                "SELECT provider, expires_at FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND status = 'connected'"
+            ),
+            {"t": req.tenant_id},
+        ).fetchall()
         count = 0
         for r in rows:
             try:
-                exp = int(r.expires_at or 0)
+                exp = int((r[1] or 0))
             except Exception:
                 exp = 0
             if exp and exp <= horizon:
@@ -10751,10 +10372,10 @@ async def integrations_check_expiry(
                         {
                             "tenant_id": req.tenant_id,
                             "type": "integration.token_expiry",
-                            "message": f"{r.provider} token expires soon",
+                            "message": f"{r[0]} token expires soon",
                             "severity": "warn",
-                            "payload": {"provider": r.provider, "expires_at": exp},
-                            "idempotency_key": f"token_expiry_{r.provider}_{exp}",
+                            "payload": {"provider": r[0], "expires_at": exp},
+                            "idempotency_key": f"token_expiry_{r[0]}_{exp}",
                         },
                         db,
                         ctx,
@@ -11116,7 +10737,6 @@ def rls_probe_delete_contact(
 
 class ConnectorsNormalizeRequest(BaseModel):
     tenant_id: Optional[str] = None
-    migrate_legacy: bool = True
     dedupe: bool = True
 @app.post("/integrations/connectors/normalize", tags=["Integrations"])
 def connectors_normalize(req: ConnectorsNormalizeRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
@@ -11124,7 +10744,6 @@ def connectors_normalize(req: ConnectorsNormalizeRequest, db: Session = Depends(
     if req.tenant_id and ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"normalized": 0}
     normalized = 0
-    migrated = 0
     try:
         with engine.begin() as conn:
             # Dedupe v2 by keeping the latest id per tenant/provider
@@ -11150,57 +10769,13 @@ def connectors_normalize(req: ConnectorsNormalizeRequest, db: Session = Depends(
                             """
                         )
                     )
-            # Migrate legacy connected_accounts if present
-            if req.migrate_legacy:
-                try:
-                    cols = _connected_accounts_columns(db)
-                except Exception:
-                    cols = set()
-                if cols:
-                    name_col = 'provider' if 'provider' in cols else ('platform' if 'platform' in cols else None)
-                    if name_col:
-                        where_tid = ""
-                        params: Dict[str, Any] = {}
-                        if req.tenant_id:
-                            where_tid = " WHERE tenant_id = CAST(:t AS uuid)"
-                            params["t"] = req.tenant_id
-                        # Build safe select list for whatever columns exist
-                        at_sel = 'access_token_enc' if 'access_token_enc' in cols else ("access_token" if 'access_token' in cols else "NULL::text")
-                        rt_sel = 'refresh_token_enc' if 'refresh_token_enc' in cols else ("refresh_token" if 'refresh_token' in cols else "NULL::text")
-                        exp_sel = 'expires_at' if 'expires_at' in cols else "NULL"
-                        st_sel = "COALESCE(status,'connected')" if 'status' in cols else "'connected'"
-                        rows = conn.execute(
-                            _sql_text(
-                                f"SELECT tenant_id,{name_col} AS provider, {at_sel} AS access_token_enc, {rt_sel} AS refresh_token_enc, {exp_sel} AS expires_at, {st_sel} AS status FROM connected_accounts{where_tid}"
-                            ),
-                            params,
-                        ).fetchall()
-                        for t_id, prov, at, rt, exp, st in rows or []:
-                            try:
-                                upd = conn.execute(
-                                    _sql_text(
-                                        "UPDATE connected_accounts_v2 SET status=:st, access_token_enc=COALESCE(access_token_enc,:at), refresh_token_enc=COALESCE(refresh_token_enc,:rt), expires_at=COALESCE(expires_at,:exp) WHERE tenant_id=:t AND provider=:p"
-                                    ),
-                                    {"t": t_id, "p": prov, "st": st, "at": at, "rt": rt, "exp": exp},
-                                )
-                                if not getattr(upd, 'rowcount', 0):
-                                    conn.execute(
-                                        _sql_text(
-                                            "INSERT INTO connected_accounts_v2(tenant_id,provider,status,access_token_enc,refresh_token_enc,expires_at,connected_at) VALUES(:t,:p,:st,:at,:rt,:exp,NOW())"
-                                        ),
-                                        {"t": t_id, "p": prov, "st": st, "at": at, "rt": rt, "exp": exp},
-                                    )
-                                    migrated += 1
-                                normalized += 1
-                            except Exception:
-                                continue
     except Exception as e:
-        return {"normalized": normalized, "migrated": migrated, "error": str(e)[:200]}
+        return {"normalized": normalized, "error": str(e)[:200]}
     try:
-        emit_event("ConnectorsNormalized", {"tenant_id": req.tenant_id or ctx.tenant_id, "normalized": int(normalized), "migrated": int(migrated)})
+        emit_event("ConnectorsNormalized", {"tenant_id": req.tenant_id or ctx.tenant_id, "normalized": int(normalized)})
     except Exception:
         pass
-    return {"normalized": normalized, "migrated": migrated}
+    return {"normalized": normalized}
 
 
 @app.get("/integrations/events", tags=["Integrations"])
@@ -11266,17 +10841,17 @@ def dev_mark_connected(req: DevConnectRequest, db: Session = Depends(get_db), ct
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
     try:
-        row = dbm.ConnectedAccount(
-            tenant_id=req.tenant_id,
-            user_id=ctx.user_id,
-            provider=req.provider,
-            scopes=None,
-            access_token_enc=encrypt_text("dev"),
-            refresh_token_enc=None,
-            expires_at=None,
-            status="connected",
+        db.execute(
+            _sql_text(
+                """
+                INSERT INTO connected_accounts_v2(tenant_id, provider, status, access_token_enc, refresh_token_enc, expires_at, connected_at)
+                VALUES (CAST(:t AS uuid), :p, 'connected', :at, NULL, NULL, NOW())
+                ON CONFLICT (tenant_id, provider)
+                DO UPDATE SET status='connected', access_token_enc=EXCLUDED.access_token_enc, connected_at=NOW()
+                """
+            ),
+            {"t": req.tenant_id, "p": req.provider, "at": encrypt_text("dev")},
         )
-        db.add(row)
         db.commit()
         return {"status": "connected", "provider": req.provider}
     except Exception:

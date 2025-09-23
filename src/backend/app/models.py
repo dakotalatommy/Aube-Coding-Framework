@@ -222,21 +222,6 @@ class ChatLog(Base):
     created_at: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()))
 
 
-class ConnectedAccount(Base):
-    __tablename__ = "connected_accounts"
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
-    user_id: Mapped[str] = mapped_column(String(64), index=True)
-    provider: Mapped[str] = mapped_column(String(32), index=True)
-    scopes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    access_token_enc: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    refresh_token_enc: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    expires_at: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    status: Mapped[str] = mapped_column(String(24), default="connected")  # connected|revoked|pending_config
-    connected_at: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()))
-    created_at: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()))
-
-
 class CurationDecision(Base):
     __tablename__ = "curation_decisions"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -318,4 +303,3 @@ class UsageLimit(Base):
     messages_daily_cap: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     grace_until: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()))
-

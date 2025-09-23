@@ -6,7 +6,7 @@ Executive summary
 High-level architecture
 - API (FastAPI + SQLAlchemy) → Supabase Postgres via dedicated pooler (sslmode=require)
 - RLS GUCs: app.tenant_id (UUID), app.role (e.g., owner_admin)
-- Tokens: connected_accounts_v2 is canonical; legacy table is optional fallback during migration only
+- Tokens: connected_accounts_v2 is canonical; legacy table has been retired
 - Timestamps: some tables use timestamptz; others use bigint epoch. Use adaptive expressions to stay compatible (NOW() vs EXTRACT(EPOCH FROM now())::bigint)
 
 Starting point and symptoms (incident recap)
@@ -14,22 +14,42 @@ Starting point and symptoms (incident recap)
 - Root issues: SET LOCAL issued with exec_driver_sql + placeholders (syntax error) → aborted txn; Session-level GUCs held across network fetch; swallowed DB errors; schema drift (timestamptz vs bigint)
 
 Root causes and fixes
-- GUCs must be set via bound text on the exact connection used for the write
-- Short‑lived with_rls_conn_do helper; one retry on OperationalError
+- GUCs must be set via bound text on the exact connection used for the write; failures must surface (never silently "pass")
+- Short-lived with_rls_conn_do helper; one retry on OperationalError
 - Adaptive timestamps on insert/update
-- Robust token fetch (v2 conn → session fallback; optional legacy fallback)
+- Robust token fetch (v2 short-lived conn with retry)
 - Expose write errors; emit ImportWriteError; diagnostics probes added
 
 Golden rules (do/don’t)
-- Do: short‑lived connection per write; SET LOCAL via bound text() executes
+- Do: short-lived connection per write; SET LOCAL via bound text() executes on the active connection
 - Don’t: hold Session transactions over provider network calls
-- Do: adaptive timestamp expressions; idempotent imports; post‑import count check
-- Don’t: swallow DB exceptions in loops; always emit an event
+- Do: adaptive timestamp expressions; idempotent imports; post-import count check
+- Don’t: swallow DB exceptions in loops or around `SET LOCAL`; always emit (and log) the real error
 
 Standard patterns (snippets)
-- with_rls_conn_do(engine, tenant_id, role='owner_admin') with one‑retry for transient disconnects
-- token_fetch(provider='square'|'acuity'): v2 conn first; session fallback; legacy optional
+- with_rls_conn_do(engine, tenant_id, role='owner_admin') with one-retry for transient disconnects
+- token_fetch(provider='square'|'acuity'): v2 conn first; session fallback if needed
 - insert/update template using NOW() vs EXTRACT(EPOCH FROM now())::bigint chosen at runtime by information_schema
+
+RLS GUC implementation pattern (must-follow)
+- Always obtain the real connection from `engine.begin()` and set GUCs before any tenant-scoped SQL.
+- Never wrap `SET LOCAL` in a blanket try/except that swallows the error; log and fail fast so Render logs surface the Postgres error message.
+- Example (mirrors the production helper used by Square/Acuity imports):
+  ```python
+  @contextmanager
+  def _with_conn(tenant_id: str, role: str = "owner_admin"):
+      conn_cm = engine.begin()
+      try:
+          conn = conn_cm.__enter__()
+          safe_role = role.replace("'", "''")
+          conn.execute(text(f"SET LOCAL app.role = '{safe_role}'"))
+          safe_tenant = tenant_id.replace("'", "''")
+          conn.execute(text(f"SET LOCAL app.tenant_id = '{safe_tenant}'"))
+          yield conn
+      finally:
+          conn_cm.__exit__(None, None, None)
+  ```
+- Tests/diagnostics should call helpers that use this pattern (e.g., `/integrations/booking/acuity/debug-fetch`). If the helper raises, check Render logs for `Failed to set app.role GUC` or similar and fix the GUC logic before chasing secrets/keys.
 
 Provider guides
 - Square: endpoints, headers, events (OauthTokenSaved, ContactsSynced, ImportWriteError), diagnostics (selfcheck, probe insert/delete, import trigger)
@@ -37,6 +57,7 @@ Provider guides
 
 Diagnostics & playbooks
 - Endpoints: /integrations/rls/selfcheck, /integrations/rls/probe-insert-contact, /integrations/rls/probe-delete-contact, /integrations/booking/{square|acuity}/sync-contacts, /integrations/status, /integrations/events
+- Token probes (Square/Acuity): /integrations/booking/acuity/debug-token, /integrations/booking/acuity/debug-fetch, /integrations/booking/acuity/debug-headers (same structure exists for Square). Expect `token_present=true` post-connect; if false, check Render logs for GUC failures before rotating secrets.
 - Admin inspection: /admin/schema/inspect (owner_admin only) — returns:
   - rls_tables: list of public tables and whether RLS is enabled
   - policies: policy list with quals/with_check
@@ -46,6 +67,13 @@ Diagnostics & playbooks
 - Decision tree: 401 → auth; missing_access_token → token read/RLS; created=0 → write error/aborted txn; SSL closed → idle-in-transaction timeout
 - Logs to check (in order): Supabase Postgres logs → Render logs → diagnostics endpoints → policy SQL in Supabase
 
+Cascade troubleshooting flow (run in this exact order)
+1. RLS first: call `/integrations/booking/<prov>/debug-rls`. If `guc_tenant` mismatches or endpoint errors, fix GUCs on the exact connection before doing anything else.
+2. Row visibility: call `/integrations/booking/<prov>/debug-token` and `/debug-token-lens`. If no row or `len_enc=0`, the connect/write path failed.
+3. Token fetch: call `/integrations/booking/<prov>/debug-fetch`. If `token_present=false` but lens shows `len_enc>0`, simplify the fetch to "newest non‑empty access_token_enc, decrypt‑or‑raw" (Square pattern) and re-verify GUCs.
+4. Headers: call `/integrations/booking/<prov>/debug-headers`. Must be `bearer` before running imports. If `basic`, re-check fetch.
+5. Import: run the provider import (or status) to confirm 2xx. Only after steps 1‑4 pass should you consider secrets/refresh/rotation.
+
 Schema & timestamp policy
 - Canonical forward: prefer timestamptz for created_at/updated_at
 - Maintain adaptive writes while bigint remains; plan safe migration later
@@ -53,7 +81,7 @@ Schema & timestamp policy
 Verification checklist (PR + release)
 - RLS: uses short‑lived helper; SET LOCAL via bound text; no session-held transactions over network
 - Timestamps: adaptive expression on inserts/updates
-- Tokens: v2 first; session fallback; legacy optional
+- Tokens: v2 only (short-lived conn, session fallback acceptable)
 - Errors: no swallowed exceptions; Sentry + events emitted
 - Events: OauthTokenSaved, ContactsSynced, ImportWriteError, CalendarSynced, ConnectorsNormalized/Cleaned
 
@@ -70,6 +98,11 @@ Appendix B: curl diagnostics (examples)
 - Probe delete: curl -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <token>" -d '{"tenant_id":"<tid>","contact_id":"probe:<id>"}' "https://api.brandvx.io/integrations/rls/probe-delete-contact"
 - Import: curl -X POST -H "Content-Type: application/json" -H "Authorization: Bearer <token>" -d '{"tenant_id":"<tid>"}' "https://api.brandvx.io/integrations/booking/square/sync-contacts"
 - Admin inspect: curl -H "Authorization: Bearer <token>" "https://api.brandvx.io/admin/schema/inspect"
+ - Acuity token presence: curl -H "Authorization: Bearer <token>" "https://api.brandvx.io/integrations/booking/acuity/debug-token?tenant_id=<tid>"
+ - Acuity token length: curl -H "Authorization: Bearer <token>" "https://api.brandvx.io/integrations/booking/acuity/debug-token-lens?tenant_id=<tid>&limit=5"
+ - Acuity token fetch: curl -H "Authorization: Bearer <token>" "https://api.brandvx.io/integrations/booking/acuity/debug-fetch?tenant_id=<tid>"
+ - Acuity headers mode: curl -H "Authorization: Bearer <token>" "https://api.brandvx.io/integrations/booking/acuity/debug-headers?tenant_id=<tid>"
+ - Acuity RLS probe: curl -H "Authorization: Bearer <token>" "https://api.brandvx.io/integrations/booking/acuity/debug-rls?tenant_id=<tid>"
 
 Current inspection snapshot (production)
 - GUCs referenced in RLS policies: app.tenant_id, app.role
@@ -81,10 +114,15 @@ Current inspection snapshot (production)
 - audit_logs.payload present: false (keep _safe_audit_log tolerant writer)
 
 Impact if not following patterns
-- Missing/incorrect SET LOCAL on the write connection → transaction aborts; imports become no‑op (created=0)
-- Non‑adaptive timestamps → type errors against timestamptz/bigint columns; txn abort cascades
+- Missing/incorrect SET LOCAL on the write connection → transaction aborts; imports become no-op (created=0)
+- Non-adaptive timestamps → type errors against timestamptz/bigint columns; txn abort cascades
 - Swallowed DB exceptions → symptoms masked (e.g., fetched N, created 0)
-- Non‑robust token read → false “missing_access_token” under RLS
+- Non-robust token read → false “missing_access_token” under RLS
+
+Onboarding checklist for new backend contributors
+- Read this playbook end-to-end before touching provider code; replicate the `_with_conn` pattern in any new helper.
+- When debugging “missing token” or “created 0” issues, run the token/rls debug endpoints first and inspect Render logs for surfaced GUC errors.
+- Never rotate secrets until you’ve confirmed RLS visibility—if `token_present` is false but logs show a GUC failure, fix the helper and re-run the probe.
 
 Optional Appendix C: Timestamp migration runbook (bigint/integer → timestamptz)
 Purpose
@@ -159,5 +197,3 @@ curl -H "Authorization: Bearer <token>" \
 
 Rollback note
 - If needed, you can convert back using `extract(epoch from created_at)::bigint`, but this shouldn’t be necessary.
-
-
