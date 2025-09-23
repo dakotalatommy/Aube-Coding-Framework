@@ -7401,7 +7401,14 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                 birthday = None
                 try:
                     bday = str(square_obj.get("birthday") or "").strip()
-                    # Square uses YYYY-MM-DD string
+                    # Square uses YYYY-MM-DD string; guard against invalid years like 0000
+                    if bday:
+                        try:
+                            year_part = int(bday[:4])
+                        except Exception:
+                            year_part = 0
+                        if year_part < 1900:
+                            bday = ""
                     birthday = (bday if bday else None)
                 except Exception:
                     birthday = None
