@@ -121,7 +121,11 @@ export default function Contacts(){
       try { window.dispatchEvent(new CustomEvent('bvx:flow:contacts-import-started')); } catch {}
       const analyze = await api.post('/onboarding/analyze', { tenant_id: await getTenant() });
       const connected = (analyze?.summary?.connected || {}) as Record<string,string>;
-      const provider = String(connected.square||'')==='connected' ? 'square' : (String(connected.acuity||'')==='connected' ? 'acuity' : 'auto');
+      const sqStatus = String(connected.square || '').toLowerCase();
+      const aqStatus = String(connected.acuity || '').toLowerCase();
+      const squareReady = sqStatus === 'connected' || sqStatus === 'pending_config';
+      const acuityReady = aqStatus === 'connected' || aqStatus === 'pending_config';
+      const provider = squareReady ? 'square' : (acuityReady ? 'acuity' : 'auto');
       let imported = 0; let updated = 0; let skipped = 0; let reasonTop = '';
       try {
         if (provider === 'square') {
