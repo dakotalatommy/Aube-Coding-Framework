@@ -84,8 +84,8 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-tour="book-onboarding"]', popover: { title: 'Book Onboarding', description: 'Schedule a 1-on-1 to go deeper whenever you’re ready.' } },
     { element: '#tour-billing-anchor', popover: { title: 'Choose your plan', description: 'Unlock the workspace with a founding plan or free trial.' } },
     { element: '[data-guide="kpis"]', popover: { title: 'Your metrics at the top', description: 'Review key metrics to track how brandVX is helping you grow.' } },
-    { element: '[data-guide="quickstart"]', popover: { title: 'Guided Walk‑through', description: 'Kick off with brandVZN, import clients, or train VX so you can showcase three fast wins and learn how to use brandVX.' } },
     { element: '[data-guide="next-best-steps"]', popover: { title: 'Next Best Steps', description: 'Monitor and keep up with the next best actions to take to maximize your business.', allowClicks: true } },
+    { element: '[data-guide="quickstart"]', popover: { title: 'Guided Walk‑through', description: 'Kick off with brandVZN, import clients, or train VX so you can showcase three fast wins and learn how to use brandVX.' } },
     {
       element: '[data-guide="quickstart-brandvzn"]',
       popover: {
@@ -281,14 +281,13 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-guide="askvx-import-count"]', popover: { title: 'Imported contacts', description: 'Here’s the new contact count from your booking sync.', showButtons: ['previous', 'next'] } },
     { element: '[data-guide="askvx-digest"]', popover: { title: 'Since your last visit', description: 'Keep an eye on fresh contacts, appointments, and messages.', showButtons: ['previous', 'next'] } },
     {
-      element: '#tour-welcome-anchor',
+      element: '[data-guide="composer"]',
       popover: {
         title: 'Generate insights',
         description: 'Show last 3 months revenue and top 3 clients.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Next',
         onPopoverRender: (_dom: any) => {
-          if ((window as any).__bvxSkipImport) return;
           try {
             window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.run-insights' } }));
           } catch {}
@@ -333,28 +332,26 @@ const registry: Record<string, GuideStep[]> = {
       element: '[data-guide="askvx-strategy"]',
       popover: {
         title: 'Plan your next 14 days',
-        description: 'We’ll preload a prompt that asks AskVX to build a 14‑day strategy using your imports and brand profile.',
+        description: 'We’ll outline what’s next and then prepare a strategy prompt for you to send.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Ready',
+      },
+    },
+    {
+      element: '[data-guide="composer"]',
+      popover: {
+        title: 'Send the strategy prompt',
+        description: 'We’re preloading a strategy prompt here. Review or tweak, then press Send.',
+        showButtons: ['previous', 'next'],
+        nextBtnText: 'Next',
+        allowClicks: true,
         onPopoverRender: () => {
           if ((window as any).__bvxSkipImport) return;
           if (!(window as any).__bvxStrategyPrefilled) {
             (window as any).__bvxStrategyPrefilled = true;
-            try {
-              window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.prepare-strategy' } }));
-            } catch {}
+            try { window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.prepare-strategy' } })); } catch {}
           }
         },
-      },
-    },
-    {
-      element: '[data-guide="ask-send"]',
-      popover: {
-        title: 'Send the strategy prompt',
-        description: 'Press Send so AskVX can confirm any quick details and draft your 14-day plan.',
-        showButtons: ['previous', 'next'],
-        nextBtnText: 'Next',
-        allowClicks: true,
       },
     },
     {
@@ -553,6 +550,18 @@ const registry: Record<string, GuideStep[]> = {
   ],
 };
 
+// Handoff shim to normalize index after Train VX → Dashboard
+registry.dashboard.push({
+  element: '#tour-welcome-anchor',
+  popover: {
+    title: '',
+    description: '',
+    centered: true,
+    showButtons: ['next'],
+    onPopoverRender: (_dom: any, { driver }) => { try { setTimeout(() => driver.moveNext?.(), 10); } catch {} },
+  },
+});
+
 founderSlides.forEach((slide, idx) => {
   registry.dashboard.push({
     element: '#tour-welcome-anchor',
@@ -561,6 +570,7 @@ founderSlides.forEach((slide, idx) => {
       description: slide.html,
       centered: true,
       showButtons: ['previous', 'next'],
+      allowClicks: true,
       nextBtnText: idx === founderSlides.length - 1 ? 'Finish tour' : 'Next',
       onPopoverRender: (dom: any) => {
         try {
@@ -692,6 +702,7 @@ export function startGuide(page: string, _opts?: { step?: number }) {
               background: rgba(17,24,39,0.55) !important; /* enforce dim */
               pointer-events: auto !important; /* ensure overlay captures clicks */
             }
+            .driver-overlay + .driver-overlay { display: none !important; }
             .driver-popover { z-index: 2147483642 !important; max-width: min(560px, 90vw) !important; }
           `;
           document.head.appendChild(s);
@@ -756,7 +767,7 @@ export function startGuide(page: string, _opts?: { step?: number }) {
           document.head.appendChild(s2);
     }
   } catch {}
-      // Helper: toggle overlay pointer events for clickable steps
+      // Helper: toggle overlay/stage pointer events for clickable steps
       const setOverlayClicks = (allow: boolean) => {
         try {
           const id = 'bvx-driver-pe';
@@ -765,7 +776,10 @@ export function startGuide(page: string, _opts?: { step?: number }) {
             if (!existing) {
               const s = document.createElement('style');
               s.id = id;
-              s.textContent = `.driver-overlay{ pointer-events: none !important; background: rgba(17,24,39,0.35) !important; }`;
+              s.textContent = `
+                .driver-overlay{ pointer-events: none !important; background: rgba(17,24,39,0.35) !important; }
+                .driver-stage{ pointer-events: none !important; background: rgba(17,24,39,0.35) !important; }
+              `;
               document.head.appendChild(s);
             }
           } else if (existing) {
@@ -792,6 +806,11 @@ export function startGuide(page: string, _opts?: { step?: number }) {
           const allow = !!cfg?.bvxAllowClicks;
           setOverlayClicks(allow);
         } catch {}
+        // Remove any duplicate overlays to prevent double-dimming
+        try {
+          const overlays = Array.from(document.querySelectorAll('.driver-overlay')) as HTMLElement[];
+          overlays.slice(1).forEach((el) => { try { el.parentElement?.removeChild(el); } catch {} });
+        } catch {}
       });
       if (page === 'dashboard') {
         instance.on?.('highlighted', () => {
@@ -809,7 +828,7 @@ export function startGuide(page: string, _opts?: { step?: number }) {
                 if (!existing) {
                   const s = document.createElement('style');
                   s.id = styleId;
-                  s.textContent = `.driver-overlay{ pointer-events: none !important; }`;
+                  s.textContent = `.driver-overlay{ pointer-events: none !important; } .driver-stage{ pointer-events: none !important; }`;
                   document.head.appendChild(s);
                 }
               } else if (existing) {

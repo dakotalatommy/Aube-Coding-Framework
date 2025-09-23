@@ -7,7 +7,7 @@
     "dev": "vite --host 127.0.0.1 --port 5174",
     "build": "tsc -b && vite build | tee build.log",
     "bundle:zip": "npm run build && cd dist && zip -r ../operator-ui-dist.zip .",
-    "bundle:zip:root": "npm run build && rm -f ../../brandvx-operator-ui-dist.zip && cd dist && zip -r ../../brandvx-operator-ui-dist.zip . -x \"*.DS_Store\"",
+    "bundle:zip:root": "rm -rf dist && npm run build && rm -f ../../brandvx-operator-ui-dist.zip && cd dist && zip -r ../../brandvx-operator-ui-dist.zip . -x \"*.DS_Store\" \"*.map\" \".*\"",
     "bundle:guard": "node scripts/bundle-guard.cjs",
     "lint": "eslint .",
     "preview": "vite preview --host 127.0.0.1 --port 5176",

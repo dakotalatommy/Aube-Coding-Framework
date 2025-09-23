@@ -74,12 +74,16 @@ def _fetch_acuity_token(tenant_id: str) -> str:
                     present_cols = []
                 ordered = [c for c in ['access_token_enc','access_token','token'] if c in present_cols]
                 if not ordered:
-                    # Only try the canonical column to keep behavior predictable
                     ordered = ['access_token_enc']
-                coalesce_expr = "COALESCE(" + ", ".join(ordered) + ") AS tok"
+                # Build expressions that treat empty strings as NULL so we can filter for non-empty values
+                nonempty = [f"NULLIF({c}, '')" for c in ordered]
+                coalesce_expr = "COALESCE(" + ", ".join(ordered) + ")"
+                coalesce_nonempty = "COALESCE(" + ", ".join(nonempty) + ")"
+                # Select the newest row where a non-empty token is present; fall back to older rows
                 sql = (
-                    "SELECT " + coalesce_expr + " FROM connected_accounts_v2 "
-                    "WHERE tenant_id = CAST(:t AS uuid) AND provider='acuity' ORDER BY id DESC LIMIT 1"
+                    "SELECT (" + coalesce_expr + ") AS tok FROM connected_accounts_v2 "
+                    "WHERE tenant_id = CAST(:t AS uuid) AND provider='acuity' AND (" + coalesce_nonempty + ") IS NOT NULL "
+                    "ORDER BY id DESC LIMIT 1"
                 )
                 row = _read_one(conn, sql, {"t": tenant_id})
                 if row and row[0]:
