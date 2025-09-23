@@ -52,40 +52,21 @@ def _fetch_acuity_token(tenant_id: str) -> str:
     for _ in range(2):  # one retry on transient disconnect
         try:
             with _with_conn(tenant_id) as conn:  # type: ignore
-                # Discover which token columns exist to avoid undefined-column errors
-                cols_row = _read_one(
+                # Simplified: mirror Square. Read newest non-empty access_token_enc only.
+                row = _read_one(
                     conn,
                     """
-                    SELECT array_agg(column_name)::text
-                    FROM information_schema.columns
-                    WHERE table_schema='public'
-                      AND table_name='connected_accounts_v2'
-                      AND column_name IN ('access_token_enc','access_token','token')
+                    SELECT access_token_enc
+                    FROM connected_accounts_v2
+                    WHERE tenant_id = CAST(:t AS uuid)
+                      AND provider='acuity'
+                      AND access_token_enc IS NOT NULL
+                      AND access_token_enc <> ''
+                    ORDER BY id DESC
+                    LIMIT 1
                     """,
-                    {},
+                    {"t": tenant_id},
                 )
-                present_cols: List[str] = []
-                try:
-                    text_list = str(cols_row[0] or "")
-                    # crude parse: {access_token_enc,access_token} → split
-                    text_list = text_list.strip("{}")
-                    present_cols = [c.strip() for c in text_list.split(',') if c.strip()]
-                except Exception:
-                    present_cols = []
-                ordered = [c for c in ['access_token_enc','access_token','token'] if c in present_cols]
-                if not ordered:
-                    ordered = ['access_token_enc']
-                # Build expressions that treat empty strings as NULL so we can filter for non-empty values
-                nonempty = [f"NULLIF({c}, '')" for c in ordered]
-                coalesce_expr = "COALESCE(" + ", ".join(ordered) + ")"
-                coalesce_nonempty = "COALESCE(" + ", ".join(nonempty) + ")"
-                # Select the newest row where a non-empty token is present; fall back to older rows
-                sql = (
-                    "SELECT (" + coalesce_expr + ") AS tok FROM connected_accounts_v2 "
-                    "WHERE tenant_id = CAST(:t AS uuid) AND provider='acuity' AND (" + coalesce_nonempty + ") IS NOT NULL "
-                    "ORDER BY id DESC LIMIT 1"
-                )
-                row = _read_one(conn, sql, {"t": tenant_id})
                 if row and row[0]:
                     candidate = str(row[0]).strip()
                     # Prefer decrypt; if decrypt returns falsy, fall back to raw only if it

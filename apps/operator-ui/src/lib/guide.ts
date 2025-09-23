@@ -614,6 +614,16 @@ export function startGuide(page: string, _opts?: { step?: number }) {
   const steps = getGuideSteps(page);
   if (!steps || steps.length === 0) return;
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
+  // Singleton guard: avoid multiple driver instances fighting each other
+  try {
+    // If a start is already in-flight or a tour is running, no-op
+    if ((window as any).__bvxTourStarting === true || (window as any).__bvxTourRunning === true) {
+      return;
+    }
+    (window as any).__bvxTourStarting = true;
+    // Clean any lingering overlays/stages from prior interrupted runs
+    try { document.querySelectorAll('.driver-overlay, .driver-stage, .driver-popover').forEach(el => { try { el.parentElement?.removeChild(el); } catch {} }); } catch {}
+  } catch {}
   if (page === 'dashboard') {
     try { delete (window as any).__bvxStrategyPrefilled; } catch {}
   }
@@ -961,7 +971,12 @@ export function startGuide(page: string, _opts?: { step?: number }) {
       if (typeof instance.drive === 'function') {
         instance.drive();
       }
-      try { (window as any).__driverDashboard = instance; } catch {}
+      // Mark running and expose the singleton handle
+      try {
+        (window as any).__driverDashboard = instance;
+        (window as any).__bvxTourRunning = true;
+        (window as any).__bvxTourStarting = false;
+      } catch {}
       instance.on?.('destroyed', () => {
         persistIndex();
         try { document.body.classList.remove('bvx-center-popover-body'); } catch {}
@@ -973,11 +988,18 @@ export function startGuide(page: string, _opts?: { step?: number }) {
         }
         if (page === 'dashboard') {
           try { window.dispatchEvent(new CustomEvent('bvx:guide:dashboard:done')); } catch {}
-      return;
-    }
+        }
+        // Clear singleton flags and any leftover overlays/stages/popovers
+        try {
+          (window as any).__bvxTourRunning = false;
+          (window as any).__bvxTourStarting = false;
+          delete (window as any).__driverDashboard;
+        } catch {}
+        try { document.querySelectorAll('.driver-overlay, .driver-stage, .driver-popover').forEach(el => { try { el.parentElement?.removeChild(el); } catch {} }); } catch {}
       });
     } catch (err) {
       console.error('startGuide error', err);
+      try { (window as any).__bvxTourStarting = false; } catch {}
     }
   })();
 }
