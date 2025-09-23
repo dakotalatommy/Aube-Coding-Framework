@@ -11,6 +11,7 @@ from ..crypto import decrypt_text
 from ..events import emit_event
 import hmac
 import hashlib
+import logging
 
 
 @contextmanager
@@ -25,12 +26,14 @@ def _with_conn(tenant_id: str, role: str = "owner_admin"):
             safe_role = role.replace("'", "''")
             conn.exec_driver_sql(f"SET LOCAL app.role = '{safe_role}'")
         except Exception:
-            pass
+            logger.exception("Failed to set app.role GUC (role=%s)", role)
+            raise
         try:
             safe_tenant = tenant_id.replace("'", "''")
             conn.exec_driver_sql(f"SET LOCAL app.tenant_id = '{safe_tenant}'")
         except Exception:
-            pass
+            logger.exception("Failed to set app.tenant_id GUC (tenant_id=%s)", tenant_id)
+            raise
         yield conn
     finally:
         try:
@@ -349,3 +352,4 @@ def fetch_bookings(tenant_id: str) -> List[Dict[str, object]]:
     return [
         {"id": f"ac-{now}", "title": "Booking: Follow-up (Acuity)", "start_ts": now + 10800, "provider": "acuity"},
     ]
+logger = logging.getLogger(__name__)
