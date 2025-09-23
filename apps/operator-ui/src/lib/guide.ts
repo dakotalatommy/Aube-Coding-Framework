@@ -82,7 +82,7 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-tour="nav-approvals"]', popover: { title: 'To-Do', description: 'Approve drafts and actions in one place.' } },
     { element: '[data-tour="nav-integrations"]', popover: { title: 'Settings', description: 'Connect Square, Acuity, Google, and more.' } },
     { element: '[data-tour="book-onboarding"]', popover: { title: 'Book Onboarding', description: 'Schedule a 1-on-1 to go deeper whenever you’re ready.' } },
-    { element: '#tour-billing-anchor', popover: { title: 'Choose your plan', description: 'Unlock the workspace with a founding plan or free trial.' } },
+    { element: '#tour-billing-anchor', popover: { title: 'Choose your plan', description: 'Unlock the workspace with a founding plan or free trial.', centered: true } },
     { element: '[data-guide="kpis"]', popover: { title: 'Your metrics at the top', description: 'Review key metrics to track how brandVX is helping you grow.' } },
     { element: '[data-guide="next-best-steps"]', popover: { title: 'Next Best Steps', description: 'Monitor and keep up with the next best actions to take to maximize your business.', allowClicks: true } },
     { element: '[data-guide="quickstart"]', popover: { title: 'Guided Walk‑through', description: 'Kick off with brandVZN, import clients, or train VX so you can showcase three fast wins and learn how to use brandVX.' } },
@@ -287,6 +287,7 @@ const registry: Record<string, GuideStep[]> = {
         description: 'Show last 3 months revenue and top 3 clients.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Next',
+        allowClicks: true,
         onPopoverRender: (_dom: any) => {
           try {
             window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.run-insights' } }));

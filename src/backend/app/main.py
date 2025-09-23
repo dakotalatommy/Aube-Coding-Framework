@@ -5695,6 +5695,48 @@ def acuity_debug_rls(
         return {"ok": False, "error": str(e)[:200]}
 
 
+@app.get("/integrations/booking/acuity/debug-token-lens", tags=["Integrations"])  # auth-gated, no secrets
+def acuity_debug_token_lens(
+    tenant_id: str,
+    limit: int = 5,
+    ctx: UserContext = Depends(get_user_context),
+):
+    """Return lengths (in characters) of token columns for the last N rows (no contents)."""
+    try:
+        if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+            return {"ok": False, "error": "forbidden"}
+        with engine.begin() as conn:
+            try:
+                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            except Exception:
+                pass
+            rows = conn.execute(
+                _sql_text(
+                    """
+                    SELECT id,
+                           COALESCE(LENGTH(access_token_enc),0) AS len_enc,
+                           CASE WHEN column_name_present('public','connected_accounts_v2','access_token') THEN COALESCE(LENGTH(access_token),0) ELSE 0 END AS len_plain,
+                           CASE WHEN column_name_present('public','connected_accounts_v2','token') THEN COALESCE(LENGTH(token),0) ELSE 0 END AS len_token
+                    FROM connected_accounts_v2
+                    WHERE tenant_id = CAST(:t AS uuid) AND provider='acuity'
+                    ORDER BY id DESC
+                    LIMIT :lim
+                    """
+                ),
+                {"t": tenant_id, "lim": max(1, min(20, int(limit)))},
+            ).fetchall()
+        out = []
+        for r in rows or []:
+            try:
+                out.append({"id": int(r[0] or 0), "len_enc": int(r[1] or 0), "len_access_token": int(r[2] or 0), "len_token": int(r[3] or 0)})
+            except Exception:
+                continue
+        return {"ok": True, "rows": out}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
 @app.get("/metrics", tags=["Health"])
 def get_metrics(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
