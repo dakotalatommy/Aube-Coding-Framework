@@ -41,7 +41,7 @@ export default function Calendar(){
   }, {} as Record<string, any[]>);
   const fmtTime = (raw:any)=>{ try{ const n = typeof raw==='number'? raw: Number(raw); const d = new Date(n*(n<1e12?1000:1)); return d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}); } catch { return String(raw||''); } };
   useEffect(()=>{
-    (async()=>{ try{ const r = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`); setEvents(r?.events||[]); setLastSync(r?.last_sync||{}); setLastUpdated(Date.now()); } finally{ setLoading(false); } })();
+    (async()=>{ try{ const r = await api.get(`/calendar/events?tenant_id=${encodeURIComponent(await getTenant())}`); setEvents(Array.isArray(r?.items)? r.items : []); setLastSync({}); setLastUpdated(Date.now()); } finally{ setLoading(false); } })();
   },[]);
   useEffect(()=>{ try{ const sp = new URLSearchParams(window.location.search); if (sp.get('tour')==='1') startGuide('calendar'); } catch {} },[]);
   // Ensure weekly appointments are fresh on open
@@ -64,8 +64,8 @@ export default function Calendar(){
           require_approval: false
         });
         // Refresh list after kick-off
-        const l = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`);
-        setEvents(l?.events||[]); setLastSync(l?.last_sync||{}); setLastUpdated(Date.now());
+        const l = await api.get(`/calendar/events?tenant_id=${encodeURIComponent(await getTenant())}`);
+        setEvents(Array.isArray(l?.items)? l.items : []); setLastSync({}); setLastUpdated(Date.now());
       } catch {}
     })();
   }, []);
@@ -76,8 +76,8 @@ export default function Calendar(){
     const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'calendar.sync', params:{ tenant_id: await getTenant(), provider: prov }, require_approval: false });
     try{ if (r?.status === 'ok' || r?.status === 'pending') toastSuccess('Calendar sync started', prov ? `Provider: ${prov}` : undefined); else toastError('Calendar sync failed', r?.error || r?.status); } catch {}
     setStatus(new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : '');
-    const l = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`);
-    setEvents(l?.events||[]); setLastSync(l?.last_sync||{});
+    const l = await api.get(`/calendar/events?tenant_id=${encodeURIComponent(await getTenant())}`);
+    setEvents(Array.isArray(l?.items)? l.items : []); setLastSync({});
     try { showToast({ title:'Sync started', description: prov || 'all' }); } catch {}
     setLastUpdated(Date.now());
   };
@@ -99,8 +99,8 @@ export default function Calendar(){
       const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'calendar.reschedule', params: payload, require_approval: true });
       if (r?.status==='ok' || r?.status==='pending') { try { toastSuccess('Rescheduled', 'Queued'); } catch {} }
       else { try { toastError('Reschedule failed', String(r?.status||'error')); } catch {} }
-      const l = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`);
-      setEvents(l?.events||[]); setLastUpdated(Date.now());
+      const l = await api.get(`/calendar/events?tenant_id=${encodeURIComponent(await getTenant())}`);
+      setEvents(Array.isArray(l?.items)? l.items : []); setLastUpdated(Date.now());
     }catch(e:any){ try{ toastError('Reschedule failed', String(e?.message||e)); }catch{} }
     finally{ setActionBusy(false); }
   };
@@ -113,8 +113,8 @@ export default function Calendar(){
       const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'calendar.cancel', params: payload, require_approval: true });
       if (r?.status==='ok' || r?.status==='pending') { try { toastSuccess('Canceled', 'Queued'); } catch {} }
       else { try { toastError('Cancel failed', String(r?.status||'error')); } catch {} }
-      const l = await api.get(`/calendar/list?tenant_id=${encodeURIComponent(await getTenant())}`);
-      setEvents(l?.events||[]); setLastUpdated(Date.now());
+      const l = await api.get(`/calendar/events?tenant_id=${encodeURIComponent(await getTenant())}`);
+      setEvents(Array.isArray(l?.items)? l.items : []); setLastUpdated(Date.now());
     }catch(e:any){ try{ toastError('Cancel failed', String(e?.message||e)); }catch{} }
     finally{ setActionBusy(false); }
   };

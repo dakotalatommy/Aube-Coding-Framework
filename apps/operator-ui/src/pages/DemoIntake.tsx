@@ -120,7 +120,7 @@ export default function DemoIntake(){
       try { await api.post('/onboarding/email-owner', { profile: { ...profile, [key]: val }, source: 'demo' }); } catch {}
       void saveRemote({ ...profile, [key]: val });
       // Land in demo workspace
-      window.location.assign('/workspace?pane=dashboard&demo=1&tour=1');
+      window.location.assign('/workspace?pane=dashboard&demo=1');
     }
   };
 
@@ -180,5 +180,4 @@ export default function DemoIntake(){
     </div>
   );
 }
-
 

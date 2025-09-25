@@ -122,7 +122,7 @@ export default function OnboardingRoot(){
     try { sessionStorage.removeItem('bvx_resume') } catch {}
     try { if (BOOKING_URL) localStorage.setItem('bvx_booking_nudge','1') } catch {}
     try { (window as any).posthog?.capture?.('onboarding_complete'); } catch {}
-    navigate('/workspace?pane=dashboard&tour=1')
+    navigate('/workspace?pane=dashboard')
   }
 
   const sceneProps = { state, next, back, save, startOAuth }
@@ -155,7 +155,7 @@ export default function OnboardingRoot(){
               <p className="text-slate-600/90 text-[12px] mt-1">You can finish anytime in Settings / Connections.</p>
             </div>
             <div className="flex items-center gap-2">
-              <Button aria-label="Skip onboarding for now" variant="ghost" size="sm" onClick={()=> navigate('/workspace?pane=dashboard&tour=1')} className="rounded-full focus-visible:ring-2 focus-visible:ring-[var(--ring)]">Skip for now</Button>
+            <Button aria-label="Skip onboarding for now" variant="ghost" size="sm" onClick={()=> navigate('/workspace?pane=dashboard')} className="rounded-full focus-visible:ring-2 focus-visible:ring-[var(--ring)]">Skip for now</Button>
             </div>
           </div>
           <div className="mt-3 flex items-center gap-2" aria-label="Progress">
@@ -166,7 +166,7 @@ export default function OnboardingRoot(){
             <div className="ml-auto text-xs text-slate-500">Step {Math.min(idx+1,5)}/5</div>
           </div>
         </header>
-        <main className="relative z-10 mt-4">
+        <main className="relative z-10 mt-4 overflow-hidden">
           <AnimatePresence mode="wait">
             <motion.div key={state.step} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.25 }}>
               {Scene}

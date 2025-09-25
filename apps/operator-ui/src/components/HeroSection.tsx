@@ -17,8 +17,8 @@ export default function HeroSection({
   eyebrow = 'Made by a beauty professional — for beauty professionals',
   title = 'Intuitive ops — luxe client experience',
   subtitle = 'Cadences, reminders, and follow‑ups that feel human — so you stay in your craft while BrandVX fills your calendar.',
-  ctaLabel = 'Try the demo today',
-  ctaHref = '/ask-vx-demo?demo=1',
+  ctaLabel = 'Book onboarding',
+  ctaHref = '/signup',
   ctaOffsetY = 200,
   haloColor = 'blue',
   haloIntensity = 0.7,
@@ -95,7 +95,6 @@ export default function HeroSection({
     </section>
   );
 }
-
 
 
 

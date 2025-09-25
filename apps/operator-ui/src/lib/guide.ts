@@ -1,3 +1,9 @@
+type GuideStepContext = {
+  driver: any;
+  index: number;
+  step: GuideStep;
+};
+
 export type GuideStep = {
   element?: string;
   popover: {
@@ -19,15 +25,191 @@ export type GuideStep = {
       opts: { driver: any }
     ) => void;
   };
+  onEnter?: (ctx: GuideStepContext) => void;
+  onExit?: (ctx: GuideStepContext) => void;
 };
 import { track } from './analytics';
 import { api, getTenant } from './api';
+import { workspaceStorage } from '../onboarding/workspace/storage';
 import foundersImage from '../assets/onboarding/IMG_7577.jpeg';
 import 'driver.js/dist/driver.css';
 // import { flags } from './flags';
 
 // Welcome handled by WelcomeModal; previously 0
 const DASHBOARD_BILLING_STEP = 12;
+
+type FounderFormState = {
+  email: string;
+  phone: string;
+};
+
+const FOUNDER_FORM_KEY = 'bvx_founder_form_cache';
+
+type FounderFormBindings = {
+  emailInput?: HTMLInputElement;
+  phoneInput?: HTMLInputElement;
+  changeHandler?: (e: Event) => void;
+  nextButton?: HTMLButtonElement;
+  nextHandler?: (e: Event) => void;
+} | null;
+
+let founderBindings: FounderFormBindings = null;
+
+const loadFounderForm = (): FounderFormState => {
+  try {
+    const raw = localStorage.getItem(FOUNDER_FORM_KEY);
+    if (!raw) return { email: '', phone: '' };
+    const parsed = JSON.parse(raw);
+    return {
+      email: typeof parsed?.email === 'string' ? parsed.email : '',
+      phone: typeof parsed?.phone === 'string' ? parsed.phone : '',
+    };
+  } catch {
+    return { email: '', phone: '' };
+  }
+};
+
+const persistFounderForm = (state: FounderFormState) => {
+  try {
+    localStorage.setItem(FOUNDER_FORM_KEY, JSON.stringify(state));
+  } catch {}
+};
+
+const clearFounderForm = () => {
+  try {
+    localStorage.removeItem(FOUNDER_FORM_KEY);
+  } catch {}
+};
+
+const sanitizeFounderPhone = (value: string) => value.replace(/[^0-9+\s().-]/g, '');
+
+const getFounderFormElements = () => {
+  const popover = document.querySelector('.driver-popover') as HTMLElement | null;
+  if (!popover) return null;
+  return {
+    popover,
+    emailInput: popover.querySelector('[data-founder-email]') as HTMLInputElement | null,
+    phoneInput: popover.querySelector('[data-founder-phone]') as HTMLInputElement | null,
+    emailError: popover.querySelector('[data-founder-email-error]') as HTMLElement | null,
+    phoneError: popover.querySelector('[data-founder-phone-error]') as HTMLElement | null,
+    nextButton: popover.querySelector('[data-action="next"]') as HTMLButtonElement | null,
+    previousButton: popover.querySelector('[data-action="previous"]') as HTMLButtonElement | null,
+  };
+};
+
+const validateFounderForm = (opts: { showErrors?: boolean } = {}) => {
+  const elements = getFounderFormElements();
+  const result = { valid: true, state: loadFounderForm() };
+  if (!elements) return result;
+
+  const { emailInput, phoneInput, emailError, phoneError, nextButton } = elements;
+  const rawEmail = (emailInput?.value || '').trim().toLowerCase();
+  const rawPhone = (phoneInput?.value || '').trim();
+
+  const sanitizedPhone = sanitizeFounderPhone(rawPhone);
+  if (phoneInput && phoneInput.value !== sanitizedPhone) phoneInput.value = sanitizedPhone;
+
+  const digits = sanitizedPhone.replace(/[^0-9]/g, '');
+  const emailValid = !rawEmail || /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i.test(rawEmail);
+  const phoneValid = !sanitizedPhone || (digits.length >= 7 && digits.length <= 15);
+  const allValid = emailValid && phoneValid;
+
+  if (emailError) {
+    if (!emailValid && opts.showErrors) emailError.classList.remove('hidden');
+    else emailError.classList.add('hidden');
+  }
+  if (phoneError) {
+    if (!phoneValid && opts.showErrors) phoneError.classList.remove('hidden');
+    else phoneError.classList.add('hidden');
+  }
+
+  if (nextButton) nextButton.disabled = !allValid;
+
+  const state: FounderFormState = { email: rawEmail, phone: sanitizedPhone };
+  persistFounderForm(state);
+
+  return { valid: allValid, state };
+};
+
+const founderCleanup = () => {
+  if (!founderBindings) return;
+  const { emailInput, phoneInput, changeHandler, nextButton, nextHandler } = founderBindings;
+  if (emailInput && changeHandler) {
+    emailInput.removeEventListener('input', changeHandler);
+    emailInput.removeEventListener('blur', changeHandler);
+  }
+  if (phoneInput && changeHandler) {
+    phoneInput.removeEventListener('input', changeHandler);
+    phoneInput.removeEventListener('blur', changeHandler);
+  }
+  if (nextButton && nextHandler) {
+    nextButton.removeEventListener('click', nextHandler, true);
+    try { delete nextButton.dataset.bvxFounderBound; } catch {}
+  }
+  founderBindings = null;
+};
+
+const initFounderFormStep = () => {
+  const elements = getFounderFormElements();
+  if (!elements || !elements.nextButton) return;
+
+  const { emailInput, phoneInput, nextButton } = elements;
+
+  founderCleanup();
+
+  const cached = loadFounderForm();
+  if (emailInput) emailInput.value = cached.email;
+  if (phoneInput) phoneInput.value = cached.phone;
+
+  const changeHandler = () => {
+    validateFounderForm({ showErrors: false });
+  };
+
+  if (emailInput) {
+    emailInput.addEventListener('input', changeHandler);
+    emailInput.addEventListener('blur', changeHandler);
+  }
+  if (phoneInput) {
+    phoneInput.addEventListener('input', changeHandler);
+    phoneInput.addEventListener('blur', changeHandler);
+  }
+
+  const nextHandler = (event: Event) => {
+    const { valid } = validateFounderForm({ showErrors: true });
+    if (!valid) {
+      event.preventDefault();
+      event.stopPropagation();
+      (event as any).stopImmediatePropagation?.();
+    }
+  };
+
+  if (!nextButton.dataset.bvxFounderBound) {
+    nextButton.addEventListener('click', nextHandler, true);
+    nextButton.dataset.bvxFounderBound = '1';
+  }
+
+  validateFounderForm({ showErrors: false });
+  founderBindings = { emailInput: emailInput || undefined, phoneInput: phoneInput || undefined, changeHandler, nextButton, nextHandler };
+};
+
+const submitFounderContact = async (state: FounderFormState, finalize?: boolean) => {
+  try {
+    persistFounderForm(state);
+    const email = state.email.trim().toLowerCase();
+    const phoneNormalized = state.phone.replace(/[^0-9+]/g, '');
+    if (!email && !phoneNormalized) return;
+    const tenant = (await getTenant().catch(() => '')) || localStorage.getItem('bvx_tenant') || '';
+    if (!tenant) return;
+    await api.post('/onboarding/founder/contact', {
+      tenant_id: tenant,
+      email: email || undefined,
+      phone: phoneNormalized || undefined,
+      finalize: finalize ? true : undefined,
+    });
+  } catch (err) {
+    console.error('founder contact submission failed', err);
+  }
+};
 
 const founderSlides = [
   {
@@ -44,7 +226,7 @@ const founderSlides = [
   },
   {
     title: 'Let’s stay in touch',
-    html: '<p>I appreciate you trying brandVX and would love any feedback. Drop your contact info below and I will personally reach out to thank you. Go be great!</p><div class="mt-3 grid gap-2">\n  <label class="grid gap-1 text-sm">\n    <span class="text-xs uppercase tracking-wide text-slate-500">Email</span>\n    <input type="email" data-founder-email class="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="you@example.com"/>\n  </label>\n  <label class="grid gap-1 text-sm">\n    <span class="text-xs uppercase tracking-wide text-slate-500">Phone</span>\n    <input type="tel" data-founder-phone class="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="(555) 555-5555"/>\n  </label>\n  <div class="text-[11px] text-slate-500">Optional — share either email or phone if you’d like me to follow up.</div>\n</div>',
+    html: '<p>I appreciate you trying brandVX and would love any feedback. Drop your contact info below and I will personally reach out to thank you. Go be great!</p><div class="mt-3 grid gap-2">\n  <label class="grid gap-1 text-sm">\n    <span class="text-xs uppercase tracking-wide text-slate-500">Email</span>\n    <input type="email" data-founder-email class="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="you@example.com"/>\n    <div class="text-[11px] text-rose-600 hidden" data-founder-email-error>Enter a valid email or leave blank.</div>\n  </label>\n  <label class="grid gap-1 text-sm">\n    <span class="text-xs uppercase tracking-wide text-slate-500">Phone</span>\n    <input type="tel" data-founder-phone class="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="(555) 555-5555"/>\n    <div class="text-[11px] text-rose-600 hidden" data-founder-phone-error>Use 7–15 digits (numbers, spaces, dashes, + allowed) or leave blank.</div>\n  </label>\n  <div class="text-[11px] text-slate-500">Optional — share either email or phone if you’d like me to follow up.</div>\n</div>',
   },
 ];
 
@@ -82,7 +264,28 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-tour="nav-approvals"]', popover: { title: 'To-Do', description: 'Approve drafts and actions in one place.' } },
     { element: '[data-tour="nav-integrations"]', popover: { title: 'Settings', description: 'Connect Square, Acuity, Google, and more.' } },
     { element: '[data-tour="book-onboarding"]', popover: { title: 'Book Onboarding', description: 'Schedule a 1-on-1 to go deeper whenever you’re ready.' } },
-    { element: '#tour-billing-anchor', popover: { title: 'Choose your plan', description: 'Unlock the workspace with a founding plan or free trial.', centered: true } },
+    { element: '#tour-billing-anchor', popover: { title: 'Choose your plan', description: 'Unlock the workspace with a founding plan or free trial.', centered: true, showButtons: ['previous','next'], nextBtnText: 'Next', allowClicks: true, onPopoverRender: (dom: any) => {
+      try {
+        const host = dom?.popover || dom?.wrapper;
+        if (!host) return;
+        const c = document.createElement('div');
+        c.className = 'mt-3 grid gap-2 sm:grid-cols-3';
+        c.innerHTML = `
+          <button class="bvx-onboard-btn" data-plan="lite">$47/mo — Lite</button>
+          <button class="bvx-onboard-btn" data-plan="pro">$97/mo — Pro</button>
+          <button class="bvx-onboard-btn" data-plan="founder">$147/mo — Founder</button>
+        `;
+        host.appendChild(c);
+        const wire = (btn: HTMLElement|null, plan: string) => {
+          btn?.addEventListener('click', () => {
+            try { window.dispatchEvent(new CustomEvent('bvx:billing:checkout', { detail: { plan } })); } catch {}
+          });
+        };
+        wire(c.querySelector('[data-plan="lite"]') as any, 'lite');
+        wire(c.querySelector('[data-plan="pro"]') as any, 'pro');
+        wire(c.querySelector('[data-plan="founder"]') as any, 'founder');
+      } catch {}
+    } } },
     { element: '[data-guide="kpis"]', popover: { title: 'Your metrics at the top', description: 'Review key metrics to track how brandVX is helping you grow.' } },
     { element: '[data-guide="next-best-steps"]', popover: { title: 'Next Best Steps', description: 'Monitor and keep up with the next best actions to take to maximize your business.', allowClicks: true } },
     { element: '[data-guide="quickstart"]', popover: { title: 'Guided Walk‑through', description: 'Kick off with brandVZN, import clients, or train VX so you can showcase three fast wins and learn how to use brandVX.' } },
@@ -118,7 +321,7 @@ const registry: Record<string, GuideStep[]> = {
     },
     // Centered intro on Vision to avoid anchoring races right after navigation
     { popover: { title: 'brandVZN', description: 'Let’s do a quick color change so you can see how edits work. Then we’ll continue the tour.', centered: true, showButtons: ['previous', 'next'], nextBtnText: 'Next' } },
-    { element: '[data-guide="upload"]', popover: { title: 'Upload a look', description: 'Pick a photo that shows the subject’s face and hair, then press Upload.', allowClicks: true, onPopoverRender: () => { try { const id='bvx-driver-pe'; if (!document.getElementById(id)) { const s=document.createElement('style'); s.id=id; s.textContent = `.driver-overlay{ pointer-events:none !important; background: rgba(17,24,39,0.35) !important; } .driver-stage{ pointer-events:none !important; background: rgba(17,24,39,0.35) !important; }`; document.head.appendChild(s); } } catch {} } } },
+    { element: '[data-guide="upload"]', popover: { title: 'Upload a look', description: 'Pick a photo that shows the subject’s face and hair, then press Upload.', allowClicks: true, onPopoverRender: () => { try { const id='bvx-driver-pe'; if (!document.getElementById(id)) { const s=document.createElement('style'); s.id=id; s.textContent = `.driver-overlay{ pointer-events:none !important; } .driver-stage{ pointer-events:none !important; background: transparent !important; }`; document.head.appendChild(s); } } catch {} } } },
     {
       popover: {
         title: 'Select a color',
@@ -235,6 +438,32 @@ const registry: Record<string, GuideStep[]> = {
           skipContinue?.addEventListener('click', () => {
             cleanup();
             try { window.dispatchEvent(new CustomEvent('bvx:onboarding:skip-import')); } catch {}
+            try { localStorage.setItem('bvx_done_contacts', '1'); } catch {}
+            try { localStorage.setItem('bvx_done_plan', '1'); } catch {}
+            try { window.dispatchEvent(new CustomEvent('bvx:quickstart:update')); } catch {}
+            // Jump directly to AskVX and prepare the strategy prompt
+            try { window.dispatchEvent(new CustomEvent('bvx:guide:navigate', { detail: { pane: 'askvx' } })); } catch {}
+            const onAskReady = () => {
+              try { window.removeEventListener('bvx:ask:ready', onAskReady as any); } catch {}
+              try { window.dispatchEvent(new CustomEvent('askvx.frontfill-strategy')); } catch {}
+              // Advance the tour to the "Send the strategy prompt" step if driver is present
+              try {
+                const drv: any = (window as any).__driverDashboard;
+                const titleMatch = (t:string)=>/Send the strategy prompt/i.test(t);
+                let tries = 0;
+                const stepTo = () => {
+                  tries++;
+                  const st = drv?.getState?.();
+                  const idx = st?.activeIndex ?? -1;
+                  const title = String(drv?._options?.steps?.[idx]?.popover?.title || '');
+                  if (titleMatch(title) || tries > 10) return;
+                  try { drv.moveNext?.(); } catch {}
+                  setTimeout(stepTo, 120);
+                };
+                setTimeout(stepTo, 200);
+              } catch {}
+            };
+            try { window.addEventListener('bvx:ask:ready', onAskReady as any, { once: true } as any); } catch {}
           });
           // Navigation to Contacts is now triggered on Next; global gate will advance on bvx:contacts:ready
         },
@@ -273,7 +502,17 @@ const registry: Record<string, GuideStep[]> = {
         onNextClick: (_element, _step, { driver }) => {
           void driver; // advance will occur after askvx ready via gating listener
           try { window.dispatchEvent(new CustomEvent('bvx:guide:navigate', { detail: { pane: 'askvx' } })); } catch {}
+          try {
+            const handler = () => {
+              try { window.removeEventListener('bvx:ask:ready', handler as any); } catch {}
+              try { window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.frontfill-insights' } })); } catch {}
+            };
+            window.addEventListener('bvx:ask:ready', handler as any, { once: true } as any);
+          } catch {}
         },
+      },
+      onEnter: () => {
+        try { delete (window as any).__bvxInsightsRequested; } catch {}
       },
     },
     // Centered intro on AskVX to orient users after navigation
@@ -283,16 +522,33 @@ const registry: Record<string, GuideStep[]> = {
     {
       element: '[data-guide="composer"]',
       popover: {
-        title: 'Generate insights',
-        description: 'Show last 3 months revenue and top 3 clients.',
+        title: 'Review the insights prompt',
+        description: 'We queued a summary prompt so it’s ready to send. Tweak anything you’d like, then continue.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Next',
         allowClicks: true,
-        onPopoverRender: (_dom: any) => {
-          try {
-            window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.run-insights' } }));
-          } catch {}
-        },
+      },
+      onEnter: () => {
+        try {
+          if (!(window as any).__bvxInsightsFrontfilled) {
+            (window as any).__bvxInsightsFrontfilled = true;
+            window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.frontfill-insights' } }));
+          }
+        } catch {}
+      },
+      onExit: (ctx) => {
+        try {
+          window.dispatchEvent(
+            new CustomEvent('bvx:ask:prefill', {
+              detail: {
+                kind: 'insights',
+                source: 'tour',
+                step: typeof ctx?.index === 'number' ? ctx.index : 36,
+                at: Date.now(),
+              },
+            })
+          );
+        } catch {}
       },
     },
     {
@@ -305,30 +561,7 @@ const registry: Record<string, GuideStep[]> = {
         allowClicks: true,
       },
     },
-    {
-      element: '[data-guide="messages"]',
-      popover: {
-        title: 'Waiting for reply',
-        description: 'We’ll highlight the conversation while AskVX responds.',
-        showButtons: ['previous', 'next'],
-        nextBtnText: 'Continue',
-        allowClicks: true,
-        onPopoverRender: (_dom: any, { driver }) => {
-          const start = Date.now();
-          const advance = () => { try { driver.moveNext?.(); } catch {} };
-          const wait = () => {
-            try {
-              const root = document.querySelector('[data-guide="messages"]') as HTMLElement | null;
-              const replied = !!root && Array.from(root.querySelectorAll('.text-left .inline-block')).some((el: Element) => !String(el.textContent||'').includes('AskVX is typing'));
-              if (replied) { advance(); return; }
-              if (Date.now() - start > 9000) { advance(); return; }
-              setTimeout(wait, 220);
-            } catch { advance(); }
-          };
-          setTimeout(wait, 200);
-        },
-      },
-    },
+    { element: '[data-guide="messages"]', popover: { title: 'Waiting for reply', description: 'We’ll highlight the conversation while AskVX responds.', showButtons: ['previous', 'next'], nextBtnText: 'Continue', allowClicks: true } },
     {
       element: '[data-guide="askvx-strategy"]',
       popover: {
@@ -336,49 +569,42 @@ const registry: Record<string, GuideStep[]> = {
         description: 'We’ll outline what’s next and then prepare a strategy prompt for you to send.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Ready',
+        onNextClick: (_element, _step, { driver }) => {
+          void driver;
+          if ((window as any).__bvxSkipImport) return;
+          try { window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.frontfill-strategy' } })); } catch {}
+          try { driver.moveNext?.(); } catch {}
+        },
+      },
+      onEnter: () => {
+        try { delete (window as any).__bvxStrategyPrefilled; } catch {}
       },
     },
     {
       element: '[data-guide="composer"]',
       popover: {
         title: 'Send the strategy prompt',
-        description: 'We’re preloading a strategy prompt here. Review or tweak, then press Send.',
+        description: 'We queued the 14-day strategy prompt so it’s ready to review and send.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Next',
         allowClicks: true,
-        onPopoverRender: () => {
-          if ((window as any).__bvxSkipImport) return;
-          if (!(window as any).__bvxStrategyPrefilled) {
-            (window as any).__bvxStrategyPrefilled = true;
-            try { window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.prepare-strategy' } })); } catch {}
-          }
-        },
+      },
+      onExit: (ctx) => {
+        try {
+          window.dispatchEvent(
+            new CustomEvent('bvx:ask:prefill', {
+              detail: {
+                kind: 'strategy',
+                source: 'tour',
+                step: typeof ctx?.index === 'number' ? ctx.index : 40,
+                at: Date.now(),
+              },
+            })
+          );
+        } catch {}
       },
     },
-    {
-      element: '[data-guide="messages"]',
-      popover: {
-        title: 'Waiting for reply',
-        description: 'We’ll highlight the conversation while AskVX drafts your 14‑day plan.',
-        showButtons: ['previous', 'next'],
-        nextBtnText: 'Continue',
-        allowClicks: true,
-        onPopoverRender: (_dom: any, { driver }) => {
-          const start = Date.now();
-          const advance = () => { try { driver.moveNext?.(); } catch {} };
-          const wait = () => {
-            try {
-              const root = document.querySelector('[data-guide="messages"]') as HTMLElement | null;
-              const replied = !!root && Array.from(root.querySelectorAll('.text-left .inline-block')).some((el: Element) => !String(el.textContent||'').includes('AskVX is typing'));
-              if (replied) { advance(); return; }
-              if (Date.now() - start > 12000) { advance(); return; }
-              setTimeout(wait, 250);
-            } catch { advance(); }
-          };
-          setTimeout(wait, 200);
-        },
-      },
-    },
+    { element: '[data-guide="messages"]', popover: { title: 'Waiting for reply', description: 'We’ll highlight the conversation while AskVX drafts your 14‑day plan.', showButtons: ['previous', 'next'], nextBtnText: 'Continue', allowClicks: true } },
     {
       element: '#tour-welcome-anchor',
       popover: {
@@ -577,31 +803,36 @@ founderSlides.forEach((slide, idx) => {
         try {
           const desc = dom?.popover?.querySelector?.('.driver-popover-description');
           if (desc) desc.innerHTML = slide.html;
+          if (idx === founderSlides.length - 1) {
+            try {
+              const nextBtn = dom?.popover?.querySelector?.('[data-action="next"]') as HTMLButtonElement | null;
+              if (nextBtn) {
+                nextBtn.textContent = 'Finish tour';
+                nextBtn.dataset.analyticsEvent = 'tour_founder_finish';
+              }
+            } catch {}
+          }
         } catch {}
       },
       onNextClick: idx === founderSlides.length - 1
         ? async (_element, _step, { driver }) => {
+            const result = validateFounderForm({ showErrors: true });
+            if (!result.valid) return;
             try {
-              const email = (document.querySelector('[data-founder-email]') as HTMLInputElement | null)?.value.trim() || '';
-              const phone = (document.querySelector('[data-founder-phone]') as HTMLInputElement | null)?.value.trim() || '';
-              if (email || phone) {
-                try {
-                  const tenant = (await getTenant().catch(()=>'')) || localStorage.getItem('bvx_tenant') || '';
-                  if (tenant) {
-                    await api.post('/onboarding/founder/contact', { tenant_id: tenant, email: email || undefined, phone: phone || undefined });
-                  }
-                } catch (err) {
-                  console.error('founder contact submission failed', err);
-                }
-              }
-            } finally {
-              try { localStorage.setItem('bvx_founder_finale_seen', '1'); } catch {}
-              try { localStorage.setItem('bvx_quickstart_completed', '1'); } catch {}
-              try { window.dispatchEvent(new CustomEvent('bvx:quickstart:completed')); } catch {}
-              try { driver?.destroy?.(); } catch {}
-            }
+              await submitFounderContact(result.state, true);
+            } catch {}
+            try { localStorage.setItem('bvx_founder_finale_seen', '1'); } catch {}
+            try { localStorage.setItem('bvx_quickstart_completed', '1'); } catch {}
+            try { window.dispatchEvent(new CustomEvent('bvx:quickstart:completed')); } catch {}
+            clearFounderForm();
+            try { driver?.destroy?.(); } catch {}
           }
-        : undefined,
+        : async (_element, _step, { driver }) => {
+            const result = validateFounderForm({ showErrors: true });
+            if (!result.valid) return;
+            await submitFounderContact(result.state);
+            try { driver?.moveNext?.(); } catch {}
+          },
     },
   });
 });
@@ -626,6 +857,7 @@ export function startGuide(page: string, _opts?: { step?: number }) {
   } catch {}
   if (page === 'dashboard') {
     try { delete (window as any).__bvxStrategyPrefilled; } catch {}
+    try { delete (window as any).__bvxInsightsRequested; } catch {}
   }
   try { localStorage.setItem('bvx_last_tour_page', page); } catch {}
   try { localStorage.setItem('bvx_last_tour_step', '0'); } catch {}
@@ -666,12 +898,14 @@ export function startGuide(page: string, _opts?: { step?: number }) {
         animate: true,
         overlayOpacity: 0.55,
         stagePadding: 8,
-        steps: steps.map((step) => {
+        steps: steps.map((step, idx) => {
+          const hasElement = Boolean(step.element);
+          const autoCentered = !hasElement;
           const { title, description, onPopoverRender: originalOnRender, centered, ...restPopover } = step.popover as any;
           // Compose a renderer that can force viewport-centering when requested
           const composedOnRender = (dom: any, opts: { driver: any }) => {
             try {
-              const effectiveCentered = !!centered && !nocenter;
+              const effectiveCentered = (!!centered || autoCentered) && !nocenter;
               if (effectiveCentered) {
                 // Hide arrow for the centered welcome; placement is handled by anchor element
                 try { (dom?.popover?.querySelector?.('.driver-popover-arrow') as HTMLElement | null)?.style?.setProperty('display','none'); } catch {}
@@ -684,8 +918,9 @@ export function startGuide(page: string, _opts?: { step?: number }) {
             } catch {}
             try { if (typeof originalOnRender === 'function') originalOnRender(dom, opts); } catch {}
           };
-          const effectiveCentered = !!centered && !nocenter;
+          const effectiveCentered = (!!centered || autoCentered) && !nocenter;
           const centerAnchor = document.getElementById('tour-center-anchor') as any;
+          const stepIndex = idx;
           return {
             // When centered, attach to our fixed anchor right at the viewport center
             element: effectiveCentered ? (centerAnchor || (document.body as any)) : (step.element || document.body),
@@ -697,7 +932,9 @@ export function startGuide(page: string, _opts?: { step?: number }) {
               onPopoverRender: composedOnRender,
               ...restPopover,
               // Preserve a flag for click-through overlay handling
-              bvxAllowClicks: (step.popover as any)?.allowClicks === true
+              bvxAllowClicks: (step.popover as any)?.allowClicks === true,
+              bvxStepIndex: stepIndex,
+              bvxAutoCentered: autoCentered,
             },
           };
         }),
@@ -710,7 +947,7 @@ export function startGuide(page: string, _opts?: { step?: number }) {
           s.textContent = `
             .driver-overlay {
               z-index: 2147483641 !important;
-              background: rgba(17,24,39,0.55) !important; /* enforce dim */
+              background: transparent !important; /* keep stage fully bright */
               pointer-events: auto !important; /* ensure overlay captures clicks */
             }
             .driver-overlay + .driver-overlay { display: none !important; }
@@ -788,8 +1025,8 @@ export function startGuide(page: string, _opts?: { step?: number }) {
               const s = document.createElement('style');
               s.id = id;
               s.textContent = `
-                .driver-overlay{ pointer-events: none !important; background: rgba(17,24,39,0.35) !important; }
-                .driver-stage{ pointer-events: none !important; background: rgba(17,24,39,0.35) !important; }
+                .driver-overlay{ pointer-events: none !important; }
+                .driver-stage{ pointer-events: none !important; background: transparent !important; }
               `;
               document.head.appendChild(s);
             }
@@ -807,22 +1044,77 @@ export function startGuide(page: string, _opts?: { step?: number }) {
       };
       instance.on?.('next', persistIndex);
       instance.on?.('previous', persistIndex);
+      let lastActiveIndex: number | null = null;
+      const runStepHook = (idx: number | null | undefined, type: 'enter' | 'exit') => {
+        if (typeof idx !== 'number' || idx < 0) return;
+        const targetStep = steps[idx];
+        if (!targetStep) return;
+        try {
+          if (type === 'enter') targetStep.onEnter?.({ driver: instance, step: targetStep, index: idx });
+          if (type === 'exit') targetStep.onExit?.({ driver: instance, step: targetStep, index: idx });
+        } catch {}
+      };
+      const arrowNavHandler = (e: KeyboardEvent) => {
+        if (e.key === 'ArrowRight') {
+          e.preventDefault();
+          e.stopPropagation();
+          try { instance.moveNext?.(); } catch {}
+        }
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          e.stopPropagation();
+          try { instance.movePrevious?.(); } catch {}
+        }
+      };
+      document.addEventListener('keydown', arrowNavHandler, true);
+      window.addEventListener('keydown', arrowNavHandler, true);
+
+      const detachArrowNav = () => {
+        document.removeEventListener('keydown', arrowNavHandler, true);
+        window.removeEventListener('keydown', arrowNavHandler, true);
+      };
+
+      const restoreFounderFieldsIfNeeded = (cfg: any) => {
+        if (!cfg) return;
+        const title = String(cfg.title || '').toLowerCase();
+        const isFounder = title.includes('let’s stay in touch') || title.includes("let's stay in touch");
+        if (isFounder) initFounderFormStep();
+      };
+
       instance.on?.('highlighted', () => {
         persistIndex();
-        // Toggle click-through overlay if this step requests it
+        let currentIndex = -1;
         try {
           const state = instance?.getState?.();
-          const idx = state?.activeIndex ?? -1;
-          const cfg = (instance as any)?._options?.steps?.[idx]?.popover || {};
+          currentIndex = state?.activeIndex ?? -1;
+          const cfg = (instance as any)?._options?.steps?.[currentIndex]?.popover || {};
           const allow = !!cfg?.bvxAllowClicks;
           setOverlayClicks(allow);
+          restoreFounderFieldsIfNeeded(cfg);
         } catch {}
         // Remove any duplicate overlays to prevent double-dimming
         try {
           const overlays = Array.from(document.querySelectorAll('.driver-overlay')) as HTMLElement[];
           overlays.slice(1).forEach((el) => { try { el.parentElement?.removeChild(el); } catch {} });
         } catch {}
+        try {
+          const idxNumber = currentIndex;
+          const changed = idxNumber !== lastActiveIndex;
+          if (changed && typeof lastActiveIndex === 'number' && lastActiveIndex >= 0) {
+            runStepHook(lastActiveIndex, 'exit');
+          }
+          if (changed && idxNumber >= 0) {
+            runStepHook(idxNumber, 'enter');
+          }
+          if (changed) {
+            lastActiveIndex = idxNumber >= 0 ? idxNumber : lastActiveIndex;
+          }
+        } catch {}
       });
+      try {
+        window.dispatchEvent(new CustomEvent('bvx:tour:started', { detail: { page, total: steps.length } }));
+      } catch {}
+
       if (page === 'dashboard') {
         instance.on?.('highlighted', () => {
           try {
@@ -977,8 +1269,34 @@ export function startGuide(page: string, _opts?: { step?: number }) {
         (window as any).__bvxTourRunning = true;
         (window as any).__bvxTourStarting = false;
       } catch {}
-      instance.on?.('destroyed', () => {
+      instance.on?.('next', async () => {
+        try {
+          const state = instance?.getState?.();
+          const idx = state?.activeIndex ?? -1;
+          const cfg = (instance as any)?._options?.steps?.[idx]?.popover || {};
+          const title = String(cfg?.title || '').toLowerCase();
+          if (title.includes('let’s stay in touch') || title.includes("let's stay in touch")) {
+            const { valid, state: formState } = validateFounderForm({ showErrors: true });
+            if (!valid) {
+              try { instance.movePrevious?.(); } catch {}
+              return;
+            }
+            await submitFounderContact(formState);
+          }
+          runStepHook(idx, 'enter');
+        } catch {}
+      });
+      instance.on?.('previous', () => {
+        try {
+          const idx = instance?.getState?.()?.activeIndex;
+          runStepHook(idx, 'enter');
+        } catch {}
+      });
+      instance.on?.('destroyed', async () => {
         persistIndex();
+        try {
+          if (typeof lastActiveIndex === 'number' && lastActiveIndex >= 0) runStepHook(lastActiveIndex, 'exit');
+        } catch {}
         try { document.body.classList.remove('bvx-center-popover-body'); } catch {}
         try { track('tour_complete', { page }); } catch {}
         if (page === 'workspace_intro') {
@@ -988,6 +1306,24 @@ export function startGuide(page: string, _opts?: { step?: number }) {
         }
         if (page === 'dashboard') {
           try { window.dispatchEvent(new CustomEvent('bvx:guide:dashboard:done')); } catch {}
+          try { delete (window as any).__bvxStrategyPrefilled; } catch {}
+          try { delete (window as any).__bvxInsightsRequested; } catch {}
+          try { workspaceStorage.setGuideDone(true); } catch {}
+          try { localStorage.setItem('bvx_quickstart_completed', '1'); } catch {}
+          try { localStorage.setItem('bvx_done_contacts', '1'); } catch {}
+          try { localStorage.setItem('bvx_done_plan', '1'); } catch {}
+          try { localStorage.setItem('bvx_done_vision', '1'); } catch {}
+          try { window.dispatchEvent(new CustomEvent('bvx:quickstart:completed')); } catch {}
+          try { window.dispatchEvent(new CustomEvent('bvx:quickstart:update')); } catch {}
+          try {
+            const tenantId = (await getTenant().catch(() => '')) || localStorage.getItem('bvx_tenant') || '';
+            if (tenantId) {
+              const completedAt = Math.floor(Date.now() / 1000);
+              await api.post('/onboarding/complete_tour', { tenant_id: tenantId, completed_at: completedAt });
+            }
+          } catch (err) {
+            console.error('tour completion persistence failed', err);
+          }
         }
         // Clear singleton flags and any leftover overlays/stages/popovers
         try {
@@ -996,6 +1332,8 @@ export function startGuide(page: string, _opts?: { step?: number }) {
           delete (window as any).__driverDashboard;
         } catch {}
         try { document.querySelectorAll('.driver-overlay, .driver-stage, .driver-popover').forEach(el => { try { el.parentElement?.removeChild(el); } catch {} }); } catch {}
+        detachArrowNav();
+        founderCleanup();
       });
     } catch (err) {
       console.error('startGuide error', err);

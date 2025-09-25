@@ -1,6 +1,6 @@
 //
 import { BrowserRouter, Routes, Route, useLocation, Navigate, useNavigate } from 'react-router-dom';
-import { Suspense, lazy, useEffect } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import ErrorBoundary from './components/ErrorBoundary';
 import Breadcrumbs from './components/Breadcrumbs';
 import { ToastProvider } from './components/ui/Toast';
@@ -9,6 +9,7 @@ import { Provider as TooltipProvider } from '@radix-ui/react-tooltip';
 // AskFloat and CommandBar removed per simplification
 import ActionDrawer from './components/ActionDrawer';
 import { initAnalytics, trackPage } from './lib/analytics';
+import { api } from './lib/api';
 import { supabase } from './lib/supabase';
 import QuietBadge from './components/ui/QuietBadge';
 import SupportBubble from './components/SupportBubble';
@@ -33,8 +34,6 @@ const Billing = lazy(() => import('./pages/Billing'));
 const PlasmicPage = lazy(() => import('./pages/PlasmicPage'));
 const PlasmicHost = lazy(() => import('./pages/PlasmicHost'));
 const LandingV2 = lazy(() => import('./pages/LandingV2'));
-const DemoFlow = lazy(() => import('./pages/DemoFlow'));
-const DemoIntake = lazy(() => import('./pages/DemoIntake'));
 const Workspace = lazy(() => import('./pages/Workspace'));
 const Share = lazy(() => import('./pages/Share'));
 const AuthCallback = lazy(() => import('./pages/AuthCallback'));
@@ -59,6 +58,13 @@ function IntegrationsRedirect() {
     }
   } catch {}
   const target = `/workspace?pane=integrations${qs ? `&${qs}` : ''}`;
+  return <Navigate to={target} replace />;
+}
+
+function LandingRedirect() {
+  const loc = useLocation();
+  const search = loc.search || '';
+  const target = `/brandvx${search}`;
   return <Navigate to={target} replace />;
 }
 
@@ -108,9 +114,9 @@ function RouteContent() {
         <Route path="/landing-v2" element={<LandingV2 />} />
         <Route path="/brandvx" element={<LandingV2 />} />
         <Route path="/workspace" element={<Workspace />} />
-        <Route path="/demo" element={<DemoIntake />} />
-        <Route path="/demo-intake" element={<Navigate to="/demo" replace />} />
-        <Route path="/ask-vx-demo" element={<DemoFlow />} />
+        <Route path="/demo" element={<LandingRedirect />} />
+        <Route path="/demo-intake" element={<LandingRedirect />} />
+        <Route path="/ask-vx-demo" element={<LandingRedirect />} />
         <Route path="/s/:token" element={<Share />} />
       </Routes>
     </>
@@ -143,6 +149,90 @@ function Shell() {
   const onDemo = loc.pathname.startsWith('/demo') || loc.pathname.startsWith('/ask-vx-demo');
   const onAuthRoute = loc.pathname === '/login' || loc.pathname === '/signup' || loc.pathname === '/auth/callback';
   const onOnboarding = loc.pathname === '/onboarding';
+
+  const getTodayKey = useCallback(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  }, []);
+
+  const [betaModalOpen, setBetaModalOpen] = useState(false);
+  const betaSeenKeyRef = useRef('');
+  const betaStatusLoadedRef = useRef(false);
+  const betaLastSeenRef = useRef<string | null>(null);
+
+  const persistBetaModalSeen = useCallback(async (dayKey: string) => {
+    try {
+      await api.post('/me/beta-modal', { seen_at: dayKey });
+    } catch (err) {
+      if (import.meta.env.DEV) {
+        console.warn('[beta-modal] persist failed', err);
+      }
+    }
+  }, []);
+
+  const dismissBetaModalForToday = useCallback(() => {
+    const todayKey = getTodayKey();
+    try {
+      const key = betaSeenKeyRef.current || 'bvx_beta_modal_last_seen';
+      localStorage.setItem(key, todayKey);
+    } catch {}
+    betaLastSeenRef.current = todayKey;
+    setBetaModalOpen(false);
+    persistBetaModalSeen(todayKey).catch(() => {});
+  }, [getTodayKey, persistBetaModalSeen]);
+
+  const openSupportFromBeta = useCallback(() => {
+    try { window.dispatchEvent(new CustomEvent('bvx:support:open-bug', { detail: { source: 'beta-modal' } })); } catch {}
+    try {
+      const support = (window as any).brandvxSupport;
+      support?.reportBug?.();
+    } catch {}
+    dismissBetaModalForToday();
+  }, [dismissBetaModalForToday]);
+
+  useEffect(() => {
+    if (embed || onAuthRoute || onDemo || onOnboarding) return;
+    if (betaStatusLoadedRef.current) return;
+    betaStatusLoadedRef.current = true;
+    let cancelled = false;
+    (async () => {
+      try {
+        const me = await api.get('/me');
+        if (cancelled) return;
+        const tenantId = (me?.tenant_id || localStorage.getItem('bvx_tenant') || '').trim();
+        const storageKey = tenantId ? `bvx_beta_modal_last_seen_${tenantId}` : 'bvx_beta_modal_last_seen';
+        betaSeenKeyRef.current = storageKey;
+        if (tenantId) {
+          try { localStorage.setItem('bvx_tenant', tenantId); } catch {}
+        }
+        const serverSeen = typeof me?.beta_modal_last_seen === 'string' ? me.beta_modal_last_seen : null;
+        if (serverSeen) {
+          betaLastSeenRef.current = serverSeen;
+          try { localStorage.setItem(storageKey, serverSeen); } catch {}
+        }
+        const today = getTodayKey();
+        const localSeen = localStorage.getItem(storageKey);
+        const effectiveSeen = serverSeen || localSeen;
+        if (effectiveSeen !== today) {
+          setBetaModalOpen(true);
+        }
+      } catch (err) {
+        if (cancelled) return;
+        const tenantId = localStorage.getItem('bvx_tenant') || '';
+        const storageKey = tenantId ? `bvx_beta_modal_last_seen_${tenantId}` : 'bvx_beta_modal_last_seen';
+        betaSeenKeyRef.current = storageKey;
+        const today = getTodayKey();
+        const lastSeen = localStorage.getItem(storageKey);
+        if (lastSeen !== today) {
+          setBetaModalOpen(true);
+        }
+        if (import.meta.env.DEV) {
+          console.warn('[beta-modal] lookup failed', err);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [embed, onAuthRoute, onDemo, onOnboarding, getTodayKey]);
 
   // Clear askVX persisted state on pure landing to avoid stray artifacts
   useEffect(()=>{
@@ -177,9 +267,11 @@ function Shell() {
         }
       } catch {}
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+      window.addEventListener('keydown', onKey);
+      return () => window.removeEventListener('keydown', onKey);
   }, [nav, onAskPage]);
+
+  const showSupportBubble = !embed && !onAuthRoute;
 
   return (
     <>
@@ -203,10 +295,53 @@ function Shell() {
           {/* Command mode and Ask dock removed; keep ActionDrawer */}
           {!embed && !onAskPage && !onDemo && !onLanding && !onBilling && !onAuthRoute && !onOnboarding && <ActionDrawer />}
           {!embed && !onAskPage && !onDemo && !onBilling && !onAuthRoute && !onOnboarding && <QuietBadge />}
-          {/* Support bubble only on landing page */}
-          {!embed && onLanding && <SupportBubble />}
+          {showSupportBubble && <SupportBubble />}
         </div>
       </div>
+      {betaModalOpen && (
+        <div className="fixed inset-0 z-[2147483605] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/35" onClick={dismissBetaModalForToday} aria-hidden="true" />
+          <div className="relative w-full max-w-lg rounded-3xl border border-[var(--border)] bg-white/95 p-6 shadow-soft text-center">
+            <button
+              type="button"
+              aria-label="Dismiss beta notes"
+              className="absolute top-3 right-3 rounded-full border border-transparent px-2 py-1 text-sm text-slate-500 hover:border-slate-200 hover:text-slate-700"
+              onClick={dismissBetaModalForToday}
+            >
+              ×
+            </button>
+            <div className="text-sm font-semibold tracking-wide text-slate-500 uppercase">brandVX beta v001</div>
+            <h2 className="mt-2 text-2xl font-semibold text-slate-900">Welcome to brandVX</h2>
+            <p className="mt-3 text-sm text-slate-700">
+              We appreciate you helping us revolutionize beauty and win back your time. A few quick notes while we’re in open beta:
+            </p>
+            <div className="mt-4 text-left text-sm text-slate-700">
+              <ul className="list-disc space-y-2 pl-5">
+                <li>We’re in month one, so you may still spot the occasional bug.</li>
+                <li>If the onboarding tour doesn’t auto-start, head to <strong>Settings → Restart Onboarding</strong>.</li>
+                <li>We ship updates weekly—expect new features and refinements often.</li>
+              </ul>
+            </div>
+            <p className="mt-4 text-sm text-slate-700">Need help or want to share feedback? Reach out and we’ll jump in.</p>
+            <div className="mt-6 flex flex-wrap justify-center gap-3">
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-full bg-slate-900 px-5 py-2 text-sm font-semibold text-white shadow hover:bg-slate-800"
+                onClick={openSupportFromBeta}
+              >
+                Contact support
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                onClick={dismissBetaModalForToday}
+              >
+                Don’t show again today
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

@@ -5,9 +5,9 @@ import { Link } from 'react-router-dom';
 export default function Tutorial(){
   useEffect(()=>{ try{ startGuide('workflows'); } catch{} },[]);
   const steps = [
-    { id: 1, title: 'Onboarding', desc: 'Connect tools and set tone. We’ll autosave as you go.', href: '/onboarding?tour=1' },
-    { id: 2, title: 'WorkStyles', desc: 'Run dedupe, low‑stock, and social plan quick actions.', href: '/workflows?tour=1' },
-    { id: 3, title: 'Inbox', desc: 'See unified messages; filters and guides are ready.', href: '/inbox?tour=1' },
+    { id: 1, title: 'Onboarding', desc: 'Connect tools and set tone. We’ll autosave as you go.', href: '/onboarding' },
+    { id: 2, title: 'WorkStyles', desc: 'Run dedupe, low‑stock, and social plan quick actions.', href: '/workflows' },
+    { id: 3, title: 'Inbox', desc: 'See unified messages; filters and guides are ready.', href: '/inbox' },
   ];
   return (
     <div className="space-y-4">
@@ -31,5 +31,4 @@ export default function Tutorial(){
     </div>
   );
 }
-
 

@@ -233,3 +233,4 @@ curl -sS -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
 - Audit `TOOL_META` descriptions and params for clarity.
 - Smoke tests across modes (answers, suggestions, approvals, PII, demo).
 - Observability: verify costs/limits and telemetry dashboards.
+

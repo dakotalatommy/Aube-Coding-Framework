@@ -9,7 +9,7 @@ type Props = {
   className?: string;
 };
 
-export default function FinalCTA({ label = 'Try the demo', sublabel, href = '/ask-vx-demo?demo=1', align = 'center', className }: Props) {
+export default function FinalCTA({ label = 'Join the beta', sublabel, href = '/signup', align = 'center', className }: Props) {
   const cls = align === 'center' ? 'text-center' : 'text-left';
   const onClick = () => {
     try { track('cta_click', { area: 'final', href }); } catch {}
@@ -23,5 +23,3 @@ export default function FinalCTA({ label = 'Try the demo', sublabel, href = '/as
     </div>
   );
 }
-
-

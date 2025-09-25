@@ -73,7 +73,7 @@ export default function Login() {
             try{ localStorage.setItem('bvx_offer_pending','1'); }catch{}
             try{
               const next = '/onboarding';
-              const fallback = '/workspace?pane=dashboard&tour=1&postVerify=1';
+              const fallback = '/workspace?pane=dashboard&postVerify=1';
               const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}&alt=${encodeURIComponent(fallback)}`;
               const { data, error } = await supabase.auth.signInWithOAuth({ provider:'google', options:{ redirectTo } });
               if (error) { alert(String(error.message||error)); return; }
@@ -85,5 +85,4 @@ export default function Login() {
     </CenteredCard>
   );
 }
-
 

@@ -115,10 +115,6 @@ export default function LandingV2(){
   const mainRef = useRef<HTMLDivElement|null>(null);
   // const signInRef = useRef<HTMLDivElement|null>(null);
 
-  const goDemo = () => {
-    try { track('cta_click',{area:'hero',href:'/demo'}); } catch {}
-    nav('/demo');
-  };
   const goSignup = () => {
     try { track('cta_click',{area:'hero',href:'/signup'}); } catch {}
     nav('/signup');
@@ -217,17 +213,14 @@ export default function LandingV2(){
             <div className="flex flex-col items-center mt-[22px] md:mt-[42px]">
               {/* slightly reduce top margin on laptops to fit common Mac heights */}
               <div className="flex gap-4 md:gap-5 items-center">
-                <div className="relative group">
-                  <div aria-hidden className="absolute -inset-2 rounded-full bg-white/40 blur-md opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100" />
-                  <button
-                    onClick={goDemo}
-                    className="relative overflow-hidden text-slate-900 text-[20px] md:text-[24px] px-9 md:px-10 py-4 md:py-5 rounded-full border bg-white hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px"
-                    style={{fontFamily:'\"Fraunces\", ui-serif, Georgia, serif'}}
-                  >
-                    Try the demo →
-                    <span aria-hidden className="pointer-events-none absolute inset-x-0 -top-1 h-1.5 bg-white/60 blur-[2px]" />
-                  </button>
-                </div>
+                <button
+                  onClick={goLogin}
+                  className="relative overflow-hidden text-slate-900 text-[20px] md:text-[24px] px-9 md:px-10 py-4 md:py-5 rounded-full border bg-white hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px"
+                  style={{fontFamily:'\"Fraunces\", ui-serif, Georgia, serif'}}
+                >
+                  Sign in
+                  <span aria-hidden className="pointer-events-none absolute inset-x-0 -top-1 h-1.5 bg-white/60 blur-[2px]" />
+                </button>
                 <button
                   onClick={goSignup}
                   className="relative overflow-hidden text-slate-900 text-[20px] md:text-[24px] px-9 md:px-10 py-4 md:py-5 rounded-full border bg-white hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-white active:translate-y-px"
@@ -238,16 +231,7 @@ export default function LandingV2(){
                 </button>
               </div>
               <div style={{height: 'clamp(10px, 1.4vw, 18px)'}} />
-              <div className="mt-2 md:mt-3">
-                <button
-                  aria-label="Sign in"
-                  onClick={goLogin}
-                  className="relative text-slate-900 text-[20px] md:text-[24px] px-9 md:px-10 py-4 md:py-5 rounded-full border bg-white hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-white"
-                  style={{fontFamily:'\"Fraunces\", ui-serif, Georgia, serif'}}
-                >
-                  Sign in
-                </button>
-              </div>
+              <div className="mt-2 md:mt-3" />
             </div>
           </section>
 

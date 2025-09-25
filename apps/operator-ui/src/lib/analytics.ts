@@ -24,6 +24,8 @@ export type AnalyticsEvent =
   | 'billing.success'
   | 'billing.modal.open'
   | 'referral.copy'
+  | 'referral.qr.download'
+  | 'cadences.followups.draft_batch'
   | 'messages.filter.change'
   | 'messages.save_quiet_hours'
   | 'messages.draft'

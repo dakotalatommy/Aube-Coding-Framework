@@ -1,8 +1,10 @@
-from fastapi import FastAPI, Depends, Response, Request, HTTPException
+from fastapi import FastAPI, Depends, Response, Request, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse, RedirectResponse, FileResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple
+from datetime import datetime, date, timedelta
+import logging
 from sqlalchemy.orm import Session
 from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST, CollectorRegistry
 from .events import emit_event
@@ -65,6 +67,9 @@ import threading as _threading
 from .adapters.supabase_adapter import SupabaseAdapter
 import json
 import os
+import html
+import asyncio
+import re
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Query
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -86,9 +91,20 @@ import base64 as _b64
 import json as _json
 import stripe as _stripe
 from urllib.parse import urlparse as _uparse
-from .jobs import enqueue_sms_job, enqueue_email_job, enqueue_ai_job, start_job_worker_if_enabled
+import qrcode
+from PIL import Image, ImageDraw, ImageFont
+from .jobs import (
+    enqueue_sms_job,
+    enqueue_email_job,
+    enqueue_ai_job,
+    start_job_worker_if_enabled,
+    create_job_record,
+    update_job_record,
+    get_job_record,
+)
 from .events import _get_redis as _redis
 import secrets as _secrets
+import uuid as _uuid
 
 
 tags_metadata = [
@@ -107,6 +123,8 @@ try:
     app.openapi_tags = tags_metadata  # type: ignore[attr-defined]
 except Exception:
     pass
+
+logger = logging.getLogger(__name__)
 
 # -------- Helper: mark onboarding step complete (idempotent) ---------
 def _complete_step(tenant_id: str, step_key: str, context: Optional[Dict[str, Any]] = None) -> None:
@@ -152,6 +170,308 @@ class FounderContactRequest(BaseModel):
     phone: Optional[str] = None
 
 
+class SupportSendRequest(BaseModel):
+    type: str = Field(..., min_length=1, max_length=120)
+    values: Dict[str, Any] = Field(default_factory=dict)
+
+
+def _render_support_email_html(req: SupportSendRequest, tenant_id: Optional[str]) -> str:
+    safe_type = html.escape(req.type)
+    tenant_block = f"<p><strong>Tenant</strong>: {html.escape(str(tenant_id))}</p>" if tenant_id else ""
+    rows = []
+    for key, value in sorted(req.values.items(), key=lambda item: str(item[0])):
+        label = html.escape(str(key).replace('_', ' ').title())
+        if isinstance(value, (dict, list)):
+            serialized = html.escape(json.dumps(value, ensure_ascii=False, default=str, indent=2))
+            rows.append(f"<li><strong>{label}</strong><pre>{serialized}</pre></li>")
+        else:
+            rows.append(f"<li><strong>{label}</strong>: {html.escape(str(value))}</li>")
+    if not rows:
+        rows.append('<li><em>No additional fields provided.</em></li>')
+    return (
+        f"<h3>brandVX Support Request</h3>"
+        f"<p><strong>Type</strong>: {safe_type}</p>"
+        f"{tenant_block}"
+        f"<ul>{''.join(rows)}</ul>"
+    )
+
+
+def _deliver_support_email(subject: str, body_html: str) -> Dict[str, str]:
+    """
+    Send support email via configured provider. Falls back to logging if no provider is configured.
+
+    TODO(brvx-support): Wire this into SendGrid or Flowdesk using env vars SUPPORT_FROM_EMAIL /
+    SUPPORT_INBOX_EMAIL / FLOWDESK_API_KEY.
+    """
+    to_email = os.getenv('SUPPORT_INBOX_EMAIL', 'latommy@aubecreativelabs.com')
+    provider = 'logger'
+    try:
+        api_key = os.getenv('SENDGRID_API_KEY')
+        from_email = os.getenv('SUPPORT_FROM_EMAIL') or os.getenv('SENDGRID_FROM_EMAIL')
+        if api_key and from_email:
+            from .integrations.email_sendgrid import sendgrid_send_email  # local import to avoid optional dep at boot
+            res = sendgrid_send_email(to_email, subject, body_html)
+            provider = 'sendgrid'
+            return {'status': str(res.get('status', 'queued')), 'provider': provider}
+    except Exception as exc:
+        provider = 'sendgrid'
+        logger.exception('support_email_provider_error', exc_info=exc)
+    logger.info(
+        'support_email_stub',
+        {
+            'provider': provider,
+            'subject': subject,
+            'to': to_email,
+            'preview': body_html[:2000],
+        },
+    )
+    return {'status': 'logged', 'provider': provider}
+
+
+SUPPORT_ALLOWED_MIME = {'image/png', 'image/jpeg', 'application/pdf'}
+SUPPORT_MAX_BYTES = 10 * 1024 * 1024
+
+
+async def _upload_supabase_object(
+    bucket: str,
+    object_path: str,
+    data: bytes,
+    content_type: str,
+    *,
+    expires_seconds: int = 60 * 60 * 24 * 7,
+) -> Optional[Dict[str, Any]]:
+    supabase_url = os.getenv('SUPABASE_URL', '').rstrip('/')
+    service_key = os.getenv('SUPABASE_SERVICE_ROLE_KEY', '')
+    if not supabase_url or not service_key or not bucket:
+        return None
+    headers = {
+        'Authorization': f'Bearer {service_key}',
+        'apikey': service_key,
+        'Content-Type': content_type or 'application/octet-stream',
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            upload_res = await client.post(
+                f"{supabase_url}/storage/v1/object/{bucket}/{object_path}",
+                content=data,
+                headers=headers,
+            )
+            if upload_res.status_code not in (200, 201):
+                logger.warning(
+                    'supabase_upload_failed',
+                    extra={'bucket': bucket, 'path': object_path, 'status': upload_res.status_code, 'body': upload_res.text[:200]},
+                )
+                return None
+            sign_res = await client.post(
+                f"{supabase_url}/storage/v1/object/sign/{bucket}/{object_path}",
+                headers=headers,
+                json={"expiresIn": expires_seconds},
+            )
+            if sign_res.status_code not in (200, 201):
+                logger.warning(
+                    'supabase_sign_failed',
+                    extra={'bucket': bucket, 'path': object_path, 'status': sign_res.status_code, 'body': sign_res.text[:200]},
+                )
+                return None
+            signed_payload = sign_res.json()
+            signed_url = signed_payload.get('signedURL') or ''
+            if signed_url.startswith('http'):
+                url = signed_url
+            else:
+                url = f"{supabase_url}{signed_url}" if signed_url else ''
+            return {
+                'url': url,
+                'path': object_path,
+                'content_type': content_type,
+                'size': len(data),
+                'expires_in': expires_seconds,
+            }
+    except Exception as exc:
+        logger.exception('supabase_upload_exception', exc_info=exc, extra={'bucket': bucket, 'path': object_path})
+    return None
+
+
+def _sanitize_support_filename(name: Optional[str]) -> str:
+    base = (name or 'attachment').strip()
+    safe = re.sub(r'[^A-Za-z0-9._-]+', '-', base).strip('-._')
+    if not safe:
+        safe = f'attachment-{int(_time.time())}'
+    return safe[:160]
+
+
+async def _upload_support_attachment(
+    tenant_id: str,
+    ticket_key: str,
+    filename: str,
+    content_type: str,
+    data: bytes,
+) -> Optional[Dict[str, Any]]:
+    bucket = os.getenv('SUPPORT_TICKETS_BUCKET') or os.getenv('SUPPORT_BUCKET') or 'support-uploads'
+    object_path = f"{tenant_id or 'anon'}/{ticket_key}/{filename}"
+    uploaded = await _upload_supabase_object(
+        bucket,
+        object_path,
+        data,
+        content_type,
+        expires_seconds=60 * 60 * 24 * 7,
+    )
+    if uploaded:
+        uploaded['name'] = filename
+    return uploaded
+
+
+def _generate_referral_code(length: int = 6) -> str:
+    alphabet = 'abcdefghjkmnpqrstuvwxyz23456789'
+    return ''.join(_secrets.choice(alphabet) for _ in range(length))
+
+
+def _ensure_referral_code(tenant_id: str) -> str:
+    try:
+        with engine.begin() as conn:
+            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            row = conn.execute(
+                _sql_text("SELECT code FROM referral_codes WHERE tenant_id = CAST(:t AS uuid) LIMIT 1"),
+                {"t": tenant_id},
+            ).fetchone()
+            if row and row[0]:
+                return str(row[0])
+        # Generate until unique
+        for _ in range(6):
+            code = _generate_referral_code()
+            try:
+                with engine.begin() as conn:
+                    conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+                    conn.execute(
+                        _sql_text(
+                            "INSERT INTO referral_codes (tenant_id, code) VALUES (CAST(:t AS uuid), :c) "
+                            "ON CONFLICT (tenant_id) DO UPDATE SET code=EXCLUDED.code"
+                        ),
+                        {"t": tenant_id, "c": code},
+                    )
+                return code
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return _generate_referral_code()
+
+
+def _compose_referral_image(code: str, share_url: str) -> bytes:
+    size = 1080
+    qr_size = 520
+    qr = qrcode.QRCode(border=2, box_size=10)
+    qr.add_data(share_url)
+    qr.make(fit=True)
+    qr_img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
+    qr_img = qr_img.resize((qr_size, qr_size))
+
+    canvas = Image.new('RGB', (size, size), color='#ffffff')
+    draw = ImageDraw.Draw(canvas)
+
+    # Background accent circle
+    accent_color = '#f7cbdc'
+    draw.ellipse((40, 40, size-40, size-40), fill=accent_color)
+
+    # Place QR centered
+    offset = ((size - qr_size) // 2, (size - qr_size) // 2)
+    canvas.paste(qr_img, offset)
+
+    font_large = ImageFont.load_default()
+    font_small = ImageFont.load_default()
+    text_color = '#0f172a'
+    draw.text((size/2, 120), 'brandVX Referral', fill=text_color, font=font_large, anchor='mm')
+    draw.text((size/2, size - 180), f'code: {code}', fill=text_color, font=font_large, anchor='mm')
+    draw.text((size/2, size - 140), 'Scan to join with early access perks', fill=text_color, font=font_small, anchor='mm')
+
+    buffer = io.BytesIO()
+    canvas.save(buffer, format='PNG')
+    buffer.seek(0)
+    return buffer.read()
+
+
+def _mutate_settings_json(tenant_id: str, mutator: Any) -> None:
+    try:
+        with engine.begin() as conn:
+            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            row = conn.execute(
+                _sql_text("SELECT data_json FROM settings WHERE tenant_id = CAST(:t AS uuid)"),
+                {"t": tenant_id},
+            ).fetchone()
+            data = {}
+            if row and row[0]:
+                try:
+                    data = json.loads(row[0])
+                except Exception:
+                    data = {}
+            try:
+                mutator(data)
+            except Exception:
+                pass
+            payload = json.dumps(data)
+            if row:
+                conn.execute(
+                    _sql_text("UPDATE settings SET data_json = :d WHERE tenant_id = CAST(:t AS uuid)"),
+                    {"d": payload, "t": tenant_id},
+                )
+            else:
+                conn.execute(
+                    _sql_text("INSERT INTO settings (tenant_id, data_json) VALUES (CAST(:t AS uuid), :d)"),
+                    {"d": payload, "t": tenant_id},
+                )
+    except Exception:
+        pass
+
+
+def _append_askvx_message(tenant_id: str, session_id: str, role: str, content: str) -> None:
+    if not tenant_id:
+        return
+    try:
+        with engine.begin() as conn:
+            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            conn.execute(
+                _sql_text(
+                    "INSERT INTO askvx_messages (tenant_id, session_id, role, content) VALUES (CAST(:t AS uuid), :sid, :role, :content)"
+                ),
+                {"t": tenant_id, "sid": session_id[:64], "role": role[:32], "content": content[:8000]},
+            )
+    except Exception:
+        pass
+
+
+def _upsert_trainvx_memory(tenant_id: str, key: str, value: str) -> None:
+    if not tenant_id or not key:
+        return
+    try:
+        with engine.begin() as conn:
+            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            conn.execute(
+                _sql_text(
+                    "INSERT INTO trainvx_memories (tenant_id, key, value, updated_at) "
+                    "VALUES (CAST(:t AS uuid), :k, to_jsonb(:v::text), NOW()) "
+                    "ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()"
+                ),
+                {"t": tenant_id, "k": key[:120], "v": value},
+            )
+    except Exception:
+        pass
+
+
+def _insert_onboarding_artifact(tenant_id: str, kind: str, content: str) -> None:
+    if not tenant_id or not kind:
+        return
+    try:
+        with engine.begin() as conn:
+            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            conn.execute(
+                _sql_text(
+                    "INSERT INTO onboarding_artifacts (tenant_id, kind, content) VALUES (CAST(:t AS uuid), :k, to_jsonb(:c::text))"
+                ),
+                {"t": tenant_id, "k": kind[:64], "c": content},
+            )
+    except Exception:
+        pass
+
+
 @app.post("/onboarding/complete_step", tags=["Plans"])
 def onboarding_complete_step(req: ProgressStep, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
@@ -164,6 +484,231 @@ def onboarding_complete_step(req: ProgressStep, db: Session = Depends(get_db), c
         return {"status": "ok", "step_key": req.step_key}
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
+
+
+@app.post("/support/send", tags=["Support"])
+async def support_send(request: Request, ctx: Optional[UserContext] = Depends(get_user_context_relaxed)):
+    tenant_id = (getattr(ctx, 'tenant_id', '') if ctx else '').strip()
+    user_id = getattr(ctx, 'user_id', None) if ctx else None
+    ip_addr = getattr(request.client, 'host', None)
+    content_type = (request.headers.get('content-type') or '').lower()
+
+    support_type = 'support'
+    name = ''
+    email = ''
+    phone = ''
+    description = ''
+    values: Dict[str, Any] = {}
+    meta_context: Dict[str, Any] = {}
+    context_source: Optional[str] = None
+    attachments_to_process: List[Tuple[str, str, bytes, str]] = []
+
+    if content_type.startswith('multipart/form-data'):
+        form = await request.form()
+        support_type = str(form.get('type') or 'support').strip() or 'support'
+        name = str(form.get('name') or '').strip()
+        email = str(form.get('email') or '').strip()
+        phone = str(form.get('phone') or '').strip()
+        description = str(form.get('description') or '').strip()
+        context_source = str(form.get('context_source') or '').strip() or None
+        meta_context = {
+            'url': form.get('url') or '',
+            'pathname': form.get('pathname') or '',
+            'user_agent': form.get('user_agent') or '',
+            'app_version': form.get('app_version') or '',
+            'tour_page': form.get('tour_page') or '',
+            'tour_step': form.get('tour_step') or '',
+        }
+        try:
+            tenant_hint = str(form.get('tenant_id') or '').strip()
+            if not tenant_id and tenant_hint:
+                tenant_id = tenant_hint
+        except Exception:
+            pass
+        uploads = [item for item in form.getlist('attachments') if isinstance(item, UploadFile)]
+        uploads = uploads[:3]
+        total_bytes = 0
+        for upload in uploads:
+            original_name = upload.filename or 'attachment'
+            sanitized = _sanitize_support_filename(original_name)
+            mime = upload.content_type or 'application/octet-stream'
+            if mime not in SUPPORT_ALLOWED_MIME:
+                raise HTTPException(status_code=400, detail='unsupported_file_type')
+            data = await upload.read()
+            total_bytes += len(data)
+            if total_bytes > SUPPORT_MAX_BYTES:
+                raise HTTPException(status_code=400, detail='attachments_too_large')
+            attachments_to_process.append((sanitized, mime, data, original_name))
+    else:
+        payload: Dict[str, Any]
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        try:
+            req_model = SupportSendRequest(**payload)
+        except Exception:
+            req_model = SupportSendRequest(type=str(payload.get('type') or 'support'), values=payload.get('values') or {})
+        support_type = (req_model.type or 'support').strip() or 'support'
+        values = req_model.values or {}
+        name = str(values.get('name') or '').strip()
+        email = str(values.get('email') or '').strip()
+        phone = str(values.get('phone') or '').strip()
+        description = str(values.get('description') or '').strip()
+        if not description:
+            description = _json.dumps(values, ensure_ascii=False)
+        meta_context = {'values': values}
+
+    if not description:
+        description = 'No description provided.'
+
+    base_values = {
+        'name': name,
+        'email': email,
+        'phone': phone,
+        'description': description,
+    }
+    if not values:
+        values = {k: v for k, v in base_values.items() if v}
+    else:
+        for key, val in base_values.items():
+            if val and not values.get(key):
+                values[key] = val
+
+    rl_key = f"support:{tenant_id or 'anon'}:{ip_addr or 'unknown'}"
+    attempts = cache_incr(rl_key, expire_seconds=600)
+    if attempts > 5:
+        raise HTTPException(status_code=429, detail='rate_limited')
+
+    ticket_token = _uuid.uuid4().hex
+    stored_files: List[Dict[str, Any]] = []
+    for sanitized, mime, data, original_name in attachments_to_process:
+        uploaded = await _upload_support_attachment(tenant_id, ticket_token, sanitized, mime, data)
+        if uploaded:
+            uploaded['name'] = original_name or sanitized
+            stored_files.append(uploaded)
+
+    context_payload: Dict[str, Any] = {
+        'path': str(request.url.path),
+        'ip': ip_addr,
+    }
+    if context_source:
+        context_payload['source'] = context_source
+    clean_meta = {k: v for k, v in meta_context.items() if isinstance(v, (str, int, float)) and str(v).strip()}
+    if clean_meta:
+        context_payload['context'] = clean_meta
+    if values:
+        context_payload['values'] = values
+    if stored_files:
+        context_payload['attachments'] = [{'url': f.get('url'), 'path': f.get('path'), 'content_type': f.get('content_type'), 'size': f.get('size')} for f in stored_files]
+
+    payload_for_log = {
+        'type': support_type,
+        'tenant_id': tenant_id,
+        'user_id': user_id,
+        'ip': ip_addr,
+        'has_attachments': bool(stored_files),
+        'source': context_source,
+    }
+    logger.info('support_send_received', payload_for_log)
+
+    files_json = _json.dumps(stored_files)
+    context_json = _json.dumps(context_payload)
+
+    ticket_id: Optional[int] = None
+    try:
+        with engine.begin() as conn:
+            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            if tenant_id:
+                conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": tenant_id})
+            inserted = conn.execute(
+                _sql_text(
+                    "INSERT INTO support_tickets (tenant_id, submitted_by, name, email, phone, description, files, context, status, created_by_ip) "
+                    "VALUES (CAST(:tenant_id AS uuid), :submitted_by, :name, :email, :phone, :description, :files::jsonb, :context::jsonb, 'new', :ip) "
+                    "RETURNING id"
+                ),
+                {
+                    'tenant_id': tenant_id or None,
+                    'submitted_by': user_id,
+                    'name': name,
+                    'email': email,
+                    'phone': phone,
+                    'description': description,
+                    'files': files_json,
+                    'context': context_json,
+                    'ip': ip_addr,
+                },
+            ).fetchone()
+            ticket_id = int(inserted[0]) if inserted else None
+            if tenant_id:
+                activity_payload = _json.dumps(
+                    {
+                        'ticket_id': ticket_id,
+                        'type': support_type,
+                        'source': context_source or 'support.send',
+                    }
+                )
+                conn.execute(
+                    _sql_text(
+                        "INSERT INTO activity_log (tenant_id, actor, action, payload) VALUES (CAST(:t AS uuid), 'user', 'support.ticket.submitted', :payload::jsonb)"
+                    ),
+                    {'t': tenant_id, 'payload': activity_payload},
+                )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception('support_ticket_insert_failed', exc_info=exc, extra={'tenant_id': tenant_id})
+        raise HTTPException(status_code=500, detail='support_ticket_failed')
+
+    email_values: Dict[str, Any] = {
+        'name': name,
+        'email': email,
+        'phone': phone,
+        'description': description,
+        'context': context_payload,
+    }
+    if stored_files:
+        email_values['attachments'] = [f.get('url') for f in stored_files if f.get('url')]
+
+    subject = f"[brandVX] Support — {support_type}"
+    req_model = SupportSendRequest(type=support_type, values=email_values)
+    try:
+        body_html = _render_support_email_html(req_model, tenant_id or None)
+        delivery = _deliver_support_email(subject, body_html)
+    except Exception as exc:
+        logger.exception('support_send_failed', exc_info=exc, extra={'support_request': payload_for_log})
+        raise HTTPException(status_code=500, detail='support_email_failed')
+
+    return {
+        'status': delivery.get('status', 'ok'),
+        'provider': delivery.get('provider', 'logger'),
+        'ticket_id': ticket_id,
+    }
+
+
+@app.get("/referrals/qr", tags=["Billing"])
+async def referrals_qr(tenant_id: str, ctx: UserContext = Depends(get_user_context)) -> Dict[str, Any]:
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        raise HTTPException(status_code=403, detail="forbidden")
+    cached = cache_get(f"referral:qr:{tenant_id}")
+    if isinstance(cached, dict) and cached.get('share_url') and cached.get('qr_url'):
+        return cached
+    code = _ensure_referral_code(tenant_id)
+    public_base = os.getenv('REFERRAL_PUBLIC_BASE_URL') or os.getenv('PUBLIC_APP_URL') or os.getenv('APP_PUBLIC_URL') or 'https://brandvx.com'
+    share_url = f"{public_base.rstrip('/')}/r/{code}"
+    image_bytes = _compose_referral_image(code, share_url)
+    bucket = os.getenv('REFERRAL_ASSETS_BUCKET') or 'referral-assets'
+    object_path = f"{tenant_id}/{code}-qr-{int(_time.time())}.png"
+    uploaded = await _upload_supabase_object(bucket, object_path, image_bytes, 'image/png', expires_seconds=60 * 60 * 24 * 30)
+    info = {
+        'code': code,
+        'share_url': share_url,
+        'qr_url': (uploaded or {}).get('url', ''),
+        'generated_at': datetime.utcnow().isoformat() + 'Z',
+    }
+    _mutate_settings_json(tenant_id, lambda data: data.setdefault('referral', {}).update(info))
+    cache_set(f"referral:qr:{tenant_id}", info, ttl=3600)
+    return info
 
 
 @app.get("/onboarding/progress", tags=["Plans"])
@@ -308,6 +853,7 @@ def onboarding_strategy_document(
                 _sql_text("INSERT INTO ai_memories (tenant_id, key, value, tags) VALUES (CAST(:t AS uuid), :k, to_jsonb(:v::text), to_jsonb(:tg::text))"),
                 {"t": req.tenant_id, "k": key_hist, "v": req.markdown, "tg": tags},
             )
+        _insert_onboarding_artifact(req.tenant_id, 'strategy_md', req.markdown)
         return {"status": "ok"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)[:200])
@@ -562,6 +1108,30 @@ def contacts_search(tenant_id: str, q: str = "", limit: int = 12, db: Session = 
 
 
 # ----------------------- Follow‑ups -----------------------
+FOLLOWUP_TEMPLATES: Dict[str, Dict[str, Any]] = {
+    "reminder_tomorrow": {
+        "label": "Remind tomorrow appointments",
+        "prompt": "Friendly reminder for appointments happening tomorrow. Confirm time and invite replies for rescheduling.",
+        "cadence_id": "reminder",
+    },
+    "reminder_week": {
+        "label": "Remind this week's clients",
+        "prompt": "Supportive nudge for clients visiting later this week. Mention availability if they need to adjust.",
+        "cadence_id": "reminder_week",
+    },
+    "reengage_30d": {
+        "label": "Re-engage 30 day guests",
+        "prompt": "Warm outreach to guests who haven't visited in about 30 days. Offer to reserve a time and highlight a small benefit.",
+        "cadence_id": "reengage_30d",
+    },
+    "winback_45d": {
+        "label": "Win-back 45+ day guests",
+        "prompt": "Encouraging message for guests away 45+ days. Emphasize fresh look and ease of booking.",
+        "cadence_id": "winback_45d_plus",
+    },
+}
+
+
 @app.get("/followups/candidates", tags=["Cadences"])
 def followups_candidates(tenant_id: str, scope: str = "this_week", db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
@@ -610,6 +1180,183 @@ def followups_enqueue(req: FollowupsEnqueue, db: Session = Depends(get_db), ctx:
         return {"status": "ok", "enqueued": len(req.contact_ids)}
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
+
+
+class FollowupsDraftRequest(BaseModel):
+    tenant_id: str
+    scope: str
+    template_id: str
+
+
+@app.post("/followups/draft_batch", tags=["Cadences"])
+def followups_draft_batch(
+    req: FollowupsDraftRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    template = FOLLOWUP_TEMPLATES.get(req.template_id)
+    if not template:
+        return {"status": "invalid_template"}
+    # Prevent overlapping draft jobs (pending To-Do entries)
+    row = db.execute(
+        _sql_text(
+            "SELECT id, status, details_json FROM todo_items WHERE tenant_id = CAST(:t AS uuid) AND type = 'followups.draft' ORDER BY id DESC LIMIT 1"
+        ),
+        {"t": req.tenant_id},
+    ).fetchone()
+    if row:
+        try:
+            details = json.loads(row[2] or "{}")
+        except Exception:
+            details = {}
+        draft_status = str(details.get("draft_status") or "pending")
+        if str(row[1] or "").lower() == "pending" and draft_status in {"pending", "generating", "ready"}:
+            return {
+                "status": draft_status,
+                "todo_id": int(row[0]),
+                "draft_markdown": details.get("draft_markdown"),
+                "details": details,
+            }
+    candidates = followups_candidates(req.tenant_id, req.scope, db=db, ctx=ctx)
+    items = candidates.get("items") or []
+    contact_ids = [str(it.get("contact_id")) for it in items if str(it.get("contact_id"))]
+    if not contact_ids:
+        return {"status": "empty", "count": 0}
+    try:
+        import uuid as _uuid
+        tenant_uuid = _uuid.UUID(str(req.tenant_id))
+    except Exception:
+        tenant_uuid = req.tenant_id  # tolerant fallback for dev schemas
+    contacts = (
+        db.query(dbm.Contact)
+        .filter(dbm.Contact.tenant_id == tenant_uuid, dbm.Contact.contact_id.in_(contact_ids))
+        .all()
+    )
+    name_lookup = {str(c.contact_id): (c.display_name or f"{(c.first_name or '').strip()} {(c.last_name or '').strip()}" or c.contact_id) for c in contacts}
+    now_ts = int(_time.time())
+    title = f"Draft follow-ups • {template['label']} ({len(contact_ids)})"
+    base_details = {
+        "scope": req.scope,
+        "template_id": req.template_id,
+        "template_label": template["label"],
+        "contact_ids": contact_ids,
+        "draft_status": "generating",
+        "generated_at": None,
+        "count": len(contact_ids),
+    }
+    job_id = create_job_record(req.tenant_id, 'followups.draft', {
+        'scope': req.scope,
+        'template_id': req.template_id,
+        'count': len(contact_ids),
+    })
+    todo_id = None
+    with engine.begin() as conn:
+        try:
+            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": req.tenant_id})
+        except Exception:
+            pass
+        inserted = conn.execute(
+            _sql_text(
+                "INSERT INTO todo_items (tenant_id, type, title, details_json, status) VALUES (CAST(:t AS uuid), 'followups.draft', :title, :details::jsonb, 'pending') RETURNING id"
+            ),
+            {"t": req.tenant_id, "title": title, "details": json.dumps(base_details)},
+        )
+        todo_id = inserted.scalar() if inserted else None
+    if not todo_id:
+        return {"status": "error", "detail": "todo_insert_failed"}
+    # Build AI prompt
+    lines = [
+        "You are BrandVX, crafting SMS follow-ups for beauty pros.",
+        f"Segment: {req.scope}",
+        f"Objective: {template['prompt']}",
+        "Output Markdown with one section per client using the format:",
+        "## {Client Name}",
+        "Paragraph: 1-2 sentences tailored to the client. No placeholders like {FirstName}.",
+        "Keep tone warm, concise, and on-brand for independent stylists.",
+    ]
+    lines.append("Clients:")
+    for it in items:
+        cid = str(it.get("contact_id") or "")
+        reason = str(it.get("reason") or "")
+        name = name_lookup.get(cid, cid)
+        lines.append(f"- {name} — {reason or 'follow-up'}")
+    prompt_text = "\n".join(lines)
+    markdown = ""
+    error_detail = None
+    try:
+        client = AIClient()
+        async def _generate() -> str:
+            return await client.generate(
+                system="You help stylists communicate clearly and kindly.",
+                messages=[{"role": "user", "content": prompt_text}],
+                max_tokens=600,
+            )
+        markdown = asyncio.run(_generate())
+    except Exception as err:
+        error_detail = str(err)[:400]
+    details_next = dict(base_details)
+    if markdown and not error_detail:
+        details_next.update({
+            "draft_status": "ready",
+            "draft_markdown": markdown,
+            "generated_at": now_ts,
+        })
+    else:
+        details_next.update({
+            "draft_status": "error",
+            "error": error_detail or "draft_failed",
+        })
+    with engine.begin() as conn:
+        try:
+            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": req.tenant_id})
+        except Exception:
+            pass
+        conn.execute(
+            _sql_text("UPDATE todo_items SET details_json=:details WHERE tenant_id = CAST(:t AS uuid) AND id=:id"),
+            {"details": json.dumps(details_next), "t": req.tenant_id, "id": todo_id},
+        )
+    if markdown and not error_detail:
+        try:
+            emit_event("FollowupsDraftGenerated", {"tenant_id": req.tenant_id, "todo_id": todo_id, "count": len(contact_ids), "template_id": req.template_id})
+        except Exception:
+            pass
+        update_job_record(job_id, status='done', result={
+            'todo_id': todo_id,
+            'count': len(contact_ids),
+            'draft_markdown': markdown,
+            'template_id': req.template_id,
+        })
+        return {"status": "ready", "todo_id": todo_id, "count": len(contact_ids), "draft_markdown": markdown, "template": template, "job_id": job_id}
+    update_job_record(job_id, status='error', error=error_detail or "draft_failed")
+    return {"status": "error", "todo_id": todo_id, "detail": error_detail or "draft_failed", "job_id": job_id}
+
+
+@app.get("/followups/draft_status", tags=["Cadences"])
+def followups_draft_status(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    row = db.execute(
+        _sql_text(
+            "SELECT id, status, details_json FROM todo_items WHERE tenant_id = CAST(:t AS uuid) AND type = 'followups.draft' ORDER BY id DESC LIMIT 1"
+        ),
+        {"t": tenant_id},
+    ).fetchone()
+    if not row:
+        return {"status": "none"}
+    try:
+        details = json.loads(row[2] or "{}")
+    except Exception:
+        details = {}
+    return {
+        "status": details.get("draft_status", "pending"),
+        "todo_status": row[1],
+        "todo_id": row[0],
+        "details": details,
+    }
 
 
 # ----------------------- Unified To‑Do -----------------------
@@ -3881,7 +4628,7 @@ async def ai_chat_raw(
     reply_max_tokens = int(os.getenv("AI_CHAT_MAX_TOKENS", "1600"))
     base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
     model = os.getenv("OPENAI_MODEL", "gpt-5")
-    api_key = (os.getenv("OPENAI_API_KEY", "") or "").strip()
+same     api_key = (os.getenv("OPENAI_API_KEY", "") or "").strip()
     if not api_key:
         from fastapi.responses import JSONResponse as _JR
         return _JR({"error": "provider_error", "detail": "missing_openai_key"}, status_code=200)
@@ -4050,8 +4797,12 @@ async def ai_chat_raw(
         sid = req.session_id or "default"
         if req.messages:
             last = req.messages[-1]
-            _safe_audit_log(db, tenant_id=ctx.tenant_id, session_id=sid, role=str(last.role), content=str(last.content))
-        _safe_audit_log(db, tenant_id=ctx.tenant_id, session_id=sid, role="assistant", content=content)
+            user_text = str(last.content)
+            _append_askvx_message(ctx.tenant_id, sid, str(last.role), user_text)
+            _safe_audit_log(db, tenant_id=ctx.tenant_id, session_id=sid, role=str(last.role), content=user_text)
+        assistant_text = content or ''
+        _append_askvx_message(ctx.tenant_id, sid, 'assistant', assistant_text)
+        _safe_audit_log(db, tenant_id=ctx.tenant_id, session_id=sid, role="assistant", content=assistant_text)
         db.commit()
     except Exception:
         try: db.rollback()
@@ -4150,6 +4901,7 @@ def ai_memories_upsert(req: MemoryUpsertRequest, db: Session = Depends(get_db), 
                 ),
                 params,
             )
+        _upsert_trainvx_memory(req.tenant_id, req.key, req.value)
         return {"status": "ok"}
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
@@ -5731,6 +6483,7 @@ class SettingsRequest(BaseModel):
     wf_progress: Optional[Dict[str, bool]] = None  # first 5 workflows progress flags
     # Onboarding/tour persistence
     tour_completed: Optional[bool] = None
+    tour_completed_at: Optional[int] = None
     onboarding_step: Optional[int] = None
     # BrandVX gating flags
     onboarding_completed: Optional[bool] = None
@@ -5818,6 +6571,7 @@ def update_settings(
         "providers_live": req.providers_live,
         "wf_progress": req.wf_progress,
         "tour_completed": req.tour_completed,
+        "tour_completed_at": req.tour_completed_at,
         "onboarding_step": req.onboarding_step,
         "onboarding_completed": req.onboarding_completed,
         "welcome_seen": req.welcome_seen,
@@ -5986,6 +6740,46 @@ def onboarding_complete(
     db.add(dbm.SharePrompt(tenant_id=req.tenant_id, kind="share_onboarding", surfaced=True))
     db.commit()
     return {"status": "ok"}
+
+
+class OnboardingTourCompleteRequest(BaseModel):
+    tenant_id: str
+    completed_at: Optional[int] = None
+
+
+@app.post("/onboarding/complete_tour", tags=["Plans"])
+def onboarding_complete_tour(
+    req: OnboardingTourCompleteRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    try:
+        ts = int(req.completed_at or int(_time.time()))
+    except Exception:
+        ts = int(_time.time())
+    row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == req.tenant_id).first()
+    data = {}
+    if row:
+        try:
+            data = json.loads(row.data_json or "{}")
+        except Exception:
+            data = {}
+    data["tour_completed_at"] = ts
+    data["tour_completed"] = True
+    data["guide_done"] = True
+    if not row:
+        row = dbm.Settings(tenant_id=req.tenant_id, data_json=json.dumps(data))
+        db.add(row)
+    else:
+        row.data_json = json.dumps(data)
+    db.commit()
+    try:
+        emit_event("TourCompleted", {"tenant_id": req.tenant_id, "ts": ts})
+    except Exception:
+        pass
+    return {"status": "ok", "tour_completed_at": ts}
 
 
 @app.get("/messages/list", tags=["Cadences"])
@@ -8189,6 +8983,7 @@ class SettingsRequest(BaseModel):
     wf_progress: Optional[Dict[str, bool]] = None  # first 5 workflows progress flags
     # Onboarding/tour persistence
     tour_completed: Optional[bool] = None
+    tour_completed_at: Optional[int] = None
     onboarding_step: Optional[int] = None
     # Timezone support
     user_timezone: Optional[str] = None  # e.g., "America/Chicago"
@@ -8273,6 +9068,11 @@ def update_settings(
         data["wf_progress"] = cur
     if req.tour_completed is not None:
         data["tour_completed"] = bool(req.tour_completed)
+    if req.tour_completed_at is not None:
+        try:
+            data["tour_completed_at"] = int(req.tour_completed_at)
+        except Exception:
+            data["tour_completed_at"] = None
     if req.onboarding_step is not None:
         try:
             data["onboarding_step"] = int(req.onboarding_step)
@@ -9218,8 +10018,100 @@ def dormant_preview(tenant_id: str, threshold_days: int = 60, db: Session = Depe
 
 
 @app.get("/me", tags=["Auth"])
-def whoami(ctx: UserContext = Depends(get_user_context)) -> Dict[str, str]:
-    return {"tenant_id": ctx.tenant_id or "", "role": ctx.role or ""}
+def whoami(
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+) -> Dict[str, Any]:
+    tenant_id = ctx.tenant_id or ""
+    out: Dict[str, Any] = {"tenant_id": tenant_id, "role": ctx.role or ""}
+    if not tenant_id:
+        out["subscription"] = {}
+        return out
+    tenant_row = None
+    try:
+        tenant_row = db.execute(
+            _sql_text(
+                "SELECT plan_tier, subscription_status, trial_end, beta_modal_last_seen, tour_completed_at FROM tenants WHERE id = CAST(:t AS uuid) LIMIT 1"
+            ),
+            {"t": tenant_id},
+        ).fetchone()
+    except Exception:
+        tenant_row = None
+
+    try:
+        row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == tenant_id).first()
+        data: Dict[str, Any] = {}
+        if row and (row.data_json or "").strip():
+            try:
+                data = json.loads(row.data_json or "{}")
+            except Exception:
+                data = {}
+        status = str(data.get("subscription_status") or "").strip()
+        plan_code = str(data.get("plan_code") or data.get("subscription_plan_code") or "").strip()
+        price_id = str(data.get("subscription_price_id") or "").strip()
+        trial_end_ts = data.get("trial_end_ts")
+        try:
+            trial_end_ts = int(trial_end_ts) if trial_end_ts is not None else None
+        except Exception:
+            trial_end_ts = None
+        out_subscription = {
+            "status": status,
+            "plan_code": plan_code,
+            "price_id": price_id,
+            "trial_end_ts": trial_end_ts,
+        }
+    except Exception:
+        out_subscription = {}
+
+    if tenant_row:
+        try:
+            plan_tier = str(tenant_row[0] or "").strip()
+        except Exception:
+            plan_tier = ""
+        try:
+            sub_status = str(tenant_row[1] or "").strip()
+        except Exception:
+            sub_status = ""
+        try:
+            trial_end_value = tenant_row[2]
+            trial_end_epoch: Optional[int]
+            if isinstance(trial_end_value, datetime):
+                trial_end_epoch = int(trial_end_value.timestamp())
+            elif trial_end_value is None:
+                trial_end_epoch = None
+            else:
+                trial_end_epoch = int(trial_end_value)
+        except Exception:
+            trial_end_epoch = None
+        if trial_end_epoch is not None:
+            out_subscription["trial_end_ts"] = trial_end_epoch
+        if sub_status:
+            out_subscription["status"] = sub_status
+        if plan_tier:
+            out_subscription["plan_tier"] = plan_tier
+        try:
+            beta_seen = tenant_row[3]
+            if isinstance(beta_seen, date):
+                out["beta_modal_last_seen"] = beta_seen.isoformat()
+            elif isinstance(beta_seen, datetime):
+                out["beta_modal_last_seen"] = beta_seen.date().isoformat()
+        except Exception:
+            pass
+        try:
+            tour_completed_val = tenant_row[4]
+            if isinstance(tour_completed_val, datetime):
+                out["tour_completed_at"] = int(tour_completed_val.timestamp())
+            elif tour_completed_val is not None:
+                out["tour_completed_at"] = int(tour_completed_val)
+        except Exception:
+            pass
+
+    if "beta_modal_last_seen" not in out:
+        out["beta_modal_last_seen"] = None
+    out["subscription"] = out_subscription
+    if "tour_completed_at" not in out:
+        out["tour_completed_at"] = None
+    return out
 
 
 class OnboardingVerifyRequest(BaseModel):
@@ -9251,6 +10143,37 @@ def onboarding_verify(
     gkey = f"onb_grant:{ctx.tenant_id}:{ctx.user_id}"
     cache_set(gkey, "1", ttl=1800)  # 30 minutes
     return {"status": "ok"}
+
+
+class BetaModalSeenRequest(BaseModel):
+    seen_at: Optional[str] = None
+
+
+@app.post("/me/beta-modal", tags=["Auth"])
+def beta_modal_seen_update(
+    req: BetaModalSeenRequest,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+) -> Dict[str, Any]:
+    tenant_id = ctx.tenant_id or ""
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="missing_tenant")
+    raw_seen = req.seen_at or datetime.utcnow().strftime("%Y-%m-%d")
+    try:
+        parsed = datetime.strptime(raw_seen, "%Y-%m-%d").date()
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid_date")
+    try:
+        with engine.begin() as conn:
+            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            conn.execute(
+                _sql_text("UPDATE tenants SET beta_modal_last_seen = :seen WHERE id = CAST(:t AS uuid)"),
+                {"seen": parsed, "t": tenant_id},
+            )
+    except Exception as exc:
+        logger.exception("beta_modal_update_failed", exc_info=exc)
+        raise HTTPException(status_code=500, detail="update_failed")
+    return {"status": "ok", "beta_modal_last_seen": parsed.isoformat()}
 
 
 class ReferralUpdateRequest(BaseModel):
@@ -9329,6 +10252,84 @@ def billing_apply_referral(
         except Exception:
             pass
         return {"status": "error", "detail": str(e), "referral_count": count}
+
+
+@app.get("/r/{code}", include_in_schema=False)
+def referral_redirect(code: str, request: Request) -> Response:
+    code = (code or '').strip()
+    if not code:
+        raise HTTPException(status_code=404, detail="not_found")
+    tenant_id = None
+    try:
+        with engine.begin() as conn:
+            row = conn.execute(
+                _sql_text("SELECT tenant_id FROM referral_codes WHERE code = :code LIMIT 1"),
+                {"code": code},
+            ).fetchone()
+            if row and row[0]:
+                tenant_id = str(row[0])
+    except Exception:
+        tenant_id = None
+    target_base = os.getenv('REFERRAL_LANDING_URL') or os.getenv('PUBLIC_APP_URL') or 'https://brandvx.com/brandvx'
+    target = f"{target_base.rstrip('/')}?utm_source=referral&utm_medium=qr&utm_campaign=brandvx&ref={code}"
+    if tenant_id:
+        def _apply(data: Dict[str, Any]) -> None:
+            bucket = data.setdefault('referral', {})
+            bucket['code'] = code
+            clicks = int(bucket.get('clicks') or 0)
+            bucket['clicks'] = clicks + 1
+            bucket['last_click_at'] = datetime.utcnow().isoformat() + 'Z'
+        _mutate_settings_json(tenant_id, _apply)
+        try:
+            cache_set(f"referral:clicks:{tenant_id}", (cache_get(f"referral:clicks:{tenant_id}") or 0) + 1, ttl=3600)
+        except Exception:
+            pass
+    return RedirectResponse(target)
+
+
+def _parse_json_field(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, (dict, list)):
+        return value
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except Exception:
+            return value
+    return value
+
+
+@app.get("/jobs/{job_id}", tags=["Jobs"])
+def job_status(job_id: str, ctx: UserContext = Depends(get_user_context)) -> Dict[str, Any]:
+    job = get_job_record(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job_not_found")
+    tenant_id = job.get('tenant_id')
+    if tenant_id and ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        raise HTTPException(status_code=403, detail="forbidden")
+    return {
+        'id': job.get('id'),
+        'tenant_id': tenant_id,
+        'kind': job.get('kind'),
+        'status': job.get('status'),
+        'progress': job.get('progress'),
+        'input': _parse_json_field(job.get('input')),
+        'result': _parse_json_field(job.get('result')),
+        'created_at': job.get('created_at'),
+        'updated_at': job.get('updated_at'),
+    }
+
+
+@app.get("/jobs/{job_id}/result", tags=["Jobs"])
+def job_result(job_id: str, ctx: UserContext = Depends(get_user_context)) -> Dict[str, Any]:
+    job = get_job_record(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job_not_found")
+    tenant_id = job.get('tenant_id')
+    if tenant_id and ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        raise HTTPException(status_code=403, detail="forbidden")
+    return {'status': job.get('status'), 'result': _parse_json_field(job.get('result'))}
 
 
 @app.post("/onboarding/analyze", tags=["Integrations"])  # scaffold
@@ -10230,6 +11231,9 @@ def calendar_sync(req: SyncRequest, db: Session = Depends(get_db), ctx: UserCont
         return {"status": "forbidden"}
     prov = (req.provider or "auto").lower()
     now = int(_time.time())
+    job_id = create_job_record(req.tenant_id, f"calendar.sync.{prov}", {
+        'provider': prov,
+    })
     # Ensure any stale failed transaction on this Session is cleared before use
     try:
         db.rollback()  # safe no-op if not in failed state
@@ -10304,7 +11308,8 @@ def calendar_sync(req: SyncRequest, db: Session = Depends(get_db), ctx: UserCont
             db.rollback()
         except Exception:
             pass
-        return {"status": "queued", "provider": prov}
+        update_job_record(job_id, status='error', error='commit_failed')
+        return {"status": "queued", "provider": prov, "job_id": job_id}
     try:
         invalidate_calendar_cache(req.tenant_id)
     except Exception:
@@ -10315,7 +11320,55 @@ def calendar_sync(req: SyncRequest, db: Session = Depends(get_db), ctx: UserCont
             _db.commit()
     except Exception:
         pass
-    return {"status": "completed", "provider": prov}
+    update_job_record(job_id, status='done', result={'status': 'completed', 'provider': prov})
+    return {"status": "completed", "provider": prov, "job_id": job_id}
+
+
+@app.get("/calendar/events", tags=["Integrations"])
+def calendar_events(
+    tenant_id: str,
+    months: int = 3,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+) -> Dict[str, Any]:
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        raise HTTPException(status_code=403, detail="forbidden")
+    horizon_days = max(1, min(months * 31, 120))
+    start_ts = int(_time.time())
+    end_ts = start_ts + horizon_days * 86400
+    try:
+        rows = db.execute(
+            _sql_text(
+                "SELECT id, title, start_ts, end_ts, provider, status FROM calendar_events "
+                "WHERE tenant_id = CAST(:t AS uuid) AND start_ts BETWEEN :start AND :end ORDER BY start_ts ASC"
+            ),
+            {"t": tenant_id, "start": start_ts, "end": end_ts},
+        ).fetchall()
+    except Exception as exc:
+        logger.exception('calendar_events_query_failed', exc_info=exc, extra={'tenant_id': tenant_id})
+        return {"items": []}
+    deduped: Dict[Tuple[str, int], Dict[str, Any]] = {}
+    for row in rows:
+        try:
+            title = str(row[1] or '')
+        except Exception:
+            title = ''
+        title_key = title.strip().lower() or 'event'
+        start_val = int(row[2] or 0)
+        bucket = start_val // 300  # 5 minute bucket
+        key = (title_key, bucket)
+        if key in deduped:
+            continue
+        deduped[key] = {
+            'id': str(row[0]) if row[0] is not None else None,
+            'title': title,
+            'start_ts': start_val,
+            'end_ts': int(row[3] or 0) or None,
+            'provider': str(row[4] or ''),
+            'status': str(row[5] or ''),
+        }
+    items = sorted(deduped.values(), key=lambda item: item['start_ts'] or 0)
+    return {"items": items, "start_ts": start_ts, "end_ts": end_ts}
 
 
 class ApptRescheduleRequest(BaseModel):
@@ -10522,8 +11575,16 @@ def inventory_sync(req: SyncRequest, db: Session = Depends(get_db), ctx: UserCon
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
     # Reuse metrics logic to compute and return rollup
+    job_id = create_job_record(req.tenant_id, f"inventory.sync.{req.provider or 'auto'}", {
+        'provider': req.provider or 'auto',
+    })
     out = inventory_metrics(tenant_id=req.tenant_id, provider=req.provider, db=db, ctx=ctx)  # type: ignore
-    return out if isinstance(out, dict) else {"status": "ok"}
+    if isinstance(out, dict):
+        update_job_record(job_id, status='done', result=out)
+        out['job_id'] = job_id
+        return out
+    update_job_record(job_id, status='done', result={'status': 'ok'})
+    return {"status": "ok", "job_id": job_id}
 
 
 class InventoryMergeRequest(BaseModel):

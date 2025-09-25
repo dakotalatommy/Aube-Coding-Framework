@@ -55,7 +55,7 @@ export default function OnboardingStepper(){
         <div className="space-y-2 text-sm">
           <p>Hook up your calendar, messaging, and CRM so BrandVX can automate for you.</p>
           <div className="flex flex-wrap gap-2">
-            <button data-tour="onb-integrations" className="px-3 py-1.5 rounded-md border bg-white" onClick={()=>goto('/workspace?pane=integrations&tour=1')}>Open Integrations</button>
+            <button data-tour="onb-integrations" className="px-3 py-1.5 rounded-md border bg-white" onClick={()=>goto('/workspace?pane=integrations')}>Open Integrations</button>
             <button className="px-3 py-1.5 rounded-md border bg-white" onClick={()=>markDone('connect_tools')}>Mark connected</button>
           </div>
         </div>
@@ -69,7 +69,7 @@ export default function OnboardingStepper(){
         <div className="space-y-2 text-sm">
           <p>Start by importing from your CRM or upload a CSV.</p>
           <div className="flex flex-wrap gap-2">
-            <button data-tour="onb-contacts" className="px-3 py-1.5 rounded-md border bg-white" onClick={()=>goto('/workspace?pane=contacts&tour=1')}>Open Contacts</button>
+            <button data-tour="onb-contacts" className="px-3 py-1.5 rounded-md border bg-white" onClick={()=>goto('/workspace?pane=contacts')}>Open Contacts</button>
             <button className="px-3 py-1.5 rounded-md border bg-white" onClick={()=>markDone('import_contacts')}>Mark imported</button>
           </div>
         </div>
@@ -83,7 +83,7 @@ export default function OnboardingStepper(){
         <div className="space-y-2 text-sm">
           <p>Review segments like “Dormant 60d” and confirm counts are expected.</p>
           <div className="flex flex-wrap gap-2">
-            <button data-tour="onb-workflows" className="px-3 py-1.5 rounded-md border bg-white" onClick={()=>goto('/workspace?pane=workflows&tour=1')}>Open Workflows</button>
+            <button data-tour="onb-workflows" className="px-3 py-1.5 rounded-md border bg-white" onClick={()=>goto('/workspace?pane=workflows')}>Open Workflows</button>
             <button className="px-3 py-1.5 rounded-md border bg-white" onClick={()=>markDone('preview_segments')}>Mark previewed</button>
           </div>
         </div>
@@ -97,7 +97,7 @@ export default function OnboardingStepper(){
         <div className="space-y-2 text-sm">
           <p>Adjust quiet hours, sending windows, and follow‑up spacing.</p>
           <div className="flex flex-wrap gap-2">
-            <button data-tour="onb-cadences" className="px-3 py-1.5 rounded-md border bg-white" onClick={()=>goto('/workspace?pane=cadences&tour=1')}>Open Cadences</button>
+            <button data-tour="onb-cadences" className="px-3 py-1.5 rounded-md border bg-white" onClick={()=>goto('/workspace?pane=cadences')}>Open Cadences</button>
             <button className="px-3 py-1.5 rounded-md border bg-white" onClick={()=>markDone('timing_cadences')}>Mark set</button>
           </div>
         </div>
@@ -173,5 +173,4 @@ export default function OnboardingStepper(){
     </div>
   );
 }
-
 

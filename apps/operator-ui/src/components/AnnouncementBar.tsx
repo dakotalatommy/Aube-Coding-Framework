@@ -7,10 +7,20 @@ export default function AnnouncementBar() {
             'linear-gradient(180deg, rgba(236,72,153,0.10), rgba(236,72,153,0.06))',
         }}
       >
-        Private beta is open — weekly onboarding cohorts are limited. <span className="font-semibold text-pink-600">Reserve a spot</span>
+        Private beta is open — weekly onboarding cohorts are limited.{' '}
+        <button
+          type="button"
+          className="font-semibold text-pink-600 underline-offset-2 hover:underline"
+          onClick={() => {
+            try { window.dispatchEvent(new CustomEvent('bvx:beta:cta')); } catch {}
+            try {
+              const support = (window as any).brandvxSupport;
+              support?.reportBug?.();
+            } catch {}
+          }}
+        >Reserve a spot</button>
       </div>
     </div>
   );
 }
-
 

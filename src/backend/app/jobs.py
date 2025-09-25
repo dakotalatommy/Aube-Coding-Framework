@@ -5,13 +5,14 @@ import time
 from typing import Any, Dict, Optional, Tuple
 
 from sqlalchemy.orm import Session
+from sqlalchemy import text as _sql_text
 
 from .cache import _client as _redis_client
 from . import models as dbm
 from .integrations.sms_twilio import twilio_send_sms
 from .integrations.email_sendgrid import sendgrid_send_email
 from .ai import AIClient
-from .db import get_db
+from .db import get_db, engine
 from .metrics_counters import WEBHOOK_EVENTS  # reuse counter infra for jobs
 
 
@@ -73,6 +74,85 @@ def enqueue_ai_job(tenant_id: str, session_id: str, prompt: str, max_attempts: i
         "attempts": 0,
         "max_attempts": max_attempts,
     })
+
+
+def create_job_record(tenant_id: str, kind: str, input_payload: Dict[str, Any], status: str = "running") -> Optional[str]:
+    try:
+        with engine.begin() as conn:
+            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            row = conn.execute(
+                _sql_text(
+                    "INSERT INTO jobs (tenant_id, kind, status, progress, input) "
+                    "VALUES (CAST(:t AS uuid), :k, :s, :p, :input::jsonb) RETURNING id"
+                ),
+                {"t": tenant_id, "k": kind, "s": status, "p": 0, "input": json.dumps(input_payload)},
+            ).fetchone()
+            return str(row[0]) if row else None
+    except Exception:
+        return None
+
+
+def update_job_record(
+    job_id: Optional[str],
+    *,
+    status: Optional[str] = None,
+    progress: Optional[int] = None,
+    result: Optional[Dict[str, Any]] = None,
+    error: Optional[str] = None,
+) -> None:
+    if not job_id:
+        return
+    try:
+        fields = []
+        params: Dict[str, Any] = {"id": job_id}
+        if status:
+            fields.append("status = :status")
+            params["status"] = status
+        if progress is not None:
+            fields.append("progress = :progress")
+            params["progress"] = progress
+        if result is not None:
+            fields.append("result = :result::jsonb")
+            params["result"] = json.dumps(result)
+        elif error is not None:
+            fields.append("result = :result::jsonb")
+            params["result"] = json.dumps({"error": error})
+            if not status:
+                fields.append("status = 'error'")
+        if not fields:
+            return
+        fields.append("updated_at = NOW()")
+        with engine.begin() as conn:
+            conn.execute(_sql_text(f"UPDATE jobs SET {' , '.join(fields)} WHERE id = :id"), params)
+    except Exception:
+        pass
+
+
+def get_job_record(job_id: str) -> Optional[Dict[str, Any]]:
+    try:
+        with engine.begin() as conn:
+            row = conn.execute(
+                _sql_text(
+                    "SELECT id, tenant_id, kind, status, progress, input, result, created_at, updated_at "
+                    "FROM jobs WHERE id = :id"
+                ),
+                {"id": job_id},
+            ).fetchone()
+            if not row:
+                return None
+            return {
+                "id": str(row[0]),
+                "tenant_id": str(row[1]) if row[1] else None,
+                "kind": row[2],
+                "status": row[3],
+                "progress": row[4],
+                "input": row[5],
+                "result": row[6],
+                "created_at": row[7],
+                "updated_at": row[8],
+            }
+    except Exception:
+        return None
 
 
 def _record_dead_letter(db: Session, tenant_id: str, provider: str, reason: str, payload: Dict[str, Any], attempts: int) -> None:
@@ -198,4 +278,3 @@ def start_job_worker_if_enabled() -> None:
         t.start()
     except Exception:
         pass
-

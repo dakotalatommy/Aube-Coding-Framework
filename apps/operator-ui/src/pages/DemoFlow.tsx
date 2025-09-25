@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { track } from '../lib/analytics';
 import Button, { ButtonLink } from '../components/ui/Button';
+import { api } from '../lib/api';
 
 type BrandBrief = {
   businessName: string;
@@ -23,6 +24,10 @@ export default function DemoFlow(){
   const [brief, setBrief] = useState<BrandBrief>(()=>{
     try { return JSON.parse(localStorage.getItem('bvx_demo_brief')||'') as BrandBrief; } catch { return { businessName:'', vibe:'Balanced', primaryColor:'#E03C91', serviceType:'Hair' }; }
   });
+  const [contact, setContact] = useState({ firstName: '', lastName: '', email: '', phone: '' });
+  const [submitError, setSubmitError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
   useEffect(()=>{ try { localStorage.setItem('bvx_demo_brief', JSON.stringify(brief)); } catch {} },[brief]);
   useEffect(()=>{ track('started_demo'); },[]);
@@ -38,7 +43,7 @@ export default function DemoFlow(){
   return (
     <div className="mx-auto max-w-3xl p-4">
       <div className="fixed bottom-4 right-4 z-50">
-        <ButtonLink href={`/signup?redirectTo=${encodeURIComponent(window.location.origin + '/onboarding?tour=1')}`}>Start your trial now</ButtonLink>
+        <ButtonLink href={`/signup?redirectTo=${encodeURIComponent(window.location.origin + '/onboarding')}`}>Start your trial now</ButtonLink>
       </div>
       {step===0 && (
         <div className="min-h-[70vh] grid place-items-center">
@@ -66,7 +71,7 @@ export default function DemoFlow(){
 
       {step>0 && (
         <div className="mb-6">
-          <div className="text-xs text-slate-600">Demo • Step {step} / 3</div>
+          <div className="text-xs text-slate-600">Demo • Step {Math.min(step, 4)} / 4</div>
           <h1 className="text-3xl font-semibold text-slate-900">Experience BrandVX</h1>
         </div>
       )}
@@ -134,15 +139,125 @@ export default function DemoFlow(){
               <div className="text-xs text-slate-600">CSAT</div>
             </div>
           </div>
-          <div className="mt-4 flex gap-2">
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button onClick={()=> { setSubmitted(false); setSubmitError(''); setStep(4); track('demo_step_contact_opened'); }}>Share my info</Button>
             <ButtonLink href="/onboarding">Begin onboarding</ButtonLink>
             <Button variant="outline" onClick={()=> setStep(2)}>Back</Button>
           </div>
           </div>
         </section>
       )}
+
+      {step===4 && (
+        <section className="min-h-[70vh] grid place-items-center">
+          <div className="w-full max-w-xl rounded-2xl border bg-white p-6 shadow-sm">
+            {!submitted ? (
+              <>
+                <StepHeader title="Stay in touch" subtitle="We’ll follow up personally with launch updates and next steps." />
+                <div className="grid gap-3">
+                  <div className="grid gap-1">
+                    <label className="text-sm text-slate-700">First name</label>
+                    <input
+                      className="border rounded-md px-3 py-2"
+                      value={contact.firstName}
+                      onChange={(e)=> setContact((prev)=> ({ ...prev, firstName: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div className="grid gap-1">
+                    <label className="text-sm text-slate-700">Last name</label>
+                    <input
+                      className="border rounded-md px-3 py-2"
+                      value={contact.lastName}
+                      onChange={(e)=> setContact((prev)=> ({ ...prev, lastName: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div className="grid gap-1">
+                    <label className="text-sm text-slate-700">Email</label>
+                    <input
+                      className="border rounded-md px-3 py-2"
+                      type="email"
+                      value={contact.email}
+                      onChange={(e)=> setContact((prev)=> ({ ...prev, email: e.target.value }))}
+                      required
+                    />
+                  </div>
+                  <div className="grid gap-1">
+                    <label className="text-sm text-slate-700">Phone</label>
+                    <input
+                      className="border rounded-md px-3 py-2"
+                      type="tel"
+                      value={contact.phone}
+                      onChange={(e)=> setContact((prev)=> ({ ...prev, phone: e.target.value }))}
+                      required
+                    />
+                  </div>
+                </div>
+                {submitError && <div className="mt-3 text-xs text-rose-600">{submitError}</div>}
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Button
+                    onClick={async()=>{
+                      const first = contact.firstName.trim();
+                      const last = contact.lastName.trim();
+                      const email = contact.email.trim();
+                      const phone = contact.phone.trim();
+                      if (!first || !last || !email || !phone) {
+                        setSubmitError('All fields are required.');
+                        return;
+                      }
+                      const emailValid = /@/.test(email);
+                      if (!emailValid) {
+                        setSubmitError('Please enter a valid email.');
+                        return;
+                      }
+                      setSubmitError('');
+                      setSubmitting(true);
+                      try {
+                        await api.post('/support/send', {
+                          type: 'demo_setup',
+                          values: {
+                            first_name: first,
+                            last_name: last,
+                            email,
+                            phone,
+                            business_name: brief.businessName,
+                            vibe: brief.vibe,
+                            primary_color: brief.primaryColor,
+                            service_type: brief.serviceType,
+                          },
+                        });
+                        setSubmitted(true);
+                        track('demo_contact_submitted');
+                      } catch (err: any) {
+                        const message = String(err?.message || err || 'Unable to send right now.');
+                        setSubmitError(message);
+                        track('demo_contact_failed', { reason: message });
+                      } finally {
+                        setSubmitting(false);
+                      }
+                    }}
+                    disabled={submitting}
+                  >
+                    {submitting ? 'Sending…' : 'Send'}
+                  </Button>
+                  <Button variant="outline" onClick={()=> setStep(3)} disabled={submitting}>Back</Button>
+                </div>
+              </>
+            ) : (
+              <div className="text-center">
+                <div className="mx-auto mb-3 h-12 w-12 rounded-full bg-emerald-100 text-emerald-700 grid place-items-center text-xl">✓</div>
+                <h3 className="text-xl font-semibold text-slate-900">Thanks! We’ll reach out soon.</h3>
+                <p className="mt-2 text-sm text-slate-700">We’ll email you with onboarding help, feature updates, and ways to make brandVX work even faster for you.</p>
+                <div className="mt-4 flex flex-wrap justify-center gap-2">
+                  <ButtonLink href="/onboarding">Start full onboarding</ButtonLink>
+                  <Button variant="outline" onClick={()=> { setStep(1); setSubmitted(false); }}>Restart demo</Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
-
-
