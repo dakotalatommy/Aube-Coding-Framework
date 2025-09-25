@@ -4628,7 +4628,7 @@ async def ai_chat_raw(
     reply_max_tokens = int(os.getenv("AI_CHAT_MAX_TOKENS", "1600"))
     base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
     model = os.getenv("OPENAI_MODEL", "gpt-5")
-same     api_key = (os.getenv("OPENAI_API_KEY", "") or "").strip()
+    api_key = (os.getenv("OPENAI_API_KEY", "") or "").strip()
     if not api_key:
         from fastapi.responses import JSONResponse as _JR
         return _JR({"error": "provider_error", "detail": "missing_openai_key"}, status_code=200)
