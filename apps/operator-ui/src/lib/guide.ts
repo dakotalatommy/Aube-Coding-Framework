@@ -225,8 +225,8 @@ const founderSlides = [
     html: '<p>brandVX is designed to help you optimize your business, save time, and generate more revenue. It grows with you — as a CEO, brand, salesperson, content-creator, and <strong>person</strong> — by accelerating every aspect of your passion. We are in open beta with 1,000 users and will keep shipping new features weekly. If you need anything, email <strong>support@aubecreativelabs.com</strong>.</p>',
   },
   {
-    title: 'Let’s stay in touch',
-    html: '<p>I appreciate you trying brandVX and would love any feedback. Drop your contact info below and I will personally reach out to thank you. Go be great!</p><div class="mt-3 grid gap-2">\n  <label class="grid gap-1 text-sm">\n    <span class="text-xs uppercase tracking-wide text-slate-500">Email</span>\n    <input type="email" data-founder-email class="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="you@example.com"/>\n    <div class="text-[11px] text-rose-600 hidden" data-founder-email-error>Enter a valid email or leave blank.</div>\n  </label>\n  <label class="grid gap-1 text-sm">\n    <span class="text-xs uppercase tracking-wide text-slate-500">Phone</span>\n    <input type="tel" data-founder-phone class="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="(555) 555-5555"/>\n    <div class="text-[11px] text-rose-600 hidden" data-founder-phone-error>Use 7–15 digits (numbers, spaces, dashes, + allowed) or leave blank.</div>\n  </label>\n  <div class="text-[11px] text-slate-500">Optional — share either email or phone if you’d like me to follow up.</div>\n</div>',
+    title: 'Let's stay in touch',
+    html: '<p>I appreciate you trying brandVX and would love any feedback. Drop your contact info below and I will personally reach out to thank you. Go be great!</p><div class="mt-3 grid gap-2">\n  <label class="grid gap-1 text-sm">\n    <span class="text-xs uppercase tracking-wide text-slate-500">Email</span>\n    <input type="email" data-founder-email class="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="you@example.com"/>\n    <div class="text-[11px] text-rose-600 hidden" data-founder-email-error>Enter a valid email or leave blank.</div>\n  </label>\n  <label class="grid gap-1 text-sm">\n    <span class="text-xs uppercase tracking-wide text-slate-500">Phone</span>\n    <input type="tel" data-founder-phone class="rounded-xl border border-slate-200 px-3 py-2 text-sm" placeholder="(555) 555-5555"/>\n    <div class="text-[11px] text-rose-600 hidden" data-founder-phone-error>Use 7–15 digits (numbers, spaces, dashes, + allowed) or leave blank.</div>\n  </label>\n  <div class="text-[11px] text-slate-500">Optional — share either email or phone if you'd like me to follow up.</div>\n</div>',
   },
 ];
 
@@ -234,12 +234,12 @@ const registry: Record<string, GuideStep[]> = {
   workspace_intro: [
     { element: '[data-tour="nav-dashboard"]', popover: { title: 'Dashboard', description: 'Check your most important metrics, know the next best steps to take, and see the priority action to take today.' } },
     { element: '[data-tour="nav-askvx"]', popover: { title: 'askVX', description: 'Ask general — ask any question about branding, marketing, or the beauty industry. You can also train brandVX on how you run your business.' } },
-    { element: '[data-tour="nav-vision"]', popover: { title: 'brandVZN', description: 'The easiest professional photo editor you’ve ever used. Showcase different looks and make basic photo edits with ease.' } },
-    { element: '[data-tour="nav-messages"]', popover: { title: 'Messages', description: 'Draft messages in your brand’s voice for clients in bulk. Currently supports creation; text sending support is coming soon.' } },
+    { element: '[data-tour="nav-vision"]', popover: { title: 'brandVZN', description: 'The easiest professional photo editor you've ever used. Showcase different looks and make basic photo edits with ease.' } },
+    { element: '[data-tour="nav-messages"]', popover: { title: 'Messages', description: 'Draft messages in your brand's voice for clients in bulk. Currently supports creation; text sending support is coming soon.' } },
     { element: '[data-tour="nav-contacts"]', popover: { title: 'Clients', description: 'Search your clients to view their individual information, and send quick messages.' } },
     { element: '[data-tour="nav-calendar"]', popover: { title: 'Calendar', description: 'View all of your appointments and important events across your booking and Google Calendar.' } },
-    { element: '[data-tour="nav-cadences"]', popover: { title: 'Follow‑ups', description: 'Easily follow up with who you need to, when you need to, so you don’t miss any clients ever again.' } },
-    { element: '[data-tour="nav-inventory"]', popover: { title: 'Inventory', description: 'Connect your inventory for basic management. Inventory is in beta; we’ll expand this feature soon.' } },
+    { element: '[data-tour="nav-cadences"]', popover: { title: 'Follow‑ups', description: 'Easily follow up with who you need to, when you need to, so you don't miss any clients ever again.' } },
+    { element: '[data-tour="nav-inventory"]', popover: { title: 'Inventory', description: 'Connect your inventory for basic management. Inventory is in beta; we'll expand this feature soon.' } },
     { element: '[data-tour="nav-approvals"]', popover: { title: 'To‑Do', description: 'See all of your notifications, follow‑ups, and anything that needs your approval in brandVX.' } },
     { element: '[data-tour="nav-integrations"]', popover: { title: 'Settings', description: 'Manage your brandVX settings.' } },
     { element: '[data-tour="book-onboarding"]', popover: { title: 'Book onboarding', description: 'For an in‑depth walk‑through with one of our founders, click Book onboarding to open our schedule and set a time.' } },
@@ -247,12 +247,12 @@ const registry: Record<string, GuideStep[]> = {
   onboarding: [
     { element: '[data-tour="steps"]', popover: { title: 'Steps', description: 'Personalize your brandVX — you can jump around anytime.' } },
     { element: '[data-tour="connect"]', popover: { title: 'Connect tools', description: 'Link booking, messages, payments, and CRM. We keep it human.' } },
-    { element: '[data-tour="analyze"]', popover: { title: 'Analyze', description: 'Run a quick analysis to see what’s configured.' } },
+    { element: '[data-tour="analyze"]', popover: { title: 'Analyze', description: 'Run a quick analysis to see what's configured.' } },
     { element: '[data-tour="cta"]', popover: { title: 'Ready when you are', description: 'White‑glove or self-serve — you approve everything.' } },
   ],
   dashboard: [
     // Centered welcome as step 0
-    { popover: { title: 'Welcome to brandVX', description: 'Let’s do a quick walk‑through of your workspace, then get you running our 3 most powerful features.', centered: true, showButtons: ['next'], nextBtnText: 'Start' } },
+    { popover: { title: 'Welcome to brandVX', description: 'Let's do a quick walk‑through of your workspace, then get you running our 3 most powerful features.', centered: true, showButtons: ['next'], nextBtnText: 'Start' } },
     { element: '[data-tour="nav-dashboard"]', popover: { title: 'Dashboard', description: 'Check KPIs, quick start wins, and your 14-day plan progress.' } },
     { element: '[data-tour="nav-askvx"]', popover: { title: 'askVX', description: 'Ask in your voice. We suggest safe actions; you approve everything.' } },
     { element: '[data-tour="nav-vision"]', popover: { title: 'brandVZN', description: 'Upload, analyze, and refine with natural, texture-safe edits.' } },
@@ -263,7 +263,7 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-tour="nav-inventory"]', popover: { title: 'Inventory', description: 'Sync Shopify/Square; spot low or out-of-stock products quickly.' } },
     { element: '[data-tour="nav-approvals"]', popover: { title: 'To-Do', description: 'Approve drafts and actions in one place.' } },
     { element: '[data-tour="nav-integrations"]', popover: { title: 'Settings', description: 'Connect Square, Acuity, Google, and more.' } },
-    { element: '[data-tour="book-onboarding"]', popover: { title: 'Book Onboarding', description: 'Schedule a 1-on-1 to go deeper whenever you’re ready.' } },
+    { element: '[data-tour="book-onboarding"]', popover: { title: 'Book Onboarding', description: 'Schedule a 1-on-1 to go deeper whenever you're ready.' } },
     { element: '#tour-billing-anchor', popover: { title: 'Choose your plan', description: 'Unlock the workspace with a founding plan or free trial.', centered: true, showButtons: ['previous','next'], nextBtnText: 'Next', allowClicks: true, onPopoverRender: (dom: any) => {
       try {
         const host = dom?.popover || dom?.wrapper;
@@ -293,7 +293,7 @@ const registry: Record<string, GuideStep[]> = {
       element: '[data-guide="quickstart-brandvzn"]',
       popover: {
         title: 'Guided Walk‑through',
-        description: 'Let’s showcase three of brandVX’s most powerful features.<div class="mt-3"><button class="bvx-onboard-btn" data-open-vision>Open brandVZN</button></div>',
+        description: 'Let's showcase three of brandVX's most powerful features.<div class="mt-3"><button class="bvx-onboard-btn" data-open-vision>Open brandVZN</button></div>',
         centered: true,
         showButtons: ['previous'],
         onPopoverRender: (dom: any) => {
@@ -320,8 +320,8 @@ const registry: Record<string, GuideStep[]> = {
       },
     },
     // Centered intro on Vision to avoid anchoring races right after navigation
-    { popover: { title: 'brandVZN', description: 'Let’s do a quick color change so you can see how edits work. Then we’ll continue the tour.', centered: true, showButtons: ['previous', 'next'], nextBtnText: 'Next' } },
-    { element: '[data-guide="upload"]', popover: { title: 'Upload a look', description: 'Pick a photo that shows the subject’s face and hair, then press Upload.', allowClicks: true, onPopoverRender: () => { try { const id='bvx-driver-pe'; if (!document.getElementById(id)) { const s=document.createElement('style'); s.id=id; s.textContent = `.driver-overlay{ pointer-events:none !important; } .driver-stage{ pointer-events:none !important; background: transparent !important; }`; document.head.appendChild(s); } } catch {} } } },
+    { popover: { title: 'brandVZN', description: 'Let's do a quick color change so you can see how edits work. Then we'll continue the tour.', centered: true, showButtons: ['previous', 'next'], nextBtnText: 'Next' } },
+    { element: '[data-guide="upload"]', popover: { title: 'Upload a look', description: 'Pick a photo that shows the subject's face and hair, then press Upload.', allowClicks: true, onPopoverRender: () => { try { const id='bvx-driver-pe'; if (!document.getElementById(id)) { const s=document.createElement('style'); s.id=id; s.textContent = `.driver-overlay{ pointer-events:none !important; } .driver-stage{ pointer-events:none !important; background: transparent !important; }`; document.head.appendChild(s); } } catch {} } } },
     {
       popover: {
         title: 'Select a color',
@@ -336,11 +336,11 @@ const registry: Record<string, GuideStep[]> = {
         showButtons: ['previous','next'],
         onPopoverRender: (dom: any) => {
           const palette: Record<string, string> = {
-            copper: 'Change the subject’s hair to a warm copper tone.',
-            espresso: 'Change the subject’s hair to a rich espresso brown.',
-            platinum: 'Change the subject’s hair to a bright platinum blonde.',
-            rose: 'Change the subject’s hair to a shiny rose gold.',
-            jet: 'Change the subject’s hair to a glossy jet black.',
+            copper: 'Change the subject's hair to a warm copper tone.',
+            espresso: 'Change the subject's hair to a rich espresso brown.',
+            platinum: 'Change the subject's hair to a bright platinum blonde.',
+            rose: 'Change the subject's hair to a shiny rose gold.',
+            jet: 'Change the subject's hair to a glossy jet black.',
           };
           const buttons = Array.from(dom?.wrapper?.querySelectorAll?.('.bvx-color-btn') ?? []) as HTMLElement[];
           buttons.forEach((btn) => {
@@ -370,7 +370,7 @@ const registry: Record<string, GuideStep[]> = {
     {
       popover: {
         title: 'Iterate anytime',
-        description: 'Re-run Run Edit to refine the look as many times as you’d like.',
+        description: 'Re-run Run Edit to refine the look as many times as you'd like.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Next',
       },
@@ -475,12 +475,12 @@ const registry: Record<string, GuideStep[]> = {
       },
     },
     // Centered intro on Contacts to stabilize first step after navigation
-    { popover: { title: 'Contacts', description: 'We’ll import your guests so AskVX can analyze recent revenue and surface top clients.', centered: true, showButtons: ['previous', 'next'], nextBtnText: 'Next' } },
+    { popover: { title: 'Contacts', description: 'We'll import your guests so AskVX can analyze recent revenue and surface top clients.', centered: true, showButtons: ['previous', 'next'], nextBtnText: 'Next' } },
     {
       element: '[data-guide="clients-import-status"]',
       popover: {
         title: 'Import status',
-        description: 'We’ll show your latest import status here. If something fails you can retry or skip ahead.',
+        description: 'We'll show your latest import status here. If something fails you can retry or skip ahead.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Continue',
         onPopoverRender: (_dom: any) => {
@@ -496,7 +496,7 @@ const registry: Record<string, GuideStep[]> = {
     {
       popover: {
         title: 'Next: askVX',
-        description: 'We’ll grab a revenue snapshot and build a strategy next.',
+        description: 'We'll grab a revenue snapshot and build a strategy next.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Go to askVX',
         onNextClick: (_element, _step, { driver }) => {
@@ -516,14 +516,14 @@ const registry: Record<string, GuideStep[]> = {
       },
     },
     // Centered intro on AskVX to orient users after navigation
-    { popover: { title: 'askVX', description: 'We’ll load a prompt that summarizes your last 3 months revenue and top 3 clients. You’ll press Send to run it.', centered: true, showButtons: ['previous', 'next'], nextBtnText: 'Next' } },
-    { element: '[data-guide="askvx-import-count"]', popover: { title: 'Imported contacts', description: 'Here’s the new contact count from your booking sync.', showButtons: ['previous', 'next'] } },
+    { element: '#tour-center-anchor', popover: { title: 'askVX', description: 'We'll load a prompt that summarizes your last 3 months revenue and top 3 clients. You'll press Send to run it.', centered: true, showButtons: ['previous', 'next'], nextBtnText: 'Next' } },
+    { element: '[data-guide="askvx-import-count"]', popover: { title: 'Imported contacts', description: 'Here's the new contact count from your booking sync.', showButtons: ['previous', 'next'] } },
     { element: '[data-guide="askvx-digest"]', popover: { title: 'Since your last visit', description: 'Keep an eye on fresh contacts, appointments, and messages.', showButtons: ['previous', 'next'] } },
     {
       element: '[data-guide="composer"]',
       popover: {
         title: 'Review the insights prompt',
-        description: 'We queued a summary prompt so it’s ready to send. Tweak anything you’d like, then continue.',
+        description: 'We queued a summary prompt so it's ready to send. Tweak anything you'd like, then continue.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Next',
         allowClicks: true,
@@ -538,6 +538,10 @@ const registry: Record<string, GuideStep[]> = {
       },
       onExit: (ctx) => {
         try {
+          if ((window as any).__bvxInsightsPrefilled) return;
+          (window as any).__bvxInsightsPrefilled = true;
+          const summary = (window as any).__bvxAskInsights?.summary || null;
+          const prompt = (window as any).__bvxAskInsights?.prompt || '';
           window.dispatchEvent(
             new CustomEvent('bvx:ask:prefill', {
               detail: {
@@ -545,6 +549,8 @@ const registry: Record<string, GuideStep[]> = {
                 source: 'tour',
                 step: typeof ctx?.index === 'number' ? ctx.index : 36,
                 at: Date.now(),
+                payload: summary,
+                visible: prompt,
               },
             })
           );
@@ -561,12 +567,12 @@ const registry: Record<string, GuideStep[]> = {
         allowClicks: true,
       },
     },
-    { element: '[data-guide="messages"]', popover: { title: 'Waiting for reply', description: 'We’ll highlight the conversation while AskVX responds.', showButtons: ['previous', 'next'], nextBtnText: 'Continue', allowClicks: true } },
+    { element: '[data-guide="messages"]', popover: { title: 'Waiting for reply', description: 'We'll highlight the conversation while AskVX responds.', showButtons: ['previous', 'next'], nextBtnText: 'Continue', allowClicks: true } },
     {
       element: '[data-guide="askvx-strategy"]',
       popover: {
         title: 'Plan your next 14 days',
-        description: 'We’ll outline what’s next and then prepare a strategy prompt for you to send.',
+        description: 'We'll outline what's next and then prepare a strategy prompt for you to send.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Ready',
         onNextClick: (_element, _step, { driver }) => {
@@ -584,13 +590,18 @@ const registry: Record<string, GuideStep[]> = {
       element: '[data-guide="composer"]',
       popover: {
         title: 'Send the strategy prompt',
-        description: 'We queued the 14-day strategy prompt so it’s ready to review and send.',
+        description: 'We queued the 14-day strategy prompt so it's ready to review and send.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Next',
         allowClicks: true,
       },
       onExit: (ctx) => {
         try {
+          if ((window as any).__bvxStrategyPrefilled) return;
+          (window as any).__bvxStrategyPrefilled = true;
+          const snapshot = (window as any).__bvxAskInsights?.summary || null;
+          const brand = (window as any).__bvxBrandContext || null;
+          const prompt = typeof (window as any).__bvxStrategyPrompt === 'string' ? (window as any).__bvxStrategyPrompt : '';
           window.dispatchEvent(
             new CustomEvent('bvx:ask:prefill', {
               detail: {
@@ -598,18 +609,20 @@ const registry: Record<string, GuideStep[]> = {
                 source: 'tour',
                 step: typeof ctx?.index === 'number' ? ctx.index : 40,
                 at: Date.now(),
+                payload: { snapshot, brand },
+                visible: prompt,
               },
             })
           );
         } catch {}
       },
     },
-    { element: '[data-guide="messages"]', popover: { title: 'Waiting for reply', description: 'We’ll highlight the conversation while AskVX drafts your 14‑day plan.', showButtons: ['previous', 'next'], nextBtnText: 'Continue', allowClicks: true } },
+    { element: '[data-guide="messages"]', popover: { title: 'Waiting for reply', description: 'We'll highlight the conversation while AskVX drafts your 14‑day plan.', showButtons: ['previous', 'next'], nextBtnText: 'Continue', allowClicks: true } },
     {
       element: '#tour-welcome-anchor',
       popover: {
         title: 'Build your 14‑day strategy',
-        description: 'Generate and download the Markdown plan. We’ll also save it to your memory.\n\n<div class="mt-3"><button class="bvx-onboard-btn" data-onboard-generate>Generate & Download</button></div>',
+        description: 'Generate and download the Markdown plan. We'll also save it to your memory.\n\n<div class="mt-3"><button class="bvx-onboard-btn" data-onboard-generate>Generate & Download</button></div>',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Next',
         allowClicks: true,
@@ -681,7 +694,7 @@ const registry: Record<string, GuideStep[]> = {
         },
       },
     },
-    { element: '[data-guide="trainvx-notes"]', popover: { title: 'Add a brand fact', description: 'Type a tone note or preference, then press “Save to training”.', showButtons: ['previous', 'next'], allowClicks: true } },
+    { element: '[data-guide="trainvx-notes"]', popover: { title: 'Add a brand fact', description: 'Type a tone note or preference, then press "Save to training".', showButtons: ['previous', 'next'], allowClicks: true } },
     {
       element: '[data-guide="trainvx-profile"]',
       popover: {
@@ -733,8 +746,8 @@ const registry: Record<string, GuideStep[]> = {
     { popover: { title: 'Beta note', description: 'Sending will be enabled soon. For now, use Copy recipients + Copy message and Mark as sent.' } },
   ],
   cadences: [
-    { popover: { title: 'Follow‑ups', description: 'Set up human‑feel follow‑ups. “Update follow‑ups” processes due steps and respects quiet hours.' } },
-    { element: '[data-guide="kpis"]', popover: { title: 'Coverage', description: 'See how many contacts are in each step and what’s next.' } },
+    { popover: { title: 'Follow‑ups', description: 'Set up human‑feel follow‑ups. "Update follow‑ups" processes due steps and respects quiet hours.' } },
+    { element: '[data-guide="kpis"]', popover: { title: 'Coverage', description: 'See how many contacts are in each step and what's next.' } },
     { element: '[data-guide="send-form"]', popover: { title: 'Compose & guardrails', description: 'STOP/HELP, quiet hours, and approvals (if auto‑approve is off) are always respected.' } },
     { element: '[data-guide="actions"]', popover: { title: 'Start / Stop', description: 'Start or stop a follow‑up anytime; some steps may queue Approvals.' } },
   ],
@@ -1077,7 +1090,7 @@ export function startGuide(page: string, _opts?: { step?: number }) {
       const restoreFounderFieldsIfNeeded = (cfg: any) => {
         if (!cfg) return;
         const title = String(cfg.title || '').toLowerCase();
-        const isFounder = title.includes('let’s stay in touch') || title.includes("let's stay in touch");
+        const isFounder = title.includes('let's stay in touch') || title.includes("let's stay in touch");
         if (isFounder) initFounderFormStep();
       };
 
@@ -1275,7 +1288,7 @@ export function startGuide(page: string, _opts?: { step?: number }) {
           const idx = state?.activeIndex ?? -1;
           const cfg = (instance as any)?._options?.steps?.[idx]?.popover || {};
           const title = String(cfg?.title || '').toLowerCase();
-          if (title.includes('let’s stay in touch') || title.includes("let's stay in touch")) {
+          if (title.includes('let's stay in touch') || title.includes("let's stay in touch")) {
             const { valid, state: formState } = validateFounderForm({ showErrors: true });
             if (!valid) {
               try { instance.movePrevious?.(); } catch {}

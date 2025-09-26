@@ -41,6 +41,7 @@ export default function Messages(){
   const [bucket, setBucket] = useState<string>('lead_followup');
   const [mdUrl, setMdUrl] = useState<string>('');
   const [followupsInfo, setFollowupsInfo] = useState<{ bucket:string; ids:string[]; ts:number }|null>(null);
+  const [pendingFollowups, setPendingFollowups] = useState<any>(null);
 
   const format12h = (hhmm?: string) => {
     try{
@@ -64,7 +65,7 @@ export default function Messages(){
   },[]);
 
   const presets = [
-    { label:'Reminder 24h', body:'Hey {FirstName} — see you tomorrow at {Time}. Need to change it? Tap here. Reply STOP/HELP to opt out.' },
+    { label:'Reminder 24h', body:'Hey {FirstName} — see you tomorrow at {Time}. Need to change it? Tap here.' },
     { label:'Waitlist open', body:'A spot opened for {Service} at {Time}. Want it? Reply YES and we’ll lock it in.' },
     { label:'Lead follow‑up', body:"Hi! I saw you were looking at {Service}. I'd be happy to answer any questions or get you scheduled!" },
   ];
@@ -104,27 +105,35 @@ export default function Messages(){
       const raw = sessionStorage.getItem('bvx_followups_bundle');
       if (raw) {
         const obj = JSON.parse(raw);
-        if (obj && Array.isArray(obj.ids)) {
-          setFollowupsInfo({ bucket: String(obj.bucket||'lead_followup'), ids: obj.ids.map(String), ts: Number(obj.ts||Date.now()) });
-          // Prefill SMS body based on bucket
-          const baseMap: Record<string,string> = {
-            reminder_24h: 'Hey {FirstName} — see you tomorrow. Need to change it? Tap here.',
-            waitlist_open: 'A spot opened for {Service} at {Time}. Want it? Reply YES and I’ll lock it in.',
-            lead_followup: 'Hi! I saw you were looking at {Service}. I’d be happy to help or get you scheduled!',
-            reengage_30d: 'Hey {FirstName}! It’s been about a month — want me to hold a spot this week?',
-            winback_45d: 'Hi {FirstName}! I’ve got a couple of times open — want to refresh your look?',
-            no_show_followup: 'We missed you! Want to pick a new time? I can share options.',
-            first_time_nurture: 'Welcome! I’d love to see you again — want me to send a few dates?'
-          };
-          setBucket(String(obj.bucket||'lead_followup'));
-          const body = baseMap[String(obj.bucket||'lead_followup')] || baseMap.lead_followup;
-          setSend(s=> ({ ...s, channel:'sms', body }));
-        }
-        // Clear after reading to avoid duplication on back/forward
         sessionStorage.removeItem('bvx_followups_bundle');
+        setPendingFollowups(obj);
       }
     } catch {}
   },[]);
+
+  useEffect(()=>{
+    if (!pendingFollowups) return;
+    if (!Array.isArray(pendingFollowups.ids)) return;
+    const ids = pendingFollowups.ids.map((id: any)=> String(id));
+    setFollowupsInfo({ bucket: String(pendingFollowups.bucket || 'lead_followup'), ids, ts: Number(pendingFollowups.ts || Date.now()) });
+    setBucket(String(pendingFollowups.bucket || 'lead_followup'));
+    if (pendingFollowups.markdown) {
+      setSend(s=> ({ ...s, channel:'sms', body: String(pendingFollowups.markdown) }));
+      try { if (mdUrl) URL.revokeObjectURL(mdUrl); } catch {}
+      try {
+        const blob = new Blob([String(pendingFollowups.markdown)], { type:'text/markdown;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        setMdUrl(url);
+      } catch {}
+    }
+    if (!allClients.length) return;
+    const matches = allClients.filter(c=> ids.includes(c.id));
+    if (matches.length) {
+      setSelectedRecipients(matches);
+      setSelectedRecipient(null);
+    }
+    setPendingFollowups(null);
+  }, [pendingFollowups, allClients, mdUrl]);
 
   // simulate kept for dev; currently unused after UI simplification
   // simulate removed entirely in simplified UI
@@ -392,4 +401,3 @@ export default function Messages(){
     </>
   );
 }
-

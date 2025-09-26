@@ -2312,52 +2312,72 @@ REGISTRY.update(
 
 # ---------------------- Tool Registry Metadata & Schema ----------------------
 
-TOOL_META: Dict[str, Dict[str, Any]] = {
-    "todo.enqueue": {"public": True, "description": "Create a To‑Do item for review.", "params": {"tenant_id": "string", "type": "string", "message": "string?", "severity": {"enum":["info","warn","error"]}, "payload": "object?", "idempotency_key": "string?"}},
-    "draft_message": {"public": True, "description": "Draft a first outreach message respecting consent and tone.", "params": {"tenant_id": "string", "contact_id": "string", "channel": {"enum": ["sms", "email"]}, "service": "string?"}},
-    "pricing_model": {"public": True, "description": "Compute effective hourly and margin from inputs.", "params": {"tenant_id": "string", "price": "number", "product_cost": "number", "service_time_minutes": "number"}},
-    "safety_check": {"public": True, "description": "Review text for compliance/PII and suggest safe rewrites.", "params": {"tenant_id": "string", "text": "string"}},
-    "propose_next_cadence_step": {"public": True, "description": "Propose the next cadence step for a contact.", "params": {"tenant_id": "string", "contact_id": "string", "cadence_id": "string"}},
-    "contacts.dedupe": {"public": True, "description": "Mark duplicate contacts as deleted by matching email/phone.", "params": {"tenant_id": "string"}},
-    "contacts.list.top_ltv": {"public": True, "description": "List top contacts by lifetime value.", "params": {"tenant_id": "string", "limit": "number?"}},
-    "contacts.import.square": {"public": True, "description": "Import contacts from Square.", "params": {"tenant_id": "string"}},
-    "square.backfill": {"public": True, "description": "Backfill Square payments metrics to contacts.", "params": {"tenant_id": "string"}},
-    "crm.hubspot.import": {"public": True, "description": "Import sample contacts from HubSpot.", "params": {"tenant_id": "string"}},
-    "oauth.refresh": {"public": True, "description": "Refresh an OAuth provider token.", "params": {"tenant_id": "string", "provider": "string"}},
-    "connectors.cleanup": {"public": True, "description": "Cleanup blank/invalid connector rows (v2).", "params": {"tenant_id": "string"}},
-    "connectors.normalize": {"public": True, "description": "Migrate legacy connectors and dedupe v2.", "params": {"tenant_id": "string"}},
-    "calendar.sync": {"public": True, "description": "Sync unified calendar (Google/Apple/bookings).", "params": {"tenant_id": "string", "provider": "string?"}},
-    "calendar.merge": {"public": True, "description": "Merge duplicate calendar events by title/time.", "params": {"tenant_id": "string"}},
-    "calendar.reschedule": {"public": True, "description": "Reschedule an appointment by ref or provider id.", "params": {"tenant_id": "string", "external_ref": "string?", "provider": "string?", "provider_event_id": "string?", "start_ts": "number", "end_ts": "number?"}},
-    "calendar.cancel": {"public": True, "description": "Cancel an appointment by ref or provider id.", "params": {"tenant_id": "string", "external_ref": "string?", "provider": "string?", "provider_event_id": "string?"}},
-    "campaigns.dormant.preview": {"public": True, "description": "Preview dormant segment size by threshold.", "params": {"tenant_id": "string", "threshold_days": "number?"}},
-    "campaigns.dormant.start": {"public": True, "description": "Start dormant outreach cadence for candidates.", "params": {"tenant_id": "string", "threshold_days": "number?"}},
-    "appointments.schedule_reminders": {"public": True, "description": "Schedule reminder triggers (7d/3d/1d/0).", "params": {"tenant_id": "string"}},
-    "inventory.alerts.get": {"public": True, "description": "Fetch low-stock items.", "params": {"tenant_id": "string", "low_stock_threshold": "number?"}},
-    "export.contacts": {"public": True, "description": "Export contacts CSV.", "params": {"tenant_id": "string"}},
-    # Messaging send (explicit send dispatch; gated by mode/approvals in caller)
-    "messages.send": {"public": True, "description": "Send a message via the configured channel (RBAC/approvals apply).", "params": {"tenant_id": "string", "contact_id": "string", "channel": {"enum": ["sms", "email"]}, "subject": "string?", "body": "string"}},
-    "social.schedule.14days": {"public": True, "description": "Draft social content plan for 14 days.", "params": {"tenant_id": "string"}},
-    "db.query.sql": {"public": True, "description": "Run a read-only SQL select against allow-listed tables.", "params": {"tenant_id": "string", "sql": "string", "limit": "number?"}},
-    "db.query.named": {"public": True, "description": "Run a named, read-only query.", "params": {"tenant_id": "string", "name": "string", "params": "object?"}},
-    "report.generate.csv": {"public": True, "description": "Generate a CSV for a supported source (named query).", "params": {"tenant_id": "string", "source": "string", "params": "object?"}},
-    "pii.audit": {"public": True, "description": "Audit text for PII/compliance issues and suggest safe rewrites.", "params": {"tenant_id": "string", "text": "string"}},
-    "vision.inspect": {"public": True, "description": "Analyze image for lighting, colors, quality, and cues.", "params": {"tenant_id": "string", "imageUrl": "string?", "inputImageBase64": "string?", "return": "array?"}},
-    "image.edit": {"public": True, "description": "Gemini edit (Nano Banana-like) with texture-safe prompts.", "params": {"tenant_id": "string", "mode": {"enum": ["edit"]}, "prompt": "string", "inputImageBase64": "string?", "imageUrl": "string?", "outputFormat": "string?"}},
-    "brand.vision.analyze": {"public": True, "description": "Analyze Instagram brand presence and save to brand_profile.", "params": {"tenant_id": "string", "sample": "number?"}},
-    "social.fetch_profile": {"public": True, "description": "Fetch public profile metadata.", "params": {"tenant_id": "string", "url": "string"}},
-    "social.scrape_posts": {"public": True, "description": "Scrape recent public post thumbnails (best-effort).", "params": {"tenant_id": "string", "url": "string", "limit": "number?"}},
-    "memories.remember": {"public": True, "description": "Persist a short memory for AskVX boot.", "params": {"tenant_id": "string", "key": "string", "value": "string", "tags": "string?"}},
+TOOL_META: Dict[str, Dict[str, object]] = {
+    "draft_message": {"label": "Draft outreach message", "category": "Messaging", "summary": "Draft a first outreach message aligned to brand tone."},
+    "messages.send": {"label": "Send message", "category": "Messaging", "summary": "Send SMS or email via connected providers.", "requires_approval": True},
+    "appointments.schedule_reminders": {"label": "Schedule appointment reminders", "category": "Messaging", "summary": "Queue 7d/3d/1d/0 reminders."},
+    "safety_check": {"label": "Check text for safety", "category": "Compliance", "summary": "Scan text for PII/compliance issues."},
+    "pii.audit": {"label": "Audit text for PII", "category": "Compliance", "summary": "Recommend safe substitutions for PII."},
+    "pricing_model": {"label": "Calculate pricing & margins", "category": "Analytics", "summary": "Compute hourly rate and margin from price/cost/time."},
+    "contacts.list.top_ltv": {"label": "List top clients by LTV", "category": "Analytics", "summary": "List top clients using full names."},
+    "campaigns.dormant.preview": {"label": "Preview dormant clients", "category": "CRM", "summary": "Preview size of dormant cohort."},
+    "campaigns.dormant.start": {"label": "Start dormant outreach", "category": "CRM", "summary": "Trigger dormant outreach cadence.", "requires_approval": True},
+    "propose_next_cadence_step": {"label": "Propose next cadence step", "category": "CRM", "summary": "Suggest the next cadence action."},
+    "export.contacts": {"label": "Export contacts CSV", "category": "Data", "summary": "Download contacts CSV."},
+    "db.query.named": {"label": "Run saved report", "category": "Data", "summary": "Run a named read-only SQL report."},
+    "db.query.sql": {"label": "Run SQL (read-only)", "category": "Data", "summary": "Execute an allow-listed read-only SQL query."},
+    "report.generate.csv": {"label": "Generate CSV from report", "category": "Data", "summary": "Generate CSV export for a report."},
+    "social.schedule.14days": {"label": "Plan 14-day social calendar", "category": "Social", "summary": "Draft 14-day social plan."},
+    "social.fetch_profile": {"label": "Fetch social profile", "category": "Social", "summary": "Fetch public profile metadata."},
+    "social.scrape_posts": {"label": "Scrape recent posts", "category": "Social", "summary": "Scrape thumbnails/links."},
+    "calendar.sync": {"label": "Sync calendar", "category": "Calendar", "summary": "Sync Google/booking calendars."},
+    "calendar.merge": {"label": "Merge duplicate events", "category": "Calendar", "summary": "Merge duplicate events by title/time."},
+    "calendar.reschedule": {"label": "Reschedule appointment", "category": "Calendar", "summary": "Reschedule using provider identifiers."},
+    "calendar.cancel": {"label": "Cancel appointment", "category": "Calendar", "summary": "Cancel a booking via provider."},
+    "contacts.import.square": {"label": "Import from Square", "category": "Integrations", "summary": "Import contacts from Square."},
+    "crm.hubspot.import": {"label": "Import from HubSpot", "category": "Integrations", "summary": "Import sample contacts from HubSpot."},
+    "link.hubspot.signup": {"label": "Link HubSpot", "category": "Integrations", "summary": "Start HubSpot signup."},
+    "oauth.hubspot.connect": {"label": "Connect HubSpot", "category": "Integrations", "summary": "Authorize HubSpot OAuth."},
+    "oauth.refresh": {"label": "Refresh OAuth token", "category": "Integrations", "summary": "Refresh provider token."},
+    "vision.inspect": {"label": "Analyze an image", "category": "Vision", "summary": "Analyze image lighting/color."},
+    "image.edit": {"label": "Edit an image", "category": "Vision", "summary": "Apply Gemini edits to an image."},
+    "brand.vision.analyze": {"label": "Analyze social brand", "category": "Vision", "summary": "Assess Instagram presence."},
+    "todo.enqueue": {"label": "Create to-do", "category": "Operations", "summary": "Queue a task for review."},
+    "memories.remember": {"label": "Save brand memory", "category": "Operations", "summary": "Persist brand note for AskVX."},
 }
 
+SAFE_TOOLS = {
+    "db.query.named", "db.query.sql", "report.generate.csv", "contacts.list.top_ltv",
+    "campaigns.dormant.preview", "pricing_model", "pii.audit", "safety_check",
+    "calendar.sync", "calendar.merge", "calendar.reschedule", "calendar.cancel",
+    "appointments.schedule_reminders", "social.schedule.14days", "social.fetch_profile", "social.scrape_posts",
+    "contacts.import.square", "crm.hubspot.import", "link.hubspot.signup", "oauth.hubspot.connect", "oauth.refresh",
+    "vision.inspect", "image.edit", "brand.vision.analyze", "todo.enqueue", "memories.remember"
+}
 
-def tools_schema() -> Dict[str, Any]:
-    out: List[Dict[str, Any]] = []
-    for name, meta in TOOL_META.items():
-        out.append({
-            "name": name,
-            "public": bool(meta.get("public", True)),
-            "description": meta.get("description", ""),
-            "params": meta.get("params", {}),
+HUMAN_TOOL_SCHEMA = [
+    {
+        "id": tool_id,
+        "label": meta.get("label", tool_id.replace(".", " ").title()),
+        "category": meta.get("category", "General"),
+        "summary": meta.get("summary", ""),
+        "requires_approval": bool(meta.get("requires_approval")),
+    }
+    for tool_id, meta in TOOL_META.items()
+]
+
+def tools_schema() -> Dict[str, object]:
+    tools: List[Dict[str, object]] = []
+    for tool_id, meta in TOOL_META.items():
+        tools.append({
+            "name": tool_id,
+            "safe": tool_id in SAFE_TOOLS,
+            "label": meta.get("label", tool_id.replace(".", " ").title()),
+            "category": meta.get("category", "General"),
+            "summary": meta.get("summary", ""),
+            "requires_approval": bool(meta.get("requires_approval")),
         })
-    return {"version": "v1", "tools": out}
+    return {"version": "v1", "tools": tools}
+
+def tools_schema_human() -> Dict[str, object]:
+    return {"version": "v1", "tools": HUMAN_TOOL_SCHEMA}

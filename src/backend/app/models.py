@@ -41,7 +41,7 @@ class Contact(Base):
 
 
 class CadenceState(Base):
-    __tablename__ = "cadence_states"
+    __tablename__ = "cadence_state"
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     contact_id: Mapped[str] = mapped_column(String(64), index=True)
@@ -49,6 +49,9 @@ class CadenceState(Base):
     step_index: Mapped[int] = mapped_column(Integer, default=0)
     next_action_epoch: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()))
+    queued_at: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()))
+    sent_at: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    last_status: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
 
 
 class Metrics(Base):
@@ -86,6 +89,11 @@ class SharePrompt(Base):
     tenant_id: Mapped[uuid.UUID] = mapped_column(PG_UUID(as_uuid=True), index=True)
     kind: Mapped[str] = mapped_column(String(64))  # milestone type
     surfaced: Mapped[bool] = mapped_column(Boolean, default=False)
+    surfaced_at: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()))
+    viewed_at: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    shared_at: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    shared_channel: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    dismissed_at: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[int] = mapped_column(Integer, default=lambda: int(time.time()))
 
 

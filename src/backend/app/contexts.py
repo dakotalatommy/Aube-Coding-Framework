@@ -6,7 +6,7 @@ CONTEXTS: List[Dict[str, object]] = [
     {
         "id": "support",
         "preamble": (
-            "Support mode. Answer‑first in 2–4 sentences, point to exact UI locations (page → section → control), avoid jargon. "
+            "Support mode. Answer-first in 2–4 sentences, point to exact UI locations (page → section → control), avoid jargon. "
             "If the user expresses confusion (e.g., 'i'm confused', 'i dont understand', 'not sure what to do'), orient them with the next two steps and the exact place to click."
         ),
         "tools": [
@@ -16,14 +16,14 @@ CONTEXTS: List[Dict[str, object]] = [
     },
     {
         "id": "analysis",
-        "preamble": "Analysis mode. Use read‑only data; return direct lists or single‑line facts. No assumptions.",
+        "preamble": "Analysis mode. Use read-only data; return direct lists or single-line facts. No assumptions.",
         "tools": [
             "db.query.named", "db.query.sql", "report.generate.csv", "contacts.list.top_ltv", "campaigns.dormant.preview",
         ],
     },
     {
         "id": "messaging",
-        "preamble": "Messaging mode. Draft consent‑first, brand‑aligned copy; prefer short, actionable outputs.",
+        "preamble": "Messaging mode. Draft consent-first, brand-aligned copy; prefer short, actionable outputs.",
         "tools": [
             "draft_message", "messages.send", "appointments.schedule_reminders",
             "campaigns.dormant.preview", "campaigns.dormant.start", "propose_next_cadence_step", "safety_check", "pii.audit",
@@ -38,14 +38,14 @@ CONTEXTS: List[Dict[str, object]] = [
     },
     {
         "id": "train",
-        "preamble": "Train_VX mode. Refine tone, brand profile, and goals. Keep edits short, concrete, and save‑ready.",
+        "preamble": "Train_VX mode. Refine tone, brand profile, and goals. Keep edits short, concrete, and save-ready.",
         "tools": [
             "safety_check", "pii.audit", "memories.remember", "report.generate.csv",
         ],
     },
     {
         "id": "todo",
-        "preamble": "To‑Do mode. Create concise, actionable tasks; avoid duplicates; summarize impact in one line.",
+        "preamble": "To-Do mode. Create concise, actionable tasks; avoid duplicates; summarize impact in one line.",
         "tools": [
             "todo.enqueue", "report.generate.csv",
         ],

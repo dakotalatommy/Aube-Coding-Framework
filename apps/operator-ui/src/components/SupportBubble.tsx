@@ -59,7 +59,11 @@ function formatAssistant(text: string): string {
   }
 }
 
-export default function SupportBubble(){
+type SupportBubbleProps = {
+  hideTrigger?: boolean;
+};
+
+export default function SupportBubble({ hideTrigger }: SupportBubbleProps){
   const BOOKING_URL = (import.meta as any).env?.VITE_BOOKING_URL || '';
   const [open, setOpen] = useState<boolean>(() => {
     try { return localStorage.getItem('bvx_support_open') === '1'; } catch { return false; }
@@ -553,7 +557,7 @@ export default function SupportBubble(){
   return (
     <>
       {/* Floating pill bubble */}
-      {!open && (
+      {!hideTrigger && !open && (
         <OverlayPortal>
         <div className="fixed inset-0 pointer-events-none">
           <button

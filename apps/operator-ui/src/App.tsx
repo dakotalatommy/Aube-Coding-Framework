@@ -12,7 +12,6 @@ import { initAnalytics, trackPage } from './lib/analytics';
 import { api } from './lib/api';
 import { supabase } from './lib/supabase';
 import QuietBadge from './components/ui/QuietBadge';
-import SupportBubble from './components/SupportBubble';
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Messages = lazy(() => import('./pages/Messages'));
 const Contacts = lazy(() => import('./pages/Contacts'));
@@ -271,7 +270,7 @@ function Shell() {
       return () => window.removeEventListener('keydown', onKey);
   }, [nav, onAskPage]);
 
-  const showSupportBubble = !embed && !onAuthRoute;
+  const showSupportBubble = !embed && !onAuthRoute && !onLanding;
 
   return (
     <>
@@ -295,7 +294,6 @@ function Shell() {
           {/* Command mode and Ask dock removed; keep ActionDrawer */}
           {!embed && !onAskPage && !onDemo && !onLanding && !onBilling && !onAuthRoute && !onOnboarding && <ActionDrawer />}
           {!embed && !onAskPage && !onDemo && !onBilling && !onAuthRoute && !onOnboarding && <QuietBadge />}
-          {showSupportBubble && <SupportBubble />}
         </div>
       </div>
       {betaModalOpen && (

@@ -39,9 +39,14 @@ export default function OnboardingStepper(){
     try { await api.post('/settings', { onboarding_progress: next }); } catch {}
   };
 
+  const emit = (event: string, props?: Record<string, any>) => {
+    try { track(event, props || {}); } catch {}
+  };
+
   const markDone = async (key: string) => {
     const next = { ...completed, [key]: true };
     await saveProgress(next);
+    emit('onboarding.step_completed', { step: key });
   };
 
   const goto = (path: string) => { window.location.href = path; };
@@ -121,18 +126,29 @@ export default function OnboardingStepper(){
 
   useEffect(()=>{
     if (!settingsLoaded) return;
-    try { track('onboarding_stepper_open'); } catch {}
+    emit('onboarding.stepper_open');
+    const current = steps[active]?.key;
+    if (current) emit('onboarding.step_viewed', { step: current, position: active + 1 });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [settingsLoaded]);
 
   const onNext = async () => {
     const step = steps[active];
-    if (step) await markDone(step.key);
-    setActive(i=> Math.min(i+1, steps.length-1));
+    if (step) {
+      emit('onboarding.step_advanced', { step: step.key, position: active + 1 });
+      await markDone(step.key);
+    }
+    const nextIndex = Math.min(active + 1, steps.length - 1);
+    setActive(() => nextIndex);
+    const nextStep = steps[nextIndex]?.key || step?.key;
+    if (nextStep) emit('onboarding.step_viewed', { step: nextStep, position: nextIndex + 1 });
     try { scrollerRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
   };
   const onPrev = () => {
-    setActive(i=> Math.max(i-1, 0));
+    const nextIndex = Math.max(active - 1, 0);
+    setActive(() => nextIndex);
+    const prevStep = steps[nextIndex]?.key;
+    if (prevStep) emit('onboarding.step_viewed', { step: prevStep, position: nextIndex + 1, direction: 'back' });
     try { scrollerRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); } catch {}
   };
 

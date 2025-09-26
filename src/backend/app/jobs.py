@@ -76,7 +76,7 @@ def enqueue_ai_job(tenant_id: str, session_id: str, prompt: str, max_attempts: i
     })
 
 
-def create_job_record(tenant_id: str, kind: str, input_payload: Dict[str, Any], status: str = "running") -> Optional[str]:
+def create_job_record(tenant_id: str, kind: str, input_payload: Dict[str, Any], status: str = "queued") -> Optional[str]:
     try:
         with engine.begin() as conn:
             conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
@@ -276,5 +276,10 @@ def start_job_worker_if_enabled() -> None:
             return
         t = threading.Thread(target=_worker_loop, daemon=True)
         t.start()
+        if os.getenv("ENABLE_FOLLOWUPS_WORKER", "0") == "1":
+            from .workers.followups import run_forever as run_followups_worker
+
+            t_followups = threading.Thread(target=run_followups_worker, kwargs={"sleep_seconds": float(os.getenv("FOLLOWUPS_WORKER_SLEEP", "2"))}, daemon=True)
+            t_followups.start()
     except Exception:
         pass

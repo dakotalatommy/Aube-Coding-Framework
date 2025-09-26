@@ -55,7 +55,7 @@ export default function SceneReview({ state, back, onFinish }: any){
         <div className="p-3 rounded-xl border bg-white/70"><div className="font-medium">Goals</div><div className="text-sm text-slate-600">{(d.goals?.quarter||[]).join(', ') || '—'}</div></div>
         <div className="p-3 rounded-xl border bg-white/70"><div className="font-medium">WorkStyles</div><div className="text-sm text-slate-600">{(d.styles?.selected||[]).join(', ') || '—'}</div></div>
       </div>
-      <div className="mt-4 text-sm">Estimated time back: <strong>+{Math.round(hrs*10)/10}h/week</strong></div>
+      <div className="mt-4 text-sm">Estimated time saved: <strong>≈{Math.round(hrs*10)/10} hrs/week</strong></div>
       {/* Shareable milestone slot */}
       <div className="mt-3 rounded-xl border bg-white p-3">
         <div className="font-medium text-slate-900 text-sm">Milestone: Onboarding complete</div>

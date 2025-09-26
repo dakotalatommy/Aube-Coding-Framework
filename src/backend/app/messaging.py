@@ -6,6 +6,7 @@ import json
 import time
 from sqlalchemy.orm import Session
 from .events import emit_event
+from .analytics import ph_capture
 from . import models as dbm
 from .integrations.sms_twilio import twilio_send_sms
 from .integrations.email_sendgrid import sendgrid_send_email
@@ -77,6 +78,18 @@ def send_message(
         "MessageQueued",
         {"tenant_id": tenant_id, "contact_id": contact_id, "channel": channel, "template_id": template_id},
     )
+    try:
+        ph_capture(
+            "cadence.message_queued",
+            distinct_id=tenant_id,
+            properties={
+                "channel": channel,
+                "template_id": template_id or "",
+                "contact_id": contact_id,
+            },
+        )
+    except Exception:
+        pass
     # Persist queued message row (outbound)
     queued_row = dbm.Message(
         tenant_id=tenant_id,
@@ -125,6 +138,18 @@ def send_message(
                 "provider_id": result.get("provider_id"),
             },
         )
+        try:
+            ph_capture(
+                "cadence.message_sent",
+                distinct_id=tenant_id,
+                properties={
+                    "channel": channel,
+                    "template_id": template_id or "",
+                    "contact_id": contact_id,
+                },
+            )
+        except Exception:
+            pass
         return {"status": "sent", **result}
     except Exception as e:
         # Save dead letter for inspection
@@ -156,6 +181,14 @@ def send_message(
                 ))
                 db.commit()
                 emit_event("MessageSent", {"tenant_id": tenant_id, "contact_id": contact_id, "channel": "email", "template_id": template_id, "provider_id": r.get("provider_id")})
+                try:
+                    ph_capture(
+                        "cadence.message_sent",
+                        distinct_id=tenant_id,
+                        properties={"channel": "email", "template_id": template_id or "", "contact_id": contact_id, "fallback": True},
+                    )
+                except Exception:
+                    pass
                 return {"status": "sent", **r}
             if channel == "email" and to_sms:
                 r = twilio_send_sms(to_sms, body or "Hello from BrandVX")
@@ -172,6 +205,14 @@ def send_message(
                 ))
                 db.commit()
                 emit_event("MessageSent", {"tenant_id": tenant_id, "contact_id": contact_id, "channel": "sms", "template_id": template_id, "provider_id": r.get("provider_id")})
+                try:
+                    ph_capture(
+                        "cadence.message_sent",
+                        distinct_id=tenant_id,
+                        properties={"channel": "sms", "template_id": template_id or "", "contact_id": contact_id, "fallback": True},
+                    )
+                except Exception:
+                    pass
                 return {"status": "sent", **r}
         except Exception:
             pass
@@ -185,6 +226,19 @@ def send_message(
                 "failure_code": "provider_error",
             },
         )
+        try:
+            ph_capture(
+                "cadence.message_failed",
+                distinct_id=tenant_id,
+                properties={
+                    "channel": channel,
+                    "template_id": template_id or "",
+                    "contact_id": contact_id,
+                    "error": str(e),
+                },
+            )
+        except Exception:
+            pass
         try:
             queued_row.status = "failed"
             db.commit()

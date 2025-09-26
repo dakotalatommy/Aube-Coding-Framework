@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { api, getTenant } from '../lib/api';
 import { trackEvent } from '../lib/analytics';
 import * as Sentry from '@sentry/react';
@@ -41,6 +41,7 @@ const TEMPLATE_OPTIONS: Record<string, { label: string; description: string; cad
 
 export default function Cadences(){
   const loc = useLocation();
+  const navigate = useNavigate();
   const isDemo = new URLSearchParams(loc.search).get('demo') === '1';
   const { toastSuccess, toastError } = useToast();
 
@@ -56,6 +57,10 @@ export default function Cadences(){
   const [draftStatus, setDraftStatus] = useState<'idle'|'generating'|'ready'|'error'|'empty'>('idle');
   const [draftMarkdown, setDraftMarkdown] = useState<string>('');
   const [draftTodoId, setDraftTodoId] = useState<number | null>(null);
+  const [draftJobId, setDraftJobId] = useState<string | null>(null);
+  const [draftContacts, setDraftContacts] = useState<string[]>([]);
+  const [draftTemplateLabel, setDraftTemplateLabel] = useState<string>('');
+  const [draftDetails, setDraftDetails] = useState<any>(null);
   const [draftDownloadUrl, setDraftDownloadUrl] = useState<string>('');
   const [draftError, setDraftError] = useState<string>('');
   const [status, setStatus] = useState('');
@@ -66,6 +71,10 @@ export default function Cadences(){
     setDraftStatus('idle');
     setDraftMarkdown('');
     setDraftTodoId(null);
+    setDraftJobId(null);
+    setDraftContacts([]);
+    setDraftTemplateLabel('');
+    setDraftDetails(null);
     setDraftError('');
     setStatus('');
     if (draftDownloadUrl) {
@@ -113,24 +122,39 @@ export default function Cadences(){
       const tid = await getTenant();
       const res = await api.get(`/followups/draft_status?tenant_id=${encodeURIComponent(tid)}`);
       setStatus(JSON.stringify(res || {}));
+      const details = res?.details || {};
+      setDraftDetails(details);
+      if (Array.isArray(details?.contact_ids)) {
+        setDraftContacts(details.contact_ids.map((cid: any)=> String(cid)));
+      }
+      if (typeof details?.template_label === 'string') {
+        setDraftTemplateLabel(details.template_label);
+      }
+      if (res?.job_id) {
+        setDraftJobId(String(res.job_id));
+      }
+      setDraftTodoId((prev)=> Number(res?.todo_id ?? details?.todo_id ?? prev ?? 0) || prev);
       const statusValue = String(res?.status || 'pending');
+      const jobStatus = String(res?.job_status || details?.job_status || '');
       if (statusValue === 'ready') {
         stopPolling();
-        const markdown = String(res?.details?.draft_markdown || '');
+        const markdown = String(details?.draft_markdown || '');
         setDraftStatus('ready');
         setDraftMarkdown(markdown);
-        setDraftTodoId(Number(res?.todo_id || draftTodoId));
         if (markdown) {
+          try {
+            if (draftDownloadUrl) URL.revokeObjectURL(draftDownloadUrl);
+          } catch {}
           try {
             const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
             const url = URL.createObjectURL(blob);
             setDraftDownloadUrl(url);
           } catch {}
         }
-      } else if (statusValue === 'error') {
+      } else if (statusValue === 'error' || jobStatus === 'error') {
         stopPolling();
         setDraftStatus('error');
-        setDraftError(String(res?.details?.error || 'Unable to generate draft'));
+        setDraftError(String(details?.error || res?.detail || 'Unable to generate draft'));
       } else {
         setDraftStatus('generating');
         pollRef.current = window.setTimeout(pollDraftStatus, 3200) as unknown as number;
@@ -139,7 +163,37 @@ export default function Cadences(){
       console.error('followups draft status failed', err);
       pollRef.current = window.setTimeout(pollDraftStatus, 4500) as unknown as number;
     }
-  }, [draftTodoId, stopPolling]);
+  }, [draftDownloadUrl, stopPolling]);
+
+  const openInMessages = React.useCallback(() => {
+    if (!draftMarkdown) {
+      toastError('No draft yet', 'Generate a draft before opening Messages.');
+      return;
+    }
+    if (!draftContacts.length) {
+      toastError('Missing contacts', 'Draft does not include any contacts to prefill.');
+      return;
+    }
+    try {
+      const bundle = {
+        ids: draftContacts,
+        bucket: selectedTemplate,
+        scope: activeSegmentId,
+        templateLabel: draftTemplateLabel,
+        markdown: draftMarkdown,
+        ts: Date.now(),
+        jobId: draftJobId,
+        todoId: draftTodoId,
+      };
+      sessionStorage.setItem('bvx_followups_bundle', JSON.stringify(bundle));
+      const sp = new URLSearchParams(loc.search);
+      sp.set('pane', 'messages');
+      navigate({ pathname: '/workspace', search: `?${sp.toString()}` });
+    } catch (err) {
+      console.error('openInMessages failed', err);
+      toastError('Unable to open Messages', String((err as Error)?.message || err || '')); 
+    }
+  }, [draftContacts, draftMarkdown, draftJobId, draftTemplateLabel, draftTodoId, loc.search, navigate, selectedTemplate, activeSegmentId, toastError]);
 
   const startDraft = React.useCallback(async () => {
     if (isDemo) return;
@@ -149,6 +203,7 @@ export default function Cadences(){
     try {
       const tid = await getTenant();
       const segment = SEGMENTS.find(s => s.id === activeSegmentId) || SEGMENTS[0];
+      setDraftTemplateLabel(TEMPLATE_OPTIONS[selectedTemplate]?.label || segment.label);
       const payload = { tenant_id: tid, scope: segment.scope, template_id: selectedTemplate };
       const res = await api.post('/followups/draft_batch', payload);
       setStatus(JSON.stringify(res || {}));
@@ -163,11 +218,29 @@ export default function Cadences(){
         toastError('Draft failed', res?.detail || 'AI was unable to create a draft. Please try again.');
         return;
       }
-      if (res?.status === 'ready') {
+      setDraftTodoId(Number(res?.todo_id || 0));
+      if (res?.job_id) {
+        setDraftJobId(String(res.job_id));
+      }
+      if (res?.details) {
+        setDraftDetails(res.details);
+        if (Array.isArray(res.details.contact_ids)) {
+          setDraftContacts(res.details.contact_ids.map((cid: any)=> String(cid)));
+        }
+        if (typeof res.details.template_label === 'string') {
+          setDraftTemplateLabel(res.details.template_label);
+        }
+      } else {
+        setDraftTemplateLabel(TEMPLATE_OPTIONS[selectedTemplate]?.label || segment.label);
+      }
+      if (res?.status === 'ready' && res?.draft_markdown) {
+        stopPolling();
         const markdown = String(res?.draft_markdown || '');
         setDraftStatus('ready');
         setDraftMarkdown(markdown);
-        setDraftTodoId(Number(res?.todo_id || 0));
+        try {
+          if (draftDownloadUrl) URL.revokeObjectURL(draftDownloadUrl);
+        } catch {}
         if (markdown) {
           try {
             const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
@@ -177,8 +250,7 @@ export default function Cadences(){
         }
         toastSuccess('Draft ready', `Generated ${res?.count ?? segmentCandidates.length} follow-up(s).`);
       } else {
-        setDraftTodoId(Number(res?.todo_id || 0));
-        pollRef.current = window.setTimeout(pollDraftStatus, 2500) as unknown as number;
+        pollRef.current = window.setTimeout(pollDraftStatus, 1500) as unknown as number;
       }
       trackEvent('cadences.followups.draft_batch', { segment: activeSegmentId, status: res?.status || 'pending', count: res?.count || segmentCandidates.length });
       Sentry.addBreadcrumb({ category: 'cadences', level: 'info', message: 'draft_batch', data: { segment: activeSegmentId, template: selectedTemplate, status: res?.status } });
@@ -197,11 +269,14 @@ export default function Cadences(){
       const tid = await getTenant();
       await api.post('/todo/ack', { tenant_id: tid, id: draftTodoId });
       const templateMeta = TEMPLATE_OPTIONS[selectedTemplate];
-      if (templateMeta && segmentCandidates.length > 0) {
+      const ids = draftContacts.length > 0
+        ? draftContacts
+        : segmentCandidates.map((c:any)=> c.contact_id);
+      if (templateMeta && ids.length > 0) {
         try {
           await api.post('/followups/enqueue', {
             tenant_id: tid,
-            contact_ids: segmentCandidates.map((c:any)=> c.contact_id),
+            contact_ids: ids,
             cadence_id: templateMeta.cadenceId,
           });
         } catch (enqueueErr) {
@@ -218,7 +293,7 @@ export default function Cadences(){
     } finally {
       setIsApproving(false);
     }
-  }, [activeSegmentId, clearDraft, draftTodoId, isDemo, loadQueue, loadSegmentCandidates, segmentCandidates, selectedTemplate, toastError, toastSuccess]);
+  }, [activeSegmentId, clearDraft, draftContacts, draftTodoId, isDemo, loadQueue, loadSegmentCandidates, segmentCandidates, selectedTemplate, toastError, toastSuccess]);
 
   useEffect(() => {
     return () => {
@@ -334,6 +409,7 @@ export default function Cadences(){
                         className="text-xs text-slate-600 underline"
                       >Download Markdown</a>
                     )}
+                    <Button size="sm" variant="outline" onClick={openInMessages}>Open in Messages</Button>
                     <Button size="sm" variant="outline" disabled={isApproving} onClick={approveDraft}>{isApproving ? 'Saving…' : 'Approve & queue'}</Button>
                   </div>
                 </div>

@@ -3,7 +3,8 @@ from fastapi.responses import PlainTextResponse, RedirectResponse, FileResponse,
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional, Any, Tuple
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
+from zoneinfo import ZoneInfo
 import logging
 from sqlalchemy.orm import Session
 from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST, CollectorRegistry
@@ -53,7 +54,7 @@ from .rate_limit import get_bucket_status as rl_get_bucket_status
 from .scheduler import run_tick
 from .ai import AIClient
 from .brand_prompts import BRAND_SYSTEM, cadence_intro_prompt, chat_system_prompt
-from .tools import execute_tool, tools_schema
+from .tools import execute_tool, tools_schema, tools_schema_human, SAFE_TOOLS
 from .contexts import contexts_schema, context_allowlist
 from .contexts_detector import detect_mode
 from .analytics import ph_capture
@@ -1113,21 +1114,49 @@ FOLLOWUP_TEMPLATES: Dict[str, Dict[str, Any]] = {
         "label": "Remind tomorrow appointments",
         "prompt": "Friendly reminder for appointments happening tomorrow. Confirm time and invite replies for rescheduling.",
         "cadence_id": "reminder",
+        "variations": [
+            "Hey {{name}}! Looking forward to seeing you {{time_phrase}}. Let me know if anything changes.",
+            "Hi {{name}}, your appointment {{time_phrase}} is all set. Need to tweak the time? I can shuffle things around.",
+            "Counting down to {{time_phrase}}, {{name}} — send a quick note if you’d like to add anything on.",
+            "Friendly reminder about {{time_phrase}}! If something pops up, just text me and we’ll adjust.",
+            "Excited to see you {{time_phrase}}, {{name}}. Message me if you prefer a different slot.",
+        ],
     },
     "reminder_week": {
         "label": "Remind this week's clients",
         "prompt": "Supportive nudge for clients visiting later this week. Mention availability if they need to adjust.",
         "cadence_id": "reminder_week",
+        "variations": [
+            "Hi {{name}}! Your visit on {{day_phrase}} at {{time_of_day}} is reserved. Need a different window? I can swap it.",
+            "{{name}}, excited to see you {{day_phrase}} at {{time_of_day}}. If your schedule tightens up, I’ve got backup options.",
+            "Quick wave for your {{day_phrase}} {{time_of_day}} appointment. Want to tack on a gloss or treatment? Let me know.",
+            "Your spot this week is ready — {{day_phrase}} at {{time_of_day}}. Happy to hold an alternate time if you need it.",
+            "Looking forward to your {{day_phrase}} refresher at {{time_of_day}}. Ping me if travel or weather nudges the plan.",
+        ],
     },
     "reengage_30d": {
         "label": "Re-engage 30 day guests",
         "prompt": "Warm outreach to guests who haven't visited in about 30 days. Offer to reserve a time and highlight a small benefit.",
         "cadence_id": "reengage_30d",
+        "variations": [
+            "Hi {{name}}! It’s been about a month — want me to reserve a chair before the week fills up?",
+            "{{name}}, I’d love to see you soon. How about a midweek touch-up? I can hold something easy for you.",
+            "Dropping a hint that your next glow-up is due. Tell me what day feels best and I’ll lock it in.",
+            "Ready when you are for another pamper session, {{name}}. I have a couple of afternoon openings next week.",
+            "Missed you in the studio! Send me a day that works and I’ll keep that spot just for you.",
+        ],
     },
     "winback_45d": {
         "label": "Win-back 45+ day guests",
         "prompt": "Encouraging message for guests away 45+ days. Emphasize fresh look and ease of booking.",
         "cadence_id": "winback_45d_plus",
+        "variations": [
+            "Hey {{name}}! Let’s bring that color back to life — want me to pencil in a refresh?",
+            "{{name}}, it’s been a while! I’ve got a cozy chair waiting whenever you’re ready for a reset.",
+            "Thinking of you and your last visit — shall I block off a morning or evening soon?",
+            "Ready for a new-season look? Tell me what day fits and I’ll keep that appointment just for you.",
+            "I’d love to catch up, {{name}}! Reply with a day that feels good and consider it booked.",
+        ],
     },
 }
 
@@ -1202,7 +1231,9 @@ def followups_draft_batch(
     # Prevent overlapping draft jobs (pending To-Do entries)
     row = db.execute(
         _sql_text(
-            "SELECT id, status, details_json FROM todo_items WHERE tenant_id = CAST(:t AS uuid) AND type = 'followups.draft' ORDER BY id DESC LIMIT 1"
+            "SELECT id, status, details_json FROM todo_items "
+            "WHERE tenant_id = CAST(:t AS uuid) AND type = 'followups.draft' "
+            "ORDER BY id DESC LIMIT 1"
         ),
         {"t": req.tenant_id},
     ).fetchone()
@@ -1212,45 +1243,150 @@ def followups_draft_batch(
         except Exception:
             details = {}
         draft_status = str(details.get("draft_status") or "pending")
-        if str(row[1] or "").lower() == "pending" and draft_status in {"pending", "generating", "ready"}:
+        if str(row[1] or "").lower() == "pending" and draft_status in {"queued", "running"}:
             return {
                 "status": draft_status,
                 "todo_id": int(row[0]),
-                "draft_markdown": details.get("draft_markdown"),
                 "details": details,
+                "job_id": details.get("job_id"),
             }
+        if draft_status == "ready":
+            return {
+                "status": "ready",
+                "todo_id": int(row[0]),
+                "details": details,
+                "draft_markdown": details.get("draft_markdown"),
+                "job_id": details.get("job_id"),
+            }
+
     candidates = followups_candidates(req.tenant_id, req.scope, db=db, ctx=ctx)
     items = candidates.get("items") or []
-    contact_ids = [str(it.get("contact_id")) for it in items if str(it.get("contact_id"))]
+    raw_contact_ids = [str(it.get("contact_id")) for it in items if str(it.get("contact_id"))]
+    seen: set[str] = set()
+    contact_ids: List[str] = []
+    reasons: Dict[str, str] = {}
+    for idx, cid in enumerate(raw_contact_ids):
+        if cid not in seen:
+            seen.add(cid)
+            contact_ids.append(cid)
+        reasons[cid] = str(items[idx].get("reason") or "") if idx < len(items) else ""
     if not contact_ids:
         return {"status": "empty", "count": 0}
+
     try:
-        import uuid as _uuid
         tenant_uuid = _uuid.UUID(str(req.tenant_id))
     except Exception:
         tenant_uuid = req.tenant_id  # tolerant fallback for dev schemas
+
     contacts = (
         db.query(dbm.Contact)
         .filter(dbm.Contact.tenant_id == tenant_uuid, dbm.Contact.contact_id.in_(contact_ids))
         .all()
     )
-    name_lookup = {str(c.contact_id): (c.display_name or f"{(c.first_name or '').strip()} {(c.last_name or '').strip()}" or c.contact_id) for c in contacts}
+    contact_lookup: Dict[str, Dict[str, Any]] = {}
+    for c in contacts:
+        cid = str(c.contact_id)
+        display_name = (c.display_name or "").strip()
+        if not display_name:
+            display_name = f"{(c.first_name or '').strip()} {(c.last_name or '').strip()}".strip()
+        contact_lookup[cid] = {
+            "contact_id": cid,
+            "display_name": display_name or cid,
+            "first_name": (c.first_name or "").strip() or None,
+            "last_name": (c.last_name or "").strip() or None,
+            "last_visit_ts": int(c.last_visit) if getattr(c, "last_visit", None) else None,
+        }
+
     now_ts = int(_time.time())
+    # Upcoming appointment lookup when applicable
+    appointment_lookup: Dict[str, int] = {}
+    if req.scope in {"tomorrow", "this_week"}:
+        appts = (
+            db.query(dbm.Appointment)
+            .filter(
+                dbm.Appointment.tenant_id == tenant_uuid,
+                dbm.Appointment.contact_id.in_(contact_ids),
+                dbm.Appointment.start_ts != None,
+                dbm.Appointment.start_ts >= now_ts - 3600,
+            )
+            .order_by(dbm.Appointment.contact_id.asc(), dbm.Appointment.start_ts.asc())
+            .all()
+        )
+        for appt in appts:
+            cid = str(appt.contact_id)
+            if cid in appointment_lookup:
+                continue
+            try:
+                start_ts = int(appt.start_ts or 0)
+            except Exception:
+                start_ts = 0
+            if start_ts > 0:
+                appointment_lookup[cid] = start_ts
+
+    # Resolve tenant timezone preferences
+    tenant_timezone: Optional[str] = None
+    tenant_offset_minutes: Optional[int] = None
+    settings_row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == req.tenant_id).first()
+    if settings_row and getattr(settings_row, "data_json", None):
+        try:
+            data = json.loads(settings_row.data_json or "{}")
+        except Exception:
+            data = {}
+        prefs = data.get("preferences") or {}
+        tenant_timezone = (
+            prefs.get("user_timezone")
+            or data.get("user_timezone")
+            or prefs.get("timezone")
+        )
+        try:
+            tz_offset = prefs.get("user_timezone_offset") or data.get("user_timezone_offset")
+            if tz_offset is not None:
+                tenant_offset_minutes = int(tz_offset)
+        except Exception:
+            tenant_offset_minutes = None
+
+    contact_snapshots: List[Dict[str, Any]] = []
+    for cid in contact_ids:
+        snap = contact_lookup.get(cid, {"contact_id": cid, "display_name": cid})
+        snap = dict(snap)
+        snap["reason"] = reasons.get(cid, "")
+        if cid in appointment_lookup:
+            snap["appointment_ts"] = appointment_lookup[cid]
+        contact_snapshots.append(snap)
+
+    job_payload = {
+        "scope": req.scope,
+        "template_id": req.template_id,
+        "template_label": template["label"],
+        "template_prompt": template["prompt"],
+        "template_variations": list(template.get("variations", [])),
+        "todo_id": None,  # filled after creating To-Do
+        "contact_ids": contact_ids,
+        "contacts": contact_snapshots,
+        "requested_at": now_ts,
+        "tenant_timezone": tenant_timezone,
+        "tenant_timezone_offset": tenant_offset_minutes,
+    }
+
     title = f"Draft follow-ups • {template['label']} ({len(contact_ids)})"
     base_details = {
         "scope": req.scope,
         "template_id": req.template_id,
         "template_label": template["label"],
         "contact_ids": contact_ids,
-        "draft_status": "generating",
+        "draft_status": "queued",
         "generated_at": None,
         "count": len(contact_ids),
+        "job_id": None,
+        "job_status": "queued",
     }
-    job_id = create_job_record(req.tenant_id, 'followups.draft', {
-        'scope': req.scope,
-        'template_id': req.template_id,
-        'count': len(contact_ids),
-    })
+
+    job_id = create_job_record(req.tenant_id, "followups.draft", job_payload, status="queued")
+    if not job_id:
+        return {"status": "error", "detail": "job_create_failed"}
+    base_details["job_id"] = job_id
+    job_payload["job_id"] = job_id
+
     todo_id = None
     with engine.begin() as conn:
         try:
@@ -1260,79 +1396,27 @@ def followups_draft_batch(
             pass
         inserted = conn.execute(
             _sql_text(
-                "INSERT INTO todo_items (tenant_id, type, title, details_json, status) VALUES (CAST(:t AS uuid), 'followups.draft', :title, :details::jsonb, 'pending') RETURNING id"
+                "INSERT INTO todo_items (tenant_id, type, title, details_json, status) "
+                "VALUES (CAST(:t AS uuid), 'followups.draft', :title, :details::jsonb, 'pending') "
+                "RETURNING id"
             ),
             {"t": req.tenant_id, "title": title, "details": json.dumps(base_details)},
         )
         todo_id = inserted.scalar() if inserted else None
     if not todo_id:
+        update_job_record(job_id, status="error", error="todo_insert_failed")
         return {"status": "error", "detail": "todo_insert_failed"}
-    # Build AI prompt
-    lines = [
-        "You are BrandVX, crafting SMS follow-ups for beauty pros.",
-        f"Segment: {req.scope}",
-        f"Objective: {template['prompt']}",
-        "Output Markdown with one section per client using the format:",
-        "## {Client Name}",
-        "Paragraph: 1-2 sentences tailored to the client. No placeholders like {FirstName}.",
-        "Keep tone warm, concise, and on-brand for independent stylists.",
-    ]
-    lines.append("Clients:")
-    for it in items:
-        cid = str(it.get("contact_id") or "")
-        reason = str(it.get("reason") or "")
-        name = name_lookup.get(cid, cid)
-        lines.append(f"- {name} — {reason or 'follow-up'}")
-    prompt_text = "\n".join(lines)
-    markdown = ""
-    error_detail = None
-    try:
-        client = AIClient()
-        async def _generate() -> str:
-            return await client.generate(
-                system="You help stylists communicate clearly and kindly.",
-                messages=[{"role": "user", "content": prompt_text}],
-                max_tokens=600,
-            )
-        markdown = asyncio.run(_generate())
-    except Exception as err:
-        error_detail = str(err)[:400]
-    details_next = dict(base_details)
-    if markdown and not error_detail:
-        details_next.update({
-            "draft_status": "ready",
-            "draft_markdown": markdown,
-            "generated_at": now_ts,
-        })
-    else:
-        details_next.update({
-            "draft_status": "error",
-            "error": error_detail or "draft_failed",
-        })
-    with engine.begin() as conn:
-        try:
-            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": req.tenant_id})
-        except Exception:
-            pass
-        conn.execute(
-            _sql_text("UPDATE todo_items SET details_json=:details WHERE tenant_id = CAST(:t AS uuid) AND id=:id"),
-            {"details": json.dumps(details_next), "t": req.tenant_id, "id": todo_id},
-        )
-    if markdown and not error_detail:
-        try:
-            emit_event("FollowupsDraftGenerated", {"tenant_id": req.tenant_id, "todo_id": todo_id, "count": len(contact_ids), "template_id": req.template_id})
-        except Exception:
-            pass
-        update_job_record(job_id, status='done', result={
-            'todo_id': todo_id,
-            'count': len(contact_ids),
-            'draft_markdown': markdown,
-            'template_id': req.template_id,
-        })
-        return {"status": "ready", "todo_id": todo_id, "count": len(contact_ids), "draft_markdown": markdown, "template": template, "job_id": job_id}
-    update_job_record(job_id, status='error', error=error_detail or "draft_failed")
-    return {"status": "error", "todo_id": todo_id, "detail": error_detail or "draft_failed", "job_id": job_id}
+
+    job_payload["todo_id"] = todo_id
+    update_job_record(job_id, result={"todo_id": todo_id, "status": "queued"})
+
+    return {
+        "status": "queued",
+        "job_id": job_id,
+        "todo_id": todo_id,
+        "count": len(contact_ids),
+        "details": base_details,
+    }
 
 
 @app.get("/followups/draft_status", tags=["Cadences"])
@@ -1351,11 +1435,20 @@ def followups_draft_status(tenant_id: str, db: Session = Depends(get_db), ctx: U
         details = json.loads(row[2] or "{}")
     except Exception:
         details = {}
+    job_id = details.get("job_id")
+    job_status = None
+    if job_id:
+        job_rec = get_job_record(str(job_id))
+        if job_rec:
+            job_status = job_rec.get("status")
+            details.setdefault("job_status", job_status)
     return {
         "status": details.get("draft_status", "pending"),
         "todo_status": row[1],
         "todo_id": row[0],
         "details": details,
+        "job_id": job_id,
+        "job_status": job_status,
     }
 
 
@@ -2362,14 +2455,10 @@ def _connected_accounts_v2_rows(db: Session, tenant_id: str) -> List[Dict[str, A
             }
         )
     return out
-
-
 def _connected_accounts_map(db: Session, tenant_id: str) -> Dict[str, str]:
     rows_v2 = _connected_accounts_v2_rows(db, tenant_id)
     if rows_v2:
         return {r["provider"]: r.get("status") or "connected" for r in rows_v2}
-    # V2-only: if no rows in v2, report empty map
-    return {}
 
 def _has_connected_account(db: Session, tenant_id: str, provider: str) -> bool:
     try:
@@ -3948,9 +4037,9 @@ async def ai_chat(
         except Exception:
             __chosen_mode = ""
     try:
-        __tools = ai_tools_schema(__chosen_mode).get("tools", []) if __chosen_mode else ai_tools_schema().get("tools", [])
+        __tools = tools_schema(__chosen_mode).get("tools", []) if __chosen_mode else tools_schema().get("tools", [])
     except Exception:
-        __tools = ai_tools_schema().get("tools", [])
+        __tools = tools_schema().get("tools", [])
     cap = {"features": app.openapi().get("tags", []), "tools": __tools}
     try:
         import json as _json
@@ -5033,8 +5122,6 @@ def ai_costs(tenant_id: str, ctx: UserContext = Depends(get_user_context)):
         }
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
-
-
 @app.get("/limits/status", tags=["AI"])
 def limits_status(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
@@ -5394,7 +5481,6 @@ async def ai_tool_execute(
         try:
             BETA_OPEN = (os.getenv("BETA_OPEN_TOOLS", "0") or "0").strip() == "1"
             # Lightweight allowlist of always-safe tools
-            SAFE_TOOLS = {"report.generate.csv","db.query.sql","db.query.named","safety_check","pii.audit","image.edit","vision.analyze.gpt5","brand.vision.analyze"}
             risky = req.name not in SAFE_TOOLS
             if (not BETA_OPEN) and risky and ctx.role != "owner_admin":
                 # Read latest settings and honor seeded trial
@@ -5894,22 +5980,8 @@ def contacts_list(
         return _JR({"error": "internal_error", "detail": msg}, status_code=500)
 # --- Human-friendly tool schema for AskVX palette ---
 @app.get("/ai/tools/schema_human", tags=["AI"])
-def ai_tools_schema_human() -> Dict[str, object]:
-    tools = [
-        {"id": "draft_message", "label": "Draft message", "gated": False, "category": "messaging"},
-        {"id": "pricing_model", "label": "Pricing model", "gated": False, "category": "analytics"},
-        {"id": "safety_check", "label": "Safety check", "gated": False, "category": "assist"},
-        {"id": "contacts.dedupe", "label": "Deduplicate contacts", "gated": True, "category": "crm"},
-        {"id": "export.contacts", "label": "Export contacts (CSV)", "gated": True, "category": "crm"},
-        {"id": "campaigns.dormant.preview", "label": "Preview dormant segment", "gated": False, "category": "campaigns"},
-        {"id": "campaigns.dormant.start", "label": "Start dormant campaign", "gated": True, "category": "campaigns"},
-        {"id": "appointments.schedule_reminders", "label": "Schedule reminders", "gated": True, "category": "appointments"},
-        {"id": "inventory.alerts.get", "label": "Low‑stock alerts", "gated": True, "category": "inventory"},
-        {"id": "social.schedule.14days", "label": "Draft 14‑day social plan", "gated": True, "category": "social"},
-        {"id": "contacts.list.top_ltv", "label": "Top clients by lifetime spend", "gated": False, "category": "crm"},
-        {"id": "contacts.import.square", "label": "Import contacts from Square", "gated": False, "category": "crm"},
-    ]
-    return {"version": "v1", "tools": tools}
+def ai_tools_schema_human_endpoint() -> Dict[str, object]:
+    return tools_schema_human()
 
 
 # Temporarily commented audit route; keep adapter in place
@@ -6617,14 +6689,10 @@ def update_settings(
     except Exception:
         pass
     return {"status": "ok", "progress": {"quiet": wrote_quiet, "train": wrote_train}}
-
-
 class ProvisionCreatorRequest(BaseModel):
     tenant_id: str
     master_prompt: Optional[str] = None
     rate_limit_multiplier: Optional[int] = 5
-
-
 @app.post("/admin/provision_creator", tags=["Admin"])
 def provision_creator(
     req: ProvisionCreatorRequest,
@@ -6925,37 +6993,14 @@ def get_config() -> Dict[str, object]:
     }
 @app.get("/ai/tools/schema", tags=["AI"])
 def ai_tools_schema(mode: Optional[str] = None) -> Dict[str, object]:
-    """Return tool registry with public/gated flags and basic param hints.
-    Supports optional mode filtering (support, analysis, messaging, scheduler, train, todo).
-    """
     base = tools_schema()
     m = (mode or "").strip().lower()
     if not m:
         return base
-    allow: set[str] = set()
-    if m == "support":
-        allow = {
-            "link.hubspot.signup","oauth.hubspot.connect","crm.hubspot.import",
-            "db.query.named","report.generate.csv","db.query.sql",
-        }
-    elif m in {"train","train_vx"}:
-        allow = {"safety_check","pii.audit","report.generate.csv"}
-    elif m == "analysis":
-        allow = {"db.query.named","db.query.sql","report.generate.csv"}
-    elif m == "messaging":
-        allow = {
-            "draft_message","messages.send","appointments.schedule_reminders",
-            "campaigns.dormant.preview","campaigns.dormant.start","propose_next_cadence_step",
-            "safety_check","pii.audit"
-        }
-    elif m == "scheduler":
-        allow = {"calendar.sync","calendar.merge","calendar.reschedule","calendar.cancel","oauth.refresh"}
-    elif m in {"todo","notifications"}:
-        allow = {"todo.enqueue","report.generate.csv"}
-    tools = base.get("tools", [])
+    allow = set(context_allowlist(m))
     if not allow:
         return base
-    filtered = [t for t in tools if t.get("name") in allow]
+    filtered = [tool for tool in base.get("tools", []) if tool.get("name") in allow]
     return {**base, "tools": filtered}
 @app.get("/ai/schema/map", tags=["AI"])
 def ai_schema_map(db: Session = Depends(get_db)) -> Dict[str, object]:
@@ -7991,7 +8036,6 @@ def hubspot_import(req: HubspotImportRequest, db: Session = Depends(get_db), ctx
     except Exception:
         pass
     return {"imported": created}
-
 @app.post("/integrations/booking/square/sync-contacts", tags=["Integrations"])
 def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context_relaxed)) -> Dict[str, object]:
     if os.getenv("INTEGRATIONS_V1_DISABLED", "0") == "1":
@@ -8789,8 +8833,6 @@ def get_metrics(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext 
     k = admin_kpis(db, tenant_id)
     base.update({"revenue_uplift": k.get("revenue_uplift", 0), "referrals_30d": k.get("referrals_30d", 0)})
     return base
-
-
 @app.get("/admin/kpis", tags=["Health"])
 def get_admin_kpis(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
     if ctx.role != "owner_admin" and ctx.tenant_id != tenant_id:
@@ -9527,8 +9569,6 @@ class ProviderWebhook(BaseModel):
 class ProvisionSmsRequest(BaseModel):
     tenant_id: str
     area_code: Optional[str] = None  # attempt local number if provided
-
-
 @app.post("/integrations/twilio/provision", tags=["Integrations"])
 def twilio_provision(req: ProvisionSmsRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
@@ -10319,8 +10359,6 @@ def job_status(job_id: str, ctx: UserContext = Depends(get_user_context)) -> Dic
         'created_at': job.get('created_at'),
         'updated_at': job.get('updated_at'),
     }
-
-
 @app.get("/jobs/{job_id}/result", tags=["Jobs"])
 def job_result(job_id: str, ctx: UserContext = Depends(get_user_context)) -> Dict[str, Any]:
     job = get_job_record(job_id)
@@ -10330,9 +10368,7 @@ def job_result(job_id: str, ctx: UserContext = Depends(get_user_context)) -> Dic
     if tenant_id and ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         raise HTTPException(status_code=403, detail="forbidden")
     return {'status': job.get('status'), 'result': _parse_json_field(job.get('result'))}
-
-
-@app.post("/onboarding/analyze", tags=["Integrations"])  # scaffold
+@app.post("/onboarding/analyze", tags=["Integrations"])
 def onboarding_analyze(req: AnalyzeRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"summary": {}, "status": "forbidden"}
@@ -11116,8 +11152,6 @@ def calendar_list(
     except Exception:
         pass
     return {"events": events, "last_sync": cal_sync}
-
-
 @app.get("/inventory/metrics", tags=["Integrations"])
 def inventory_metrics(
     tenant_id: str,
@@ -11125,453 +11159,6 @@ def inventory_metrics(
     db: Session = Depends(get_db),
     ctx: UserContext = Depends(get_user_context),
 ):
-    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
-        return {"status": "forbidden"}
-    # Build last sync map from events_ledger
-    inv_sync: Dict[str, object] = {}
-    try:
-        recent = (
-            db.query(dbm.EventLedger)
-            .filter(dbm.EventLedger.tenant_id == tenant_id, dbm.EventLedger.name.like("sync.inventory.%"))
-            .order_by(dbm.EventLedger.ts.desc())
-            .limit(50)
-            .all()
-        )
-        for ev in recent:
-            try:
-                prov = (ev.name or "").split(".")[-1]
-                inv_sync[prov] = {"status": "completed", "ts": ev.ts}
-            except Exception:
-                continue
-    except Exception:
-        inv_sync = {}
-    prov = (provider or "auto").lower()
-    now = int(_time.time())
-    # Record sync queued in events_ledger instead of in-memory state
-    try:
-        db.add(dbm.EventLedger(ts=now, tenant_id=tenant_id, name=f"sync.inventory.{prov}", payload=None))
-        db.commit()
-    except Exception:
-        pass
-    # Simulate a quick sync completion and basic metrics for visibility during scaffolding
-    summary_row = db.query(dbm.InventorySummary).filter(dbm.InventorySummary.tenant_id == tenant_id).first()
-    if not summary_row:
-        summary_row = dbm.InventorySummary(tenant_id=tenant_id)
-        db.add(summary_row)
-        db.commit()
-        db.refresh(summary_row)
-    if prov == "shopify":
-        snap = inv_shopify.fetch_inventory_snapshot(tenant_id)
-        ss = snap.get("summary", {})
-        summary_row.products = int(ss.get("products", summary_row.products or 0))
-        summary_row.low_stock = int(ss.get("low_stock", summary_row.low_stock or 0))
-        summary_row.out_of_stock = int(ss.get("out_of_stock", summary_row.out_of_stock or 0))
-        summary_row.top_sku = ss.get("top_sku", summary_row.top_sku)
-        db.query(dbm.InventoryItem).filter(dbm.InventoryItem.tenant_id == tenant_id).delete()
-        for it in snap.get("items", []):
-            db.add(dbm.InventoryItem(tenant_id=tenant_id, sku=it.get("sku"), name=it.get("name"), stock=int(it.get("stock", 0)), provider="shopify"))
-    elif prov == "square":
-        snap = inv_square.fetch_inventory_snapshot(tenant_id)
-        ss = snap.get("summary", {})
-        summary_row.products = max(int(summary_row.products or 0), int(ss.get("products", 0)))
-        summary_row.low_stock = int(ss.get("low_stock", summary_row.low_stock or 0))
-        summary_row.out_of_stock = int(ss.get("out_of_stock", summary_row.out_of_stock or 0))
-        summary_row.top_sku = summary_row.top_sku or ss.get("top_sku")
-        existing = {r.sku for r in db.query(dbm.InventoryItem).filter(dbm.InventoryItem.tenant_id == tenant_id).all()}
-        for it in snap.get("items", []):
-            if it.get("sku") not in existing:
-                db.add(dbm.InventoryItem(tenant_id=tenant_id, sku=it.get("sku"), name=it.get("name"), stock=int(it.get("stock", 0)), provider="square"))
-    else:
-        # Manual recompute based on current items snapshot
-        items = db.query(dbm.InventoryItem).filter(dbm.InventoryItem.tenant_id == tenant_id).all()
-        products = len(items)
-        low_stock = sum(1 for it in items if int(it.stock or 0) > 0 and int(it.stock or 0) <= 5)
-        out_of_stock = sum(1 for it in items if int(it.stock or 0) == 0)
-        top_sku = items[0].sku if items else None
-        summary_row.products = products
-        summary_row.low_stock = low_stock
-        summary_row.out_of_stock = out_of_stock
-        summary_row.top_sku = top_sku
-    db.commit()
-    try:
-        cache_del(f"inv:{tenant_id}")
-    except Exception:
-        pass
-    try:
-        with next(get_db()) as _db:  # type: ignore
-            _db.add(dbm.EventLedger(ts=now, tenant_id=tenant_id, name=f"sync.inventory.{prov}", payload=json.dumps({"status":"completed"})))
-            _db.commit()
-    except Exception:
-        pass
-    emit_event("InventorySyncRequested", {"tenant_id": tenant_id, "provider": prov})
-    # Prepare response rollup
-    try:
-        s = {
-            "products": int(summary_row.products or 0),
-            "low_stock": int(summary_row.low_stock or 0),
-            "out_of_stock": int(summary_row.out_of_stock or 0),
-            "top_sku": summary_row.top_sku,
-        }
-    except Exception:
-        s = {"products": 0, "low_stock": 0, "out_of_stock": 0, "top_sku": None}
-    rows = db.query(dbm.InventoryItem).filter(dbm.InventoryItem.tenant_id == tenant_id).order_by(dbm.InventoryItem.updated_at.desc()).all()
-    items = [
-        {"sku": r.sku, "name": r.name, "stock": int(r.stock or 0), "provider": r.provider}
-        for r in rows
-    ]
-    return {"status": "completed", "provider": prov, "summary": s, "last_sync": inv_sync, "items": items}
-
-
-class SyncRequest(BaseModel):
-    tenant_id: str
-    provider: Optional[str] = None
-@app.post("/calendar/sync", tags=["Integrations"])
-def calendar_sync(req: SyncRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, str]:
-    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
-        return {"status": "forbidden"}
-    prov = (req.provider or "auto").lower()
-    now = int(_time.time())
-    job_id = create_job_record(req.tenant_id, f"calendar.sync.{prov}", {
-        'provider': prov,
-    })
-    # Ensure any stale failed transaction on this Session is cleared before use
-    try:
-        db.rollback()  # safe no-op if not in failed state
-    except Exception:
-        pass
-    try:
-        with next(get_db()) as _db:  # type: ignore
-            _db.add(dbm.EventLedger(ts=now, tenant_id=req.tenant_id, name=f"sync.calendar.{prov}.queued", payload=json.dumps({"status":"queued"})))
-            _db.commit()
-    except Exception:
-        pass
-    emit_event("CalendarSyncRequested", {"tenant_id": req.tenant_id, "provider": prov})
-    # Scaffold provider adapters: populate some sample events depending on provider and persist
-    def _add_events(new_events: List[Dict[str, object]]):
-        try:
-            seen_ids = {str(r.event_id) for r in db.query(dbm.CalendarEvent).filter(dbm.CalendarEvent.tenant_id == req.tenant_id, dbm.CalendarEvent.event_id.isnot(None)).all()}
-        except Exception:
-            try:
-                db.rollback()
-            except Exception:
-                pass
-            seen_ids = set()
-        for e in new_events:
-            try:
-                eid = str(e.get("id")) if e.get("id") is not None else None
-                if eid and eid in seen_ids:
-                    continue
-                db.add(dbm.CalendarEvent(
-                    tenant_id=req.tenant_id,
-                    event_id=eid,
-                    title=str(e.get("title") or e.get("service") or ""),
-                    start_ts=int(e.get("start_ts") or 0),
-                    end_ts=int(e.get("end_ts") or 0) or None,
-                    provider=str(e.get("provider") or req.provider or ""),
-                    status=str(e.get("status") or ""),
-                ))
-            except Exception:
-                try:
-                    db.rollback()
-                except Exception:
-                    pass
-                continue
-    if prov == "google":
-        try:
-            _add_events(cal_google.fetch_events(req.tenant_id))
-        except Exception:
-            try:
-                db.rollback()
-            except Exception:
-                pass
-    elif prov == "apple":
-        try:
-            _add_events(cal_apple.fetch_events(req.tenant_id))
-        except Exception:
-            try:
-                db.rollback()
-            except Exception:
-                pass
-    else:
-        # bookings merge (Square/Acuity)
-        try:
-            from .integrations import booking_square as bk_square
-            from .integrations import booking_acuity as bk_acuity
-            _add_events(bk_square.fetch_bookings(req.tenant_id))
-            _add_events(bk_acuity.fetch_bookings(req.tenant_id))
-        except Exception:
-            pass
-    try:
-        db.commit()
-    except Exception:
-        try:
-            db.rollback()
-        except Exception:
-            pass
-        update_job_record(job_id, status='error', error='commit_failed')
-        return {"status": "queued", "provider": prov, "job_id": job_id}
-    try:
-        invalidate_calendar_cache(req.tenant_id)
-    except Exception:
-        pass
-    try:
-        with next(get_db()) as _db:  # type: ignore
-            _db.add(dbm.EventLedger(ts=now, tenant_id=req.tenant_id, name=f"sync.calendar.{prov}", payload=json.dumps({"status":"completed"})))
-            _db.commit()
-    except Exception:
-        pass
-    update_job_record(job_id, status='done', result={'status': 'completed', 'provider': prov})
-    return {"status": "completed", "provider": prov, "job_id": job_id}
-
-
-@app.get("/calendar/events", tags=["Integrations"])
-def calendar_events(
-    tenant_id: str,
-    months: int = 3,
-    db: Session = Depends(get_db),
-    ctx: UserContext = Depends(get_user_context),
-) -> Dict[str, Any]:
-    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
-        raise HTTPException(status_code=403, detail="forbidden")
-    horizon_days = max(1, min(months * 31, 120))
-    start_ts = int(_time.time())
-    end_ts = start_ts + horizon_days * 86400
-    try:
-        rows = db.execute(
-            _sql_text(
-                "SELECT id, title, start_ts, end_ts, provider, status FROM calendar_events "
-                "WHERE tenant_id = CAST(:t AS uuid) AND start_ts BETWEEN :start AND :end ORDER BY start_ts ASC"
-            ),
-            {"t": tenant_id, "start": start_ts, "end": end_ts},
-        ).fetchall()
-    except Exception as exc:
-        logger.exception('calendar_events_query_failed', exc_info=exc, extra={'tenant_id': tenant_id})
-        return {"items": []}
-    deduped: Dict[Tuple[str, int], Dict[str, Any]] = {}
-    for row in rows:
-        try:
-            title = str(row[1] or '')
-        except Exception:
-            title = ''
-        title_key = title.strip().lower() or 'event'
-        start_val = int(row[2] or 0)
-        bucket = start_val // 300  # 5 minute bucket
-        key = (title_key, bucket)
-        if key in deduped:
-            continue
-        deduped[key] = {
-            'id': str(row[0]) if row[0] is not None else None,
-            'title': title,
-            'start_ts': start_val,
-            'end_ts': int(row[3] or 0) or None,
-            'provider': str(row[4] or ''),
-            'status': str(row[5] or ''),
-        }
-    items = sorted(deduped.values(), key=lambda item: item['start_ts'] or 0)
-    return {"items": items, "start_ts": start_ts, "end_ts": end_ts}
-
-
-class ApptRescheduleRequest(BaseModel):
-    tenant_id: str
-    external_ref: str | None = None
-    provider: str | None = None
-    provider_event_id: str | None = None
-    start_ts: int
-    end_ts: Optional[int] = None
-
-
-@app.post("/calendar/reschedule", tags=["Integrations"])
-def calendar_reschedule(req: ApptRescheduleRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
-    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
-        return {"status": "forbidden"}
-    # Find by external_ref or provider_event_id
-    q = db.query(dbm.Appointment).filter(dbm.Appointment.tenant_id == req.tenant_id)
-    if req.external_ref:
-        q = q.filter(dbm.Appointment.external_ref == req.external_ref)
-    elif req.provider and req.provider_event_id:
-        q = q.filter(dbm.Appointment.provider == req.provider, dbm.Appointment.provider_event_id == req.provider_event_id)
-    row = q.first()
-    if not row:
-        return {"status": "not_found"}
-    row.start_ts = int(req.start_ts)
-    row.end_ts = int(req.end_ts or 0) or None  # type: ignore
-    row.status = row.status or "booked"  # type: ignore
-    try:
-        db.commit()
-    except Exception:
-        try: db.rollback()  # noqa: E701
-        except Exception: pass
-        return {"status": "error"}
-@app.post("/integrations/check-expiry", tags=["Integrations"])
-async def integrations_check_expiry(
-    req: ExpiryCheckRequest,
-    db: Session = Depends(get_db),
-    ctx: UserContext = Depends(get_user_context),
-):
-    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
-        return {"enqueued": 0}
-    try:
-        now = int(_time.time())
-        horizon = now + int(max(1, req.days)) * 86400
-        rows = db.execute(
-            _sql_text(
-                "SELECT provider, expires_at FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND status = 'connected'"
-            ),
-            {"t": req.tenant_id},
-        ).fetchall()
-        count = 0
-        for r in rows:
-            try:
-                exp = int((r[1] or 0))
-            except Exception:
-                exp = 0
-            if exp and exp <= horizon:
-                try:
-                    await execute_tool(
-                        "todo.enqueue",
-                        {
-                            "tenant_id": req.tenant_id,
-                            "type": "integration.token_expiry",
-                            "message": f"{r[0]} token expires soon",
-                            "severity": "warn",
-                            "payload": {"provider": r[0], "expires_at": exp},
-                            "idempotency_key": f"token_expiry_{r[0]}_{exp}",
-                        },
-                        db,
-                        ctx,
-                    )
-                    count += 1
-                except Exception:
-                    continue
-        return {"enqueued": count}
-    except Exception:
-        return {"enqueued": 0}
-
-    try:
-        invalidate_calendar_cache(req.tenant_id)
-    except Exception:
-        pass
-    emit_event("AppointmentRescheduled", {"tenant_id": req.tenant_id, "ref": req.external_ref or req.provider_event_id or row.external_ref})
-    return {"status": "ok"}
-class ApptCancelRequest(BaseModel):
-    tenant_id: str
-    external_ref: str | None = None
-    provider: str | None = None
-    provider_event_id: str | None = None
-
-
-@app.post("/calendar/cancel", tags=["Integrations"])
-def calendar_cancel(req: ApptCancelRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
-    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
-        return {"status": "forbidden"}
-    q = db.query(dbm.Appointment).filter(dbm.Appointment.tenant_id == req.tenant_id)
-    if req.external_ref:
-        q = q.filter(dbm.Appointment.external_ref == req.external_ref)
-    elif req.provider and req.provider_event_id:
-        q = q.filter(dbm.Appointment.provider == req.provider, dbm.Appointment.provider_event_id == req.provider_event_id)
-    row = q.first()
-    if not row:
-        return {"status": "not_found"}
-    row.status = "canceled"
-    try:
-        db.commit()
-    except Exception:
-        try: db.rollback()  # noqa: E701
-        except Exception: pass
-        return {"status": "error"}
-    try:
-        invalidate_calendar_cache(req.tenant_id)
-    except Exception:
-        pass
-    emit_event("AppointmentCanceled", {"tenant_id": req.tenant_id, "ref": req.external_ref or req.provider_event_id or row.external_ref})
-    return {"status": "ok"}
-
-
-# -------- Client Images (per-contact gallery) ---------
-class SaveClientImageRequest(BaseModel):
-    tenant_id: str
-    contact_id: str
-    url: str
-    kind: Optional[str] = None
-    notes: Optional[str] = None
-
-
-@app.post("/client-images/save", tags=["Data"])
-def client_images_save(req: SaveClientImageRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
-    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
-        return {"status": "forbidden"}
-    try:
-        db.execute(
-            _sql_text(
-                """
-                INSERT INTO client_images(tenant_id, contact_id, kind, url, notes, created_at)
-                VALUES (CAST(:t AS uuid), :c, :k, :u, :n, EXTRACT(EPOCH FROM NOW())::int)
-                """
-            ),
-            {"t": req.tenant_id, "c": req.contact_id, "k": (req.kind or None), "u": req.url, "n": (req.notes or None)},
-        )
-        db.commit()
-    except Exception:
-        try:
-            db.rollback()
-        except Exception:
-            pass
-        return {"status": "error"}
-    emit_event("ClientImageSaved", {"tenant_id": req.tenant_id, "contact_id": req.contact_id})
-    return {"status": "ok"}
-
-
-@app.get("/client-images/list", tags=["Data"])
-def client_images_list(tenant_id: str, contact_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
-    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
-        return {"items": []}
-    rows = db.execute(
-        _sql_text(
-            """
-            SELECT id, contact_id, kind, url, notes, created_at
-            FROM client_images
-            WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :c
-            ORDER BY id DESC
-            LIMIT 200
-            """
-        ),
-        {"t": tenant_id, "c": contact_id},
-    ).fetchall()
-    items = [
-        {"id": int(r[0]), "contact_id": r[1], "kind": r[2], "url": r[3], "notes": r[4], "created_at": int(r[5] or 0)} for r in rows
-    ]
-    return {"items": items}
-
-class CalendarMergeRequest(BaseModel):
-    tenant_id: str
-    # in future: strategy fields
-@app.post("/calendar/merge", tags=["Integrations"])
-def calendar_merge(req: CalendarMergeRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
-    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
-        return {"merged": 0}
-    rows = db.query(dbm.CalendarEvent).filter(dbm.CalendarEvent.tenant_id == req.tenant_id).order_by(dbm.CalendarEvent.start_ts.asc()).all()
-    if not rows:
-        return {"merged": 0}
-    seen = set()
-    drops = 0
-    keep_ids: List[int] = []
-    for r in rows:
-        k = (str((r.title or "").strip().lower()), int(r.start_ts or 0))
-        if k in seen:
-            drops += 1
-            continue
-        seen.add(k)
-        keep_ids.append(r.id)
-    if drops > 0:
-        db.query(dbm.CalendarEvent).filter(dbm.CalendarEvent.tenant_id == req.tenant_id, dbm.CalendarEvent.id.notin_(keep_ids)).delete(synchronize_session=False)
-        db.commit()
-    emit_event("CalendarMerged", {"tenant_id": req.tenant_id, "dropped": drops, "kept": len(keep_ids)})
-    return {"merged": drops}
-
-
-# -------- Inventory operations (sync, merge, map) ---------
-@app.post("/inventory/sync", tags=["Integrations"])
-def inventory_sync(req: SyncRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
     # Reuse metrics logic to compute and return rollup
@@ -11681,7 +11268,7 @@ def connectors_cleanup(req: ConnectorsCleanupRequest, db: Session = Depends(get_
     try:
         with engine.begin() as conn:
             if req.tenant_id:
-                conn.execute(_sql_text("DELETE FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND (status IS NULL OR status='')"), {"t": req.tenant_id})
+                conn.execute(_sql_text("DELETE FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND status IS NULL OR status=''"), {"t": req.tenant_id})
             else:
                 conn.execute(_sql_text("DELETE FROM connected_accounts_v2 WHERE status IS NULL OR status=''"))
         # We don't have rowcount reliably via exec_driver_sql; return 0 best-effort
@@ -11802,7 +11389,6 @@ def rls_probe_delete_contact(
         return {"status": "ok", "deleted": deleted}
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
-
 class ConnectorsNormalizeRequest(BaseModel):
     tenant_id: Optional[str] = None
     dedupe: bool = True
@@ -11901,11 +11487,8 @@ def request_erasure(
 class DevConnectRequest(BaseModel):
     tenant_id: str
     provider: str
-
-
 @app.post("/dev/connect", tags=["Integrations"])
 def dev_mark_connected(req: DevConnectRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
-    # Dev helper: mark provider as connected for the tenant
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
     try:
@@ -11927,75 +11510,6 @@ def dev_mark_connected(req: DevConnectRequest, db: Session = Depends(get_db), ct
         return {"status": "error"}
 
 
-class CurationListRequest(BaseModel):
-    tenant_id: str
-    limit: int = 10
-
-
-@app.post("/curation/list", tags=["Contacts"])
-def curation_list(req: CurationListRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
-    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
-        return {"items": []}
-    # Select up to N contacts without a decision yet
-    decided_ids = {r.client_id for r in db.query(dbm.CurationDecision).filter(dbm.CurationDecision.tenant_id == req.tenant_id).all()}
-    q = db.query(dbm.Contact).filter(dbm.Contact.tenant_id == req.tenant_id)
-    rows = q.limit(max(1, min(req.limit, 50))).all()
-    items = []
-    for r in rows:
-        if r.contact_id in decided_ids:
-            continue
-        # Placeholder booking-derived stats — to be replaced with real joins
-        items.append({
-            "client_id": r.contact_id,
-            "visits": 0,
-            "services": [],
-            "total_minutes": 0,
-            "revenue": 0,
-        })
-        if len(items) >= req.limit:
-            break
-    return {"items": items}
-
-
-class CurationDecisionRequest(BaseModel):
-    tenant_id: str
-    client_id: str
-    decision: str  # keep|discard
-    reason: Optional[str] = None
-
-
-@app.post("/curation/decide", tags=["Contacts"])
-def curation_decide(req: CurationDecisionRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
-    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
-        return {"status": "forbidden"}
-    d = dbm.CurationDecision(tenant_id=req.tenant_id, client_id=req.client_id, decision=req.decision, reason=req.reason or None)
-    db.add(d)
-    db.commit()
-    emit_event("ClientCurated", {"tenant_id": req.tenant_id, "client_id": req.client_id, "decision": req.decision})
-    return {"status": "ok"}
-class CurationUndoRequest(BaseModel):
-    tenant_id: str
-    client_id: str
-
-
-@app.post("/curation/undo", tags=["Contacts"])
-def curation_undo(req: CurationUndoRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
-    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
-        return {"status": "forbidden"}
-    # Delete the most recent decision for this client (scaffold)
-    row = (
-        db.query(dbm.CurationDecision)
-        .filter(dbm.CurationDecision.tenant_id == req.tenant_id, dbm.CurationDecision.client_id == req.client_id)
-        .order_by(dbm.CurationDecision.id.desc())
-        .first()
-    )
-    if not row:
-        return {"status": "not_found"}
-    db.delete(row)
-    db.commit()
-    emit_event("ClientCurationUndone", {"tenant_id": req.tenant_id, "client_id": req.client_id})
-    return {"status": "ok"}
-
 @app.get("/integrations/booking/square/link", tags=["Integrations"])
 def square_booking_link(
     tenant_id: Optional[str] = None,
@@ -12005,7 +11519,6 @@ def square_booking_link(
     if tenant_id and ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"url": ""}
     url = os.getenv("SQUARE_BOOKING_URL", "")
-    # Prefer settings override if available
     try:
         t = tenant_id or ctx.tenant_id
         row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == t).first()
@@ -12017,7 +11530,6 @@ def square_booking_link(
     return {"url": url}
 
 
-# ---------- Admin: schema/RLS/timestamps inspection ----------
 @app.get("/admin/schema/inspect", tags=["Admin"])
 def admin_schema_inspect(db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context_relaxed)) -> Dict[str, object]:
     if ctx.role != "owner_admin":
@@ -12025,7 +11537,6 @@ def admin_schema_inspect(db: Session = Depends(get_db), ctx: UserContext = Depen
     try:
         out: Dict[str, object] = {}
         with engine.begin() as conn:
-            # RLS enabled tables in public schema
             try:
                 rows = conn.execute(
                     _sql_text(
@@ -12043,7 +11554,6 @@ def admin_schema_inspect(db: Session = Depends(get_db), ctx: UserContext = Depen
                 ]
             except Exception:
                 out["rls_tables"] = []
-            # Policies and referenced GUCs
             try:
                 rows = conn.execute(
                     _sql_text(
@@ -12077,7 +11587,6 @@ def admin_schema_inspect(db: Session = Depends(get_db), ctx: UserContext = Depen
             except Exception:
                 out["policies"] = []
                 out["gucs_referenced"] = []
-            # Timestamp columns inventory
             try:
                 rows = conn.execute(
                     _sql_text(
@@ -12099,7 +11608,6 @@ def admin_schema_inspect(db: Session = Depends(get_db), ctx: UserContext = Depen
                 ]
             except Exception:
                 out["timestamps"] = []
-            # audit_logs.payload presence
             try:
                 row = conn.execute(
                     _sql_text(

@@ -21,7 +21,7 @@ export default function SceneOpsMetrics({ state, next, back, save }: any){
           <label className="block"><div className="text-sm">Hours/week on content</div><input type="number" className="w-full border rounded-md px-3 py-2" value={hrsContent} onChange={(e)=>setHrsContent(parseFloat(e.target.value||'0'))} /></label>
         </div>
       </div>
-      <div className="mt-3 text-sm text-slate-700">Estimated time back: <strong>+{timeSavedEst}h/week</strong></div>
+      <div className="mt-3 text-sm text-slate-700">Estimated time saved: <strong>≈{timeSavedEst} hrs/week</strong></div>
       <div className="mt-6 flex gap-2">
         <button className="rounded-full border px-3 py-2 text-sm bg-white" onClick={back}>Back</button>
         <button className="rounded-full border px-3 py-2 text-sm bg-white" onClick={onContinue}>Continue</button>

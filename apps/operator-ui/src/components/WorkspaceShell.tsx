@@ -13,6 +13,7 @@ import { registerActions, registerMessageBridge } from '../lib/actions';
 import { workspaceStorage } from '../onboarding/workspace/storage';
 import { useWorkspaceOnboardingController } from '../hooks/useWorkspaceOnboardingController';
 import type { OnboardingState } from '../onboarding/workspace/orchestrator';
+import SupportBubble from './SupportBubble';
 
 type PaneKey = 'dashboard' | 'messages' | 'contacts' | 'calendar' | 'cadences' | 'inventory' | 'integrations' | 'approvals' | 'askvx' | 'vision' | 'upgradevx';
 
@@ -940,15 +941,25 @@ const FORCE_ONBOARD_TOUR = false;
           </nav>
           {/* Anchored footer */}
           <div className="absolute left-[3px] right-[3px]" style={{ bottom: 'calc(env(safe-area-inset-bottom,0px) + 18px)' }}>
-            {BOOKING_URL && (
-              <a
-                href={BOOKING_URL}
-                target="_blank"
-                rel="noreferrer"
-                className="mb-[2px] inline-flex w-full items-center justify-center px-3 py-2 rounded-full border bg-white text-slate-900 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] [font-family:var(--font-display)]"
-                data-tour="book-onboarding"
-              >Book onboarding</a>
-            )}
+            <div className="flex flex-col gap-2">
+              <SupportBubble hideTrigger />
+              <button
+                type="button"
+                className="inline-flex w-full items-center justify-center rounded-full bg-slate-900 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 [font-family:var(--font-display)]"
+                onClick={()=>{
+                  try { window.dispatchEvent(new CustomEvent('bvx:support:open', { detail: { source: 'workspace-cta' } })); } catch {}
+                }}
+              >Support</button>
+              {BOOKING_URL && (
+                <a
+                  href={BOOKING_URL}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex w-full items-center justify-center px-3 py-2 rounded-full border bg-white text-slate-900 hover:shadow-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] [font-family:var(--font-display)]"
+                  data-tour="book-onboarding"
+                >Book onboarding</a>
+              )}
+            </div>
             <Button
               variant="outline"
               className="w-full !rounded-full !py-2 text-left"

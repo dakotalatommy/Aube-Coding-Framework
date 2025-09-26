@@ -305,21 +305,20 @@ export default function Ask(){
 
   // Removed computeContext
 
-  const sendPrompt = useCallback(async (rawPrompt: string, overrides?: { mode?: string; context?: Record<string, unknown> }) => {
-    let prompt = rawPrompt.trim();
-    if (isOnboard) {
-      const contextBlock = buildMemoryContextBlock();
-      if (contextBlock) {
-        prompt = `${contextBlock}${prompt}`;
-      }
-    }
-    if (!prompt || loading) return { text: '', error: 'empty' };
+  const sendPrompt = useCallback(async (rawPrompt: string, overrides?: { mode?: string; context?: Record<string, unknown>, hidden?: string }) => {
+    const visible = rawPrompt.trim();
+    if (!visible || loading) return { text: '', error: 'empty' };
+    try { trackEvent('ask.prompt_submitted', { onboard: isOnboard, length: visible.length }); } catch {}
+    const hidden = overrides?.hidden ? `\n\n${overrides.hidden.trim()}` : '';
+    const contextBlock = isOnboard ? buildMemoryContextBlock() : '';
+    const prompt = `${contextBlock}${visible}${hidden}`;
     const next = [...messagesRef.current, { role: 'user' as const, content: prompt }];
     setMessages(next);
     setInput('');
     setLoading(true);
     try{
       const onboardMode = (()=>{ try{ return new URLSearchParams(window.location.search).get('onboard')==='1'; } catch { return false; }})();
+      const startT = performance.now();
       const modeToUse = overrides?.mode ?? (onboardMode ? 'onboard' : (mode || undefined));
       try { window.dispatchEvent(new CustomEvent('bvx:flow:askvx-user', { detail: { prompt, context: overrides?.context||{} } })); } catch {}
       const r = await api.post('/ai/chat/raw', {
@@ -332,6 +331,7 @@ export default function Ask(){
         const msg = `Error: ${String(r.detail||r.error)}`;
         setMessages(curr => [...curr, { role:'assistant', content: msg }]);
         try { window.dispatchEvent(new CustomEvent('bvx:flow:askvx-response', { detail: { prompt, error: msg, context: overrides?.context||{} } })); } catch {}
+        try { trackEvent('ask.response_error', { onboard: onboardMode, error: msg.slice(0, 120) }); } catch {}
         setLoading(false);
         return { text: '', error: msg };
       }
@@ -340,6 +340,7 @@ export default function Ask(){
         setFirstNoteShown(true);
         localStorage.setItem('bvx_first_prompt_note', '1');
       }
+      try { trackEvent('ask.response_stream_start', { onboard: onboardMode, chars: text.length }); } catch {}
       setStreaming(true);
       setMessages(curr => [...curr, { role: 'assistant', content: '' }]);
       const step = Math.max(2, Math.floor(text.length / 200));
@@ -360,11 +361,13 @@ export default function Ask(){
           if (streamId.current) { window.clearInterval(streamId.current); streamId.current = null; }
           setStreaming(false);
           try { window.dispatchEvent(new CustomEvent('bvx:flow:askvx-response', { detail: { prompt, text, context: overrides?.context||{} } })); } catch {}
+          try { trackEvent('ask.response_stream_complete', { onboard: onboardMode, chars: text.length, duration_ms: Math.max(0, Math.round(performance.now() - startT)) }); } catch {}
         }
       }, 20);
       return { text, error: '' };
     } catch(e:any){
       const error = String(e?.message||e);
+      try { trackEvent('ask.response_error', { onboard: isOnboard, error: error.slice(0, 120) }); } catch {}
       setMessages(curr => [...curr, { role: 'assistant', content: error }]);
       try { window.dispatchEvent(new CustomEvent('bvx:flow:askvx-response', { detail: { prompt, error, context: overrides?.context||{} } })); } catch {}
       return { text: '', error };
@@ -376,11 +379,19 @@ export default function Ask(){
   const send = async () => {
     const prompt = input.trim();
     if (!prompt || loading) return;
-    const overrides: { mode?: string; context?: Record<string, unknown> } = {};
+    const overrides: { mode?: string; context?: Record<string, unknown>, hidden?: string } = {};
     if (isOnboard) overrides.mode = 'onboard';
-    if (pendingInsights) overrides.context = { onboardingInsights: pendingInsights };
-    if (pendingStrategy) overrides.context = { ...(overrides.context||{}), onboardingStrategy: pendingStrategy.context };
-    const result = await sendPrompt(prompt, Object.keys(overrides).length ? overrides : undefined);
+    if (pendingInsights) {
+      overrides.context = { onboardingInsights: pendingInsights };
+      overrides.hidden = 'You are AskVX guiding onboarding. Do not ask clarifying questions. Answer first, list the revenue summary, highlight top clients using full names, and suggest exactly one next action.';
+    }
+    if (pendingStrategy) {
+      overrides.context = { ...(overrides.context||{}), onboardingStrategy: pendingStrategy.context };
+      const hiddenStrategy = 'Provide the 14-day strategy immediately without asking clarifying questions. Keep tone warm and confident; use full client names.';
+      overrides.hidden = overrides.hidden ? `${overrides.hidden}\n${hiddenStrategy}` : hiddenStrategy;
+    }
+    const payload = Object.keys(overrides).length ? overrides : undefined;
+    const result = await sendPrompt(prompt, payload);
     if (pendingInsights) {
       setPendingInsights(null);
       try { window.dispatchEvent(new CustomEvent('bvx:onboarding:askvx-sent', { detail: { success: !result?.error } })); } catch {}
@@ -511,30 +522,57 @@ export default function Ask(){
     }
   }, [brandContext, handleRunInsights, insightsData, pendingInsights]);
 
-  useEffect(()=>{
+  useEffect(() => {
     const handler = (event: Event) => {
-      const detail = (event as CustomEvent).detail || {};
-      const action = String(detail?.action || '').toLowerCase();
-      if (action === 'askvx.prefill') {
-        const prompt = String(detail.prompt || '');
-        setInput(prompt);
+      try {
+        const detail = (event as CustomEvent).detail || {};
+        const kind = String(detail.kind || '').toLowerCase();
+        if (!kind) return;
+        track('askvx_prefill', { kind, source: detail.source || 'tour' });
+        if (kind === 'insights') {
+          if (detail.payload && typeof detail.payload === 'object') {
+            setPendingInsights(detail.payload);
+          }
+          setInput(String(detail.visible || detail.prompt || ''));
+        }
+        if (kind === 'strategy') {
+          const payload = detail.payload && typeof detail.payload === 'object' ? detail.payload : {};
+          setPendingStrategy({ context: payload });
+          setInput(String(detail.visible || detail.prompt || ''));
+        }
         try { inputRef.current?.focus(); } catch {}
-      }
-      if (action === 'askvx.send') {
-        const prompt = String(detail.prompt || input).trim();
-        if (!prompt) return;
-        void sendPrompt(prompt, { mode: detail.mode, context: detail.context });
-      }
-      if (action === 'askvx.tab') {
-        const tab = String(detail.tab || 'chat').toLowerCase();
-        setPageIdx(tab === 'profile' ? 1 : 0);
-      }
-      if (action === 'askvx.run-insights') {
-        void handleRunInsights({ auto: true });
-      }
-      if (action === 'askvx.prepare-strategy') {
-        void injectStrategyPrompt();
-      }
+      } catch {}
+    };
+    window.addEventListener('bvx:ask:prefill' as any, handler as any);
+    return () => window.removeEventListener('bvx:ask:prefill' as any, handler as any);
+  }, []);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      try {
+        const detail = (event as CustomEvent).detail || {};
+        const action = String(detail.action || '').toLowerCase();
+        if (!action) return;
+        track('askvx_flow_command', { action });
+        if (action === 'askvx.send') {
+          const prompt = String(detail.prompt || input).trim();
+          if (!prompt) return;
+          void sendPrompt(prompt, { mode: detail.mode, context: detail.context, hidden: detail.hidden });
+        }
+        if (action === 'askvx.tab') {
+          const tab = String(detail.tab || 'chat').toLowerCase();
+          setPageIdx(tab === 'profile' ? 1 : 0);
+        }
+        if (action === 'askvx.run-insights') {
+          void handleRunInsights({ auto: true });
+        }
+        if (action === 'askvx.frontfill-insights') {
+          void handleRunInsights({ auto: true });
+        }
+        if (action === 'askvx.frontfill-strategy') {
+          void injectStrategyPrompt();
+        }
+      } catch {}
     };
     window.addEventListener('bvx:flow:askvx-command' as any, handler as any);
     return () => window.removeEventListener('bvx:flow:askvx-command' as any, handler as any);
