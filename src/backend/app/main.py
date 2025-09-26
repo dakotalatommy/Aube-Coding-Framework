@@ -92,7 +92,10 @@ import base64 as _b64
 import json as _json
 import stripe as _stripe
 from urllib.parse import urlparse as _uparse
-import qrcode
+try:
+    import qrcode  # type: ignore
+except ImportError:  # pragma: no cover
+    qrcode = None  # type: ignore
 from PIL import Image, ImageDraw, ImageFont
 from .jobs import (
     enqueue_sms_job,
@@ -358,6 +361,8 @@ def _ensure_referral_code(tenant_id: str) -> str:
 
 
 def _compose_referral_image(code: str, share_url: str) -> bytes:
+    if qrcode is None:
+        raise RuntimeError("qrcode library not installed")
     size = 1080
     qr_size = 520
     qr = qrcode.QRCode(border=2, box_size=10)

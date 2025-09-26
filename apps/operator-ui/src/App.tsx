@@ -270,8 +270,7 @@ function Shell() {
       return () => window.removeEventListener('keydown', onKey);
   }, [nav, onAskPage]);
 
-  const showSupportBubble = !embed && !onAuthRoute && !onLanding;
-
+  
   return (
     <>
       {!embed && (

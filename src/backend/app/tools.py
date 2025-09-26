@@ -54,7 +54,7 @@ def _gemini_key() -> str:
     return os.getenv("GEMINI_API_KEY", "")
 
 
-async def _gemini_generate(parts: list[dict], temperature: float = 0.2, timeout_s: int = 45, response_mime: str | None = None) -> dict:
+async def _gemini_generate(parts: List[Dict[str, Any]], temperature: float = 0.2, timeout_s: int = 45, response_mime: Optional[str] = None) -> Dict[str, Any]:
     key = _gemini_key()
     if not key:
         return {"status": "error", "detail": "missing_gemini_key"}
@@ -286,8 +286,8 @@ async def tool_image_edit(
     if not img_obj:
         return {"status": "error", "detail": "missing_image"}
     # Determine original dimensions if Pillow is available
-    orig_w: int | None = None
-    orig_h: int | None = None
+    orig_w: Optional[int] = None
+    orig_h: Optional[int] = None
     try:
         if _PILImage is not None:
             b64 = (img_obj.get("inlineData") or {}).get("data")
@@ -430,7 +430,7 @@ def _vertex_sa_token() -> str:
         return ""
 
 
-async def _vertex_try_image_edit(img_obj: dict, prompt: str, preserve_dims: bool) -> dict | None:
+async def _vertex_try_image_edit(img_obj: Dict[str, Any], prompt: str, preserve_dims: bool) -> Optional[Dict[str, Any]]:
     """Attempt image edit via Vertex Images (Gemini 2.5 Flash Image).
     Returns {data: base64, mime: str} on success, else None.
     """
@@ -553,7 +553,7 @@ async def tool_brand_vision_analyze(
         pass
     base_api = os.getenv("BACKEND_BASE_URL", "http://localhost:8000").rstrip("/")
     profile: Dict[str, Any] = {}
-    items: list[dict] = []
+    items: List[Dict[str, Any]] = []
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             rp = await client.get(f"{base_api}/instagram/profile", params={"tenant_id": tenant_id})
@@ -733,7 +733,7 @@ async def tool_social_scrape_posts(
             if r.status_code >= 400:
                 return {"status": "error", "detail": f"http_{r.status_code}"}
             html = r.text or ""
-            thumbs: list[str] = []
+            thumbs: List[str] = []
             # Naive parse for image URLs
             for marker in ["display_url", "thumbnail_src", "og:image"]:
                 i = 0
@@ -2232,7 +2232,7 @@ async def tool_db_query_named(
 
 # ---------------------- Report generation (CSV) ----------------------
 
-def _rows_to_csv(rows: list[dict], header_order: Optional[list[str]] = None) -> str:
+def _rows_to_csv(rows: List[Dict[str, Any]], header_order: Optional[List[str]] = None) -> str:
     buffer = io.StringIO()
     if not rows:
         return ""

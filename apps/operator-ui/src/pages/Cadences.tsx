@@ -60,7 +60,6 @@ export default function Cadences(){
   const [draftJobId, setDraftJobId] = useState<string | null>(null);
   const [draftContacts, setDraftContacts] = useState<string[]>([]);
   const [draftTemplateLabel, setDraftTemplateLabel] = useState<string>('');
-  const [draftDetails, setDraftDetails] = useState<any>(null);
   const [draftDownloadUrl, setDraftDownloadUrl] = useState<string>('');
   const [draftError, setDraftError] = useState<string>('');
   const [status, setStatus] = useState('');
@@ -74,7 +73,6 @@ export default function Cadences(){
     setDraftJobId(null);
     setDraftContacts([]);
     setDraftTemplateLabel('');
-    setDraftDetails(null);
     setDraftError('');
     setStatus('');
     if (draftDownloadUrl) {
@@ -123,10 +121,7 @@ export default function Cadences(){
       const res = await api.get(`/followups/draft_status?tenant_id=${encodeURIComponent(tid)}`);
       setStatus(JSON.stringify(res || {}));
       const details = res?.details || {};
-      setDraftDetails(details);
-      if (Array.isArray(details?.contact_ids)) {
-        setDraftContacts(details.contact_ids.map((cid: any)=> String(cid)));
-      }
+      setDraftContacts(details.contact_ids.map((cid: any)=> String(cid)));
       if (typeof details?.template_label === 'string') {
         setDraftTemplateLabel(details.template_label);
       }
@@ -223,7 +218,6 @@ export default function Cadences(){
         setDraftJobId(String(res.job_id));
       }
       if (res?.details) {
-        setDraftDetails(res.details);
         if (Array.isArray(res.details.contact_ids)) {
           setDraftContacts(res.details.contact_ids.map((cid: any)=> String(cid)));
         }
