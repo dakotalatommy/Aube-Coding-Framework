@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from fastapi import FastAPI, Depends, Response, Request, HTTPException, UploadFile
 from fastapi.responses import PlainTextResponse, RedirectResponse, FileResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -130,6 +132,13 @@ except Exception:
 
 logger = logging.getLogger(__name__)
 
+
+def _todo_disabled() -> bool:
+    try:
+        return str(os.getenv('BRVX_DISABLE_TODO', '0')).lower() in {'1', 'true', 'yes'}
+    except Exception:
+        return False
+
 # -------- Helper: mark onboarding step complete (idempotent) ---------
 def _complete_step(tenant_id: str, step_key: str, context: Optional[Dict[str, Any]] = None) -> None:
     try:
@@ -160,6 +169,16 @@ class ProgressStep(BaseModel):
 class AskVXInsightsRequest(BaseModel):
     tenant_id: str
     horizon_days: int = Field(90, ge=30, le=180)
+
+
+class InventorySyncRequest(BaseModel):
+    tenant_id: str
+    provider: Optional[str] = None
+
+
+class CalendarSyncRequest(BaseModel):
+    tenant_id: str
+    provider: Optional[str] = None
 
 
 class StrategyDocumentRequest(BaseModel):
@@ -769,69 +788,88 @@ def onboarding_progress_status(tenant_id: str, db: Session = Depends(get_db), ct
 
 # ----------------------- AskVX Onboarding Insights -----------------------
 @app.post("/onboarding/askvx/insights", tags=["Onboarding"])
-async def onboarding_askvx_insights(
+def onboarding_askvx_insights(
     req: AskVXInsightsRequest,
-    ctx: UserContext = Depends(get_user_context),
-    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context_relaxed),
 ) -> Dict[str, Any]:
-    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+    tenant_id = req.tenant_id
+    if ctx.tenant_id and ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         raise HTTPException(status_code=403, detail="forbidden")
     horizon = max(30, min(180, int(req.horizon_days)))
-    cutoff = int(_time.time()) - horizon * 86400
-    summary: Dict[str, Any] = {
-        "revenue_cents": 0,
+    job_payload = {
         "horizon_days": horizon,
-        "clients": [],
     }
-    try:
-        rows = (
-            db.query(dbm.Contact)
-            .filter(dbm.Contact.tenant_id == req.tenant_id, dbm.Contact.deleted == False)
-            .order_by(dbm.Contact.lifetime_cents.desc())
-            .limit(5)
-            .all()
-        )
-        summary["clients"] = [
-            {
-                "contact_id": str(getattr(r, "contact_id", "unknown")),
-                "display_name": (getattr(r, "display_name", None) or '').strip(),
-                "first_name": getattr(r, "first_name", None),
-                "last_name": getattr(r, "last_name", None),
-                "txn_count": int(getattr(r, "txn_count", 0) or 0),
-                "lifetime_cents": int(getattr(r, "lifetime_cents", 0) or 0),
-                "last_visit": int(getattr(r, "last_visit", 0) or 0),
-            }
-            for r in rows
-        ]
-    except Exception:
-        summary["clients"] = []
-    try:
-        total = db.query(_sql_func.sum(dbm.Contact.lifetime_cents)).filter(
-            dbm.Contact.tenant_id == req.tenant_id,
-            dbm.Contact.deleted == False,
-            dbm.Contact.last_visit.isnot(None),
-            dbm.Contact.last_visit >= cutoff,
-        ).scalar()
-        summary["revenue_cents"] = int(total or 0)
-    except Exception:
-        summary["revenue_cents"] = 0
+    job_id = create_job_record(tenant_id, "onboarding.insights", job_payload, status="queued")
+    if not job_id:
+        raise HTTPException(status_code=500, detail="job_create_failed")
+    details = {
+        "job_id": job_id,
+        "job_status": "queued",
+        "insights_status": "queued",
+        "horizon_days": horizon,
+    }
+    todo_id = None
+    title = "Onboarding snapshot"
+    todo_disabled = _todo_disabled()
+    if not todo_disabled:
+        try:
+            with engine.begin() as conn:
+                try:
+                    conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+                    conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": tenant_id})
+                except Exception:
+                    pass
+                inserted = conn.execute(
+                    _sql_text(
+                        "INSERT INTO todo_items (tenant_id, type, title, details_json, status) "
+                        "VALUES (CAST(:t AS uuid), 'onboarding.insights', :title, :details::jsonb, 'pending') RETURNING id"
+                    ),
+                    {"t": tenant_id, "title": title, "details": json.dumps(details)},
+                )
+                todo_id = inserted.scalar() if inserted else None
+        except Exception:
+            todo_id = None
+    if not todo_id and not todo_disabled:
+        update_job_record(job_id, status="error", error="todo_insert_failed")
+        raise HTTPException(status_code=500, detail="todo_insert_failed")
+    update_job_record(job_id, result={"todo_id": todo_id, "status": "queued", "horizon_days": horizon})
+    return {"status": "queued", "job_id": job_id, "todo_id": todo_id, "horizon_days": horizon}
 
-    context_blob = _json.dumps(summary, ensure_ascii=False)
-    system = (
-        "You are the BrandVX onboarding concierge."
-        " Use the JSON context from the user message to produce a concise, upbeat recap."
-        " Report revenue for the provided horizon (±$100 tolerance is acceptable)."
-        " List the top three clients with visits, total spend, and a warm thank-you draft personalised with their name."
-        " Do not ask follow-up questions or request clarification."
-        " If data is missing, acknowledge it and suggest one actionable next step."
+
+@app.get("/onboarding/askvx/insights/status", tags=["Onboarding"])
+def onboarding_askvx_insights_status(
+    tenant_id: str,
+    job_id: Optional[str] = None,
+    ctx: UserContext = Depends(get_user_context_relaxed),
+) -> Dict[str, Any]:
+    if ctx.tenant_id and ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    params: Dict[str, Any] = {"t": tenant_id}
+    sql = (
+        "SELECT id, status, details_json FROM todo_items "
+        "WHERE tenant_id = CAST(:t AS uuid) AND type = 'onboarding.insights'"
     )
-    messages = [{"role": "user", "content": context_blob}]
-    client = AIClient()
+    if job_id:
+        sql += " AND (details_json ->> 'job_id') = :job_id"
+        params["job_id"] = job_id
+    sql += " ORDER BY id DESC LIMIT 1"
+    with engine.begin() as conn:
+        row = conn.execute(_sql_text(sql), params).fetchone()
+    if not row:
+        return {"status": "none"}
     try:
-        ai_text = await client.generate(system, messages, max_tokens=520)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=str(e)[:200])
-    return {"status": "ok", "text": ai_text, "data": summary}
+        details = json.loads(row[2] or "{}")
+    except Exception:
+        details = {}
+    job_status = details.get("job_status")
+    return {
+        "status": details.get("insights_status", "pending"),
+        "todo_status": row[1],
+        "todo_id": row[0],
+        "details": details,
+        "job_id": details.get("job_id"),
+        "job_status": job_status,
+    }
 
 
 @app.post("/onboarding/strategy/document", tags=["Onboarding"])
@@ -3635,9 +3673,9 @@ def import_candidates(
     tenant_id: str,
     limit: int = 10,
     db: Session = Depends(get_db),
-    ctx: UserContext = Depends(get_user_context),
+    ctx: UserContext = Depends(get_user_context_relaxed),
 ) -> Dict[str, List[Dict[str, object]]]:
-    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+    if ctx.tenant_id and ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"items": []}
     # Suggest contacts based on booking appointments that are missing from Contacts
     try:
@@ -7481,6 +7519,41 @@ def get_cadence_queue(
     )
     rows = q.all()
     items = []
+    contact_ids = [r.contact_id for r in rows if getattr(r, "contact_id", None)]
+    friendly_map: Dict[str, str] = {}
+    if contact_ids:
+        try:
+            from . import models as dbm  # type: ignore
+
+            contacts = (
+                db.query(dbm.Contact)
+                .filter(dbm.Contact.tenant_id == tenant_id)
+                .filter(dbm.Contact.contact_id.in_(contact_ids))
+                .all()
+            )
+            for c in contacts:
+                dn = (getattr(c, "display_name", "") or "").strip()
+                first = (getattr(c, "first_name", "") or "").strip()
+                last = (getattr(c, "last_name", "") or "").strip()
+                full = f"{first} {last}".strip()
+                friendly = full or dn or "Client"
+                try:
+                    import re as _re
+
+                    looks_like_square = bool(
+                        friendly
+                        and (
+                            _re.match(r"^sq[:_].+", friendly, flags=_re.IGNORECASE)
+                            or _re.match(r"^sq[0-9a-z]{5,}$", friendly.replace(" ", ""), flags=_re.IGNORECASE)
+                        )
+                    )
+                except Exception:
+                    looks_like_square = False
+                if looks_like_square:
+                    friendly = "Client"
+                friendly_map[c.contact_id] = friendly
+        except Exception:
+            friendly_map = {}
     for r in rows:
         items.append(
             {
@@ -7488,6 +7561,7 @@ def get_cadence_queue(
                 "cadence_id": r.cadence_id,
                 "step_index": r.step_index,
                 "next_action_at": r.next_action_epoch,
+                "friendly_name": friendly_map.get(r.contact_id, "Client" if r.contact_id else ""),
             }
         )
     return {"items": items}
@@ -10374,12 +10448,15 @@ def job_result(job_id: str, ctx: UserContext = Depends(get_user_context)) -> Dic
         raise HTTPException(status_code=403, detail="forbidden")
     return {'status': job.get('status'), 'result': _parse_json_field(job.get('result'))}
 @app.post("/onboarding/analyze", tags=["Integrations"])
-def onboarding_analyze(req: AnalyzeRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
-    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+def onboarding_analyze(req: AnalyzeRequest, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context_relaxed)):
+    if ctx.tenant_id and ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"summary": {}, "status": "forbidden"}
     # Connected accounts snapshot
+    connected: Dict[str, Any] = {}
     try:
-        connected = _connected_accounts_map(db, req.tenant_id)
+        snapshot = _connected_accounts_map(db, req.tenant_id)
+        if isinstance(snapshot, dict):
+            connected = snapshot
     except Exception:
         connected = {}
     # Reconciliation (booking vs contacts)
@@ -10848,9 +10925,9 @@ def export_contacts(
 def inbox_list(
     tenant_id: str,
     limit: int = 50,
-    ctx: UserContext = Depends(get_user_context),
+    ctx: UserContext = Depends(get_user_context_relaxed),
 ):
-    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+    if ctx.tenant_id and ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"items": []}
     try:
         ckey = f"inbox:{tenant_id}:{limit}"
@@ -11094,13 +11171,60 @@ def gmail_send(req: dict, db: Session = Depends(get_db), ctx: UserContext = Depe
         return {"status": "error", "error": str(e)}
 
 
+@app.post("/calendar/sync", tags=["Integrations"])
+def calendar_sync(
+    req: "CalendarSyncRequest",
+    ctx: UserContext = Depends(get_user_context_relaxed),
+) -> Dict[str, Any]:
+    tenant_id = req.tenant_id
+    if ctx.tenant_id and ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        raise HTTPException(status_code=403, detail="forbidden")
+    provider = (req.provider or "auto").lower()
+    job_payload = {"provider": provider}
+    job_id = create_job_record(tenant_id, "calendar.sync", job_payload, status="queued")
+    if not job_id:
+        raise HTTPException(status_code=500, detail="job_create_failed")
+    details = {
+        "job_id": job_id,
+        "job_status": "queued",
+        "provider": provider,
+        "sync_status": "queued",
+    }
+    title = "Calendar sync"
+    todo_disabled = _todo_disabled()
+    todo_id = None
+    if not todo_disabled:
+        try:
+            with engine.begin() as conn:
+                try:
+                    conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+                    conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": tenant_id})
+                except Exception:
+                    pass
+                inserted = conn.execute(
+                    _sql_text(
+                        "INSERT INTO todo_items (tenant_id, type, title, details_json, status) "
+                        "VALUES (CAST(:t AS uuid), 'calendar.sync', :title, :details::jsonb, 'pending') RETURNING id"
+                    ),
+                    {"t": tenant_id, "title": title, "details": json.dumps(details)},
+                )
+                todo_id = inserted.scalar() if inserted else None
+        except Exception:
+            todo_id = None
+    if not todo_id and not todo_disabled:
+        update_job_record(job_id, status="error", error="todo_insert_failed")
+        raise HTTPException(status_code=500, detail="todo_insert_failed")
+    update_job_record(job_id, result={"todo_id": todo_id, "provider": provider, "status": "queued"})
+    return {"status": "queued", "job_id": job_id, "todo_id": todo_id, "provider": provider}
+
+
 @app.get("/calendar/list", tags=["Integrations"])
 def calendar_list(
     tenant_id: str,
     start_ts: Optional[int] = None,
     end_ts: Optional[int] = None,
     db: Session = Depends(get_db),
-    ctx: UserContext = Depends(get_user_context),
+    ctx: UserContext = Depends(get_user_context_relaxed),
 ):
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"events": [], "last_sync": {}}
@@ -11157,28 +11281,190 @@ def calendar_list(
     except Exception:
         pass
     return {"events": events, "last_sync": cal_sync}
+
+
+@app.get("/calendar/sync/status", tags=["Integrations"])
+def calendar_sync_status(
+    tenant_id: str,
+    job_id: Optional[str] = None,
+    ctx: UserContext = Depends(get_user_context_relaxed),
+) -> Dict[str, Any]:
+    if ctx.tenant_id and ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    params: Dict[str, Any] = {"t": tenant_id}
+    sql = (
+        "SELECT id, status, details_json FROM todo_items "
+        "WHERE tenant_id = CAST(:t AS uuid) AND type = 'calendar.sync'"
+    )
+    if job_id:
+        sql += " AND (details_json ->> 'job_id') = :job_id"
+        params["job_id"] = job_id
+    sql += " ORDER BY id DESC LIMIT 1"
+    with engine.begin() as conn:
+        row = conn.execute(_sql_text(sql), params).fetchone()
+    if not row:
+        return {"status": "none"}
+    try:
+        details = json.loads(row[2] or "{}")
+    except Exception:
+        details = {}
+    return {
+        "status": details.get("sync_status", "pending"),
+        "todo_status": row[1],
+        "todo_id": row[0],
+        "details": details,
+        "job_id": details.get("job_id"),
+        "job_status": details.get("job_status"),
+    }
+
+
+@app.post("/inventory/sync", tags=["Integrations"])
+def inventory_sync(
+    req: "InventorySyncRequest",
+    ctx: UserContext = Depends(get_user_context_relaxed),
+) -> Dict[str, Any]:
+    tenant_id = req.tenant_id
+    if ctx.tenant_id and ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        raise HTTPException(status_code=403, detail="forbidden")
+    provider = (req.provider or "auto").lower()
+    job_payload = {"provider": provider}
+    job_id = create_job_record(tenant_id, "inventory.sync", job_payload, status="queued")
+    if not job_id:
+        raise HTTPException(status_code=500, detail="job_create_failed")
+    details = {
+        "job_id": job_id,
+        "job_status": "queued",
+        "provider": provider,
+        "sync_status": "queued",
+    }
+    todo_disabled = _todo_disabled()
+    todo_id = None
+    if not todo_disabled:
+        try:
+            with engine.begin() as conn:
+                try:
+                    conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+                    conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": tenant_id})
+                except Exception:
+                    pass
+                inserted = conn.execute(
+                    _sql_text(
+                        "INSERT INTO todo_items (tenant_id, type, title, details_json, status) "
+                        "VALUES (CAST(:t AS uuid), 'inventory.sync', :title, :details::jsonb, 'pending') RETURNING id"
+                    ),
+                    {"t": tenant_id, "title": "Inventory sync", "details": json.dumps(details)},
+                )
+                todo_id = inserted.scalar() if inserted else None
+        except Exception:
+            todo_id = None
+    if not todo_id and not todo_disabled:
+        update_job_record(job_id, status="error", error="todo_insert_failed")
+        raise HTTPException(status_code=500, detail="todo_insert_failed")
+    update_job_record(job_id, result={"todo_id": todo_id, "provider": provider, "status": "queued"})
+    return {"status": "queued", "job_id": job_id, "todo_id": todo_id, "provider": provider}
 @app.get("/inventory/metrics", tags=["Integrations"])
 def inventory_metrics(
     tenant_id: str,
     provider: Optional[str] = None,
     db: Session = Depends(get_db),
-    ctx: UserContext = Depends(get_user_context),
-):
-    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+    ctx: UserContext = Depends(get_user_context_relaxed),
+) -> Dict[str, Any]:
+    if ctx.tenant_id and ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"summary": {}, "items": [], "last_sync": {}}
+    try:
+        tenant_uuid = _uuid.UUID(tenant_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="invalid_tenant")
+
+    query = db.query(dbm.InventoryItem).filter(dbm.InventoryItem.tenant_id == tenant_uuid)
+    if provider:
+        provider_norm = provider.lower()
+        if provider_norm not in {"auto", "all", "square", "shopify", "manual"}:
+            provider_norm = "auto"
+        if provider_norm not in {"auto", "all"}:
+            query = query.filter(dbm.InventoryItem.provider == provider_norm)
+    rows = query.order_by(dbm.InventoryItem.id.asc()).all()
+    items: List[Dict[str, Any]] = [
+        {
+            "sku": r.sku,
+            "name": r.name,
+            "stock": int(r.stock or 0),
+            "provider": r.provider,
+        }
+        for r in rows
+    ]
+
+    summary_row = db.query(dbm.InventorySummary).filter(dbm.InventorySummary.tenant_id == tenant_uuid).first()
+    if summary_row:
+        summary = {
+            "products": int(summary_row.products or 0),
+            "low_stock": int(summary_row.low_stock or 0),
+            "out_of_stock": int(summary_row.out_of_stock or 0),
+            "top_sku": summary_row.top_sku,
+        }
+        updated_at = int(summary_row.updated_at or 0)
+    else:
+        products = len(items)
+        low_stock = sum(1 for it in items if (isinstance(it.get("stock"), int) and 0 < it["stock"] <= 5))
+        out_stock = sum(1 for it in items if isinstance(it.get("stock"), int) and it["stock"] <= 0)
+        top_sku = items[0]["sku"] if items else None
+        summary = {
+            "products": products,
+            "low_stock": low_stock,
+            "out_of_stock": out_stock,
+            "top_sku": top_sku,
+        }
+        updated_at = int(_time.time())
+
+    last_sync: Dict[str, Any] = {"inventory": updated_at}
+    todo_sql = (
+        "SELECT id, details_json FROM todo_items "
+        "WHERE tenant_id = CAST(:t AS uuid) AND type = 'inventory.sync' ORDER BY id DESC LIMIT 1"
+    )
+    with engine.begin() as conn:
+        todo_row = conn.execute(_sql_text(todo_sql), {"t": tenant_id}).fetchone()
+    if todo_row and todo_row[1]:
+        try:
+            todo_details = json.loads(todo_row[1])
+        except Exception:
+            todo_details = {}
+        last_sync["job"] = todo_details
+    return {"summary": summary, "items": items, "last_sync": last_sync}
+
+
+@app.get("/inventory/sync/status", tags=["Integrations"])
+def inventory_sync_status(
+    tenant_id: str,
+    job_id: Optional[str] = None,
+    ctx: UserContext = Depends(get_user_context_relaxed),
+) -> Dict[str, Any]:
+    if ctx.tenant_id and ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
-    # Reuse metrics logic to compute and return rollup
-    job_id = create_job_record(req.tenant_id, f"inventory.sync.{req.provider or 'auto'}", {
-        'provider': req.provider or 'auto',
-    })
-    out = inventory_metrics(tenant_id=req.tenant_id, provider=req.provider, db=db, ctx=ctx)  # type: ignore
-    if isinstance(out, dict):
-        update_job_record(job_id, status='done', result=out)
-        out['job_id'] = job_id
-        return out
-    update_job_record(job_id, status='done', result={'status': 'ok'})
-    return {"status": "ok", "job_id": job_id}
-
-
+    params: Dict[str, Any] = {"t": tenant_id}
+    sql = (
+        "SELECT id, status, details_json FROM todo_items "
+        "WHERE tenant_id = CAST(:t AS uuid) AND type = 'inventory.sync'"
+    )
+    if job_id:
+        sql += " AND (details_json ->> 'job_id') = :job_id"
+        params["job_id"] = job_id
+    sql += " ORDER BY id DESC LIMIT 1"
+    with engine.begin() as conn:
+        row = conn.execute(_sql_text(sql), params).fetchone()
+    if not row:
+        return {"status": "none"}
+    try:
+        details = json.loads(row[2] or "{}")
+    except Exception:
+        details = {}
+    return {
+        "status": details.get("sync_status", "pending"),
+        "todo_status": row[1],
+        "todo_id": row[0],
+        "details": details,
+        "job_id": details.get("job_id"),
+        "job_status": details.get("job_status"),
+    }
 class InventoryMergeRequest(BaseModel):
     tenant_id: str
     strategy: Optional[str] = "sku_then_name"

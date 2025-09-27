@@ -1,0 +1,1 @@
+#bvx-squares-anchor [role=button]{background:#fff!important;isolation:isolate!important;mix-blend-mode:normal!important}#bvx-squares-anchor [role=button]:before{content:"";position:absolute;inset:0;background:#fff;z-index:0}#bvx-squares-anchor [role=button]>*{position:relative;z-index:1}

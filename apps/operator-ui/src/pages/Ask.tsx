@@ -16,69 +16,10 @@ const currencyFormatter = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
-
-const normalizeClients = (clients: any[] | undefined | null) => {
-  if (!Array.isArray(clients)) return [];
-  return clients
-    .filter(Boolean)
-    .slice(0, 3)
-    .map((c) => {
-      const first = String(c?.first_name || '').trim();
-      const last = String(c?.last_name || '').trim();
-      const display = String(c?.display_name || '').trim();
-      const name = [first, last].filter(Boolean).join(' ') || display || 'Client';
-      return {
-        name,
-        visits: Number(c?.txn_count || 0),
-        spend_cents: Number(c?.lifetime_cents || 0),
-        last_visit: Number(c?.last_visit || 0),
-        contact_id: String(c?.contact_id || ''),
-      };
-    });
-};
-
-const buildInsightsPrompt = (summary: any) => {
-  const horizon = Number(summary?.horizon_days || 90);
-  const data = {
-    horizon_days: horizon,
-    revenue_cents: Number(summary?.revenue_cents || 0),
-    clients: normalizeClients(summary?.clients).map((client) => ({
-      name: client.name,
-      visits: client.visits,
-      spend_cents: client.spend_cents,
-      last_visit: client.last_visit,
-    })),
-  };
-  const intro = [
-    'You are AskVX, guiding a beauty professional through onboarding. Stay confident, warm, and encouraging.',
-    `Use the JSON data below to report revenue for the last ${horizon} days. It is acceptable to label the total as an estimate within ±$100.`,
-    'Then highlight the top three clients. For each, include their name, visit count, total spend, and a warm thank-you draft that uses their name.',
-    'Do not ask any follow-up questions or seek clarification. Assume the data is sufficient.',
-    'Close with a short suggestion on how to use the information next.',
-  ].join('\n');
-
-  const format = [
-    'Format your response as:',
-    '1. One upbeat intro line acknowledging the imported contacts.',
-    `2. A revenue line like "Estimated revenue (last ${horizon} days): $12,340 (±$100)."`,
-    '3. A numbered list for each client, e.g. "1. Name — Visits: X · Spend: $Y. Thank-you draft: ..."',
-    '4. A closing encouragement to keep exploring AskVX.',
-  ].join('\n');
-
-  return `${intro}\n\n${format}\n\nData:\n${JSON.stringify(data, null, 2)}`;
-};
-
 const formatCurrency = (cents?: number | null) => {
   const dollars = Number(cents || 0) / 100;
   return currencyFormatter.format(dollars || 0);
 };
-
-const buildThankYouDraft = (client: { name: string; visits: number; spend_cents: number }) => {
-  const first = client.name.split(' ')[0] || client.name;
-  const visitsLabel = `${client.visits} ${client.visits === 1 ? 'visit' : 'visits'}`;
-  return `Hi ${first}! Thank you for trusting me with ${visitsLabel}. Your support (${formatCurrency(client.spend_cents)}) means so much — I'd love to give you first pick of upcoming appointments. Let me know what days work for you!`;
-};
-
 const buildStrategyMarkdownDoc = (options: {
   snapshot: any;
   planDays: Array<{ day_index: number; tasks: string[] }>;
@@ -88,7 +29,6 @@ const buildStrategyMarkdownDoc = (options: {
 }) => {
   const { snapshot, planDays, brandProfile, goals, importSummary } = options;
   const horizon = Number(snapshot?.horizon_days || 90);
-  const clients = normalizeClients(snapshot?.clients);
   const imported = Number(importSummary?.imported || 0);
   const updated = Number(importSummary?.updated || 0);
   const totalContacts = imported + updated;
@@ -108,14 +48,7 @@ const buildStrategyMarkdownDoc = (options: {
   lines.push('');
 
   lines.push('## Top Clients');
-  if (!clients.length) {
-    lines.push('- No client data available yet. Re-run the import once contacts sync.');
-  } else {
-    clients.forEach((client, idx) => {
-      lines.push(`${idx + 1}. ${client.name} — Visits: ${client.visits} · Spend: ${formatCurrency(client.spend_cents)}`);
-      lines.push(`   - Thank-you draft: "${buildThankYouDraft(client)}"`);
-    });
-  }
+  lines.push('- Revisit your top clients with thank-you outreach this week.');
   lines.push('');
 
   lines.push('## Day-by-day plan');
@@ -171,40 +104,6 @@ const buildMemoryContextBlock = () => {
   }
 };
 
-const buildStrategyPrompt = (summary: any, brandContext: any) => {
-  const horizon = Number(summary?.horizon_days || 90);
-  const clients = normalizeClients(summary?.clients);
-  const brandProfile = brandContext?.brand_profile || {};
-  const goals = brandContext?.goals || {};
-  const voice = String(brandProfile?.voice || '').trim();
-  const about = String(brandProfile?.about || '').trim();
-  const goalPrimary = String(goals?.primary || '').trim();
-
-  const segments = [
-    'You are AskVX, the onboarding strategist for a beauty professional.',
-    `Use the revenue summary for the last ${horizon} days and the imported contacts to build a focused 14-day strategy.`,
-    'Ask up to two short clarifying questions if essential; otherwise move directly into the plan.',
-    'Return the plan as a markdown-friendly outline with each day numbered and 2-3 concrete actions.',
-    'Highlight ideal follow-up touchpoints, content ideas, and any retail or add-on suggestions.',
-  ];
-
-  if (voice || about || goalPrimary) {
-    const ctx: string[] = [];
-    if (voice) ctx.push(`Brand voice: ${voice}`);
-    if (about) ctx.push(`Brand profile: ${about}`);
-    if (goalPrimary) ctx.push(`Primary goal: ${goalPrimary}`);
-    segments.push(`Brand context:\n${ctx.join('\n')}`);
-  }
-
-  if (clients.length) {
-    const topLines = clients.map((client, idx) => `${idx + 1}. ${client.name} — ${client.visits} visits, ${formatCurrency(client.spend_cents)}`);
-    segments.push(`Top clients loaded:\n${topLines.join('\n')}`);
-  }
-
-  const prompt = `${segments.join('\n\n')}\n\nPlease confirm any assumptions briefly before presenting the final 14-day plan.`;
-  return prompt;
-};
-
 export default function Ask(){
   // const navigate = useNavigate();
   const { showToast } = useToast();
@@ -223,10 +122,8 @@ export default function Ask(){
     const k = 'bvx_first_prompt_note';
     return localStorage.getItem(k) === '1';
   });
-  const [insightsLoading, setInsightsLoading] = useState(false);
-  const [insightsData, setInsightsData] = useState<any|null>(null);
-  const [pendingInsights, setPendingInsights] = useState<any|null>(null);
-  const [pendingStrategy, setPendingStrategy] = useState<{ context: any } | null>(null);
+  const [pendingInsights, setPendingInsights] = useState<string>('');
+  const [pendingStrategy, setPendingStrategy] = useState<string>('');
   const [importSummary, setImportSummary] = useState<any|null>(()=>{
     try { return (window as any).__bvxLastImport || null; } catch { return null; }
   });
@@ -237,7 +134,13 @@ export default function Ask(){
   const [strategyMarkdown, setStrategyMarkdown] = useState<string>('');
   const [strategyDownloadUrl, setStrategyDownloadUrl] = useState<string>('');
   const [strategySaved, setStrategySaved] = useState(false);
-  const [brandContext, setBrandContext] = useState<any|null>(null);
+  const [trainerInput, setTrainerInput] = useState<string>('');
+  const [trainerSaving, setTrainerSaving] = useState<boolean>(false);
+  const [sessionSummary, setSessionSummary] = useState<string>('');
+  const [summarizing, setSummarizing] = useState<boolean>(false);
+  const [mode] = useState<string>(()=>{
+    try { const sp = new URLSearchParams(window.location.search); return (sp.get('mode')||'').toLowerCase(); } catch { return ''; }
+  });
   const [sessionId] = useState<string>(() => {
     const key = 'bvx_chat_session';
     const existing = localStorage.getItem(key);
@@ -249,26 +152,7 @@ export default function Ask(){
   const isOnboard = (()=>{
     try { return new URLSearchParams(window.location.search).get('onboard')==='1'; } catch { return false; }
   })();
-  // Restore cached messages for continuity across pane navigation
-  useEffect(()=>{
-    try{
-      const cache = localStorage.getItem(`bvx_chat_cache_${sessionId}`);
-      if (cache) {
-        const arr = JSON.parse(cache);
-        if (Array.isArray(arr)) setMessages(arr);
-      }
-    } catch {}
-  }, [sessionId]);
-  // removed sessions listing
   const lastAssistantText = String(messages.filter(m=>m.role==='assistant').slice(-1)[0]?.content||'');
-  // Removed plan state and tool labels
-  const [trainerInput, setTrainerInput] = useState<string>('');
-  const [trainerSaving, setTrainerSaving] = useState<boolean>(false);
-  const [sessionSummary, setSessionSummary] = useState<string>('');
-  const [summarizing, setSummarizing] = useState<boolean>(false);
-  const [mode] = useState<string>(()=>{
-    try { const sp = new URLSearchParams(window.location.search); return (sp.get('mode')||'').toLowerCase(); } catch { return ''; }
-  });
   // removed getToolLabel
   const inputRef = useRef<HTMLTextAreaElement|null>(null);
   useEffect(()=>{ try{ inputRef.current?.focus(); } catch{} },[]);
@@ -386,14 +270,14 @@ export default function Ask(){
       overrides.hidden = 'You are AskVX guiding onboarding. Do not ask clarifying questions. Answer first, list the revenue summary, highlight top clients using full names, and suggest exactly one next action.';
     }
     if (pendingStrategy) {
-      overrides.context = { ...(overrides.context||{}), onboardingStrategy: pendingStrategy.context };
+      overrides.context = { ...(overrides.context||{}), onboardingStrategy: pendingStrategy };
       const hiddenStrategy = 'Provide the 14-day strategy immediately without asking clarifying questions. Keep tone warm and confident; use full client names.';
       overrides.hidden = overrides.hidden ? `${overrides.hidden}\n${hiddenStrategy}` : hiddenStrategy;
     }
     const payload = Object.keys(overrides).length ? overrides : undefined;
     const result = await sendPrompt(prompt, payload);
     if (pendingInsights) {
-      setPendingInsights(null);
+      setPendingInsights('');
       try { window.dispatchEvent(new CustomEvent('bvx:onboarding:askvx-sent', { detail: { success: !result?.error } })); } catch {}
     }
     if (pendingStrategy) {
@@ -401,7 +285,7 @@ export default function Ask(){
         await prepareStrategyDocument();
         try { window.dispatchEvent(new CustomEvent('bvx:onboarding:strategy-ready', { detail: { success: true } })); } catch {}
       }
-      setPendingStrategy(null);
+      setPendingStrategy('');
     }
   };
 
@@ -465,10 +349,8 @@ export default function Ask(){
     }
   };
 
-  const handleRunInsights = useCallback(async (opts?: { auto?: boolean }) => {
-    if (insightsLoading || skipImport) return;
-    try{
-      setInsightsLoading(true);
+  const handleRunInsights = useCallback(async () => {
+    try {
       const tid = await getTenant();
       const res = await api.post('/onboarding/askvx/insights', {
         tenant_id: tid,
@@ -478,49 +360,21 @@ export default function Ask(){
         throw new Error(String(res?.detail || 'Unable to generate snapshot'));
       }
       const summary = res?.data || {};
-      const summaryWithText = { ...summary, text: res?.text || '' };
-      setInsightsData(summaryWithText);
-      setPendingInsights(summary);
-      const prompt = buildInsightsPrompt(summary);
-      setInput(prompt);
-      try { inputRef.current?.focus(); } catch {}
-      try { (window as any).__bvxAskInsights = { summary, prompt }; } catch {}
-      try { window.dispatchEvent(new CustomEvent('bvx:onboarding:askvx-prefill', { detail: { summary, prompt } })); } catch {}
-      if (!opts?.auto) {
-        showToast({ title: 'Prompt ready', description: 'Send below to see your insights.' });
-      }
-    } catch(e:any){
-      const message = String(e?.message||e);
+      try { (window as any).__bvxAskInsights = { summary }; } catch {}
+      showToast({ title: 'Snapshot ready', description: 'AskVX can pull from it on demand.' });
+    } catch (e: any) {
+      const message = String(e?.message || e);
       showToast({ title: 'Snapshot failed', description: message });
     } finally {
-      setInsightsLoading(false);
     }
-  }, [insightsLoading, showToast, skipImport]);
+  }, [showToast]);
 
   const injectStrategyPrompt = useCallback(async () => {
     try {
-      const snapshot = insightsData || pendingInsights || ((window as any).__bvxAskInsights?.summary);
-      if (!snapshot) {
-        await handleRunInsights({ auto: true });
-        return;
-      }
-      let context = brandContext;
-      if (!context) {
-        try {
-          const tid = await getTenant();
-          const settings = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
-          context = settings?.data || {};
-          setBrandContext(context);
-        } catch {}
-      }
-      const prompt = buildStrategyPrompt(snapshot, context);
-      setInput(prompt);
-      setPendingStrategy({ context: { snapshot, brand: context } });
-      try { inputRef.current?.focus(); } catch {}
-    } catch (err) {
-      console.error('strategy prompt injection failed', err);
-    }
-  }, [brandContext, handleRunInsights, insightsData, pendingInsights]);
+      const tid = await getTenant();
+      await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+    } catch {}
+  }, []);
 
   useEffect(() => {
     const handler = (event: Event) => {
@@ -530,15 +384,14 @@ export default function Ask(){
         if (!kind) return;
         track('askvx_prefill', { kind, source: detail.source || 'tour' });
         if (kind === 'insights') {
-          if (detail.payload && typeof detail.payload === 'object') {
-            setPendingInsights(detail.payload);
-          }
-          setInput(String(detail.visible || detail.prompt || ''));
+          const prompt = String(detail.prompt || detail.visible || '');
+          setPendingInsights(prompt);
+          setInput(prompt);
         }
         if (kind === 'strategy') {
-          const payload = detail.payload && typeof detail.payload === 'object' ? detail.payload : {};
-          setPendingStrategy({ context: payload });
-          setInput(String(detail.visible || detail.prompt || ''));
+          const prompt = String(detail.prompt || detail.visible || '');
+          setPendingStrategy(prompt);
+          setInput(prompt);
         }
         try { inputRef.current?.focus(); } catch {}
       } catch {}
@@ -563,11 +416,8 @@ export default function Ask(){
           const tab = String(detail.tab || 'chat').toLowerCase();
           setPageIdx(tab === 'profile' ? 1 : 0);
         }
-        if (action === 'askvx.run-insights') {
-          void handleRunInsights({ auto: true });
-        }
-        if (action === 'askvx.frontfill-insights') {
-          void handleRunInsights({ auto: true });
+        if (action === 'askvx.run-insights' || action === 'askvx.frontfill-insights') {
+          void handleRunInsights();
         }
         if (action === 'askvx.frontfill-strategy') {
           void injectStrategyPrompt();
@@ -583,7 +433,11 @@ export default function Ask(){
     try{
       setStrategyLoading(true);
       const tid = await getTenant();
-      const snapshot = (insightsData || pendingInsights || (()=>{ try { return (window as any).__bvxAskInsights?.summary; } catch { return null; } })()) || {};
+      const snapshot = (() => {
+        const cached = (window as any).__bvxAskInsights?.summary;
+        if (cached) return cached;
+        return null;
+      })() || {};
       try {
         await api.post('/plan/14day/generate', { tenant_id: tid, step_key: 'onboarding' });
       } catch (err) {
@@ -594,7 +448,6 @@ export default function Ask(){
       const settings = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
       const brandProfile = settings?.data?.brand_profile || {};
       const goals = settings?.data?.goals || {};
-      setBrandContext(settings?.data || {});
       const markdown = buildStrategyMarkdownDoc({
         snapshot,
         planDays,
@@ -636,7 +489,7 @@ export default function Ask(){
     } finally {
       setStrategyLoading(false);
     }
-  }, [strategyLoading, insightsData, pendingInsights, showToast, strategyDownloadUrl, importSummary]);
+  }, [strategyLoading, pendingInsights, showToast, strategyDownloadUrl, importSummary]);
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Send on Enter; allow newline with Shift+Enter; keep Cmd/Ctrl+Enter support
@@ -722,7 +575,7 @@ export default function Ask(){
     syncEvents: Number(digest?.sync_events || 0),
   };
   const digestEmpty = !digest || (digestMetrics.contactsAdded === 0 && digestMetrics.contactsUpdated === 0 && digestMetrics.appointments === 0 && digestMetrics.messagesSent === 0 && digestMetrics.syncEvents === 0);
-  const topClients = normalizeClients((insightsData && insightsData.clients) || (pendingInsights && pendingInsights.clients));
+  const topClients: Array<{ name: string }> = [];
   const sessionSummaryText = sessionSummary
     ? sessionSummary
     : (isOnboard ? 'Last session summary will appear on your next login.' : '—');
@@ -815,16 +668,6 @@ export default function Ask(){
               <div className="mt-1 text-[11px] text-slate-500">Recent: {(digest?.recent_contacts||[]).map((c:any)=> c.friendly_name||c.display_name||'Client').join(', ')}</div>
             )}
           </div>
-        </div>
-      )}
-      {pageIdx===0 && isOnboard && !skipImport && !importError && (
-        <div className="mt-2 flex flex-wrap items-center gap-3 rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-slate-800" data-guide="askvx-insights-cta">
-          <div className="font-medium">Ready to see what you just imported?</div>
-          <button className="rounded-full bg-slate-900 px-4 py-1.5 text-xs font-semibold text-white shadow" onClick={()=> handleRunInsights({ auto: false })} disabled={insightsLoading}>
-            {insightsLoading ? 'Preparing…' : 'Generate snapshot'}
-          </button>
-          <button className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-600" onClick={reset} disabled={loading}>Clear chat</button>
-          {insightsLoading && <span className="text-xs text-slate-500">AskVX is gathering your numbers…</span>}
         </div>
       )}
       {pageIdx===0 && isOnboard && (skipImport || importError) && (

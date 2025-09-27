@@ -507,178 +507,40 @@ const registry: Record<string, GuideStep[]> = {
     { element: '[data-guide="clients-refresh"]', popover: { title: 'Refresh data', description: 'Pull the latest booking updates whenever you reconnect providers.', showButtons: ['previous', 'next'] } },
     {
       popover: {
-        title: 'Next: askVX',
+        title: "Let's take a quick tour of AskVX",
         description: "We'll grab a revenue snapshot and build a strategy next.",
         showButtons: ['previous', 'next'],
-        nextBtnText: 'Go to askVX',
-        onNextClick: (_element, _step, { driver }) => {
-          void driver; // advance will occur after askvx ready via gating listener
+        nextBtnText: 'Go to AskVX',
+        onNextClick: (_el, _step, { driver }) => {
+          void driver;
           try { window.dispatchEvent(new CustomEvent('bvx:guide:navigate', { detail: { pane: 'askvx' } })); } catch {}
-          try {
-            const handler = () => {
-              try { window.removeEventListener('bvx:ask:ready', handler as any); } catch {}
-              try { window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.frontfill-insights' } })); } catch {}
-            };
-            window.addEventListener('bvx:ask:ready', handler as any, { once: true } as any);
-          } catch {}
+          try { window.dispatchEvent(new CustomEvent('bvx:dbg', { detail: { type: 'nav.req', pane: 'askvx' } })); } catch {}
         },
       },
-      onEnter: () => {
-        try { delete (window as any).__bvxInsightsRequested; } catch {}
-      },
     },
-    // Centered intro on AskVX to orient users after navigation
-    { element: '#tour-center-anchor', popover: { title: 'askVX', description: "We'll load a prompt that summarizes your last 3 months revenue and top 3 clients. You'll press Send to run it.", centered: true, showButtons: ['previous', 'next'], nextBtnText: 'Next' } },
-    { element: '[data-guide="askvx-import-count"]', popover: { title: 'Imported contacts', description: "Here's the new contact count from your booking sync.", showButtons: ['previous', 'next'] } },
-    { element: '[data-guide="askvx-digest"]', popover: { title: 'Since your last visit', description: 'Keep an eye on fresh contacts, appointments, and messages.', showButtons: ['previous', 'next'] } },
+    { element: '#tour-center-anchor', popover: { title: 'askVX', description: 'This co-pilot keeps your revenue and strategy in one place.', centered: true, showButtons: ['previous', 'next'], nextBtnText: 'Next' } },
     {
       element: '[data-guide="composer"]',
       popover: {
-        title: 'Review the insights prompt',
-        description: "We queued a summary prompt so it's ready to send. Tweak anything you'd like, then continue.",
+        title: 'This is where you can send a prompt',
+        description: 'Enter your request or use the prefilled prompts we provide.',
         showButtons: ['previous', 'next'],
         nextBtnText: 'Next',
         allowClicks: true,
       },
       onEnter: () => {
         try {
-          if (!(window as any).__bvxInsightsFrontfilled) {
-            (window as any).__bvxInsightsFrontfilled = true;
-            window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.frontfill-insights' } }));
-          }
-        } catch {}
-      },
-      onExit: (ctx) => {
-        try {
-          if ((window as any).__bvxInsightsPrefilled) return;
-          (window as any).__bvxInsightsPrefilled = true;
-          const summary = (window as any).__bvxAskInsights?.summary || null;
-          const prompt = (window as any).__bvxAskInsights?.prompt || '';
           window.dispatchEvent(
             new CustomEvent('bvx:ask:prefill', {
               detail: {
                 kind: 'insights',
                 source: 'tour',
-                step: typeof ctx?.index === 'number' ? ctx.index : 36,
-                at: Date.now(),
-                payload: summary,
-                visible: prompt,
+                prompt:
+                  'You are AskVX, guiding a beauty professional through onboarding. Stay confident, warm, and encouraging.\nReport the last ~90 days revenue, highlight their top three clients with visits and total spend, and offer one encouraging next step.\nLimit to four short sections: Intro line, revenue line, three numbered client call-outs (with thank-you drafts), and a closing encouragement.\nDo not ask follow-up questions; if data feels light, make a conservative estimate and note assumptions briefly.',
               },
             })
           );
         } catch {}
-      },
-    },
-    {
-      element: '[data-guide="ask-send"]',
-      popover: {
-        title: 'Send the prompt',
-        description: 'Press Send to let AskVX crunch the numbers for you.',
-        showButtons: ['previous', 'next'],
-        nextBtnText: 'Next',
-        allowClicks: true,
-      },
-    },
-    { element: '[data-guide="messages"]', popover: { title: 'Waiting for reply', description: "We'll highlight the conversation while AskVX responds.", showButtons: ['previous', 'next'], nextBtnText: 'Continue', allowClicks: true } },
-    {
-      element: '[data-guide="askvx-strategy"]',
-      popover: {
-        title: 'Plan your next 14 days',
-        description: "We'll outline what's next and then prepare a strategy prompt for you to send.",
-        showButtons: ['previous', 'next'],
-        nextBtnText: 'Ready',
-        onNextClick: (_element, _step, { driver }) => {
-          void driver;
-          if ((window as any).__bvxSkipImport) return;
-          try { window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.frontfill-strategy' } })); } catch {}
-          try { driver.moveNext?.(); } catch {}
-        },
-      },
-      onEnter: () => {
-        try { delete (window as any).__bvxStrategyPrefilled; } catch {}
-      },
-    },
-    {
-      element: '[data-guide="composer"]',
-      popover: {
-        title: 'Send the strategy prompt',
-        description: "We queued the 14-day strategy prompt so it's ready to review and send.",
-        showButtons: ['previous', 'next'],
-        nextBtnText: 'Next',
-        allowClicks: true,
-      },
-      onExit: (ctx) => {
-        try {
-          if ((window as any).__bvxStrategyPrefilled) return;
-          (window as any).__bvxStrategyPrefilled = true;
-          const snapshot = (window as any).__bvxAskInsights?.summary || null;
-          const brand = (window as any).__bvxBrandContext || null;
-          const prompt = typeof (window as any).__bvxStrategyPrompt === 'string' ? (window as any).__bvxStrategyPrompt : '';
-          window.dispatchEvent(
-            new CustomEvent('bvx:ask:prefill', {
-              detail: {
-                kind: 'strategy',
-                source: 'tour',
-                step: typeof ctx?.index === 'number' ? ctx.index : 40,
-                at: Date.now(),
-                payload: { snapshot, brand },
-                visible: prompt,
-              },
-            })
-          );
-        } catch {}
-      },
-    },
-    { element: '[data-guide="messages"]', popover: { title: 'Waiting for reply', description: "We'll highlight the conversation while AskVX drafts your 14‑day plan.", showButtons: ['previous', 'next'], nextBtnText: 'Continue', allowClicks: true } },
-    {
-      element: '#tour-welcome-anchor',
-      popover: {
-        title: 'Build your 14‑day strategy',
-        description: "Generate and download the Markdown plan. We'll also save it to your memory.\n\n<div class=\"mt-3\"><button class=\"bvx-onboard-btn\" data-onboard-generate>Generate & Download</button></div>",
-        showButtons: ['previous', 'next'],
-        nextBtnText: 'Next',
-        allowClicks: true,
-        onPopoverRender: (dom: any) => {
-          try {
-            const btn = dom?.popover?.querySelector?.('[data-onboard-generate]') || dom?.wrapper?.querySelector?.('[data-onboard-generate]');
-            if (!btn) return;
-            const trigger = async () => {
-              try {
-                // If a strategy doc is already available on window, download immediately
-                const existing = (window as any).__bvxStrategyDoc?.markdown as string | undefined;
-                if (existing && typeof existing === 'string' && existing.length > 0) {
-                  const blob = new Blob([existing], { type: 'text/markdown;charset=utf-8' });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url; a.download = 'brandvx-14-day-strategy.md';
-                  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-                  setTimeout(()=>{ try{ URL.revokeObjectURL(url); }catch{} }, 1500);
-                  return;
-                }
-                // Otherwise ask AskVX pane to prepare, then poll for availability and download
-                try { window.dispatchEvent(new CustomEvent('bvx:flow:askvx-command', { detail: { action: 'askvx.prepare-strategy' } })); } catch {}
-                const start = Date.now();
-                const check = () => {
-                  try {
-                    const md = (window as any).__bvxStrategyDoc?.markdown as string | undefined;
-                    if (md && md.length > 0) {
-                      const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement('a'); a.href = url; a.download = 'brandvx-14-day-strategy.md';
-                      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-                      setTimeout(()=>{ try{ URL.revokeObjectURL(url); }catch{} }, 1500);
-                      return;
-                    }
-                    if (Date.now() - start > 15000) return;
-                    setTimeout(check, 400);
-                  } catch {}
-                };
-                setTimeout(check, 500);
-              } catch {}
-            };
-            btn.addEventListener('click', (e: Event) => { try{ e.preventDefault(); }catch{} trigger(); });
-          } catch {}
-        },
       },
     },
     {
@@ -1204,18 +1066,22 @@ export function startGuide(page: string, _opts?: { step?: number }) {
               const target = (ev?.detail?.pane || '').toString();
               if (target !== 'contacts') return;
               const start = Date.now();
+              let advanced = false;
               const onReady = () => {
+                if (advanced) return;
+                advanced = true;
                 try { window.removeEventListener('bvx:contacts:ready', onReady as any); } catch {}
                 try { instance.moveNext?.(); } catch {}
               };
               window.addEventListener('bvx:contacts:ready', onReady as any, { once: true } as any);
               const wait = () => {
+                if (advanced) return;
                 try {
                   const sp = new URLSearchParams(window.location.search);
                   const pane = sp.get('pane');
                   const ready = pane === 'contacts' && (document.querySelector('[data-guide="clients-import-status"]') || document.querySelector('[data-guide="clients-list"]'));
                   if (ready) { onReady(); return; }
-                  if (Date.now() - start > 7000) { return; }
+                  if (Date.now() - start > 7000) { advanced = true; return; }
                   setTimeout(wait, 120);
                 } catch {}
               };
@@ -1266,18 +1132,22 @@ export function startGuide(page: string, _opts?: { step?: number }) {
             const target = (ev?.detail?.pane || '').toString();
             if (target !== 'askvx') return;
             const start = Date.now();
+            let advanced = false;
             const onReady = () => {
+              if (advanced) return;
+              advanced = true;
               try { window.removeEventListener('bvx:ask:ready', onReady as any); } catch {}
               try { instance.moveNext?.(); } catch {}
             };
             window.addEventListener('bvx:ask:ready', onReady as any, { once: true } as any);
             const wait = () => {
+              if (advanced) return;
               try {
                 const sp = new URLSearchParams(window.location.search);
                 const pane = sp.get('pane');
                 const ready = pane === 'askvx' && (document.querySelector('[data-guide="ask-input"]') || document.querySelector('input'));
                 if (ready) { onReady(); return; }
-                if (Date.now() - start > 6000) { return; }
+                if (Date.now() - start > 6000) { advanced = true; return; }
                 setTimeout(wait, 120);
               } catch {}
             };

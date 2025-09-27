@@ -130,15 +130,29 @@ export default function Calendar(){
     </div>
   );
   return (
-    <div className="space-y-3">
-      <div className="flex items-center">
-        <h3 className="text-lg font-semibold">Calendar</h3>
-        <div className="ml-auto flex items-center gap-2">
-          <button className="text-sm text-slate-600 hover:underline" aria-label={UI_STRINGS.a11y.buttons.guideCalendar} onClick={()=> startGuide('calendar')}>{UI_STRINGS.ctas.tertiary.guideMe}</button>
-          <button className="px-2 py-1 rounded-md border bg-white text-xs" onClick={()=>{ window.location.href='/ask'; }}>AskVX</button>
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="space-y-3 shrink-0">
+        <div className="flex items-center">
+          <h3 className="text-lg font-semibold">Calendar</h3>
+          <div className="ml-auto flex items-center gap-2">
+            <button className="text-sm text-slate-600 hover:underline" aria-label={UI_STRINGS.a11y.buttons.guideCalendar} onClick={()=> startGuide('calendar')}>{UI_STRINGS.ctas.tertiary.guideMe}</button>
+            <button
+              className="px-2 py-1 rounded-md border bg-white text-xs"
+              onClick={()=>{
+                try {
+                  const url = new URL(window.location.href);
+                  url.pathname = '/workspace';
+                  url.searchParams.set('pane', 'askvx');
+                  window.history.pushState({}, '', url.toString());
+                  window.dispatchEvent(new CustomEvent('bvx:guide:navigate', { detail: { pane: 'askvx' } }));
+                } catch {
+                  window.location.href = '/workspace?pane=askvx';
+                }
+              }}
+            >AskVX</button>
+          </div>
         </div>
-      </div>
-      {(() => {
+        {(() => {
         try{
           // Stale banner if last sync older than 15 minutes for any provider
           const lastTs = Math.max(0, ...Object.values(lastSync||{}).map((v:any)=> Number((v?.ts)||0)));
@@ -152,15 +166,15 @@ export default function Calendar(){
         } catch {}
         return null;
       })()}
-      <div className="text-[11px] text-slate-600">Note: Scheduling from BrandVX is disabled. Calendar merges are read‑only.</div>
-      {lastAnalyzed && (
-        <div className="text-[11px] text-slate-500">Last analyzed: {new Date(lastAnalyzed*1000).toLocaleString()}</div>
-      )}
-      {!!lastUpdated && (
-        <div className="text-[11px] text-slate-500">Updated {new Date(lastUpdated).toLocaleTimeString()}</div>
-      )}
-      {/* Month grid */}
-      <div className="rounded-xl border bg-white/90 backdrop-blur p-3 shadow-sm" role="region" aria-label="Month view">
+        <div className="text-[11px] text-slate-600">Note: Scheduling from BrandVX is disabled. Calendar merges are read‑only.</div>
+        {lastAnalyzed && (
+          <div className="text-[11px] text-slate-500">Last analyzed: {new Date(lastAnalyzed*1000).toLocaleString()}</div>
+        )}
+        {!!lastUpdated && (
+          <div className="text-[11px] text-slate-500">Updated {new Date(lastUpdated).toLocaleTimeString()}</div>
+        )}
+        {/* Month grid */}
+        <div className="rounded-xl border bg-white/90 backdrop-blur p-3 shadow-sm" role="region" aria-label="Month view">
         <div className="grid grid-cols-7 gap-2 text-xs text-slate-600 mb-2">
           {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=> <div key={d} className="text-center font-medium">{d}</div>)}
         </div>
@@ -189,82 +203,85 @@ export default function Calendar(){
           })}
         </div>
       </div>
-      {/* Demo-only recommendations */}
-      {isDemo && (
-        <div className="rounded-xl border bg-white p-3" aria-label="7-day recommendations" data-guide="list">
-          <div className="text-sm font-medium text-slate-800 mb-2">Recommendations (demo)</div>
-          <div className="text-xs text-slate-600 mb-2">A 7‑day plan to get momentum quickly.</div>
-          <ul className="list-disc ml-5 text-sm text-slate-700">
-            <li>Day 1: Send 5 warm‑lead follow‑ups</li>
-            <li>Day 2: Confirm Friday appointments</li>
-            <li>Day 3: Post 1 service tip on Instagram</li>
-            <li>Day 4: Text no‑shows a friendly rebook link</li>
-            <li>Day 5: Share before/after from this week</li>
-            <li>Day 6: Message 2 dormant clients</li>
-            <li>Day 7: Review next week’s openings</li>
-          </ul>
-        </div>
-      )}
-      <div className="flex items-center gap-2 text-sm" data-guide="filters">
-        <span className="text-slate-600">Filter:</span>
-        <select className="border rounded-md px-2 py-1 bg-white" value={provider} onChange={e=>setProvider(e.target.value)}>
-          <option value="all">All</option>
-          <option value="google">Google</option>
-          {showApple && <option value="apple">Apple</option>}
-          <option value="square">Square</option>
-          <option value="acuity">Acuity</option>
-        </select>
-        {String(connected['google']||'')==='connected' && (
-          <button className="px-3 py-1.5 rounded-md border bg-white hover:shadow-sm" onClick={async()=>{
-            try{
-              setActionBusy(true);
-              const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'calendar.push.google', params:{ tenant_id: await getTenant() }, require_approval: true });
-              showToast({ title: 'Push started', description: `${Number(r?.pushed||0)} events mirrored` });
-            } catch(e:any){ showToast({ title:'Push failed', description:String(e?.message||e) }); } finally{ setActionBusy(false); }
-          }}>Push to Google</button>
-        )}
-      </div>
-      <div className="rounded-xl border bg-white p-3 shadow-sm" data-guide="list">
-        {events.length === 0 ? (
-          <EmptyState title={UI_STRINGS.emptyStates.calendar.title} description={UI_STRINGS.emptyStates.calendar.body}>
-            <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>{ const isConn = String(connected['google']||'')==='connected'; isConn ? syncNow('google') : connectGoogle(); }}>{String(connected['google']||'')==='connected' ? UI_STRINGS.ctas.secondary.syncNowGoogle : 'Connect Google Calendar'}</button>
-          </EmptyState>
-        ) : (
-          <div className="hidden md:grid grid-cols-7 gap-2">
-            {/* Month grid rendered above; keep weekly block removed */}
-            {[]}
+        {/* Demo-only recommendations */}
+        {isDemo && (
+          <div className="rounded-xl border bg-white p-3" aria-label="7-day recommendations" data-guide="list">
+            <div className="text-sm font-medium text-slate-800 mb-2">Recommendations (demo)</div>
+            <div className="text-xs text-slate-600 mb-2">A 7‑day plan to get momentum quickly.</div>
+            <ul className="list-disc ml-5 text-sm text-slate-700">
+              <li>Day 1: Send 5 warm‑lead follow‑ups</li>
+              <li>Day 2: Confirm Friday appointments</li>
+              <li>Day 3: Post 1 service tip on Instagram</li>
+              <li>Day 4: Text no‑shows a friendly rebook link</li>
+              <li>Day 5: Share before/after from this week</li>
+              <li>Day 6: Message 2 dormant clients</li>
+              <li>Day 7: Review next week’s openings</li>
+            </ul>
           </div>
         )}
-        {/* Mobile list */}
-        <div className="md:hidden">
-          {(events||[]).filter(e=> provider==='all' ? true : (e.provider||'')===provider).slice((page-1)*pageSize, page*pageSize).map((e,i)=>{
-            const raw = e.start_ts; const tsNum = typeof raw==='number'? raw: Number(raw);
-            const dateStr = isFinite(tsNum) && tsNum>0 ? new Date(tsNum*(tsNum<1e12?1000:1)).toLocaleString() : String(raw||'');
-            return (
-              <div key={i} className="px-2 py-1 rounded border bg-white flex items-center justify-between gap-2 mb-2" title={`${e.title} — ${dateStr}`}>
-                <div className="truncate"><span className="text-slate-500 mr-1">{fmtTime(e.start_ts)}</span>{e.title}</div>
-                <div className="flex items-center gap-1">
-                  <button disabled={actionBusy} className="px-1.5 py-0.5 rounded-md border bg-white disabled:opacity-50 text-[11px]" onClick={()=> reschedule(e, 15)}>+15</button>
-                  <button disabled={actionBusy} className="px-1.5 py-0.5 rounded-md border bg-white disabled:opacity-50 text-[11px]" onClick={()=> reschedule(e, -15)}>-15</button>
-                  <button disabled={actionBusy} className="px-1.5 py-0.5 rounded-md border bg-white disabled:opacity-50 text-[11px]" onClick={()=> cancel(e)}>X</button>
-                </div>
-              </div>
-            );
-          })}
-          {(events||[]).filter(e=> provider==='all' ? true : (e.provider||'')===provider).length>pageSize && (
-            <Pager page={page} pageSize={pageSize} total={events.filter(e=> provider==='all' ? true : (e.provider||'')===provider).length} onPrev={()=> setPage(p=> Math.max(1, p-1))} onNext={()=> setPage(p=> ((p*pageSize) < events.filter(e=> provider==='all' ? true : (e.provider||'')===provider).length ? p+1 : p))} />
+        <div className="flex items-center gap-2 text-sm" data-guide="filters">
+          <span className="text-slate-600">Filter:</span>
+          <select className="border rounded-md px-2 py-1 bg-white" value={provider} onChange={e=>setProvider(e.target.value)}>
+            <option value="all">All</option>
+            <option value="google">Google</option>
+            {showApple && <option value="apple">Apple</option>}
+            <option value="square">Square</option>
+            <option value="acuity">Acuity</option>
+          </select>
+          {String(connected['google']||'')==='connected' && (
+            <button className="px-3 py-1.5 rounded-md border bg-white hover:shadow-sm" onClick={async()=>{
+              try{
+                setActionBusy(true);
+                const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'calendar.push.google', params:{ tenant_id: await getTenant() }, require_approval: true });
+                showToast({ title: 'Push started', description: `${Number(r?.pushed||0)} events mirrored` });
+              } catch(e:any){ showToast({ title:'Push failed', description:String(e?.message||e) }); } finally{ setActionBusy(false); }
+            }}>Push to Google</button>
           )}
         </div>
       </div>
-      <div className="flex flex-wrap gap-2 text-xs text-slate-700">
-        {Object.entries(lastSync).map(([prov, info])=> {
-          const ts = (info as any)?.ts ? new Date(((info as any)?.ts||0)*1000).toLocaleTimeString() : '';
-          return <span key={prov} className="px-2 py-1 rounded-md border bg-white">{prov}: {(info as any)?.status} {ts && `· ${ts}`}</span>
-        })}
+      <div className="mt-3 flex-1 overflow-hidden">
+        <div className="h-full overflow-y-auto rounded-xl border bg-white p-3 shadow-sm" data-guide="list">
+          {events.length === 0 ? (
+            <EmptyState title={UI_STRINGS.emptyStates.calendar.title} description={UI_STRINGS.emptyStates.calendar.body}>
+              <button className="px-3 py-2 rounded-md border bg-white hover:shadow-sm" onClick={()=>{ const isConn = String(connected['google']||'')==='connected'; isConn ? syncNow('google') : connectGoogle(); }}>{String(connected['google']||'')==='connected' ? UI_STRINGS.ctas.secondary.syncNowGoogle : 'Connect Google Calendar'}</button>
+            </EmptyState>
+          ) : (
+            <div className="hidden md:grid grid-cols-7 gap-2">
+              {/* Month grid rendered above; keep weekly block removed */}
+              {[]}
+            </div>
+          )}
+          {/* Mobile list */}
+          <div className="md:hidden">
+            {(events||[]).filter(e=> provider==='all' ? true : (e.provider||'')===provider).slice((page-1)*pageSize, page*pageSize).map((e,i)=>{
+              const raw = e.start_ts; const tsNum = typeof raw==='number'? raw: Number(raw);
+              const dateStr = isFinite(tsNum) && tsNum>0 ? new Date(tsNum*(tsNum<1e12?1000:1)).toLocaleString() : String(raw||'');
+              return (
+                <div key={i} className="px-2 py-1 rounded border bg-white flex items-center justify-between gap-2 mb-2" title={`${e.title} — ${dateStr}`}>
+                  <div className="truncate"><span className="text-slate-500 mr-1">{fmtTime(e.start_ts)}</span>{e.title}</div>
+                  <div className="flex items-center gap-1">
+                    <button disabled={actionBusy} className="px-1.5 py-0.5 rounded-md border bg-white disabled:opacity-50 text-[11px]" onClick={()=> reschedule(e, 15)}>+15</button>
+                    <button disabled={actionBusy} className="px-1.5 py-0.5 rounded-md border bg-white disabled:opacity-50 text-[11px]" onClick={()=> reschedule(e, -15)}>-15</button>
+                    <button disabled={actionBusy} className="px-1.5 py-0.5 rounded-md border bg-white disabled:opacity-50 text-[11px]" onClick={()=> cancel(e)}>X</button>
+                  </div>
+                </div>
+              );
+            })}
+            {(events||[]).filter(e=> provider==='all' ? true : (e.provider||'')===provider).length>pageSize && (
+              <Pager page={page} pageSize={pageSize} total={events.filter(e=> provider==='all' ? true : (e.provider||'')===provider).length} onPrev={()=> setPage(p=> Math.max(1, p-1))} onNext={()=> setPage(p=> ((p*pageSize) < events.filter(e=> provider==='all' ? true : (e.provider||'')===provider).length ? p+1 : p))} />
+            )}
+          </div>
+          {Object.keys(lastSync||{}).length>0 && (
+            <div className="mt-3 flex flex-wrap gap-2 text-xs text-slate-700">
+              {Object.entries(lastSync).map(([prov, info])=> {
+                const ts = (info as any)?.ts ? new Date(((info as any)?.ts||0)*1000).toLocaleTimeString() : '';
+                return <span key={prov} className="px-2 py-1 rounded-md border bg-white">{prov}: {(info as any)?.status} {ts && `· ${ts}`}</span>
+              })}
+            </div>
+          )}
+          {status && <pre aria-live="polite" className="mt-2 text-xs text-slate-700 whitespace-pre-wrap">{status}</pre>}
+        </div>
       </div>
-      {/* Dedupe banner hidden until merge action is reintroduced */}
-      <div className="text-[11px] text-amber-700">Some actions may require review when auto-approve is off. Check your To‑Do.</div>
-      {status && <pre aria-live="polite" className="text-xs text-slate-700 whitespace-pre-wrap">{status}</pre>}
     </div>
   );
 }

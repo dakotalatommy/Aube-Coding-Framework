@@ -491,39 +491,6 @@ export default function Integrations(){
     }
   };
   // Full-height canvas first screen gate when coming from demo or fresh
-  const [showIntro, setShowIntro] = useState<boolean>(()=>{
-    try{
-      const seen = sessionStorage.getItem('bvx_integrations_intro_seen') === '1';
-      return !seen;
-    }catch{ return false; }
-  });
-  if (showIntro) {
-    return (
-      <>
-        <div className="space-y-3 overflow-hidden min-h-[calc(100vh-48px)]">
-          <section className="grid place-items-center h-[calc(100vh-var(--ask-float-height,0px)-80px)]">
-            <div className="max-w-lg text-center rounded-2xl p-6 bg-white/70 backdrop-blur border border-white/70 shadow-sm">
-              <div className="text-lg font-semibold text-slate-900">Settings</div>
-              <div className="text-sm text-slate-600 mt-1">We’ll connect booking, messages, and (optionally) CRM. One step at a time.</div>
-              <div className="mt-4 flex justify-center">
-                <Button onClick={()=>{ setShowIntro(false); try{ sessionStorage.setItem('bvx_integrations_intro_seen','1'); }catch{} }}>Start</Button>
-              </div>
-            </div>
-          </section>
-        </div>
-        {(connAccounts?.length>0 || lastCallback) && (
-          <div className="text-[11px] text-slate-600 mt-1">
-            {connAccounts?.length>0 && (
-              <span>Connected: {connAccounts.map(x=>x.provider).join(', ')}</span>
-            )}
-            {lastCallback && (
-              <span className="ml-3">Last callback: {new Date((lastCallback.ts||0)*1000).toLocaleString()}</span>
-            )}
-          </div>
-        )}
-      </>
-    );
-  }
   return (
     <div className="space-y-3 overflow-hidden min-h-[calc(100vh-48px)]">
       <div className="flex items-center sticky top-0 z-10 bg-white/80 backdrop-blur rounded-md px-1 py-1">

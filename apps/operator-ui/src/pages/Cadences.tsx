@@ -433,16 +433,21 @@ export default function Cadences(){
               <TR><TH>Done</TH><TH>Contact</TH><TH>Type</TH><TH>Next Action</TH></TR>
             </THead>
             <tbody className="divide-y">
-              {(queue.items||[]).map((r:any,i:number)=> (
+              {(queue.items||[]).map((r:any,i:number)=> {
+                const friendly = String(r.friendly_name || r.display_name || '').trim();
+                const fallback = String(r.contact_id || '').trim();
+                const name = friendly || fallback || 'Client';
+                return (
                 <TR key={i}>
                   <TD>
                     <input type="checkbox" aria-label="Mark done" onChange={()=> setQueue((q:any)=> ({ items: (q.items||[]).filter((_:any,idx:number)=> idx!==i) }))} />
                   </TD>
-                  <TD>{r.contact_id}</TD>
+                  <TD>{name}</TD>
                   <TD>{r.cadence_id||'reminder'}</TD>
                   <TD>{r.next_action_at}</TD>
                 </TR>
-              ))}
+              );
+              })}
             </tbody>
           </Table>
         </section>
