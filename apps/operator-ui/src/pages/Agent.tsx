@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, getTenant } from '../lib/api';
+import { api } from '../lib/api';
 
 type Tool = {
   name: string;
@@ -22,7 +22,7 @@ export default function Agent() {
     (async () => {
       try { const s = await api.get('/ai/tools/schema'); setTools(s?.tools || []); } catch {}
       try {
-        const a = await api.get(`/admin/audit?tenant_id=${encodeURIComponent(await getTenant())}&limit=50`);
+        const a = await api.get(`/admin/audit?limit=50`);
         setAudit(a || []);
       } catch {}
     })();
@@ -33,7 +33,7 @@ export default function Agent() {
       try {
         const q = (draft.contact_id||cadence.contact_id||'').trim();
         if (!q) { setSuggestions([]); return; }
-        const r = await api.get(`/contacts/search?tenant_id=${encodeURIComponent(await getTenant())}&q=${encodeURIComponent(q)}&limit=8`);
+        const r = await api.get(`/contacts/search?q=${encodeURIComponent(q)}&limit=8`);
         setSuggestions(Array.isArray(r?.items)? r.items : []);
       } catch { setSuggestions([]); }
     }, 200);
@@ -44,9 +44,8 @@ export default function Agent() {
     setStatus('');
     try {
       const r = await api.post('/ai/tools/execute', {
-        tenant_id: await getTenant(),
         name: 'draft_message',
-        params: { tenant_id: await getTenant(), ...draft },
+        params: { ...draft },
         require_approval: false,
       });
       setStatus(JSON.stringify(r));
@@ -57,9 +56,8 @@ export default function Agent() {
     setStatus('');
     try {
       const r = await api.post('/ai/tools/execute', {
-        tenant_id: await getTenant(),
         name: 'start_cadence',
-        params: { tenant_id: await getTenant(), ...cadence },
+        params: { ...cadence },
         require_approval: true,
       });
       setStatus(JSON.stringify(r));
@@ -69,7 +67,7 @@ export default function Agent() {
   const callProxy = async (name: string, payload: Record<string, unknown> = {}) => {
     setProxyOut(null);
     try {
-      const r = await api.post(`/ai/proxy/${name}`, { tenant_id: await getTenant(), payload });
+      const r = await api.post(`/ai/proxy/${name}`, { payload });
       setProxyOut(r);
     } catch (e:any) {
       setProxyOut({ error: String(e?.message||e) });

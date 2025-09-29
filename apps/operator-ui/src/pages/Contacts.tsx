@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { readNumberParam, syncParamToState } from '../lib/url';
-import { api, getTenant, API_BASE } from '../lib/api';
-import { supabase } from '../lib/supabase';
+import { api, API_BASE } from '../lib/api';
 import Button from '../components/ui/Button';
 // import Input from '../components/ui/Input';
 import Skeleton from '../components/ui/Skeleton';
@@ -56,7 +55,7 @@ export default function Contacts(){
     if (isDemo) { setItems([]); return; }
     try{
       setListBusy(true);
-      const r = await api.get(`/contacts/list?tenant_id=${encodeURIComponent(await getTenant())}&limit=${encodeURIComponent(String(PAGE_SIZE))}&offset=${encodeURIComponent(String((page-1)*PAGE_SIZE))}`, { timeoutMs: 20000 });
+      const r = await api.get(`/contacts/list?limit=${encodeURIComponent(String(PAGE_SIZE))}&offset=${encodeURIComponent(String((page-1)*PAGE_SIZE))}`, { timeoutMs: 20000 });
       setItems(Array.isArray(r?.items)? r.items: []);
       setTotal(Number(r?.total||0));
     } catch(e:any){ try{ showToast({ title:'Load failed', description:String(e?.message||e) }); }catch{} }
@@ -119,7 +118,7 @@ export default function Contacts(){
       setImporting(true); setImportReport(null);
       try { trackEvent('contacts.import_booking'); } catch {}
       try { window.dispatchEvent(new CustomEvent('bvx:flow:contacts-import-started')); } catch {}
-      const analyze = await api.post('/onboarding/analyze', { tenant_id: await getTenant() });
+      const analyze = await api.post('/onboarding/analyze', {});
       const connected = (analyze?.summary?.connected || {}) as Record<string,string>;
       const sqStatus = String(connected.square || '').toLowerCase();
       const aqStatus = String(connected.acuity || '').toLowerCase();
@@ -129,21 +128,21 @@ export default function Contacts(){
       let imported = 0; let updated = 0; let skipped = 0; let reasonTop = '';
       try {
         if (provider === 'square') {
-          const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'contacts.import.square', params:{ tenant_id: await getTenant() }, require_approval: false, idempotency_key: `square_import_${Date.now()}` });
+          const r = await api.post('/ai/tools/execute', { name:'contacts.import.square', params:{}, require_approval: false, idempotency_key: `square_import_${Date.now()}` });
           imported = Number(r?.imported||0); updated = Number(r?.updated||0); skipped = Number(r?.skipped||0); reasonTop = String(r?.top_reason||'');
-          try{ await api.post('/integrations/booking/square/backfill-metrics', { tenant_id: await getTenant() }); }catch{}
+          try{ await api.post('/integrations/booking/square/backfill-metrics', {}); }catch{}
         } else if (provider === 'acuity') {
-          const r = await api.post('/integrations/booking/acuity/import', { tenant_id: await getTenant(), since:'0', until:'', cursor:'' });
+          const r = await api.post('/integrations/booking/acuity/import', { since:'0', until:'', cursor:'' });
           imported = Number(r?.imported||0); updated = Number(r?.updated||0);
         } else {
-          await api.post('/calendar/sync',{ tenant_id: await getTenant(), provider: 'auto' });
+          await api.post('/calendar/sync',{ provider: 'auto' });
         }
         setImportReport({ provider, imported, updated, skipped, reasonTop });
         try{ showToast({ title:'Import complete', description: `${imported} contacts imported` }); }catch{}
         if (isOnboard) {
           setImportBanner({ status: 'success', message: `${imported} contacts imported • ${updated} updated` });
         }
-        try{ await api.post('/onboarding/complete_step', { tenant_id: await getTenant(), step_key: 'contacts_imported', context: { provider, imported, updated, skipped } }); }catch{}
+        try{ await api.post('/onboarding/complete_step', { step_key: 'contacts_imported', context: { provider, imported, updated, skipped } }); }catch{}
         try{ if (isOnboard) localStorage.setItem('bvx_done_contacts','1'); }catch{}
         try{ await loadList(); }catch{}
         try { window.dispatchEvent(new CustomEvent('bvx:flow:contacts-imported', { detail: { provider, imported, updated, skipped } })); } catch {}
@@ -209,7 +208,7 @@ export default function Contacts(){
             <Button variant="outline" size="sm" onClick={async()=>{
               try{
                 setListBusy(true);
-                const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'contacts.dedupe.preview', params:{ tenant_id: await getTenant() }, require_approval: false });
+                const r = await api.post('/ai/tools/execute', { name:'contacts.dedupe.preview', params:{}, require_approval: false });
                 const groups = Array.isArray(r?.groups)? r.groups: [];
                 setDupePreview(groups);
                 setStatus(`Found ${groups.length} duplicate groups`);
@@ -220,7 +219,7 @@ export default function Contacts(){
               <Button variant="outline" size="sm" onClick={async()=>{
                 try{
                   setBusy(true);
-                  const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'contacts.dedupe', params:{ tenant_id: await getTenant() }, require_approval: true });
+                  const r = await api.post('/ai/tools/execute', { name:'contacts.dedupe', params:{}, require_approval: true });
                   try{ showToast({ title:'Dedupe completed', description: `${Number(r?.removed||0)} removed` }); }catch{}
                   await loadList();
                   setDupePreview([]);
@@ -230,13 +229,12 @@ export default function Contacts(){
             )}
             <Button variant="outline" size="sm" data-guide="clients-export" onClick={async()=>{
               try{
-                const tid = await getTenant();
-                const sess = (await supabase.auth.getSession()).data.session;
-                const headers: Record<string,string> = sess?.access_token ? { Authorization: `Bearer ${sess.access_token}` } : {};
+                // Use legacy session-based authentication (no explicit headers needed)
+                const headers: Record<string,string> = {};
                 // Fetch in pages to avoid backend changes; cap at 10k for safety
                 let offset = 0; const limit = 1000; const max = 10000; const rows: any[] = [];
                 for (; offset < max; offset += limit) {
-                  const url = `${API_BASE}/contacts/list?tenant_id=${encodeURIComponent(tid)}&limit=${limit}&offset=${offset}`;
+                  const url = `${API_BASE}/contacts/list?limit=${limit}&offset=${offset}`;
                   const res = await fetch(url, { headers });
                   if (!res.ok) break;
                   const j = await res.json().catch(() => ({}));
@@ -282,10 +280,10 @@ export default function Contacts(){
               try{
                 setListBusy(true);
                 // Detect provider
-                const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() });
+                const a = await api.post('/onboarding/analyze', {});
                 const connected = (a?.summary?.connected || {}) as Record<string,string>;
                 const provider = String(connected.square||'')==='connected' ? 'square' : (String(connected.acuity||'')==='connected' ? 'acuity' : 'square');
-                await api.post('/integrations/refresh', { tenant_id: await getTenant(), provider });
+                await api.post('/integrations/refresh', { provider });
                 await loadList();
                 try { showToast({ title:'Refreshed', description: provider.toUpperCase() }); } catch {}
               } catch(e:any){ setStatus(String(e?.message||e)); }
@@ -322,8 +320,7 @@ export default function Contacts(){
                             try{ await navigator.clipboard.writeText(draft); } catch {}
                             // Best effort: try to fetch phone via search (may be masked in this environment)
                           try{
-                            const tid = await getTenant();
-                              const s = await api.get(`/contacts/search?tenant_id=${encodeURIComponent(tid)}&q=${encodeURIComponent(r.contact_id)}&limit=1`);
+                              const s = await api.get(`/contacts/search?q=${encodeURIComponent(r.contact_id)}&limit=1`);
                               const phone = String((s?.items||[])[0]?.phone||'').trim();
                               if (phone) { try{ await navigator.clipboard.writeText(phone); showToast({ title:'Phone copied' }); } catch {} }
                             } catch {}
@@ -336,8 +333,7 @@ export default function Contacts(){
                             // Try to fetch email (may be masked); copy if present
                             let copied = false;
                           try{
-                            const tid = await getTenant();
-                              const s = await api.get(`/contacts/search?tenant_id=${encodeURIComponent(tid)}&q=${encodeURIComponent(r.contact_id)}&limit=1`);
+                              const s = await api.get(`/contacts/search?q=${encodeURIComponent(r.contact_id)}&limit=1`);
                               const email = String((s?.items||[])[0]?.email||'').trim();
                               if (email) { await navigator.clipboard.writeText(email); copied = true; }
                             } catch {}

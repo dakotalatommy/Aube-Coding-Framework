@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import OverlayPortal from './OverlayPortal';
 import { api, getTenant, API_BASE } from '../lib/api';
-import { supabase } from '../lib/supabase';
 import { track } from '../lib/analytics';
 
 type BugAttachment = {
@@ -199,10 +198,9 @@ export default function SupportBubble({ hideTrigger }: SupportBubbleProps){
 
   const ensureAuth = async () => {
     try{
-      const session = (await supabase.auth.getSession()).data.session;
-      if (!session?.access_token) { setNeedsAuth(true); return null; }
+      // Use legacy session-based authentication (no explicit token checks needed)
       setNeedsAuth(false);
-      return session;
+      return true;
     } catch {
       setNeedsAuth(true);
       return null;
@@ -327,11 +325,8 @@ export default function SupportBubble({ hideTrigger }: SupportBubbleProps){
       attachments.forEach(item => {
         fd.append('attachments', item.file, item.file.name);
       });
-      const session = (await supabase.auth.getSession()).data.session;
+      // Use legacy session-based authentication (no explicit headers needed)
       const headers: Record<string, string> = {};
-      if (session?.access_token) {
-        headers.Authorization = `Bearer ${session.access_token}`;
-      }
       const res = await fetch(`${API_BASE}/support/send`, {
         method: 'POST',
         body: fd,
@@ -368,7 +363,7 @@ export default function SupportBubble({ hideTrigger }: SupportBubbleProps){
     } finally {
       setBugSubmitting(false);
     }
-  }, [appVersion, bugFiles, bugForm, bugSubmitting, track, setNeedsAuth, getTenant, supabase]);
+  }, [appVersion, bugFiles, bugForm, bugSubmitting, track, setNeedsAuth, getTenant]);
 
   useEffect(() => {
     const openSupport = () => setOpen(true);

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 // import InlineStatus from '../components/ui/InlineStatus';
 import Button from '../components/ui/Button';
 import * as Sentry from '@sentry/react';
-import { api, getTenant } from '../lib/api';
+import { api } from '../lib/api';
 import { startGuide } from '../lib/guide';
 import { trackEvent } from '../lib/analytics';
 
@@ -48,8 +48,7 @@ export default function Vision(){
       try{
         const q = clientName.trim();
         if (q.length < 2) { setClientSuggestions([]); return; }
-        const tid = await getTenant();
-        const r = await api.get(`/contacts/search?tenant_id=${encodeURIComponent(tid)}&q=${encodeURIComponent(q)}&limit=8`);
+        const r = await api.get(`/contacts/search?q=${encodeURIComponent(q)}&limit=8`);
         const items = (r?.items||[]).map((it: any)=> ({ contact_id: String(it.contact_id||''), display_name: String(it.display_name||'Client')}));
         setClientSuggestions(items);
       } catch { setClientSuggestions([]); }
@@ -106,8 +105,7 @@ export default function Vision(){
   useEffect(()=>{
     (async()=>{
       try{
-        const tid = await getTenant();
-        const r = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+        const r = await api.get(`/settings`);
         const v = (r?.data?.vision || {}) as any;
         if (typeof v?.preserve_dims === 'boolean') setPreserveDims(!!v.preserve_dims);
       } catch{}
@@ -120,8 +118,7 @@ export default function Vision(){
 
   const persistPrefs = async (nextPreserve = preserveDims) => {
     try{
-      const tid = await getTenant();
-      await api.post('/settings', { tenant_id: tid, vision: { preserve_dims: nextPreserve } });
+      await api.post('/settings', { vision: { preserve_dims: nextPreserve } });
     } catch {}
     try{
       localStorage.setItem('bvx_preserve_dims', nextPreserve ? '1' : '0');
@@ -224,7 +221,7 @@ export default function Vision(){
         const note = `I uploaded an image in brandVZN. Analyze it and, if appropriate, edit it. Current prompt: "${editPrompt||''}"`;
         let sid = localStorage.getItem('bvx_chat_session') || '';
         if (!sid) { sid = 's_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('bvx_chat_session', sid); }
-        (async()=>{ try { await api.post('/ai/chat/raw', { tenant_id: await getTenant(), session_id: sid, messages: [{ role:'user', content: note }] }); } catch {} })();
+        (async()=>{ try { await api.post('/ai/chat/raw', { session_id: sid, messages: [{ role:'user', content: note }] }); } catch {} })();
       } catch {}
     };
     reader.readAsDataURL(f);
@@ -282,9 +279,8 @@ export default function Vision(){
       try { trackEvent('vision.analyze', { hasB64: !!b64, mime }); } catch {}
       const span = Sentry.startInactiveSpan?.({ name: 'vision.analyze.gpt5' });
       const r = await api.post('/ai/tools/execute', {
-        tenant_id: await getTenant(),
         name: 'vision.analyze.gpt5',
-        params: { tenant_id: await getTenant(), ...(b64?{ inputImageBase64: b64, inputMime: mime }:{ imageUrl: srcUrl }), question: (notes||'').trim() || undefined },
+        params: { ...(b64?{ inputImageBase64: b64, inputMime: mime }:{ imageUrl: srcUrl }), question: (notes||'').trim() || undefined },
         require_approval: false,
       }, { timeoutMs: 60000 });
       try { span?.end?.(); } catch {}
@@ -327,9 +323,8 @@ export default function Vision(){
       const span = Sentry.startInactiveSpan?.({ name: 'vision.run_edit' });
       const t0 = performance.now ? performance.now() : Date.now();
       const r = await api.post('/ai/tools/execute', {
-        tenant_id: await getTenant(),
         name: 'image.edit',
-        params: { tenant_id: await getTenant(), mode: 'edit', prompt: `${p}\nRefinement intensity: ${intensity}/100.${notes?`\nAdditional notes: ${notes}`:''}`, ...(b64?{ inputImageBase64: b64, inputMime: mime }:{ imageUrl: srcUrl }), outputFormat: 'png', preserveDims },
+        params: { mode: 'edit', prompt: `${p}\nRefinement intensity: ${intensity}/100.${notes?`\nAdditional notes: ${notes}`:''}`, ...(b64?{ inputImageBase64: b64, inputMime: mime }:{ imageUrl: srcUrl }), outputFormat: 'png', preserveDims },
         require_approval: false,
       }, { timeoutMs: 90000 });
       if (r?.data_url || r?.preview_url) {

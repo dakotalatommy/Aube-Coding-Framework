@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { api, getTenant } from '../lib/api';
+import { api } from '../lib/api';
 
 type Item = { client_id: string; visits: number; services: string[]; total_minutes: number; revenue: number };
 
@@ -9,20 +9,20 @@ export default function Curation(){
   const [lastAction, setLastAction] = useState<{ client_id:string; decision:'keep'|'discard'}|null>(null);
   const [stats, setStats] = useState<{ kept:number; discarded:number }>({ kept:0, discarded:0 });
   const load = async () => {
-    try{ const r = await api.post('/curation/list', { tenant_id: await getTenant(), limit: 10 }); setItems(r?.items||[]); }
+    try{ const r = await api.post('/curation/list', { limit: 10 }); setItems(r?.items||[]); }
     finally{ setLoading(false); }
   };
   useEffect(()=>{ void load(); },[]);
 
   const decide = async (client_id: string, decision: 'keep'|'discard') => {
-    await api.post('/curation/decide', { tenant_id: await getTenant(), client_id, decision });
+    await api.post('/curation/decide', { client_id, decision });
     setItems(curr => curr.filter(i => i.client_id !== client_id));
     setLastAction({ client_id, decision });
     setStats(s => ({ kept: s.kept + (decision==='keep'?1:0), discarded: s.discarded + (decision==='discard'?1:0) }));
   };
   const undo = async () => {
     if (!lastAction) return;
-    await api.post('/curation/undo', { tenant_id: await getTenant(), client_id: lastAction.client_id });
+    await api.post('/curation/undo', { client_id: lastAction.client_id });
     setItems(curr => [{ client_id: lastAction.client_id, visits:0, services:[], total_minutes:0, revenue:0 }, ...curr]);
     setStats(s => ({ kept: Math.max(0, s.kept - (lastAction.decision==='keep'?1:0)), discarded: Math.max(0, s.discarded - (lastAction.decision==='discard'?1:0)) }));
     setLastAction(null);

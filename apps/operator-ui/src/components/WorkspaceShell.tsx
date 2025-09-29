@@ -230,10 +230,7 @@ const FORCE_ONBOARD_TOUR = false;
     try { localStorage.setItem('bvx_quickstart_completed','1'); } catch {}
     try { window.dispatchEvent(new CustomEvent('bvx:quickstart:completed')); } catch {}
     try {
-      const tid = await getTenant();
-      if (tid) {
-        await api.post('/settings', { tenant_id: tid, guide_done: true });
-      }
+      await api.post('/settings', { guide_done: true });
     } catch (err) {
       console.error('guide_done update failed', err);
     }
@@ -458,7 +455,7 @@ const FORCE_ONBOARD_TOUR = false;
       try {
         const tid = await getTenant();
         if (!tid) return;
-        const res = await api.get(`/ai/memories/list?tenant_id=${encodeURIComponent(tid)}&limit=50`);
+        const res = await api.get(`/ai/memories/list?limit=50`);
         const cutoff = Date.now() - 30 * 86400000;
         const items = Array.isArray(res?.items)
           ? res.items.filter((item: any) => Number(item?.updated_at || 0) * 1000 >= cutoff)
@@ -552,7 +549,7 @@ const FORCE_ONBOARD_TOUR = false;
             if (tidPoll) {
               for (let i=0; i<12; i++) { // ~18s total
                 try {
-                  const s2 = await api.get(`/settings?tenant_id=${encodeURIComponent(tidPoll)}`);
+                  const s2 = await api.get(`/settings`);
                   const st2 = String(s2?.data?.subscription_status || '');
                   if (st2 === 'active' || st2 === 'trialing') { setBillingStatus(st2); break; }
                 } catch {}
@@ -563,8 +560,7 @@ const FORCE_ONBOARD_TOUR = false;
           return;
         }
         const dismissed = localStorage.getItem('bvx_billing_dismissed') === '1';
-        const tid = (await supabase.auth.getSession()).data.session ? (localStorage.getItem('bvx_tenant') || '') : '';
-        const r = await api.get(`/settings${tid?`?tenant_id=${encodeURIComponent(tid)}`:''}`);
+        const r = await api.get(`/settings`);
         const status = String(r?.data?.subscription_status || '');
         setBillingStatus(status);
         // Determine $47 tier heuristically (plan_code or price hint). Apply only when Beta tools are off.
@@ -709,12 +705,12 @@ const FORCE_ONBOARD_TOUR = false;
         if (!session?.access_token) { setApprovalsCount(0); setQueueCount(0); return; }
         const tid = await getTenant();
         if (!tid) { setApprovalsCount(0); setQueueCount(0); return; }
-        const r = await api.get(`/approvals?tenant_id=${encodeURIComponent(tid)}`);
+        const r = await api.get(`/approvals`);
         const arr = Array.isArray(r) ? r : (r?.items||[]);
         const pending = (arr||[]).filter((x:any)=> String(x?.status||'pending')==='pending').length;
         setApprovalsCount(pending);
         try {
-          const q = await api.get(`/cadences/queue?tenant_id=${encodeURIComponent(tid)}`);
+          const q = await api.get(`/cadences/queue`);
           const count = Array.isArray(q?.items) ? q.items.length : 0;
           setQueueCount(count);
         } catch { setQueueCount(0); }
@@ -795,41 +791,41 @@ const FORCE_ONBOARD_TOUR = false;
       'guide.inbox': { id:'guide.inbox', run: ()=> startGuide('inbox') },
       'nav.wow': { id:'nav.wow', run: ()=> { window.location.assign('/wow'); } },
       'integrations.reanalyze': { id:'integrations.reanalyze', run: async()=> { try{ await api.post('/onboarding/analyze',{}); }catch{} } },
-      'integrations.square.import_contacts': { id:'integrations.square.import_contacts', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/ai/tools/execute',{ tenant_id: tid, name:'contacts.import.square', params:{ tenant_id: tid }, require_approval: false, idempotency_key: `square_import_${Date.now()}` }); }catch{} } },
-      'integrations.twilio.provision': { id:'integrations.twilio.provision', run: async(area_code?: string)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/ai/tools/execute',{ tenant_id: tid, name:'integrations.twilio.provision', params:{ tenant_id: tid, area_code: String(area_code||'') }, require_approval: false }); }catch{} } },
-      'integrations.sendgrid.test_email': { id:'integrations.sendgrid.test_email', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/ai/tools/execute',{ tenant_id: tid, name:'messages.send', params:{ tenant_id: tid, contact_id: 'c_demo', channel: 'email', subject: 'BrandVX Test', body: '<p>Hello from BrandVX</p>' }, require_approval: false }); }catch{} } },
-      'integrations.hubspot.upsert_sample': { id:'integrations.hubspot.upsert_sample', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/integrations/crm/hubspot/upsert',{ tenant_id: tid, obj_type:'contact', attrs:{ email:'demo@example.com', firstName:'Demo', lastName:'User' }, idempotency_key:'demo_contact_1' }); }catch{} } },
-      'integrations.acuity.import_sample': { id:'integrations.acuity.import_sample', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/integrations/booking/acuity/import',{ tenant_id: tid, since:'0', until:'', cursor:'' }); }catch{} } },
+      'integrations.square.import_contacts': { id:'integrations.square.import_contacts', run: async()=> { try{ await api.post('/ai/tools/execute',{ name:'contacts.import.square', params:{}, require_approval: false, idempotency_key: `square_import_${Date.now()}` }); }catch{} } },
+      'integrations.twilio.provision': { id:'integrations.twilio.provision', run: async(area_code?: string)=> { try{ await api.post('/ai/tools/execute',{ name:'integrations.twilio.provision', params:{ area_code: String(area_code||'') }, require_approval: false }); }catch{} } },
+      'integrations.sendgrid.test_email': { id:'integrations.sendgrid.test_email', run: async()=> { try{ await api.post('/ai/tools/execute',{ name:'messages.send', params:{ contact_id: 'c_demo', channel: 'email', subject: 'BrandVX Test', body: '<p>Hello from BrandVX</p>' }, require_approval: false }); }catch{} } },
+      'integrations.hubspot.upsert_sample': { id:'integrations.hubspot.upsert_sample', run: async()=> { try{ await api.post('/integrations/crm/hubspot/upsert',{ obj_type:'contact', attrs:{ email:'demo@example.com', firstName:'Demo', lastName:'User' }, idempotency_key:'demo_contact_1' }); }catch{} } },
+      'integrations.acuity.import_sample': { id:'integrations.acuity.import_sample', run: async()=> { try{ await api.post('/integrations/booking/acuity/import',{ since:'0', until:'', cursor:'' }); }catch{} } },
       'integrations.redirects.copy': { id:'integrations.redirects.copy', run: async()=> { try{ const r = await api.get('/integrations/redirects'); const lines: string[] = []; Object.entries(r?.oauth||{}).forEach(([k,v]:any)=> lines.push(`${k}: ${v}`)); Object.entries(r?.webhooks||{}).forEach(([k,v]:any)=> lines.push(`${k} webhook: ${v}`)); await navigator.clipboard?.writeText(lines.join('\n')); }catch{} } },
-      'integrations.connect': { id:'integrations.connect', run: async(provider: string)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; const j = await api.get(`/oauth/${provider}/login?tenant_id=${encodeURIComponent(tid)}`); const url = String(j?.url||''); if (url) window.location.assign(url); }catch{} } },
-      'integrations.refresh': { id:'integrations.refresh', run: async(provider: string)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/oauth/refresh',{ tenant_id: tid, provider }); }catch{} } },
-      'messages.send': { id:'messages.send', run: async(contactId: string, channel: 'sms'|'email', body: string)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/messages/send',{ tenant_id: tid, contact_id: contactId, channel, body }); }catch{} } },
-      'messages.simulate': { id:'messages.simulate', run: async(contactId: string, channel: 'sms'|'email')=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/messages/simulate',{ tenant_id: tid, contact_id: contactId, channel, generate: false }); }catch{} } },
+      'integrations.connect': { id:'integrations.connect', run: async(provider: string)=> { try{ const j = await api.get(`/oauth/${provider}/login`); const url = String(j?.url||''); if (url) window.location.assign(url); }catch{} } },
+      'integrations.refresh': { id:'integrations.refresh', run: async(provider: string)=> { try{ await api.post('/oauth/refresh',{ provider }); }catch{} } },
+      'messages.send': { id:'messages.send', run: async(contactId: string, channel: 'sms'|'email', body: string)=> { try{ await api.post('/messages/send',{ contact_id: contactId, channel, body }); }catch{} } },
+      'messages.simulate': { id:'messages.simulate', run: async(contactId: string, channel: 'sms'|'email')=> { try{ await api.post('/messages/simulate',{ contact_id: contactId, channel, generate: false }); }catch{} } },
       'messages.copy.text': { id:'messages.copy.text', run: async(text: string)=> { try{ await navigator.clipboard?.writeText(String(text||'')); }catch{} } },
       'messages.open.sms': { id:'messages.open.sms', run: (to: string, body: string)=> { try{ window.location.href = `sms:${encodeURIComponent(to||'')}&body=${encodeURIComponent(body||'')}`; }catch{} } },
       'messages.open.mail': { id:'messages.open.mail', run: (to: string, subject: string, body: string)=> { try{ window.location.href = `mailto:${encodeURIComponent(to||'')}?subject=${encodeURIComponent(subject||'')}&body=${encodeURIComponent(body||'')}`; }catch{} } },
-      'contacts.get_candidates': { id:'contacts.get_candidates', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; return await api.get(`/import/candidates?tenant_id=${encodeURIComponent(tid)}`); }catch(e){ return { error: String((e as any)?.message||e) }; } } },
-      'contacts.import': { id:'contacts.import', run: async(contacts: Array<any>)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/import/contacts',{ tenant_id: tid, contacts: Array.isArray(contacts)? contacts: [] }); }catch{} } },
-      'recon.import_missing_contacts': { id:'recon.import_missing_contacts', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/reconciliation/import_missing_contacts',{ tenant_id: tid }); }catch{} } },
+      'contacts.get_candidates': { id:'contacts.get_candidates', run: async()=> { try{ return await api.get(`/import/candidates`); }catch(e){ return { error: String((e as any)?.message||e) }; } } },
+      'contacts.import': { id:'contacts.import', run: async(contacts: Array<any>)=> { try{ await api.post('/import/contacts',{ contacts: Array.isArray(contacts)? contacts: [] }); }catch{} } },
+      'recon.import_missing_contacts': { id:'recon.import_missing_contacts', run: async()=> { try{ await api.post('/reconciliation/import_missing_contacts',{}); }catch{} } },
       'calendar.preview_reminders': { id:'calendar.preview_reminders', run: async()=> { return { status: 'not_available' }; } },
-      'cadences.start': { id:'cadences.start', run: async(contactId: string, cadenceId: string)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/cadences/start',{ tenant_id: tid, contact_id: contactId, cadence_id: cadenceId }); }catch{} } },
-      'cadences.stop': { id:'cadences.stop', run: async(contactId: string, cadenceId: string)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post(`/cadences/stop?tenant_id=${encodeURIComponent(tid)}&contact_id=${encodeURIComponent(contactId)}&cadence_id=${encodeURIComponent(cadenceId)}`, {} as any); }catch{} } },
-      'scheduler.tick': { id:'scheduler.tick', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/scheduler/tick',{ tenant_id: tid }); }catch{} } },
-      'workflows.run.dedupe': { id:'workflows.run.dedupe', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/ai/tools/execute',{ tenant_id: tid, name:'contacts.dedupe', params:{ tenant_id: tid }, require_approval: true }); }catch{} } },
-      'workflows.run.lowstock': { id:'workflows.run.lowstock', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/ai/tools/execute',{ tenant_id: tid, name:'inventory.alerts.get', params:{ tenant_id: tid, low_stock_threshold: Number(localStorage.getItem('bvx_low_threshold')||'5') }, require_approval: false }); }catch{} } },
-      'workflows.run.reminders': { id:'workflows.run.reminders', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/ai/tools/execute',{ tenant_id: tid, name:'appointments.schedule_reminders', params:{ tenant_id: tid }, require_approval: false }); }catch{} } },
-      'workflows.run.dormant_preview': { id:'workflows.run.dormant_preview', run: async(threshold: number = 60)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/ai/tools/execute',{ tenant_id: tid, name:'campaigns.dormant.preview', params:{ tenant_id: tid, threshold_days: threshold }, require_approval: false }); }catch{} } },
-      'workflows.run.social_plan': { id:'workflows.run.social_plan', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/ai/tools/execute',{ tenant_id: tid, name:'social.schedule.14days', params:{ tenant_id: tid }, require_approval: true }); }catch{} } },
+      'cadences.start': { id:'cadences.start', run: async(contactId: string, cadenceId: string)=> { try{ await api.post('/cadences/start',{ contact_id: contactId, cadence_id: cadenceId }); }catch{} } },
+      'cadences.stop': { id:'cadences.stop', run: async(contactId: string, cadenceId: string)=> { try{ await api.post(`/cadences/stop?contact_id=${encodeURIComponent(contactId)}&cadence_id=${encodeURIComponent(cadenceId)}`, {} as any); }catch{} } },
+      'scheduler.tick': { id:'scheduler.tick', run: async()=> { try{ await api.post('/scheduler/tick',{}); }catch{} } },
+      'workflows.run.dedupe': { id:'workflows.run.dedupe', run: async()=> { try{ await api.post('/ai/tools/execute',{ name:'contacts.dedupe', params:{}, require_approval: true }); }catch{} } },
+      'workflows.run.lowstock': { id:'workflows.run.lowstock', run: async()=> { try{ await api.post('/ai/tools/execute',{ name:'inventory.alerts.get', params:{ low_stock_threshold: Number(localStorage.getItem('bvx_low_threshold')||'5') }, require_approval: false }); }catch{} } },
+      'workflows.run.reminders': { id:'workflows.run.reminders', run: async()=> { try{ await api.post('/ai/tools/execute',{ name:'appointments.schedule_reminders', params:{}, require_approval: false }); }catch{} } },
+      'workflows.run.dormant_preview': { id:'workflows.run.dormant_preview', run: async(threshold: number = 60)=> { try{ await api.post('/ai/tools/execute',{ name:'campaigns.dormant.preview', params:{ threshold_days: threshold }, require_approval: false }); }catch{} } },
+      'workflows.run.social_plan': { id:'workflows.run.social_plan', run: async()=> { try{ await api.post('/ai/tools/execute',{ name:'social.schedule.14days', params:{}, require_approval: true }); }catch{} } },
       'approvals.approve': { id:'approvals.approve', run: async()=> { try{ window.location.assign('/workspace?pane=approvals'); return { status:'navigate' }; }catch{} } },
       'approvals.reject': { id:'approvals.reject', run: async()=> { try{ window.location.assign('/workspace?pane=approvals'); return { status:'navigate' }; }catch{} } },
-      'settings.update': { id:'settings.update', run: async(payload: any)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/settings',{ tenant_id: tid, ...(payload||{}) }); }catch{} } },
-      'settings.quiet_hours': { id:'settings.quiet_hours', run: async(start: string, end: string)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/settings',{ tenant_id: tid, quiet_hours:{ start, end } }); }catch{} } },
-      'settings.brand_profile': { id:'settings.brand_profile', run: async(profile: any)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/settings',{ tenant_id: tid, brand_profile: profile }); }catch{} } },
-      'settings.goals': { id:'settings.goals', run: async(goals: any)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/settings',{ tenant_id: tid, goals }); }catch{} } },
-      'share.create': { id:'share.create', run: async(title: string, description: string)=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; return await api.post('/share/create',{ tenant_id: tid, title, description }); }catch(e){ return { error: String((e as any)?.message||e) }; } } },
-      'usage.limits.get': { id:'usage.limits.get', run: async()=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; const s = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`); return s?.data?.usage_limits || {}; }catch(e){ return { error: String((e as any)?.message||e) }; } } },
+      'settings.update': { id:'settings.update', run: async(payload: any)=> { try{ await api.post('/settings',{ ...(payload||{}) }); }catch{} } },
+      'settings.quiet_hours': { id:'settings.quiet_hours', run: async(start: string, end: string)=> { try{ await api.post('/settings',{ quiet_hours:{ start, end } }); }catch{} } },
+      'settings.brand_profile': { id:'settings.brand_profile', run: async(profile: any)=> { try{ await api.post('/settings',{ brand_profile: profile }); }catch{} } },
+      'settings.goals': { id:'settings.goals', run: async(goals: any)=> { try{ await api.post('/settings',{ goals }); }catch{} } },
+      'share.create': { id:'share.create', run: async(title: string, description: string)=> { try{ return await api.post('/share/create',{ title, description }); }catch(e){ return { error: String((e as any)?.message||e) }; } } },
+      'usage.limits.get': { id:'usage.limits.get', run: async()=> { try{ const s = await api.get(`/settings`); return s?.data?.usage_limits || {}; }catch(e){ return { error: String((e as any)?.message||e) }; } } },
       'config.get': { id:'config.get', run: ()=> { try{ const ro = (import.meta as any).env?.VITE_RECOMMEND_ONLY === '1' || (import.meta as any).env?.VITE_BETA_RECOMMEND_ONLY === '1'; return { recommend_only: !!ro }; }catch{ return { recommend_only:false }; } } },
-      'admin.clear_cache': { id:'admin.clear_cache', run: async(scope: string = 'all')=> { try{ const tid = localStorage.getItem('bvx_tenant')||''; await api.post('/admin/cache/clear',{ tenant_id: tid, scope }); }catch{} } },
+      'admin.clear_cache': { id:'admin.clear_cache', run: async(scope: string = 'all')=> { try{ await api.post('/admin/cache/clear',{ scope }); }catch{} } },
     });
     return unregister;
   }, []);
@@ -843,7 +839,7 @@ const FORCE_ONBOARD_TOUR = false;
         try {
           const tid = await getTenant();
           if (tid) {
-            const r = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+            const r = await api.get(`/settings`);
             const st = String(r?.data?.subscription_status || '');
             const covered = st === 'active';
             if (covered) return;

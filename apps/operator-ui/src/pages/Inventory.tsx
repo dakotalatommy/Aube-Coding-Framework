@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, getTenant } from '../lib/api';
+import { api } from '../lib/api';
 import { startGuide } from '../lib/guide';
 import EmptyState from '../components/ui/EmptyState';
 
@@ -18,7 +18,7 @@ export default function Inventory(){
   });
   useEffect(()=>{
     (async()=>{
-      try{ const r = await api.get(`/inventory/metrics?tenant_id=${encodeURIComponent(await getTenant())}`); setSummary(r?.summary||{}); setLastSync(r?.last_sync||{}); setItems(r?.items||[]); setLastUpdated(Date.now()); } finally{ setLoading(false); }
+      try{ const r = await api.get(`/inventory/metrics`); setSummary(r?.summary||{}); setLastSync(r?.last_sync||{}); setItems(r?.items||[]); setLastUpdated(Date.now()); } finally{ setLoading(false); }
     })();
   },[]);
   useEffect(()=>{
@@ -27,18 +27,18 @@ export default function Inventory(){
       if (sp.get('tour') === '1') startGuide('inventory');
     } catch {}
   },[]);
-  useEffect(()=>{ (async()=>{ try{ const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() }); if (a?.summary?.ts) setLastAnalyzed(Number(a.summary.ts)); } catch{} finally { try{ (window as any).__bvxInventoryReady = 1; window.dispatchEvent(new CustomEvent('bvx:inventory:ready')); } catch {} } })(); },[]);
+  useEffect(()=>{ (async()=>{ try{ const a = await api.post('/onboarding/analyze', {}); if (a?.summary?.ts) setLastAnalyzed(Number(a.summary.ts)); } catch{} finally { try{ (window as any).__bvxInventoryReady = 1; window.dispatchEvent(new CustomEvent('bvx:inventory:ready')); } catch {} } })(); },[]);
   const syncNow = async (provider?: string) => {
-    const r = await api.post('/inventory/sync', { tenant_id: await getTenant(), provider });
+    const r = await api.post('/inventory/sync', { provider });
     setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })());
     // Refresh metrics/items
-    const m = await api.get(`/inventory/metrics?tenant_id=${encodeURIComponent(await getTenant())}`);
+    const m = await api.get(`/inventory/metrics`);
     setSummary(m?.summary||{}); setLastSync(m?.last_sync||{}); setItems(m?.items||[]); setLastUpdated(Date.now());
   };
   const mergeNow = async () => {
-    const r = await api.post('/inventory/merge', { tenant_id: await getTenant(), strategy: 'sku_then_name' });
+    const r = await api.post('/inventory/merge', { strategy: 'sku_then_name' });
     setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })());
-    const m = await api.get(`/inventory/metrics?tenant_id=${encodeURIComponent(await getTenant())}`);
+    const m = await api.get(`/inventory/metrics`);
     setSummary(m?.summary||{}); setLastSync(m?.last_sync||{}); setItems(m?.items||[]); setLastUpdated(Date.now());
   };
   if (loading) return (

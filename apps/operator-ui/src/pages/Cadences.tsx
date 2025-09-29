@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { api, getTenant } from '../lib/api';
+import { api } from '../lib/api';
 import { trackEvent } from '../lib/analytics';
 import * as Sentry from '@sentry/react';
 import Button from '../components/ui/Button';
@@ -91,8 +91,7 @@ export default function Cadences(){
   const loadQueue = React.useCallback(async () => {
     try{
       if (isDemo) { setQueue({ items: [] }); return; }
-      const tid = await getTenant();
-      const r = await api.get(`/cadences/queue?tenant_id=${encodeURIComponent(tid)}`);
+      const r = await api.get(`/cadences/queue`);
       setQueue(r || { items: [] });
     } catch { setQueue({ items: [] }); }
   }, [isDemo]);
@@ -102,8 +101,7 @@ export default function Cadences(){
     if (isDemo) { setSegmentCandidates([]); setSelectedTemplate(segment.template); return; }
     setSegmentLoading(true);
     try {
-      const tid = await getTenant();
-      const res = await api.get(`/followups/candidates?tenant_id=${encodeURIComponent(tid)}&scope=${encodeURIComponent(segment.scope)}`);
+      const res = await api.get(`/followups/candidates?scope=${encodeURIComponent(segment.scope)}`);
       const items = Array.isArray(res?.items) ? res.items : [];
       setSegmentCandidates(items);
       setSelectedTemplate(segment.template);
@@ -117,8 +115,7 @@ export default function Cadences(){
 
   const pollDraftStatus = React.useCallback(async () => {
     try {
-      const tid = await getTenant();
-      const res = await api.get(`/followups/draft_status?tenant_id=${encodeURIComponent(tid)}`);
+      const res = await api.get(`/followups/draft_status`);
       setStatus(JSON.stringify(res || {}));
       const details = res?.details || {};
       setDraftContacts(details.contact_ids.map((cid: any)=> String(cid)));
@@ -196,10 +193,9 @@ export default function Cadences(){
     clearDraft();
     setDraftStatus('generating');
     try {
-      const tid = await getTenant();
       const segment = SEGMENTS.find(s => s.id === activeSegmentId) || SEGMENTS[0];
       setDraftTemplateLabel(TEMPLATE_OPTIONS[selectedTemplate]?.label || segment.label);
-      const payload = { tenant_id: tid, scope: segment.scope, template_id: selectedTemplate };
+      const payload = { scope: segment.scope, template_id: selectedTemplate };
       const res = await api.post('/followups/draft_batch', payload);
       setStatus(JSON.stringify(res || {}));
       if (res?.status === 'empty') {
@@ -260,8 +256,7 @@ export default function Cadences(){
     if (!draftTodoId || isDemo) return;
     setIsApproving(true);
     try {
-      const tid = await getTenant();
-      await api.post('/todo/ack', { tenant_id: tid, id: draftTodoId });
+      await api.post('/todo/ack', { id: draftTodoId });
       const templateMeta = TEMPLATE_OPTIONS[selectedTemplate];
       const ids = draftContacts.length > 0
         ? draftContacts
@@ -269,7 +264,6 @@ export default function Cadences(){
       if (templateMeta && ids.length > 0) {
         try {
           await api.post('/followups/enqueue', {
-            tenant_id: tid,
             contact_ids: ids,
             cadence_id: templateMeta.cadenceId,
           });

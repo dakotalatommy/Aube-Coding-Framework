@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Button from '../../components/ui/Button'
-import { api, getTenant } from '../../lib/api'
+import { api } from '../../lib/api'
 
 export default function SceneReview({ state, back, onFinish }: any){
   const d = state.data
@@ -29,10 +29,10 @@ export default function SceneReview({ state, back, onFinish }: any){
     try{
       setBusy(true); setError(''); setStatus('')
       const b64 = await fileToDataUrl(file)
-      const r = await api.post('/share/screenshot', { tenant_id: await getTenant(), data_url: b64, title: 'onboarding_share' })
+      const r = await api.post('/share/screenshot', { data_url: b64, title: 'onboarding_share' })
       if (r?.token) setStatus('Thanks! Referral applied if subscribed.')
       // Attempt referral apply (+1) best-effort
-      try{ await api.post('/billing/referral', { tenant_id: await getTenant(), delta: 1 }) }catch{}
+      try{ await api.post('/billing/referral', { delta: 1 }) }catch{}
     }catch(e:any){ setError(String(e?.message||e)) }
     finally{ setBusy(false) }
   }
@@ -80,19 +80,19 @@ export default function SceneReview({ state, back, onFinish }: any){
         <div className="mt-2 flex flex-wrap gap-2 text-xs">
           <Button variant="outline" size="sm" disabled={busy} onClick={async()=>{
             try{ setBusy(true); setStatus(''); setError('');
-              await api.post('/ai/tools/execute', { name: 'db.query.named', params: { tenant_id: await getTenant(), name: 'metric.weekly_revenue_last_week', params: {} } });
+              await api.post('/ai/tools/execute', { name: 'db.query.named', params: { name: 'metric.weekly_revenue_last_week', params: {} } });
               setStatus('Computed last week revenue');
             } catch(e:any){ setError(String(e?.message||e)); } finally{ setBusy(false); }
           }}>Weekly revenue</Button>
           <Button variant="outline" size="sm" disabled={busy} onClick={async()=>{
             try{ setBusy(true); setStatus(''); setError('');
-              await api.post('/ai/tools/execute', { name: 'contacts.list.top_ltv', params: { tenant_id: await getTenant(), limit: 5 } });
+              await api.post('/ai/tools/execute', { name: 'contacts.list.top_ltv', params: { limit: 5 } });
               setStatus('Fetched top clients by LTV');
             } catch(e:any){ setError(String(e?.message||e)); } finally{ setBusy(false); }
           }}>Top clients</Button>
           <Button variant="outline" size="sm" disabled={busy} onClick={async()=>{
             try{ setBusy(true); setStatus(''); setError('');
-              await api.post('/ai/tools/execute', { name: 'contacts.import.square', params: { tenant_id: await getTenant() } });
+              await api.post('/ai/tools/execute', { name: 'contacts.import.square', params: {} });
               setStatus('Import from Square started');
             } catch(e:any){ setError(String(e?.message||e)); } finally{ setBusy(false); }
           }}>Import clients</Button>

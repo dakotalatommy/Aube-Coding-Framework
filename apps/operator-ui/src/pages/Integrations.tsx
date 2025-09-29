@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, getTenant, API_BASE } from '../lib/api';
+import { api, API_BASE } from '../lib/api';
 // import { setQueryParams } from '../lib/url';
 import { trackEvent } from '../lib/analytics';
 import Button from '../components/ui/Button';
@@ -45,11 +45,10 @@ export default function Integrations(){
   };
   const [events, setEvents] = useState<Array<{name:string;ts:number;payload?:any}>>([]);
   const loadEvents = async () => {
-    try{
-      const tid = await getTenant();
-      const r = await api.get(`/integrations/events?tenant_id=${encodeURIComponent(tid)}&limit=50`);
+    try {
+      const r = await api.get(`/integrations/events?limit=50`);
       setEvents(Array.isArray(r?.items)? r.items: []);
-    }catch{}
+    } catch {}
   };
 
   // Setup Progress (moved from Dashboard)
@@ -71,7 +70,7 @@ export default function Integrations(){
     try { return providers.some(p=> isConnected(p)); } catch { return false; }
   };
   const shouldShow = (providers: string | string[]): boolean => {
-    try{
+    try {
       if (DEV_MODE) return true;
       const arr = Array.isArray(providers) ? providers : [providers];
       return arr.some(p=> isLive(p)) || isConnectedAny(arr);
@@ -80,86 +79,79 @@ export default function Integrations(){
 
   const connectLabel = (provider: string) => isConnected(provider) ? `Reconnect ${provider.charAt(0).toUpperCase()+provider.slice(1)}` : `Connect ${provider.charAt(0).toUpperCase()+provider.slice(1)}`;
   const reanalyze = async () => {
-    try{
-      const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() });
+    try {
+      const a = await api.post('/onboarding/analyze', {});
       setOnboarding({ ...a?.summary, connectedMap: a?.summary?.connected || {}, providers: a?.summary?.providers || {} });
       const ts = new Date();
       setStatus(`Re‑analyzed at ${ts.toLocaleTimeString()}`);
       try { showToast({ title:'Re‑analyzed', description: ts.toLocaleTimeString() }); } catch {}
-      try{
-        const tid = await getTenant();
-        if (tid) {
-          const ca = await api.get(`/integrations/connected-accounts?tenant_id=${encodeURIComponent(tid)}`);
-          setConnAccounts(Array.isArray(ca?.items)? ca.items: []);
-          setLastCallback(ca?.last_callback || null);
-          // New status endpoint for per-provider linked badges
-          try {
-            const st = await api.get(`/integrations/status?tenant_id=${encodeURIComponent(tid)}`);
-            const provs = (st?.providers||{}) as Record<string, { linked:boolean; status?:string; expires_at?:number; last_sync?:number }>;
-            const nextLinked: Record<string, boolean> = {};
-            const nextSync: Record<string, number> = {};
-            Object.entries(provs).forEach(([k,v])=>{
-              nextLinked[k] = !!v?.linked;
-              const ls = Number(v?.last_sync||0);
-              if (ls>0) nextSync[k] = ls;
-            });
-            setLinked(nextLinked);
-            setLastSync(nextSync);
-            setProviderStatus(provs);
-            if (!lastCallback && st?.last_callback) setLastCallback(st.last_callback);
-          } catch {}
-        }
-      }catch{}
-      try{
-        const tid = await getTenant();
-        const st = await api.get(`/integrations/status?tenant_id=${encodeURIComponent(tid)}`);
+      try {
+        const ca = await api.get(`/integrations/connected-accounts`);
+        setConnAccounts(Array.isArray(ca?.items)? ca.items: []);
+        setLastCallback(ca?.last_callback || null);
+        // New status endpoint for per-provider linked badges
+        try {
+          const st = await api.get(`/integrations/status`);
+          const provs = (st?.providers||{}) as Record<string, { linked:boolean; status?:string; expires_at?:number; last_sync?:number }>;
+          const nextLinked: Record<string, boolean> = {};
+          const nextSync: Record<string, number> = {};
+          Object.entries(provs).forEach(([k,v])=>{
+            nextLinked[k] = !!v?.linked;
+            const ls = Number(v?.last_sync||0);
+            if (ls>0) nextSync[k] = ls;
+          });
+          setLinked(nextLinked);
+          setLastSync(nextSync);
+          setProviderStatus(provs);
+          if (!lastCallback && st?.last_callback) setLastCallback(st.last_callback);
+        } catch {}
+      } catch {}
+      try {
+        const st = await api.get(`/integrations/status`);
         setStatusPill({ providers: (st?.providers||{}) as any, loaded:true });
-      }catch{ setStatusPill({ providers:{}, loaded:false }); }
-    } catch(e:any){ setStatus(String(e?.message||e)); }
+      } catch { setStatusPill({ providers:{}, loaded:false }); }
+    } catch(e:any) { setStatus(String(e?.message||e)); }
   };
 
   // (removed troubleshooting preflight UI)
 
   useEffect(()=>{
     (async()=>{
-      try{
-        const r = await api.get(`/settings?tenant_id=${encodeURIComponent(await getTenant())}`);
+      try {
+        const r = await api.get(`/settings`);
         setSettings({ auto_approve_all:false, providers_live:{}, ...(r?.data||{}) });
-      }catch{}
-      try{
-        const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() });
+      } catch {}
+      try {
+        const a = await api.post('/onboarding/analyze', {});
         setOnboarding({ ...a?.summary, connectedMap: a?.summary?.connected || {}, providers: a?.summary?.providers || {} });
-      }catch{}
-      try{
-        const tid = await getTenant();
-        if (tid) {
-          const ca = await api.get(`/integrations/connected-accounts?tenant_id=${encodeURIComponent(tid)}`);
-          setConnAccounts(Array.isArray(ca?.items)? ca.items: []);
-          setLastCallback(ca?.last_callback || null);
-        }
-      }catch{}
+      } catch {}
+      try {
+        const ca = await api.get(`/integrations/connected-accounts`);
+        setConnAccounts(Array.isArray(ca?.items)? ca.items: []);
+        setLastCallback(ca?.last_callback || null);
+      } catch {}
       // (removed troubleshooting preflight UI)
-      try{
-        const l = await api.get(`/integrations/booking/square/link?tenant_id=${encodeURIComponent(await getTenant())}`);
+      try {
+        const l = await api.get(`/integrations/booking/square/link`);
         setSquareLink(l?.url||'');
-      }catch{}
+      } catch {}
       // Best-effort retry for Square link if empty
-      try{
+      try {
         setTimeout(async()=>{
           if (!squareLink) {
-            try{
-              const l2 = await api.get(`/integrations/booking/square/link?tenant_id=${encodeURIComponent(await getTenant())}`);
+            try {
+              const l2 = await api.get(`/integrations/booking/square/link`);
               if (l2?.url) setSquareLink(l2.url);
-            }catch{}
+            } catch { }
           }
         }, 1500);
       } catch {}
-      try{
+      try {
         const rj = await api.get('/integrations/redirects');
         setRedirects(rj);
-      }catch{
+      } catch {
         // Client-side fallback when backend endpoint isn't reachable in test/demo
-        try{
+        try {
           const baseApi = API_BASE;
           const baseApp = (typeof window !== 'undefined') ? window.location.origin : '';
           setRedirects({
@@ -178,15 +170,15 @@ export default function Integrations(){
           });
         } catch {}
       }
-      try{
+      try {
         if (new URLSearchParams(window.location.search).has('dev')) await loadEvents();
-      }catch{}
+      } catch {}
     })();
   },[]);
 
   // Focused provider mode: when returning from OAuth, jump to that section and optionally auto-return
   useEffect(()=>{
-    try{
+    try {
       const connected = sp.get('connected') === '1';
       const error = sp.get('error') || '';
       if (focusedProvider && connected) {
@@ -197,7 +189,7 @@ export default function Integrations(){
         const intent = (()=>{ try{ return sessionStorage.getItem('bvx_showcase_intent')==='1'; }catch{ return false }})();
         if (isOnboard || intent) {
           setTimeout(()=>{
-            try{
+            try {
               const u = new URL(window.location.href);
               u.pathname = '/workspace';
               u.searchParams.set('pane','dashboard');
@@ -208,7 +200,7 @@ export default function Integrations(){
               sessionStorage.setItem('bvx_showcase_resuming','1');
               window.dispatchEvent(new CustomEvent('bvx:showcase:resume'));
               sessionStorage.removeItem('bvx_showcase_intent');
-            }catch{}
+            } catch {}
           }, 900);
         } else if (returnHint === 'workspace') {
           setTimeout(()=>{ try{ window.history.replaceState({}, '', '/workspace?pane=dashboard'); }catch{} }, 900);
@@ -222,7 +214,7 @@ export default function Integrations(){
   // Optional deep-link tour to Twilio card
   useEffect(()=>{
     (async()=>{
-      try{
+      try {
         const sp = new URLSearchParams(window.location.search);
         if (sp.get('tour') === 'twilio') {
           const mod = await import('driver.js');
@@ -239,7 +231,7 @@ export default function Integrations(){
 
   useEffect(()=>{
     (async()=>{
-      try{
+      try {
         const sp = new URLSearchParams(window.location.search);
         if (sp.get('tour') === '1') {
           const mod = await import('driver.js');
@@ -256,10 +248,10 @@ export default function Integrations(){
   },[]);
 
   /* const save = async () => {
-    try{
+    try {
       setBusy(true);
       const prefs = { ...(settings.preferences||{}), user_timezone: Intl.DateTimeFormat().resolvedOptions().timeZone, user_timezone_offset: computeOffsetHours() };
-      const r = await api.post('/settings',{ tenant_id: await getTenant(), ...settings, preferences: prefs });
+      const r = await api.post('/settings',{ ...settings, preferences: prefs });
       setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })());
       try { showToast({ title:'Settings saved', description:'Settings saved successfully' }); } catch {}
       try { localStorage.setItem('bvx_onboarding_done','1'); } catch {}
@@ -272,7 +264,7 @@ export default function Integrations(){
   const setProviderLive = async (provider: string, live: boolean) => {
     try {
       setSettings((s:any)=> ({ ...s, providers_live: { ...(s.providers_live||{}), [provider]: live } }));
-      await api.post('/settings', { tenant_id: await getTenant(), providers_live: { ...(settings.providers_live||{}), [provider]: live } });
+      await api.post('/settings', { providers_live: { ...(settings.providers_live||{}), [provider]: live } });
       try { showToast({ title: 'Mode updated', description: `${provider}: ${live ? 'Live' : 'Demo'}` }); } catch {}
     } catch(e:any) {
       setErrorMsg(String(e?.message||e));
@@ -286,12 +278,12 @@ export default function Integrations(){
     } catch { return 0; }
   };
   /* const sendTestSms = async () => {
-    try{ setBusy(true); const r = await api.post('/ai/tools/execute',{ tenant_id: await getTenant(), name: 'messages.send', params: { tenant_id: await getTenant(), contact_id:'c_demo', channel:'sms', body:'Test SMS from brandVX (reply STOP/HELP to opt out)' }, require_approval: false }); setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })()); try { showToast({ title: (r?.status==='ok'||r?.status==='pending') ? 'Test SMS sent' : 'Test SMS failed', description:(r?.status==='ok'||r?.status==='pending') ? 'SMS sent successfully' : (r?.error||r?.status||'') }); } catch {} }
+    try { setBusy(true); const r = await api.post('/ai/tools/execute',{ name: 'messages.send', params: { contact_id:'c_demo', channel:'sms', body:'Test SMS from brandVX (reply STOP/HELP to opt out)' }, require_approval: false }); setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })()); try { showToast({ title: (r?.status==='ok'||r?.status==='pending') ? 'Test SMS sent' : 'Test SMS failed', description:(r?.status==='ok'||r?.status==='pending') ? 'SMS sent successfully' : (r?.error||r?.status||'') }); } catch {} }
     catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
   }; */
   const sendTestEmail = async () => {
-    try{ setBusy(true); const r = await api.post('/ai/tools/execute',{ tenant_id: await getTenant(), name: 'messages.send', params: { tenant_id: await getTenant(), contact_id:'c_demo', channel:'email', subject:'brandVX Test', body:'<p>Hello from brandVX</p>' }, require_approval: false }); setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })()); try { showToast({ title:(r?.status==='ok'||r?.status==='pending') ? 'Test email sent' : 'Test email failed', description:(r?.status==='ok'||r?.status==='pending') ? 'Email sent successfully' : (r?.error||r?.status||'') }); } catch {} }
+    try { setBusy(true); const r = await api.post('/ai/tools/execute',{ name: 'messages.send', params: { contact_id:'c_demo', channel:'email', subject:'brandVX Test', body:'<p>Hello from brandVX</p>' }, require_approval: false }); setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })()); try { showToast({ title:(r?.status==='ok'||r?.status==='pending') ? 'Test email sent' : 'Test email failed', description:(r?.status==='ok'||r?.status==='pending') ? 'Email sent successfully' : (r?.error||r?.status||'') }); } catch {} }
     catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
   };
@@ -299,7 +291,7 @@ export default function Integrations(){
     try {
       setBusy(true);
       try {
-        await api.post('/settings', { tenant_id: await getTenant(), guide_done: false, welcome_seen: false });
+        await api.post('/settings', { guide_done: false, welcome_seen: false });
       } catch {}
       try {
         // Mark onboarding as done so the dashboard walkthrough can auto-start
@@ -328,18 +320,18 @@ export default function Integrations(){
   };
   // fmt12 removed with quiet hours UI
   /* const saveTraining = async () => {
-    try{
+    try {
       setBusy(true);
-      const r = await api.post('/settings', { tenant_id: await getTenant(), training_notes: settings.training_notes||'' });
+      const r = await api.post('/settings', { training_notes: settings.training_notes||'' });
       setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })());
       try { showToast({ title:'Saved', description:'Training notes saved' }); } catch {}
     } catch(e:any){ setStatus(String(e?.message||e)); }
     finally{ setBusy(false); }
   }; */
   /* const enableSms = async () => {
-    try{
+    try {
       setBusy(true);
-      const r = await api.post('/integrations/twilio/provision', { tenant_id: await getTenant(), area_code: '' });
+      const r = await api.post('/integrations/twilio/provision', { area_code: '' });
       setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : ''; } catch { return ''; } })());
       if (r?.status === 'ok') { setStatus(''); try { showToast({ title:'SMS enabled', description: r?.from||'' }); } catch {} }
       else setErrorMsg(r?.detail||r?.status||'Enable failed');
@@ -356,10 +348,9 @@ export default function Integrations(){
   };
 
   const hubspotUpsertSample = async () => {
-    try{
+    try {
       setBusy(true);
       const r = await api.post('/integrations/crm/hubspot/upsert', {
-        tenant_id: await getTenant(),
         obj_type:'contact',
         attrs:{ email:'demo@example.com', firstName:'Demo', lastName:'User' },
         idempotency_key:'demo_contact_1'
@@ -371,9 +362,9 @@ export default function Integrations(){
   };
 
   const hubspotImportContacts = async () => {
-    try{
+    try {
       setBusy(true);
-      const r = await api.post('/crm/hubspot/import', { tenant_id: await getTenant() });
+      const r = await api.post('/crm/hubspot/import', {});
       const c = Number(r?.imported||0);
       setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? `HubSpot import: ${c} contacts` : ''; } catch { return ''; } })());
       try { showToast({ title:'HubSpot import', description: `${c} contacts imported` }); } catch {}
@@ -382,9 +373,9 @@ export default function Integrations(){
   };
 
   const calendarSync = async (prov: string) => {
-    try{
+    try {
       setBusy(true);
-      const r = await api.post('/calendar/sync', { tenant_id: await getTenant(), provider: prov });
+      const r = await api.post('/calendar/sync', { provider: prov });
       setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? `Calendar sync (${prov}): ${r?.status||'done'}` : ''; } catch { return ''; } })());
       try { showToast({ title: (r?.status==='ok'||r?.status==='pending') ? 'Calendar sync started' : 'Calendar sync failed', description: prov }); } catch {}
     }catch(e:any){ setErrorMsg(String(e?.message||e)); }
@@ -392,9 +383,9 @@ export default function Integrations(){
   };
 
   const calendarMerge = async () => {
-    try{
+    try {
       setBusy(true);
-      const r = await api.post('/calendar/merge', { tenant_id: await getTenant() });
+      const r = await api.post('/calendar/merge', {});
       const m = Number(r?.merged||0);
       setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? `Calendar merged: ${m} duplicates dropped` : ''; } catch { return ''; } })());
       try { showToast({ title: (m>=0) ? 'Calendar merged' : 'Calendar merge', description: `${m} drops` }); } catch {}
@@ -403,19 +394,19 @@ export default function Integrations(){
   };
 
   const rlsSelfcheck = async () => {
-    try{
+    try {
       setBusy(true);
       const r = await api.get('/integrations/rls/selfcheck');
-      setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? `RLS ok for tenant ${r?.tenant_id||''}: ${JSON.stringify(r?.counts||{})}` : ''; } catch { return ''; } })());
+      setStatus((()=>{ try{ return new URLSearchParams(window.location.search).has('dev') ? `RLS ok: ${JSON.stringify(r?.counts||{})}` : ''; } catch { return ''; } })());
       try { showToast({ title:'RLS self-check', description:'OK' }); } catch {}
     }catch(e:any){ setErrorMsg(String(e?.message||e)); }
     finally{ setBusy(false); }
   };
 
   const connectorsCleanup = async () => {
-    try{
+    try {
       setBusy(true);
-      const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'connectors.cleanup', params:{ tenant_id: await getTenant() }, require_approval: false, idempotency_key: `connectors_cleanup_${Date.now()}` });
+      const r = await api.post('/ai/tools/execute', { name:'connectors.cleanup', params:{}, require_approval: false, idempotency_key: `connectors_cleanup_${Date.now()}` });
       setStatus(`Connectors cleaned: ${Number(r?.deleted||0)} removed`);
       try { showToast({ title:'Connectors cleaned' }); } catch {}
     }catch(e:any){ setErrorMsg(String(e?.message||e)); }
@@ -426,7 +417,7 @@ export default function Integrations(){
 
   const openSquare = () => { if (squareLink) window.open(squareLink, '_blank'); };
   const connect = async (provider: string) => {
-    try{
+    try {
       setConnecting((m)=> ({ ...m, [provider]: true }));
       setErrorMsg('');
       try { trackEvent('integrations.connect.click', { provider }); } catch {}
@@ -445,7 +436,7 @@ export default function Integrations(){
       }
       // Defensive: ensure backend returns an oauth link even if first attempt is slow
       // Request the login URL with a generous window; avoid AbortController races
-      const r = await api.get(`/oauth/${provider}/login?tenant_id=${encodeURIComponent(await getTenant())}&return=workspace`, { timeoutMs: 25000 });
+      const r = await api.get(`/oauth/${provider}/login?return=workspace`, { timeoutMs: 25000 });
       if (r?.url) {
         // Always navigate in the same tab immediately; popup blockers won't interfere
         try { window.location.href = r.url; } catch { window.location.assign(r.url); }
@@ -454,16 +445,16 @@ export default function Integrations(){
       } else {
         // Retry once after a short delay with a longer window
         setTimeout(async()=>{
-          try{
+          try {
             try { trackEvent('integrations.connect.retry', { provider }); } catch {}
-            const r2 = await api.get(`/oauth/${provider}/login?tenant_id=${encodeURIComponent(await getTenant())}&return=workspace`, { timeoutMs: 20000 });
+            const r2 = await api.get(`/oauth/${provider}/login?return=workspace`, { timeoutMs: 20000 });
             if (r2?.url) {
               try { window.location.href = r2.url; } catch { window.location.assign(r2.url); }
               setTimeout(()=>{ try { if (document.visibilityState === 'visible') window.location.assign(r2.url); } catch {} }, 600);
             } else {
               setErrorMsg('Connect link unavailable. Verify provider credentials, sandbox vs prod, and callback URLs. Use “View redirect URIs” with ?dev=1.');
             }
-          }catch{}
+          } catch {}
         }, 800);
       }
     }catch(e:any){
@@ -475,17 +466,17 @@ export default function Integrations(){
     }
   };
   const refresh = async (provider: string) => {
-    try{
+    try {
       setBusy(true);
       setErrorMsg('');
-      const r = await api.post('/oauth/refresh', { tenant_id: await getTenant(), provider });
+      const r = await api.post('/oauth/refresh', { provider });
       if (r?.status !== 'ok') setErrorMsg(r?.message || r?.status || 'Refresh failed');
       else setStatus('Refreshed');
       // re-analyze to reflect any status changes
-      try{
-        const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() });
+      try {
+        const a = await api.post('/onboarding/analyze', {});
         setOnboarding({ ...a?.summary, connectedMap: a?.summary?.connected || {}, providers: a?.summary?.providers || {} });
-      }catch{}
+      } catch {}
     } finally {
       setBusy(false);
     }
@@ -580,7 +571,7 @@ export default function Integrations(){
             <div className="flex items-center gap-2 mb-2">
               <div className="font-semibold text-slate-900">Redirect URIs</div>
               <Button variant="outline" size="sm" onClick={async()=>{
-                try{
+                try {
                   const lines: string[] = [];
                   Object.entries(redirects.oauth||{}).forEach(([k,v])=> lines.push(`${k}: ${v}`));
                   Object.entries(redirects.webhooks||{}).forEach(([k,v])=> lines.push(`${k} webhook: ${v}`));
@@ -655,9 +646,9 @@ export default function Integrations(){
             <Button variant="outline" disabled={busy || connecting.square || onboarding?.providers?.square===false} onClick={()=> connect('square')}>{connecting.square ? 'Connecting…' : connectLabel('square')}</Button>
             <Button variant="outline" disabled={busy} onClick={()=> { refresh('square'); try { showToast({ title:UI_STRINGS.ctas.secondary.refresh }); } catch {} }}>Refresh</Button>
             <Button variant="outline" disabled={busy} onClick={async()=>{
-              try{
+              try {
                 setBusy(true);
-                const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'contacts.import.square', params:{ tenant_id: await getTenant() }, require_approval: false, idempotency_key: `square_import_${Date.now()}` });
+                const r = await api.post('/ai/tools/execute', { name:'contacts.import.square', params:{}, require_approval: false, idempotency_key: `square_import_${Date.now()}` });
                 if (typeof r?.imported === 'number') {
                   setStatus(`Imported ${r?.imported||0} contacts from Square`);
                   try { showToast({ title:'Imported', description: `${Number(r?.imported||0)} contacts` }); } catch {}
@@ -668,7 +659,7 @@ export default function Integrations(){
                   setStatus('Import completed');
                 }
                 // Backfill metrics after import
-                try { await api.post('/integrations/booking/square/backfill-metrics', { tenant_id: await getTenant() }); } catch {}
+                try { await api.post('/integrations/booking/square/backfill-metrics', {}); } catch {}
                 try { await reanalyze(); } catch {}
               }catch(e:any){ setErrorMsg('Import failed. Verify Square is connected, then click Refresh and try again.'); }
               finally{ setBusy(false); }
@@ -694,9 +685,9 @@ export default function Integrations(){
             <Button variant="outline" disabled={busy || connecting.acuity || onboarding?.providers?.acuity===false} onClick={()=> connect('acuity')}>{connecting.acuity ? 'Connecting…' : connectLabel('acuity')}</Button>
             <Button variant="outline" disabled={busy} onClick={()=> { refresh('acuity'); try { showToast({ title:UI_STRINGS.ctas.secondary.refresh }); } catch {} }}>Refresh</Button>
             <Button variant="outline" disabled={busy || onboarding?.providers?.acuity===false} onClick={async()=>{
-              try{
+              try {
                 setBusy(true);
-                const r = await api.post('/integrations/booking/acuity/import', { tenant_id: await getTenant(), since:'0', until:'', cursor:'' });
+                const r = await api.post('/integrations/booking/acuity/import', { since:'0', until:'', cursor:'' });
                 const imp = Number(r?.imported||0);
                 try { showToast({ title:'Imported', description: `${imp} appointments` }); } catch {}
                 setStatus(`Acuity import: ${imp} appointments`);
@@ -837,10 +828,10 @@ export default function Integrations(){
 
       {/* Troubleshooting (dev helpers) */}
       {(() => {
-        try{
+        try {
           const dev = new URLSearchParams(window.location.search).has('dev')
           if (!dev) return null
-        }catch{ return null }
+        } catch { return null }
         // Dev toolbar only (no pager here)
         return (
           <div className="mt-3 rounded-md border bg-slate-50 px-2 py-2 text-xs flex gap-2">
@@ -858,7 +849,7 @@ export default function Integrations(){
         )}
       </div>
       {(() => {
-        try{ if (!new URLSearchParams(window.location.search).has('dev')) return null }catch{ return null }
+        try { if (!new URLSearchParams(window.location.search).has('dev')) return null }catch{ return null }
         // Simple pagination for recent events (stored on window to avoid state wiring in dev block)
         const pageSize = 15; const key = '__intg_page';
         const curPage = Math.max(1, Number((window as any)[key] || 1));

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 // import { useNavigate } from 'react-router-dom';
-import { api, getTenant } from '../lib/api';
+import { api } from '../lib/api';
 import { startGuide } from '../lib/guide';
 import { useToast } from '../components/ui/Toast';
 import { track, trackEvent } from '../lib/analytics';
@@ -156,7 +156,7 @@ export default function Ask(){
   // removed getToolLabel
   const inputRef = useRef<HTMLTextAreaElement|null>(null);
   useEffect(()=>{ try{ inputRef.current?.focus(); } catch{} },[]);
-  useEffect(()=>{ (async()=>{ try{ const since = Number(localStorage.getItem('bvx_last_digest_since')||'0'); const r = await api.get(`/ai/digest?tenant_id=${encodeURIComponent(await getTenant())}&since=${encodeURIComponent(String(since||0))}`); setDigest(r?.digest||null); localStorage.setItem('bvx_last_digest_since', String(Date.now()/1000|0)); } catch{} })(); },[]);
+  useEffect(()=>{ (async()=>{ try{ const since = Number(localStorage.getItem('bvx_last_digest_since')||'0'); const r = await api.get(`/ai/digest?since=${encodeURIComponent(String(since||0))}`); setDigest(r?.digest||null); localStorage.setItem('bvx_last_digest_since', String(Date.now()/1000|0)); } catch{} })(); },[]);
   useEffect(()=>{
     const handler = (event: Event) => {
       try {
@@ -206,7 +206,6 @@ export default function Ask(){
       const modeToUse = overrides?.mode ?? (onboardMode ? 'onboard' : (mode || undefined));
       try { window.dispatchEvent(new CustomEvent('bvx:flow:askvx-user', { detail: { prompt, context: overrides?.context||{} } })); } catch {}
       const r = await api.post('/ai/chat/raw', {
-        tenant_id: await getTenant(),
         messages: next,
         session_id: sessionId,
         mode: modeToUse,
@@ -318,9 +317,8 @@ export default function Ask(){
         const onboard = sp.get('onboard') === '1';
         if (!onboard) return;
         // Prime context with a succinct summary so follow-ups are minimal
-        const tid = await getTenant();
         const seed = 'Context: Use best estimates from tenant data. Avoid more than two clarifying questions; if uncertain, compute a conservative estimate and state assumptions briefly.';
-        await api.post('/ai/chat/raw', { tenant_id: tid, session_id: sessionId, messages: [{ role:'user', content: seed }] });
+        await api.post('/ai/chat/raw', { session_id: sessionId, messages: [{ role:'user', content: seed }] });
       } catch {}
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -332,9 +330,8 @@ export default function Ask(){
       setToolRunning(true);
       setToolResult({ status: 'running' });
       const r = await api.post('/ai/tools/execute', {
-        tenant_id: await getTenant(),
         name: smartAction.tool,
-        params: { tenant_id: await getTenant(), ...(smartAction.params||{}) },
+        params: { ...(smartAction.params||{}) },
         require_approval: false,
         mode: mode || undefined,
       });
@@ -351,9 +348,7 @@ export default function Ask(){
 
   const handleRunInsights = useCallback(async () => {
     try {
-      const tid = await getTenant();
       const res = await api.post('/onboarding/askvx/insights', {
-        tenant_id: tid,
         horizon_days: 90,
       }, { timeoutMs: 45000 });
       if (!res || res.status !== 'ok') {
@@ -371,8 +366,7 @@ export default function Ask(){
 
   const injectStrategyPrompt = useCallback(async () => {
     try {
-      const tid = await getTenant();
-      await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+      await api.get(`/settings`);
     } catch {}
   }, []);
 
@@ -432,20 +426,19 @@ export default function Ask(){
     if (strategyLoading) return;
     try{
       setStrategyLoading(true);
-      const tid = await getTenant();
       const snapshot = (() => {
         const cached = (window as any).__bvxAskInsights?.summary;
         if (cached) return cached;
         return null;
       })() || {};
       try {
-        await api.post('/plan/14day/generate', { tenant_id: tid, step_key: 'onboarding' });
+        await api.post('/plan/14day/generate', { step_key: 'onboarding' });
       } catch (err) {
         console.warn('plan generation warning', err);
       }
-      const planRes = await api.get(`/plan/14day/all?tenant_id=${encodeURIComponent(tid)}`);
+      const planRes = await api.get(`/plan/14day/all`);
       const planDays = Array.isArray(planRes?.days) ? planRes.days : [];
-      const settings = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+      const settings = await api.get(`/settings`);
       const brandProfile = settings?.data?.brand_profile || {};
       const goals = settings?.data?.goals || {};
       const markdown = buildStrategyMarkdownDoc({
@@ -465,7 +458,6 @@ export default function Ask(){
       setStrategySaved(false);
       try {
         await api.post('/onboarding/strategy/document', {
-          tenant_id: tid,
           markdown,
           tags: ['plan', '14day', 'onboarding'],
         });
@@ -509,11 +501,10 @@ export default function Ask(){
     try{
       if (!trainerInput.trim()) { showToast({ title:'Nothing to save', description:'Add a note first.' }); return; }
       setTrainerSaving(true);
-      const tid = await getTenant();
-      const r = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+      const r = await api.get(`/settings`);
       const current = String(r?.data?.training_notes||'');
       const next = (current ? current + '\n' : '') + trainerInput.trim();
-      await api.post('/settings', { tenant_id: tid, training_notes: next });
+      await api.post('/settings', { training_notes: next });
       setTrainerInput('');
       showToast({ title:'Saved', description:'Added to brand training notes.' });
       try { track('brand_trainer_saved'); } catch {}
@@ -525,15 +516,14 @@ export default function Ask(){
     try{
       if (summarizing) return;
       setSummarizing(true);
-      const tid = await getTenant();
       const prompt = 'Summarize this chat session for a beauty professional in 4 short bullets: focus on wins, next steps, and any data insights. Keep proper nouns. Avoid sensitive data.';
       const msgs = messages.length > 0 ? [...messages, { role:'user' as const, content: prompt }] : [{ role:'user' as const, content: prompt }];
-      const r = await api.post('/ai/chat/raw', { tenant_id: tid, session_id: sessionId, messages: msgs }, { timeoutMs: 45000 });
+      const r = await api.post('/ai/chat/raw', { session_id: sessionId, messages: msgs }, { timeoutMs: 45000 });
       const text = String(r?.text||'');
       if (!text) { showToast({ title:'No summary', description:'The model did not return text.' }); return; }
       setSessionSummary(text);
       // Persist summary to backend so it’s available on reopen
-      try { await api.post('/ai/chat/session/summary', { tenant_id: tid, session_id: sessionId, summary: text }); } catch {}
+      try { await api.post('/ai/chat/session/summary', { session_id: sessionId, summary: text }); } catch {}
       try { track('ask_session_summarized'); } catch {}
     } catch(e:any){ showToast({ title:'Summary error', description:String(e?.message||e) }); }
     finally { setSummarizing(false); }
@@ -800,9 +790,8 @@ export default function Ask(){
           <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{ try{ await navigator.clipboard.writeText(lastAssistantText); }catch{} }}>Copy plan</button>
           <button className="border rounded-md px-2 py-1 bg-white hover:shadow-sm" onClick={async()=>{
             try{
-              const tid = await getTenant();
               // Persist last_session_summary memory for Dashboard surfacing
-              await api.post('/ai/chat/session/summary', { tenant_id: tid, session_id: sessionId, summary: lastAssistantText });
+              await api.post('/ai/chat/session/summary', { session_id: sessionId, summary: lastAssistantText });
               setSessionSummary(lastAssistantText);
               try{ track('plan_pinned_dashboard'); }catch{}
               try{
@@ -865,8 +854,7 @@ function ProfileEditor(){
   });
   useEffect(()=>{ (async()=>{
     try{
-      const tid = await getTenant();
-      const r = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+      const r = await api.get(`/settings`);
       const bp = r?.data?.brand_profile || {};
       const goals = r?.data?.goals || {};
       const toneVal = String(bp?.voice||'');
@@ -895,7 +883,6 @@ function ProfileEditor(){
     if (!editing) return;
     try{
       setSaving(true);
-      const tid = await getTenant();
       const toneVal = tone.trim();
       const aboutVal = brandProfile.trim();
       const goalVal = primaryGoal.trim();
@@ -908,7 +895,6 @@ function ProfileEditor(){
       const bp = { voice: toneVal, about: aboutVal };
       const goals = { primary: goalVal };
       await api.post('/settings', {
-        tenant_id: tid,
         brand_profile: bp,
         goals,
         avg_service_price_cents: priceCents,

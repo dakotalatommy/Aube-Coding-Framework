@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, getTenant } from '../lib/api';
+import { api } from '../lib/api';
 import Button from '../components/ui/Button';
 import { startGuide } from '../lib/guide';
 import { Table, THead, TR, TH, TD } from '../components/ui/Table';
@@ -21,23 +21,19 @@ export default function Approvals(){
   const [onlyPending, setOnlyPending] = useState(true);
   const [typeFilter, setTypeFilter] = useState<string>('all');
   // labels removed in simplified view
-  const [authHint, setAuthHint] = useState<string>('');
   const [suggested, setSuggested] = useState<any[]>([]);
   const [todoStatus, setTodoStatus] = useState<'pending'|'all'>('pending');
   const [todoType, setTodoType] = useState<string>('all');
   const loadSuggested = async () => {
     try{
-      const tid = await getTenant();
-      const s = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+      const s = await api.get(`/settings`);
       const arr = Array.isArray(s?.data?.suggested_campaigns) ? s.data.suggested_campaigns : [];
       setSuggested(arr);
     } catch {}
   };
   const load = async () => {
     try{
-      const tid = await getTenant();
-      if (!tid) { setAuthHint('Sign in to view your To‑Do.'); setItems([]); return; }
-      const r = await api.get(`/approvals?tenant_id=${encodeURIComponent(tid)}`);
+      const r = await api.get(`/approvals`);
       // API returns an array; also support {items: []}
       setItems(Array.isArray(r) ? r : (r.items||[]));
       setStatus('');
@@ -45,12 +41,11 @@ export default function Approvals(){
   };
   const loadTodo = async () => {
     try{
-      const tid = await getTenant();
       const qs = [
         `status=${encodeURIComponent(todoStatus)}`,
         (todoType && todoType !== 'all') ? `type=${encodeURIComponent(todoType)}` : ''
       ].filter(Boolean).join('&');
-      const r = await api.get(`/todo/list?tenant_id=${encodeURIComponent(tid)}${qs? '&'+qs:''}`);
+      const r = await api.get(`/todo/list${qs? '?' + qs:''}`);
       setTodoItems(Array.isArray(r?.items)? r.items : []);
     } catch { setTodoItems([]); }
   };
@@ -60,12 +55,11 @@ export default function Approvals(){
   // action wiring trimmed in simplified view
   const removeSuggested = async (sid: string) => {
     try{
-      const tid = await getTenant();
-      const s = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+      const s = await api.get(`/settings`);
       const data = s?.data || {};
       const list = Array.isArray(data.suggested_campaigns) ? data.suggested_campaigns : [];
       const next = { ...data, suggested_campaigns: list.filter((x:any)=> x?.id !== sid) };
-      await api.post('/settings', { tenant_id: tid, ...next });
+      await api.post('/settings', next);
       await loadSuggested();
     } catch(e:any){ setStatus('Update failed: '+String(e?.message||e)); }
   };
@@ -73,7 +67,7 @@ export default function Approvals(){
     try{
       setStatus('');
       for (const it of items) {
-        await api.post('/approvals/action',{ tenant_id: await getTenant(), approval_id: Number(it.id), action: decision });
+        await api.post('/approvals/action',{ approval_id: Number(it.id), action: decision });
       }
       await load();
       setStatus(`Bulk ${decision} completed`);
@@ -82,8 +76,7 @@ export default function Approvals(){
 
   const ackTodo = async (id:number) => {
     try{
-      const tid = await getTenant();
-      await api.post('/todo/ack', { tenant_id: tid, id });
+      await api.post('/todo/ack', { id });
       await loadTodo();
     } catch(e:any){ setStatus(String(e?.message||e)); }
   };
@@ -97,9 +90,6 @@ export default function Approvals(){
         </div>
       </div>
       <div className="text-xs text-slate-600">When BrandVX needs your OK for an action, it shows up here. Review the details and Approve or Reject.</div>
-      {authHint && (
-        <div className="rounded-md border bg-amber-50 text-amber-800 px-2 py-1 text-xs inline-block">{authHint}</div>
-      )}
       {suggested.length > 0 && (
         <div className="mt-3 rounded-xl border bg-white p-3">
           <div className="text-sm font-medium text-slate-800">Suggested Campaigns (beta)</div>

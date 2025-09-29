@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, getTenant } from '../lib/api';
+import { api } from '../lib/api';
 import { startGuide } from '../lib/guide';
 import { UI_STRINGS } from '../lib/strings';
 import Skeleton from '../components/ui/Skeleton';
@@ -41,7 +41,7 @@ export default function Calendar(){
   }, {} as Record<string, any[]>);
   const fmtTime = (raw:any)=>{ try{ const n = typeof raw==='number'? raw: Number(raw); const d = new Date(n*(n<1e12?1000:1)); return d.toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}); } catch { return String(raw||''); } };
   useEffect(()=>{
-    (async()=>{ try{ const r = await api.get(`/calendar/events?tenant_id=${encodeURIComponent(await getTenant())}`); setEvents(Array.isArray(r?.items)? r.items : []); setLastSync({}); setLastUpdated(Date.now()); } finally{ setLoading(false); } })();
+    (async()=>{ try{ const r = await api.get(`/calendar/events`); setEvents(Array.isArray(r?.items)? r.items : []); setLastSync({}); setLastUpdated(Date.now()); } finally{ setLoading(false); } })();
   },[]);
   useEffect(()=>{ try{ const sp = new URLSearchParams(window.location.search); if (sp.get('tour')==='1') startGuide('calendar'); } catch {} },[]);
   // Ensure weekly appointments are fresh on open
@@ -58,25 +58,24 @@ export default function Calendar(){
         sunday.setDate(monday.getDate() + 6);
         sunday.setHours(23,59,59,999);
         await api.post('/ai/tools/execute', {
-          tenant_id: await getTenant(),
           name: 'calendar.sync',
-          params: { tenant_id: await getTenant(), range_start: Math.floor(monday.getTime()/1000), range_end: Math.floor(sunday.getTime()/1000) },
+          params: { range_start: Math.floor(monday.getTime()/1000), range_end: Math.floor(sunday.getTime()/1000) },
           require_approval: false
         });
         // Refresh list after kick-off
-        const l = await api.get(`/calendar/events?tenant_id=${encodeURIComponent(await getTenant())}`);
+        const l = await api.get(`/calendar/events`);
         setEvents(Array.isArray(l?.items)? l.items : []); setLastSync({}); setLastUpdated(Date.now());
       } catch {}
     })();
   }, []);
-  useEffect(()=>{ (async()=>{ try{ const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() }); if (a?.summary?.ts) setLastAnalyzed(Number(a.summary.ts)); if (a?.summary?.connected) setConnected(a.summary.connected); } catch{} })(); },[]);
+  useEffect(()=>{ (async()=>{ try{ const a = await api.post('/onboarding/analyze', {}); if (a?.summary?.ts) setLastAnalyzed(Number(a.summary.ts)); if (a?.summary?.connected) setConnected(a.summary.connected); } catch{} })(); },[]);
   // Hide Apple calendar until ready (always off for now)
   useEffect(()=>{ try { setShowApple(false); } catch {} }, [lastSync, JSON.stringify(events)]);
   const syncNow = async (prov?: string) => {
-    const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'calendar.sync', params:{ tenant_id: await getTenant(), provider: prov }, require_approval: false });
+    const r = await api.post('/ai/tools/execute', { name:'calendar.sync', params:{ provider: prov }, require_approval: false });
     try{ if (r?.status === 'ok' || r?.status === 'pending') toastSuccess('Calendar sync started', prov ? `Provider: ${prov}` : undefined); else toastError('Calendar sync failed', r?.error || r?.status); } catch {}
     setStatus(new URLSearchParams(window.location.search).has('dev') ? JSON.stringify(r) : '');
-    const l = await api.get(`/calendar/events?tenant_id=${encodeURIComponent(await getTenant())}`);
+    const l = await api.get(`/calendar/events`);
     setEvents(Array.isArray(l?.items)? l.items : []); setLastSync({});
     try { showToast({ title:'Sync started', description: prov || 'all' }); } catch {}
     setLastUpdated(Date.now());
@@ -85,7 +84,7 @@ export default function Calendar(){
   // mergeDupes temporarily removed from UI and code to avoid unused var error
   const connectGoogle = async () => {
     try{
-      const r = await api.get(`/oauth/google/login?tenant_id=${encodeURIComponent(await getTenant())}&return=workspace`);
+      const r = await api.get(`/oauth/google/login?return=workspace`);
       if (r?.url) { try{ window.location.href = r.url; } catch { window.location.assign(r.url); } }
     } catch {}
   };
@@ -93,13 +92,13 @@ export default function Calendar(){
     try{
       setActionBusy(true);
       const start = Number(evt.start_ts||0) + deltaMin*60;
-      const payload:any = { tenant_id: await getTenant(), start_ts: start };
+      const payload:any = { start_ts: start };
       if (evt.provider && evt.id) { payload.provider = String(evt.provider); payload.provider_event_id = String(evt.id); }
       else if (evt.external_ref) { payload.external_ref = String(evt.external_ref); }
-      const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'calendar.reschedule', params: payload, require_approval: true });
+      const r = await api.post('/ai/tools/execute', { name:'calendar.reschedule', params: payload, require_approval: true });
       if (r?.status==='ok' || r?.status==='pending') { try { toastSuccess('Rescheduled', 'Queued'); } catch {} }
       else { try { toastError('Reschedule failed', String(r?.status||'error')); } catch {} }
-      const l = await api.get(`/calendar/events?tenant_id=${encodeURIComponent(await getTenant())}`);
+      const l = await api.get(`/calendar/events`);
       setEvents(Array.isArray(l?.items)? l.items : []); setLastUpdated(Date.now());
     }catch(e:any){ try{ toastError('Reschedule failed', String(e?.message||e)); }catch{} }
     finally{ setActionBusy(false); }
@@ -107,13 +106,13 @@ export default function Calendar(){
   const cancel = async (evt:any) => {
     try{
       setActionBusy(true);
-      const payload:any = { tenant_id: await getTenant() };
+      const payload:any = {};
       if (evt.provider && evt.id) { payload.provider = String(evt.provider); payload.provider_event_id = String(evt.id); }
       else if (evt.external_ref) { payload.external_ref = String(evt.external_ref); }
-      const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'calendar.cancel', params: payload, require_approval: true });
+      const r = await api.post('/ai/tools/execute', { name:'calendar.cancel', params: payload, require_approval: true });
       if (r?.status==='ok' || r?.status==='pending') { try { toastSuccess('Canceled', 'Queued'); } catch {} }
       else { try { toastError('Cancel failed', String(r?.status||'error')); } catch {} }
-      const l = await api.get(`/calendar/events?tenant_id=${encodeURIComponent(await getTenant())}`);
+      const l = await api.get(`/calendar/events`);
       setEvents(Array.isArray(l?.items)? l.items : []); setLastUpdated(Date.now());
     }catch(e:any){ try{ toastError('Cancel failed', String(e?.message||e)); }catch{} }
     finally{ setActionBusy(false); }
@@ -232,7 +231,7 @@ export default function Calendar(){
             <button className="px-3 py-1.5 rounded-md border bg-white hover:shadow-sm" onClick={async()=>{
               try{
                 setActionBusy(true);
-                const r = await api.post('/ai/tools/execute', { tenant_id: await getTenant(), name:'calendar.push.google', params:{ tenant_id: await getTenant() }, require_approval: true });
+                const r = await api.post('/ai/tools/execute', { name:'calendar.push.google', params:{}, require_approval: true });
                 showToast({ title: 'Push started', description: `${Number(r?.pushed||0)} events mirrored` });
               } catch(e:any){ showToast({ title:'Push failed', description:String(e?.message||e) }); } finally{ setActionBusy(false); }
             }}>Push to Google</button>

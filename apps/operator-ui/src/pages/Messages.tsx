@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { getPersisted, setPersisted } from '../lib/state';
-import { api, getTenant } from '../lib/api';
+import { api } from '../lib/api';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import { Table, THead, TR, TH, TD } from '../components/ui/Table';
@@ -77,15 +77,15 @@ export default function Messages(){
       filterContact ? `contact_id=${encodeURIComponent(filterContact)}` : '',
       inboxFilter ? `filter=${encodeURIComponent(inboxFilter)}` : '',
     ].filter(Boolean).join('&');
-    const res = await api.get(`/messages/list?tenant_id=${encodeURIComponent(await getTenant())}${qs ? '&'+qs : ''}`);
+    const res = await api.get(`/messages/list${qs ? '?' + qs : ''}`);
     setItems(res.items || []);
   };
   useEffect(()=>{ (async()=>{ try { setLoading(true); await load(); setPage(1); } finally { setLoading(false); try{ (window as any).__bvxMessagesReady = 1; window.dispatchEvent(new CustomEvent('bvx:messages:ready')); } catch {} } })(); }, [inboxFilter]);
-  useEffect(()=>{ (async()=>{ try { const r = await api.get(`/settings?tenant_id=${encodeURIComponent(await getTenant())}`); setQuiet(r?.data?.quiet_hours||{}); } catch{} })(); },[]);
+  useEffect(()=>{ (async()=>{ try { const r = await api.get(`/settings`); setQuiet(r?.data?.quiet_hours||{}); } catch{} })(); },[]);
   // Preload clients for local typeahead (first 500)
   useEffect(()=>{ (async()=>{
     try{
-      const r = await api.get(`/contacts/list?tenant_id=${encodeURIComponent(await getTenant())}&limit=500&offset=0`);
+      const r = await api.get(`/contacts/list?limit=500&offset=0`);
       const arr = Array.isArray(r?.items) ? r.items : [];
       const mapped = arr.map((c:any)=> ({ id: String(c.contact_id), name: String(c.friendly_name||c.display_name||`${c.first_name||''} ${c.last_name||''}`||'Client').trim() || 'Client' }));
       setAllClients(mapped);
@@ -94,7 +94,7 @@ export default function Messages(){
   useEffect(()=>{
     try{ const sp = new URLSearchParams(window.location.search); if (sp.get('tour')==='1') startGuide('messages'); } catch {}
   },[]);
-  useEffect(()=>{ (async()=>{ try{ const a = await api.post('/onboarding/analyze', { tenant_id: await getTenant() }); if (a?.summary?.ts) setLastAnalyzed(Number(a.summary.ts)); } catch{} })(); },[]);
+  useEffect(()=>{ (async()=>{ try{ const a = await api.post('/onboarding/analyze', {}); if (a?.summary?.ts) setLastAnalyzed(Number(a.summary.ts)); } catch{} })(); },[]);
   useEffect(()=>{ try{ localStorage.setItem('bvx_messages_filter', inboxFilter); }catch{} }, [inboxFilter]);
   useEffect(()=>{ try{ localStorage.setItem('bvx_messages_recipient', JSON.stringify(selectedRecipient||null)); }catch{} }, [selectedRecipient]);
   useEffect(()=>{ return ()=> { try{ if (mdUrl) URL.revokeObjectURL(mdUrl); }catch{} }; }, [mdUrl]);
@@ -157,7 +157,6 @@ export default function Messages(){
       const t0 = performance.now();
       try{ trackEvent('messages.draft', { count: group.length, bucket, bulk: true }); } catch{}
       // Ask GPT-5 for a combined Markdown document
-      const tenant = await getTenant();
       const names = group.map(g=> g.name).join(', ');
       const prompt = [
         'Create a concise, friendly set of SMS drafts for beauty clients. Use beauty-friendly language and avoid jargon.',
@@ -168,7 +167,7 @@ export default function Messages(){
         '- 1–2 sentence SMS draft personalized for the client',
         '- No code fences, no variables like {FirstName} — use the given name directly',
       ].join('\n');
-      const r = await api.post('/ai/chat/raw', { tenant_id: tenant, messages: [{ role:'user', content: prompt }], mode: 'messages' }, { timeoutMs: 60000 });
+      const r = await api.post('/ai/chat/raw', { messages: [{ role:'user', content: prompt }], mode: 'messages' }, { timeoutMs: 60000 });
       try {
         const ms = Math.round(performance.now() - t0);
         trackEvent('messages.draft', { ms, count: group.length });
@@ -350,7 +349,7 @@ export default function Messages(){
             <div className="mt-2 text-xs text-slate-700 flex flex-wrap items-center gap-2">
               <span className="font-medium">Quiet hours:</span>
               <Button variant="outline" size="sm" onClick={()=> setQuiet({ start:'21:00', end:'08:00' })}>Suggest 9:00 PM–8:00 AM</Button>
-              <Button variant="outline" size="sm" onClick={async()=>{ try { await api.post('/settings', { tenant_id: await getTenant(), quiet_hours: quiet }); trackEvent('integrations.guide.open', { area: 'messages.save_quiet_hours' }); } catch{} }} aria-label={UI_STRINGS.a11y.buttons.saveQuietHours}>{UI_STRINGS.ctas.secondary.save}</Button>
+              <Button variant="outline" size="sm" onClick={async()=>{ try { await api.post('/settings', { quiet_hours: quiet }); trackEvent('integrations.guide.open', { area: 'messages.save_quiet_hours' }); } catch{} }} aria-label={UI_STRINGS.a11y.buttons.saveQuietHours}>{UI_STRINGS.ctas.secondary.save}</Button>
             </div>
             <div className="mt-2 text-[11px] font-medium text-slate-700">Client Messaging Templates</div>
             <div className="mt-1 flex flex-wrap gap-2 text-xs" data-guide="presets">
@@ -395,7 +394,7 @@ export default function Messages(){
     <div className="fixed md:hidden left-0 right-0 bottom-[calc(env(safe-area-inset-bottom,0px))] z-30">
       <div className="mx-3 mb-2 rounded-xl border bg-white/95 backdrop-blur shadow flex items-center justify-between px-2 py-2">
         <Button variant="outline" size="sm" onClick={draftSmart} aria-label="Draft for me">Draft</Button>
-        <Button variant="outline" size="sm" onClick={async()=>{ try { await api.post('/settings', { tenant_id: await getTenant(), quiet_hours: quiet }); trackEvent('integrations.guide.open', { area: 'messages.save_quiet_hours' }); } catch{} }} aria-label="Save quiet hours">Save quiet</Button>
+        <Button variant="outline" size="sm" onClick={async()=>{ try { await api.post('/settings', { quiet_hours: quiet }); trackEvent('integrations.guide.open', { area: 'messages.save_quiet_hours' }); } catch{} }} aria-label="Save quiet hours">Save quiet</Button>
       </div>
     </div>
     </>

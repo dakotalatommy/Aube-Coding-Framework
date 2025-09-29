@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { track } from '../lib/analytics';
 import { supabase } from '../lib/supabase';
-import { api, getTenant } from '../lib/api';
+import { api } from '../lib/api';
 
 // Trim to 3 highest-signal questions for a faster intake
 const intakeQuestions = [
@@ -73,19 +73,17 @@ export default function DemoIntake(){
     try {
       const session = (await supabase.auth.getSession()).data.session;
       if (!session?.access_token) return; // skip if not authenticated (demo)
-      const tid = await getTenant();
-      if (!tid) return; // skip if not authenticated
-      const current = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+      const current = await api.get(`/settings`);
       const data = current?.data || {};
       if (key === 'brand') {
         const brand_profile = { ...(data.brand_profile||{}), name: value };
-        await api.post('/settings', { tenant_id: tid, brand_profile });
+        await api.post('/settings', { brand_profile });
       } else if (key === 'booking') {
         const preferences = { ...(data.preferences||{}), booking_provider: value };
-        await api.post('/settings', { tenant_id: tid, preferences });
+        await api.post('/settings', { preferences });
       } else if (key === 'tone') {
         const brand_profile = { ...(data.brand_profile||{}), voice: value };
-        await api.post('/settings', { tenant_id: tid, brand_profile });
+        await api.post('/settings', { brand_profile });
       }
     } catch {}
   };
@@ -107,14 +105,11 @@ export default function DemoIntake(){
       try {
         const session = (await supabase.auth.getSession()).data.session;
         if (session?.access_token) {
-          const tid = await getTenant();
-          if (tid) {
-            const current = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
-            const data = current?.data || {};
-            const brand_profile = { ...(data.brand_profile||{}), name: (profile as any).brand || val, voice: (profile as any).tone || data.brand_profile?.voice };
-            const preferences = { ...(data.preferences||{}), booking_provider: (profile as any).booking || data.preferences?.booking_provider };
-            await api.post('/settings', { tenant_id: tid, brand_profile, preferences });
-          }
+          const current = await api.get(`/settings`);
+          const data = current?.data || {};
+          const brand_profile = { ...(data.brand_profile||{}), name: (profile as any).brand || val, voice: (profile as any).tone || data.brand_profile?.voice };
+          const preferences = { ...(data.preferences||{}), booking_provider: (profile as any).booking || data.preferences?.booking_provider };
+          await api.post('/settings', { brand_profile, preferences });
         }
       } catch {}
       try { await api.post('/onboarding/email-owner', { profile: { ...profile, [key]: val }, source: 'demo' }); } catch {}

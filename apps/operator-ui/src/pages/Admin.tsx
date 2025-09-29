@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, getTenant } from '../lib/api';
+import { api } from '../lib/api';
 
 export default function Admin(){
   const [kpis, setKpis] = useState<any>({});
@@ -12,19 +12,19 @@ export default function Admin(){
   const [qaOut, setQaOut] = useState<string>('');
   const [telemetry, setTelemetry] = useState<any>({ items: [], counts: {} });
   useEffect(()=>{ (async()=>{
-    try{ const r = await api.get(`/admin/kpis?tenant_id=${encodeURIComponent(await getTenant())}`); setKpis(r||{}); }catch{}
+    try{ const r = await api.get(`/admin/kpis`); setKpis(r||{}); }catch{}
     try{ const d = await api.get('/docs/checklist'); setChecklist(d?.content||''); }catch{}
-    try{ const c = await api.get(`/ai/costs?tenant_id=${encodeURIComponent(await getTenant())}`); setAiCosts(c||{}); }catch{}
+    try{ const c = await api.get(`/ai/costs`); setAiCosts(c||{}); }catch{}
     try{ const s = await api.get('/ai/tools/schema'); setTools(Array.isArray(s?.tools)? s.tools: []); }catch{}
-    try{ const t = await api.get(`/admin/tools/telemetry?tenant_id=${encodeURIComponent(await getTenant())}&limit=50`); setTelemetry(t||{items:[],counts:{}}); }catch{}
+    try{ const t = await api.get(`/admin/tools/telemetry?limit=50`); setTelemetry(t||{items:[],counts:{}}); }catch{}
   })(); },[]);
   const recompute = async () => {
-    try{ const r = await api.post('/marts/recompute',{ tenant_id: await getTenant() }); setStatus(JSON.stringify(r)); }
+    try{ const r = await api.post('/marts/recompute',{}); setStatus(JSON.stringify(r)); }
     catch(e:any){ setStatus(String(e?.message||e)); }
   };
   const provisionCreator = async () => {
     try{
-      const r = await api.post('/admin/provision_creator', { tenant_id: await getTenant(), rate_limit_multiplier: 5 });
+      const r = await api.post('/admin/provision_creator', { rate_limit_multiplier: 5 });
       setStatus('Creator mode provisioned: ' + JSON.stringify(r));
     } catch(e:any){ setStatus(String(e?.message||e)); }
   };
@@ -48,17 +48,16 @@ export default function Admin(){
   };
   const clearCache = async (scope: 'all'|'inbox'|'inventory'|'calendar'='all') => {
     try{
-      const r = await api.post('/admin/cache/clear', { tenant_id: await getTenant(), scope });
+      const r = await api.post('/admin/cache/clear', { scope });
       setStatus('Cache cleared: ' + JSON.stringify(r));
     } catch(e:any){ setStatus(String(e?.message||e)); }
   };
   const runQA = async () => {
     try{
-      const tid = await getTenant();
       const params = JSON.parse(toolParams||'{}');
-      const r = await api.post('/ai/tools/qa',{ tenant_id: tid, name: selectedTool, params });
+      const r = await api.post('/ai/tools/qa',{ name: selectedTool, params });
       setQaOut(JSON.stringify(r, null, 2));
-      try{ const t = await api.get(`/admin/tools/telemetry?tenant_id=${encodeURIComponent(tid)}&limit=50`); setTelemetry(t||{items:[],counts:{}});}catch{}
+      try{ const t = await api.get(`/admin/tools/telemetry?limit=50`); setTelemetry(t||{items:[],counts:{}});}catch{}
     } catch(e:any){ setQaOut(String(e?.message||e)); }
   };
   return (

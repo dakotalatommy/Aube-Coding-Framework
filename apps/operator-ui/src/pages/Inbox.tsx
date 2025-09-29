@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, getTenant } from '../lib/api';
+import { api } from '../lib/api';
 import { startGuide } from '../lib/guide';
 
 type InboxItem = { channel?: string; from?: string; to?: string; ts?: number; preview?: string };
@@ -37,7 +37,7 @@ export default function Inbox(){
     ],
   } as const;
   const loadMsgs = async()=>{
-    try{ const tid = await getTenant(); const r = await api.get(`/inbox/list?tenant_id=${encodeURIComponent(tid)}`); setItems(r?.items||[]); }
+    try{ const r = await api.get(`/inbox/list`); setItems(r?.items||[]); }
     catch(e:any){ setError(String(e?.message||e)); }
     finally{ setLoading(false); }
   };
@@ -51,15 +51,14 @@ export default function Inbox(){
   useEffect(()=>{
     (async()=>{
       try{
-        const tid = await getTenant();
-        const r = await api.post('/onboarding/analyze', { tenant_id: tid });
+        const r = await api.post('/onboarding/analyze', {});
         _setReady(Boolean(r?.summary?.inbox_ready));
         if (r?.summary?.connected) setConnected(r.summary.connected);
         // Load Gmail threads if Google connected
         if ((r?.summary?.connected||{}).google === 'connected') {
           setGmailLoading(true);
           try {
-            const t = await api.get(`/gmail/threads?tenant_id=${encodeURIComponent(tid)}&q=${encodeURIComponent(q)}&limit=20`);
+            const t = await api.get(`/gmail/threads?q=${encodeURIComponent(q)}&limit=20`);
             setGmailThreads(Array.isArray(t?.items) ? t.items : []);
           } catch(e:any) { setGmailError(String(e?.message||e)); }
           finally { setGmailLoading(false); }
@@ -72,10 +71,10 @@ export default function Inbox(){
     const devAuto = (import.meta.env.VITE_DEV_AUTOCONNECT as any) === '1';
     try{
       if (devAuto) {
-        await api.post('/dev/connect', { tenant_id: await getTenant(), provider });
+        await api.post('/dev/connect', { provider });
         await refreshStatus();
       } else {
-        const j = await api.get(`/oauth/${provider}/login?tenant_id=${encodeURIComponent(await getTenant())}`);
+        const j = await api.get(`/oauth/${provider}/login`);
         if (j?.url) window.open(j.url, '_blank');
       }
     } finally {
@@ -84,7 +83,7 @@ export default function Inbox(){
   };
   const refreshStatus = async () => {
     try{
-      const r = await api.post('/onboarding/analyze', { tenant_id: await getTenant() });
+      const r = await api.post('/onboarding/analyze', {});
       _setReady(Boolean(r?.summary?.inbox_ready));
       if (r?.summary?.connected) setConnected(r.summary.connected);
     }catch{}
@@ -169,7 +168,7 @@ export default function Inbox(){
             <div className="text-sm font-medium text-slate-800">Gmail</div>
             <button className="text-xs px-2 py-1 rounded-md border bg-white hover:shadow-sm" onClick={async()=>{
               setGmailLoading(true); setGmailError('');
-              try{ const tid = await getTenant(); const t = await api.get(`/gmail/threads?tenant_id=${encodeURIComponent(tid)}&q=${encodeURIComponent(q)}&limit=20`); setGmailThreads(Array.isArray(t?.items)?t.items:[]); }
+              try{ const t = await api.get(`/gmail/threads?q=${encodeURIComponent(q)}&limit=20`); setGmailThreads(Array.isArray(t?.items)?t.items:[]); }
               catch(e:any){ setGmailError(String(e?.message||e)); }
               finally{ setGmailLoading(false); }
             }}>Refresh</button>
@@ -186,8 +185,7 @@ export default function Inbox(){
                     {gmailThreads.map((t:any, i:number)=> (
                       <tr key={i} className="hover:bg-slate-50 cursor-pointer" onClick={async()=>{
                         try{
-                          const tid = await getTenant();
-                          const r = await api.get(`/gmail/thread?tenant_id=${encodeURIComponent(tid)}&id=${encodeURIComponent(t.id)}`);
+                          const r = await api.get(`/gmail/thread?id=${encodeURIComponent(t.id)}`);
                           setSelected({ channel:'email', from:t.from, to:t.to, preview:t.subject||t.snippet, ts:t.ts });
                           const msgs = Array.isArray(r?.messages)? r.messages : [];
                           setThreadMsgs(msgs);
@@ -298,15 +296,14 @@ export default function Inbox(){
                       <button className="px-3 py-2 rounded-md bg-slate-900 text-white disabled:opacity-50" disabled={sending || !replyTo || !replyBody} onClick={async()=>{
                         setSending(true); setSendError(''); setSendOk(false);
                         try{
-                          const tid = await getTenant();
                           // Use the threadId from the last message if available
                           const tId = (threadMsgs[threadMsgs.length-1]?.threadId) || '';
-                          const r = await api.post('/gmail/send', { tenant_id: tid, to: replyTo, subject: replySubject||'Re:', body_html: replyBody, threadId: tId });
+                          const r = await api.post('/gmail/send', { to: replyTo, subject: replySubject||'Re:', body_html: replyBody, threadId: tId });
                           if (r?.status !== 'sent') throw new Error(r?.error || 'Failed to send');
                           setSendOk(true); setReplyBody('');
                           // Refresh thread
                           if (tId) {
-                            const rr = await api.get(`/gmail/thread?tenant_id=${encodeURIComponent(tid)}&id=${encodeURIComponent(tId)}`);
+                            const rr = await api.get(`/gmail/thread?id=${encodeURIComponent(tId)}`);
                             setThreadMsgs(Array.isArray(rr?.messages)? rr.messages : threadMsgs);
                           }
                         } catch(e:any){ setSendError(String(e?.message||e)); }

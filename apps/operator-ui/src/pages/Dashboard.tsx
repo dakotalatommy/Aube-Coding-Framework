@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import Button, { ButtonLink } from '../components/ui/Button';
-import { api, getTenant } from '../lib/api';
+import { api } from '../lib/api';
 // import { runUIAction } from '../lib/actions';
 import { trackEvent } from '../lib/analytics';
 import { motion } from 'framer-motion';
@@ -62,14 +62,13 @@ export default function Dashboard(){
         return;
       }
       try{
-        const tid = await getTenant();
         const timeoutMs = 7000;
         const tasks = [
-          api.get(`/metrics?tenant_id=${encodeURIComponent(tid)}`, { signal: abort.signal, timeoutMs }),
-          (async()=>{ const sess=(await supabase.auth.getSession()).data.session; if(!sess?.access_token) return { items: [] }; return api.get(`/cadences/queue?tenant_id=${encodeURIComponent(tid)}`, { signal: abort.signal, timeoutMs }); })(),
-          api.get(`/funnel/daily?tenant_id=${encodeURIComponent(tid)}&days=30`, { signal: abort.signal, timeoutMs }),
-          api.post('/messages/simulate', { tenant_id: tid, contact_id: 'demo', channel: 'email' }, { signal: abort.signal, timeoutMs }),
-          api.post('/onboarding/analyze', { tenant_id: tid }, { signal: abort.signal, timeoutMs })
+          api.get(`/metrics`, { signal: abort.signal, timeoutMs }),
+          (async()=>{ const sess=(await supabase.auth.getSession()).data.session; if(!sess?.access_token) return { items: [] }; return api.get(`/cadences/queue`, { signal: abort.signal, timeoutMs }); })(),
+          api.get(`/funnel/daily?days=30`, { signal: abort.signal, timeoutMs }),
+          api.post('/messages/simulate', { contact_id: 'demo', channel: 'email' }, { signal: abort.signal, timeoutMs }),
+          api.post('/onboarding/analyze', {}, { signal: abort.signal, timeoutMs })
         ];
         // Soft-ready: allow UI to paint quickly while data loads in background
         try {
@@ -102,11 +101,11 @@ export default function Dashboard(){
             if (!mounted) return;
             try {
               const retry = await Promise.allSettled([
-                mRes.status==='rejected'? api.get(`/metrics?tenant_id=${encodeURIComponent(tid)}`, { timeoutMs: 8000 }): Promise.resolve(null as any),
-                qRes.status==='rejected'? (async()=>{ const sess=(await supabase.auth.getSession()).data.session; if(!sess?.access_token) return null as any; return api.get(`/cadences/queue?tenant_id=${encodeURIComponent(tid)}`, { timeoutMs: 8000 }); })(): Promise.resolve(null as any),
-                fRes.status==='rejected'? api.get(`/funnel/daily?tenant_id=${encodeURIComponent(tid)}&days=30`, { timeoutMs: 8000 }): Promise.resolve(null as any),
+                mRes.status==='rejected'? api.get(`/metrics`, { timeoutMs: 8000 }): Promise.resolve(null as any),
+                qRes.status==='rejected'? (async()=>{ const sess=(await supabase.auth.getSession()).data.session; if(!sess?.access_token) return null as any; return api.get(`/cadences/queue`, { timeoutMs: 8000 }); })(): Promise.resolve(null as any),
+                fRes.status==='rejected'? api.get(`/funnel/daily?days=30`, { timeoutMs: 8000 }): Promise.resolve(null as any),
                 ,
-                anRes.status==='rejected'? api.post('/onboarding/analyze', { tenant_id: tid }, { timeoutMs: 8000 }) : Promise.resolve(null as any)
+                anRes.status==='rejected'? api.post('/onboarding/analyze', {}, { timeoutMs: 8000 }) : Promise.resolve(null as any)
               ]);
               if (!mounted) return;
               if (mRes.status==='rejected' && retry[0].status==='fulfilled') setMetrics(retry[0].value||{});
@@ -208,14 +207,13 @@ export default function Dashboard(){
   const loadPlan = async () => {
     try{
       setPlanLoading(true);
-      const tid = await getTenant();
-      const status = await api.get(`/plan/14day/status?tenant_id=${encodeURIComponent(tid)}`);
+      const status = await api.get(`/plan/14day/status`);
       setPlanStatus({ day_today: Number(status?.day_today||1), days_total: Number(status?.days_total||14) });
       // Load tasks for today
-      try { const day = await api.get(`/plan/14day/day?tenant_id=${encodeURIComponent(tid)}`); setPlanTasks(Array.isArray(day?.tasks) ? day.tasks : []); } catch {}
+      try { const day = await api.get(`/plan/14day/day`); setPlanTasks(Array.isArray(day?.tasks) ? day.tasks : []); } catch {}
       // Load last_session_summary memory as a short next-actions summary
       try{
-        const mems = await api.get(`/ai/memories/list?tenant_id=${encodeURIComponent(tid)}&limit=10`);
+        const mems = await api.get(`/ai/memories/list?limit=10`);
         const last = (Array.isArray(mems?.items) ? mems.items : []).find((it:any)=> String(it?.key||'')==='last_session_summary');
         if (last && last.value) {
           const val = typeof last.value === 'string' ? last.value : (typeof last.value?.toString === 'function' ? last.value.toString() : '');
@@ -224,7 +222,7 @@ export default function Dashboard(){
       } catch {}
       // Load setup percent for a small indicator
       try{
-        const prog = await api.get(`/onboarding/progress/status?tenant_id=${encodeURIComponent(tid)}`);
+        const prog = await api.get(`/onboarding/progress/status`);
         setSetupPct(Number(prog?.percent||0));
       } catch {}
     } finally {
@@ -282,8 +280,7 @@ export default function Dashboard(){
   useEffect(()=>{
     (async()=>{
       try{
-        const tid = await getTenant();
-        const r = await api.get(`/settings?tenant_id=${encodeURIComponent(tid)}`);
+        const r = await api.get(`/settings`);
         try {
           const fm = Boolean(r?.data?.founding_member) || localStorage.getItem('bvx_founding_member') === '1';
           setFoundingMember(fm);
@@ -511,16 +508,15 @@ export default function Dashboard(){
           )}
         </div>
         <div className="mt-2 flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={async()=>{ try{ await api.post('/plan/14day/generate', { tenant_id: await getTenant(), step_key: 'init' }); } catch{} await loadPlan(); }}>Generate 14‑day plan</Button>
+          <Button size="sm" variant="outline" onClick={async()=>{ try{ await api.post('/plan/14day/generate', { step_key: 'init' }); } catch{} await loadPlan(); }}>Generate 14‑day plan</Button>
           <Button size="sm" variant="outline" onClick={()=> nav('/workspace?pane=askvx')}>Open AskVX</Button>
           {planStatus?.day_today && (
             <Button
               size="sm"
               onClick={async()=>{
                 try{
-                  const tid = await getTenant();
                   const day = Number(planStatus?.day_today||1);
-                  await api.post('/plan/14day/complete_day', { tenant_id: tid, day_index: day });
+                  await api.post('/plan/14day/complete_day', { day_index: day });
                   try { showToast({ title: 'Marked complete', description: `Day ${day} done` }); } catch {}
                   await loadPlan();
                 } catch {}
@@ -565,8 +561,7 @@ export default function Dashboard(){
                 try{
                   if (isIntroActive) return;
                   nav('/workspace?pane=contacts');
-                  const tid = await getTenant();
-                  await api.post('/ai/tools/execute',{ tenant_id: tid, name:'contacts.import.square', params:{ tenant_id: tid }, require_approval: false });
+                  await api.post('/ai/tools/execute',{ name:'contacts.import.square', params:{}, require_approval: false });
                 }catch{}
               }}>Import Clients</Button>
             <Button
