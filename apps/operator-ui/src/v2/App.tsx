@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, lazy, Suspense } from 'react'
+import { useCallback, useEffect, useState, useRef, lazy, Suspense } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import './index.css'
@@ -217,6 +217,7 @@ export default function App() {
   const [userData, setUserData] = useState<UserProfile | null>(null)
   const [showSplash, setShowSplash] = useState(false)
   const [initializing, setInitializing] = useState(true)
+  const hasBootedRef = useRef(false)
   const [onboardingRequired, setOnboardingRequired] = useState(false)
   const [dashboardStats, setDashboardStats] = useState<DashboardStat[] | null>(null)
   const [dashboardStatsLoading, setDashboardStatsLoading] = useState(false)
@@ -499,8 +500,10 @@ export default function App() {
     }
 
     try {
-      setShowSplash(true)
-      setShowSplashGuard(true)
+      if (!hasBootedRef.current) {
+        setShowSplash(true)
+        setShowSplashGuard(true)
+      }
       const me = await api.get('/me')
       const tenantId = (me?.tenant_id || '').trim()
       if (tenantId) {
@@ -556,6 +559,7 @@ export default function App() {
     } finally {
       setShowSplash(false)
       setShowSplashGuard(false)
+      hasBootedRef.current = true
     }
   }, [])
 
@@ -573,27 +577,49 @@ export default function App() {
           return
         }
         setSession(data.session)
-        setInitializing(false)
+        // Delay splash teardown until after bootstrap completes to avoid
+        // intermediate renders that race with route changes.
         await bootstrapSession(data.session)
+        if (cancelled) return
+        setInitializing(false)
       } catch (error) {
         console.warn('Initial session bootstrap failed', error)
         setSession(null)
         setShowSplash(false)
         setShowSplashGuard(false)
         setInitializing(false)
-      } finally {
-        if (!cancelled) setInitializing(false)
       }
     })()
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (_event: any, newSession: Session | null) => {
       if (cancelled) return
       setSession(newSession)
       if (newSession) {
+        // During auth callback, ensure we stay on splash until bootstrap is fully complete
+        const isOnAuthCallback = typeof window !== 'undefined' && window.location.pathname.startsWith('/auth')
+
+        if (isOnAuthCallback) {
+          // Keep splash visible during entire bootstrap process on auth callback
+          setShowSplash(true)
+          setShowSplashGuard(true)
+        }
+
         await bootstrapSession(newSession)
+
+        // Only hide splash after bootstrap completes AND we're not on auth callback
+        if (!isOnAuthCallback) {
+          setShowSplash(false)
+          setShowSplashGuard(false)
+        }
       } else {
-        setShowSplash(false)
-        setShowSplashGuard(false)
+        // While on /auth/callback, keep splash until redirect completes to prevent Landing from flashing
+        try {
+          const onCallback = typeof window !== 'undefined' && window.location.pathname.startsWith('/auth')
+          if (!onCallback) {
+            setShowSplash(false)
+            setShowSplashGuard(false)
+          }
+        } catch {}
       }
       if (!newSession) {
         setCurrentPage('dashboard')
@@ -884,7 +910,12 @@ export default function App() {
           <Routes>
             <Route path="/" element={<LandingV2 />} />
             <Route path="/brandvx" element={<LandingV2 />} />
-            {!session ? (
+            {!session && !hasBootedRef.current ? (
+              // During initial boot without a session, keep showing splash only
+              <>
+                <Route path="*" element={<SplashScreen onComplete={handleSplashComplete} />} />
+              </>
+            ) : !session ? (
               <>
                 <Route path="/login" element={<SignIn />} />
                 <Route path="/signup" element={<SignUp />} />

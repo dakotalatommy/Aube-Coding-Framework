@@ -1,4 +1,4 @@
-// @ts-nocheck
+import React from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Button } from './ui/button'
 import { Switch } from './ui/switch'
@@ -6,10 +6,10 @@ import { Label } from './ui/label'
 import { Badge } from './ui/badge'
 import { Separator } from './ui/separator'
 import { useOnboarding } from './onboarding-context'
-import { 
-  BookOpen, 
-  RotateCcw, 
-  CheckCircle2, 
+import {
+  BookOpen,
+  RotateCcw,
+  CheckCircle2,
   Circle,
   Sparkles,
   Settings as SettingsIcon
@@ -28,9 +28,9 @@ const PAGE_LABELS = {
   inventory: 'Inventory',
   tutorials: 'Tutorials',
   settings: 'Settings'
-}
+} as const
 
-export function OnboardingSettings() {
+export function OnboardingSettings(): React.JSX.Element {
   const { 
     hasSeenOnboarding, 
     resetOnboarding, 
@@ -122,7 +122,7 @@ export function OnboardingSettings() {
                   )}
                   <span className="text-sm font-medium flex-1">{label}</span>
                   {!isCompleted && (
-                    <Badge variant="outline" size="sm" className="text-xs bg-primary/5 text-primary border-primary/20">
+                    <Badge variant="outline" className="text-xs bg-primary/5 text-primary border-primary/20">
                       New
                     </Badge>
                   )}
@@ -152,7 +152,6 @@ export function OnboardingSettings() {
             </div>
             <Button
               variant="outline"
-              size="sm"
               onClick={resetOnboarding}
               className="flex items-center space-x-2"
             >

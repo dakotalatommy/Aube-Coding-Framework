@@ -34,7 +34,19 @@ try {
 // Idle prefetch for core vendor to smooth subsequent navigations
 try {
   const idle = (cb: () => void) => (window as any).requestIdleCallback ? (window as any).requestIdleCallback(cb) : setTimeout(cb, 1500)
-  idle(() => { import('react'); import('react-dom'); import('react-router-dom'); })
+  idle(async () => {
+    try {
+      // Load React Router and make it globally available
+      const ReactRouterDOM = await import('react-router-dom');
+      if (typeof window !== 'undefined') {
+        (window as any).ReactRouterDOM = ReactRouterDOM;
+      }
+    } catch (error) {
+      console.error('Failed to load React Router:', error);
+    }
+    try { import('react'); } catch {}
+    try { import('react-dom'); } catch {}
+  })
 } catch {}
 
 // Optional Sentry initialization
@@ -86,6 +98,7 @@ try {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.getRegistrations?.().then((regs)=>{
       regs?.forEach((r)=>{ try { r.unregister(); } catch {} });
+      try { if ((window as any).__bvxDebug) console.info('[boot] SW unregistered; caches clear requested'); } catch {}
       // Best-effort: clear caches with our prefix
       try {
         (async()=>{
@@ -97,3 +110,6 @@ try {
     }).catch(()=>{});
   }
 } catch {}
+
+// Mark end of boot phase to allow deferred UI prompts
+try { sessionStorage.setItem('bvx_boot_phase','ready'); } catch {}

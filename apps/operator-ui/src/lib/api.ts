@@ -55,6 +55,7 @@ export async function getTenant(): Promise<string> {
 }
 
 async function request(path: string, options: RequestInit = {}) {
+  try { console.info('[bvx:api] request', path, { method: (options as any).method||'GET' }); } catch {}
   const headers = new Headers(options.headers || {});
   headers.set('Content-Type', 'application/json');
   // Prefer Supabase session if present; otherwise fall back to dev headers
@@ -127,8 +128,11 @@ async function request(path: string, options: RequestInit = {}) {
     const timeoutMs = (options as any).timeoutMs as number | undefined;
     const to = window.setTimeout(()=>{ try { ctl.abort('timeout'); } catch {} }, typeof timeoutMs === 'number' ? timeoutMs : 20000);
     const compositeSignal = passedSignal ? new AbortSignalAny([passedSignal, ctl.signal]) : ctl.signal;
-    const res = await fetch(`${base}${path}`, { ...options, headers, signal: compositeSignal });
+    const url = `${base}${path}`;
+    try { console.info('[bvx:api] fetch', url); } catch {}
+    const res = await fetch(url, { ...options, headers, signal: compositeSignal });
     if (!res.ok) {
+      try { console.warn('[bvx:api] error', res.status, res.statusText, path); } catch {}
       try { track('api_error', { path, status: res.status, statusText: res.statusText, base }); } catch {}
       try { Sentry.addBreadcrumb({ category: 'api', level: 'error', message: `HTTP ${res.status} ${res.statusText}`, data: { path, base } }); } catch {}
       // Handle unauthorized centrally (skip in demo contexts)
@@ -166,7 +170,14 @@ async function request(path: string, options: RequestInit = {}) {
       throw new Error(`${res.status} ${res.statusText}`);
     }
     window.clearTimeout(to);
-    return res.json();
+    try {
+      const json = await res.json();
+      try { console.info('[bvx:api] ok', path, { keys: Object.keys(json||{}) }); } catch {}
+      return json;
+    } catch (e) {
+      try { console.warn('[bvx:api] non-json', path); } catch {}
+      return null as any;
+    }
   };
   try {
     return await doFetch(API_BASE);

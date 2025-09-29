@@ -5,6 +5,7 @@ export interface DashboardAgendaItem {
   timeLabel?: string
   durationLabel?: string
   impactLabel?: string
+  priority?: 'High' | 'Medium' | 'Low'
   completed?: boolean
   colorClass?: string
   iconName?: 'clients' | 'revenue' | 'retention' | 'automation'

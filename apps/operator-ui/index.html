@@ -11,6 +11,71 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,600;9..144,700;9..144,800&display=swap" rel="stylesheet">
     <title>BrandVX</title>
+    <script>
+      // Forcefully unregister any existing service worker and clear caches BEFORE app bundles execute
+      try {
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function(regs){
+            var had = regs && regs.length > 0;
+            regs && regs.forEach(function(r){ try { r.unregister(); } catch (e) {} });
+            try {
+              caches && caches.keys().then(function(keys){
+                return Promise.all(keys.map(function(k){ return caches.delete(k); }));
+              }).catch(function(){});
+            } catch (e) {}
+            // If there was an active SW, reload once to ensure fresh chunks
+            if (had) {
+              try { sessionStorage.setItem('bvx_sw_purged','1'); } catch (e) {}
+              // Avoid infinite reload loop
+              var reloaded = false;
+              try { reloaded = sessionStorage.getItem('bvx_sw_reloaded') === '1'; } catch (e) {}
+              if (!reloaded) {
+                try { sessionStorage.setItem('bvx_sw_reloaded','1'); } catch (e) {}
+                location.reload();
+              }
+            }
+          }).catch(function(){});
+        }
+      } catch (e) {}
+    </script>
+    <script>
+      // Always-on DOM safety shim and global error listeners (temporary instrumentation)
+      (function(){
+        try { window.__bvxDebug = true; } catch(e) {}
+        try {
+          var NP = Node.prototype;
+          var _remove = NP.removeChild;
+          var _insert = NP.insertBefore;
+          NP.removeChild = function(child){
+            if (child && child.parentNode !== this) {
+              try { console.warn('[bvx] removeChild mismatch', { node: this, child: child, stack: (new Error('stack')).stack }); } catch(_e) {}
+              return child;
+            }
+            try { return _remove.call(this, child); } catch(err) { try{ console.warn('[bvx] removeChild error bypassed', err, { stack: (new Error('stack')).stack }); }catch(_e){} return child; }
+          };
+          NP.insertBefore = function(newNode, ref){
+            if (ref && ref.parentNode !== this) {
+              try { console.warn('[bvx] insertBefore mismatch', { node: this, ref: ref, stack: (new Error('stack')).stack }); } catch(_e) {}
+              try { return _insert.call(this, newNode, null); } catch(err) { try{ console.warn('[bvx] insertBefore error bypassed', err, { stack: (new Error('stack')).stack }); }catch(_e){} return newNode; }
+            }
+            return _insert.call(this, newNode, ref||null);
+          };
+          // Monitor navigation mutations
+          try {
+            var _push = history.pushState; var _replace = history.replaceState;
+            history.pushState = function(s,t,u){ try{ console.info('[bvx:navigate] pushState', u); }catch(_e){} return _push.apply(this, arguments); };
+            history.replaceState = function(s,t,u){ try{ console.info('[bvx:navigate] replaceState', u); }catch(_e){} return _replace.apply(this, arguments); };
+          } catch(_e) {}
+          try {
+            var loc = window.location; var _assign = loc.assign.bind(loc); var _repl = loc.replace.bind(loc);
+            loc.assign = function(u){ try{ console.warn('[bvx:navigate] location.assign', u, { stack:(new Error('stack')).stack }); }catch(_e){} return _assign(u); };
+            loc.replace = function(u){ try{ console.warn('[bvx:navigate] location.replace', u, { stack:(new Error('stack')).stack }); }catch(_e){} return _repl(u); };
+          } catch(_e) {}
+          window.addEventListener('error', function(e){ try{ console.info('[bvx] window.error', e.message, e.filename, e.lineno, e.colno); }catch(_e){} });
+          window.addEventListener('unhandledrejection', function(e){ try{ console.info('[bvx] unhandledrejection', e.reason); }catch(_e){} });
+        } catch(e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

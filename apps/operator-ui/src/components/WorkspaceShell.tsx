@@ -1,5 +1,4 @@
 import React, { Suspense, lazy, useMemo, useRef, useEffect, useState, useCallback } from 'react';
-import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import Button from './ui/Button';
 import { Home, MessageSquare, Users, Calendar, Layers, Package2, Plug, CheckCircle2, MessageCircle, Eye, ArrowUpRight } from 'lucide-react';
@@ -64,6 +63,7 @@ export default function WorkspaceShell(){
   const STRIPE_BUY_BUTTON_47 = String((import.meta as any).env?.VITE_STRIPE_BUY_BUTTON_47 || '');
   const STRIPE_PK = String((import.meta as any).env?.VITE_STRIPE_PK || (import.meta as any).env?.VITE_STRIPE_PUBLISHABLE_KEY || '');
   const DEV_ONBOARDING = String((import.meta as any).env?.VITE_ONBOARDING_DEV_MODE || '0') === '1';
+  const AUTO_TOUR = String((import.meta as any).env?.VITE_AUTOSTART_TOUR || '0') === '1';
 const FORCE_ONBOARD_TOUR = false;
 
   const [billingOpen, setBillingOpen] = useState(false);
@@ -411,11 +411,11 @@ const FORCE_ONBOARD_TOUR = false;
   }, []);
 
   useEffect(() => {
-    // Auto-start unified tour on dashboard when onboarding is done and guide not done (or always in dev mode)
+    // Gate tour autostart behind explicit env flag to avoid third‑party DOM races on first load
     const paneNow = new URLSearchParams(loc.search).get('pane') || 'dashboard';
     const onboardingDone = (()=>{ try{ return localStorage.getItem('bvx_onboarding_done')==='1'; }catch{ return false; }})();
     const guideDone = (()=>{ try{ return workspaceStorage.getGuideDone(); }catch{ return false; }})();
-    const shouldStart = paneNow === 'dashboard' && (DEV_ONBOARDING || (onboardingDone && !guideDone));
+    const shouldStart = AUTO_TOUR && paneNow === 'dashboard' && (DEV_ONBOARDING || (onboardingDone && !guideDone));
     if (shouldStart && !autoStartRef.current) {
       autoStartRef.current = true;
       (async () => {
@@ -578,10 +578,13 @@ const FORCE_ONBOARD_TOUR = false;
           setIsLiteTier(lite);
         } catch {}
         const covered = status === 'active';
-        // Only open billing modal when explicitly requested via query param, or forced
+        // Only open billing modal when explicitly requested via query param, or forced.
+        // Additionally, avoid auto-opening during initial boot to prevent third‑party script races.
         const billingParam = sp.get('billing');
         const forceBilling = sp.get('forceBilling') === '1';
-        if ((billingParam === 'prompt' && !covered && !dismissed) || forceBilling) {
+        const bootPhase = String(sessionStorage.getItem('bvx_boot_phase')||'init');
+        const allowAutoOpen = AUTO_TOUR && bootPhase !== 'init';
+        if (((billingParam === 'prompt' && !covered && !dismissed) || forceBilling) && allowAutoOpen) {
           setBillingOpen(true); try { track('billing_modal_open'); } catch {}
         } else {
           if ((!billingOpenRef.current || covered || dismissed) && onboardingState.phase !== 'billing') {
@@ -652,6 +655,7 @@ const FORCE_ONBOARD_TOUR = false;
 
   const setPane = (key: PaneKey) => {
     try {
+      try { console.info('[bvx:navigate] pane', { from: pane, to: key }); } catch {}
       const sp = new URLSearchParams(loc.search);
       sp.set('pane', key);
       nav({ pathname: '/workspace', search: `?${sp.toString()}` }, { replace: false });
@@ -992,7 +996,7 @@ const FORCE_ONBOARD_TOUR = false;
         {/* Arrows removed per product decision */}
       </div>
       {/* No external WelcomeModal */}
-      {flowModal && createPortal(
+      {flowModal && (
         <div className="fixed inset-0 z-[2100] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/30" />
           <div className="relative w-full max-w-md rounded-2xl border border-[var(--border)] bg-white p-5 shadow-soft text-center">
@@ -1024,7 +1028,7 @@ const FORCE_ONBOARD_TOUR = false;
                 const tone = btn.tone || 'secondary';
                 const className = tone === 'primary'
                   ? 'inline-flex items-center justify-center px-4 py-2 rounded-full bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-60'
-                  : 'inline-flex items-center justify-center px-4 py-2 rounded-full border bg-white text-slate-900 hover:bg-slate-50 disabled:opacity-60';
+                  : 'inline-flex items-center justify-center px-4 py-2 rounded-full border bg-white text-slate-900 hover:shadow-sm disabled:opacity-60';
                 return (
                   <button
                     key={idx}
@@ -1037,8 +1041,7 @@ const FORCE_ONBOARD_TOUR = false;
               })}
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       )}
       {/* Onboarding prompt for WorkStyles removed per simplification */}
       {/* Billing modal */}

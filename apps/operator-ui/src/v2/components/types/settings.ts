@@ -108,6 +108,9 @@ export interface SettingsResponseData {
   trial_end_ts?: number
 }
 
+export type QuietHoursSettings = NonNullable<SettingsResponseData['quiet_hours']>
+export type ProvidersLiveMap = NonNullable<SettingsResponseData['providers_live']>
+
 export interface SettingsPayload {
   tenant_id: string
   tone?: string
@@ -117,10 +120,14 @@ export interface SettingsPayload {
   quiet_hours?: { start?: string; end?: string }
   training_notes?: string
   completed?: boolean
-  providers_live?: Record<string, boolean>
+  providers_live?: ProvidersLiveMap
   messaging?: {
     twilio_subaccount_sid?: string
     twilio_auth_token?: string
     sms_from_number?: string
   }
+  profile?: ProfileSettings
+  business?: BusinessSettings
+  notifications?: NotificationsSettings
+  goals?: GoalSettings
 }

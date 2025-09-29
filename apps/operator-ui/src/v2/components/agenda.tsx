@@ -179,6 +179,8 @@ export function Agenda() {
   const [lastSync, setLastSync] = useState<Record<string, { status?: string; ts?: number | null }>>({})
   const [syncing, setSyncing] = useState(false)
   const [creatingTask, setCreatingTask] = useState(false)
+  const [completingTaskId, setCompletingTaskId] = useState<string | null>(null)
+  const [clearingReminderId, setClearingReminderId] = useState<string | null>(null)
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskDescription, setNewTaskDescription] = useState('')
   const [newTaskPriority, setNewTaskPriority] = useState<'high' | 'medium' | 'low'>('medium')
@@ -245,6 +247,7 @@ export function Agenda() {
       try {
         const tenantId = await getTenant()
         if (!tenantId) throw new Error('Missing tenant context')
+        setCompletingTaskId(task.id)
         await api.post('/todo/ack', { tenant_id: tenantId, id: task.todoId })
         toast.success('Task completed')
         await loadAgenda()
@@ -252,6 +255,8 @@ export function Agenda() {
       } catch (error) {
         console.error('Task completion failed', error)
         toast.error('Unable to mark the task complete right now')
+      } finally {
+        setCompletingTaskId(null)
       }
     },
     [loadAgenda],
@@ -263,6 +268,7 @@ export function Agenda() {
       try {
         const tenantId = await getTenant()
         if (!tenantId) throw new Error('Missing tenant context')
+        setClearingReminderId(reminder.id)
         await api.post('/todo/ack', { tenant_id: tenantId, id: reminder.id })
         toast.success('Reminder cleared')
         await loadAgenda()
@@ -270,6 +276,8 @@ export function Agenda() {
       } catch (error) {
         console.error('Reminder completion failed', error)
         toast.error('Unable to clear the reminder right now')
+      } finally {
+        setClearingReminderId(null)
       }
     },
     [loadAgenda],
@@ -285,13 +293,17 @@ export function Agenda() {
         setCreatingTask(true)
         const tenantId = await getTenant()
         if (!tenantId) throw new Error('Missing tenant context')
-        await api.post('/todo/create', {
-          tenant_id: tenantId,
-          title: newTaskTitle.trim(),
-          description: newTaskDescription.trim() || undefined,
-          priority: newTaskPriority,
-          due_time: newTaskTime || undefined,
-        })
+        await api.post(
+          '/todo/create',
+          {
+            tenant_id: tenantId,
+            title: newTaskTitle.trim(),
+            description: newTaskDescription.trim() || undefined,
+            priority: newTaskPriority,
+            due_time: newTaskTime || undefined,
+          },
+          { timeoutMs: 10_000 },
+        )
         toast.success('Task created')
         setNewTaskTitle('')
         setNewTaskDescription('')
@@ -381,10 +393,17 @@ export function Agenda() {
             {task.impactLabel ? <span>• {task.impactLabel}</span> : null}
           </div>
           <div className="flex items-center gap-2">
-            <Button size="sm" variant={task.completed ? 'default' : 'outline'}
+            <Button
+              size="sm"
+              variant={task.completed ? 'default' : 'outline'}
+              disabled={task.completed || completingTaskId === task.id}
               onClick={() => handleCompleteTask(task)}
             >
-              {task.completed ? 'Completed' : 'Mark complete'}
+              {task.completed
+                ? 'Completed'
+                : completingTaskId === task.id
+                ? 'Completing…'
+                : 'Mark complete'}
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -433,10 +452,15 @@ export function Agenda() {
             </div>
           </div>
           <div className="flex items-center justify-end gap-2">
-            <Button size="sm" variant="outline"
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={clearingReminderId === reminder.id}
               onClick={() => handleCompleteReminder(reminder)}
             >
-              {reminder.actionLabel ?? 'Mark done'}
+              {clearingReminderId === reminder.id
+                ? 'Clearing…'
+                : reminder.actionLabel ?? 'Mark done'}
             </Button>
           </div>
         </CardContent>

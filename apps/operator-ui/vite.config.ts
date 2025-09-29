@@ -1,32 +1,38 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+const buildId = process.env.BUILD_ID || new Date().toISOString().replace(/[:.]/g, '-')
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  base: '/',
+  define: {
+    __BUILD_ID__: JSON.stringify(buildId),
+  },
   build: {
     chunkSizeWarningLimit: 900,
     rollupOptions: {
       output: {
+        entryFileNames: `assets/[name]-[hash].js`,
+        chunkFileNames: `assets/[name]-[hash].js`,
+        assetFileNames: `assets/[name]-[hash][extname]`,
         manualChunks(id) {
+          // TEMP HOTFIX: collapse all node_modules into a single vendor chunk
+          // to remove cross-chunk init order/circular import issues (qm/Jm TDZ).
           if (id.includes('node_modules')) {
-            if (id.includes('react') || id.includes('react-router')) return 'react-vendor';
-            if (id.includes('framer-motion')) return 'motion';
-            if (id.includes('driver.js')) return 'driver';
-            if (id.includes('echarts')) return 'echarts';
-            if (id.includes('@stripe')) return 'stripe';
-            if (id.includes('posthog-js')) return 'analytics';
-            if (id.includes('@supabase') || id.includes('jwt-decode')) return 'supabase';
-            if (id.includes('@sentry')) return 'sentry';
-            if (id.includes('@radix-ui')) return 'radix';
-            if (id.includes('lucide-react')) return 'icons';
-            if (id.includes('cmdk')) return 'cmdk';
-            if (id.includes('howler')) return 'howler';
-            if (id.includes('opentype.js')) return 'opentype';
-            if (id.includes('gl') || id.includes('three') || id.includes('@dimforge') || id.includes('ammo.js')) return 'physics';
+            return 'vendor'
           }
         },
       },
+    },
+  },
+  experimental: {
+    renderBuiltUrl(filename) {
+      if (filename.startsWith('assets/')) {
+        return `/${filename}?v=${buildId}`
+      }
+      return filename
     },
   },
 })

@@ -330,14 +330,14 @@ export function Inventory() {
     {
       id: 'products',
       label: 'Products',
-      value: summary.total_products ?? 0,
+      value: (summary.total_products ?? 0).toLocaleString(),
       subtitle: 'SKUs in your catalog',
       icon: Package,
     },
     {
       id: 'low',
       label: 'Low stock',
-      value: summary.low_stock ?? 0,
+      value: (summary.low_stock ?? 0).toLocaleString(),
       subtitle: 'Need attention soon',
       icon: AlertTriangle,
       tone: 'text-amber-600',
@@ -345,7 +345,7 @@ export function Inventory() {
     {
       id: 'out',
       label: 'Out of stock',
-      value: summary.out_of_stock ?? 0,
+      value: (summary.out_of_stock ?? 0).toLocaleString(),
       subtitle: 'Restock to keep selling',
       icon: TrendingDown,
       tone: 'text-rose-600',
@@ -557,7 +557,7 @@ export function Inventory() {
                     <TableCell>{product.category || '—'}</TableCell>
                     <TableCell>{formatStock(product.stock_quantity)}</TableCell>
                     <TableCell>{product.reorder_level ?? '—'}</TableCell>
-                    <TableCell>{product.units_sold ?? 0}</TableCell>
+                    <TableCell>{product.units_sold?.toLocaleString() ?? '0'}</TableCell>
                     <TableCell>{formatMoney(product.revenue_cents)}</TableCell>
                     <TableCell>{formatPercentValue(product.margin_percent)}</TableCell>
                     <TableCell>{providerBadge(product.provider)}</TableCell>

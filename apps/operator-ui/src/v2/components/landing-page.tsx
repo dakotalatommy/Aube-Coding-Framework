@@ -145,7 +145,11 @@ export default function LandingV2() {
       s.async = true;
       s.src = `https://scripts.kickoffpages.com/kl.js?${KO_ID}`;
       document.head.appendChild(s);
-      return () => { try { document.head.removeChild(s); } catch {} };
+      return () => {
+        try {
+          if (s.parentNode) s.parentNode.removeChild(s);
+        } catch {}
+      };
     } catch {}
   }, []);
 

@@ -65,7 +65,9 @@ export function AuthCallback() {
       let onboardingDone = false; try { onboardingDone = localStorage.getItem('bvx_onboarding_done') === '1'; } catch {}
       const nextParam = sp.get('next');
       const nextTarget = nextParam && nextParam.startsWith('/') ? decodeURIComponent(nextParam) : '';
-      const target = DEV_MODE ? '/onboarding' : (nextTarget || ((!onboardingDone || forcedOnboarding) ? '/onboarding' : '/workspace?pane=dashboard'));
+      const altParam = sp.get('alt');
+      const altTarget = altParam && altParam.startsWith('/') ? decodeURIComponent(altParam) : '';
+      const computed = DEV_MODE ? '/onboarding' : (nextTarget || ((!onboardingDone || forcedOnboarding) ? '/onboarding' : '/workspace?pane=dashboard'));
 
       // Sanitize non-sensitive URL parts
       try {
@@ -81,6 +83,8 @@ export function AuthCallback() {
       try { (window.opener as any)?.postMessage('bvx_auth_ready', window.location.origin); } catch {}
 
       // Hard redirect to avoid router timing races (immediate)
+      const target = computed || altTarget || '/workspace?pane=dashboard';
+      try { console.info('[bvx:auth] redirect', { target, nextTarget, altTarget, onboardingDone, forcedOnboarding }); } catch {}
       window.location.replace(target);
       // Backstops: retry if still on /auth after a short delay, and once more after 2s
       try { setTimeout(() => { try{ if (window.location.pathname.includes('/auth')) window.location.replace(target); } catch {} }, 800); } catch {}

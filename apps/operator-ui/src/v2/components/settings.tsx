@@ -1,33 +1,15 @@
-// @ts-nocheck
-import { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 import { api, getTenant } from '../../lib/api'
 import { OnboardingSettings } from './onboarding-settings'
-import type * as SettingsTypes from './types/settings.ts'
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
-import { Button } from './ui/button'
-import { Input } from './ui/input'
-import { Label } from './ui/label'
-import { Textarea } from './ui/textarea'
-import { Badge } from './ui/badge'
-import { Switch } from './ui/switch'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
-import { Alert, AlertDescription } from './ui/alert'
-import { Skeleton } from './ui/skeleton'
-import { cn } from './ui/utils'
-
-const PROVIDER_LABELS: Record<string, string> = {
-  square: 'Square POS',
-  acuity: 'Acuity Scheduling',
-  hubspot: 'HubSpot CRM',
-  google: 'Google Workspace',
-  instagram: 'Instagram',
-  twilio: 'Twilio SMS',
-  sendgrid: 'SendGrid Email',
-  shopify: 'Shopify Retail',
-}
-
+import {
+  DEFAULT_BRAND,
+  DEFAULT_BUSINESS,
+  DEFAULT_GOALS,
+  DEFAULT_NOTIFICATIONS,
+  DEFAULT_PROFILE,
+} from './settings-defaults'
 import type {
   ProfileSettings,
   BusinessSettings,
@@ -38,7 +20,22 @@ import type {
   IntegrationStatusItem,
   SettingsResponseData,
   SettingsPayload,
+  QuietHoursSettings,
 } from './types/settings.ts'
+
+
+import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
+import { Button } from './ui/button'
+import { Input } from './ui/input'
+import { Label } from './ui/label'
+import { Textarea } from './ui/textarea'
+import { Badge } from './ui/badge'
+import { Switch } from './ui/switch'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
+// Alert components not used on Settings yet
+import { Skeleton } from './ui/skeleton'
+import { cn } from './ui/utils'
+
 
 interface SettingsProps {
   userData?: {
@@ -67,28 +64,40 @@ const formatRelativeTimeLabel = (timestampMs: number) => {
   return `${diffYears} yr${diffYears === 1 ? '' : 's'} ago`
 }
 
+
+
+
+
 const CardIcon = ({ className }: { className?: string }) => (
   <span className={cn('inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary/10 text-primary', className)}>
     •
   </span>
 )
 
-export function Settings({ userData, initialTab = 'profile' }: SettingsProps) {
+export function Settings({ userData, initialTab = 'profile' }: SettingsProps): React.JSX.Element {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [integrationLoading, setIntegrationLoading] = useState(true)
-  const [profileData, setProfileData] = useState(DEFAULT_PROFILE)
-  const [businessData, setBusinessData] = useState(DEFAULT_BUSINESS)
-  const [brandData, setBrandData] = useState(DEFAULT_BRAND)
-  const [notifications, setNotifications] = useState(DEFAULT_NOTIFICATIONS)
-  const [goals, setGoals] = useState(DEFAULT_GOALS)
-  const [quietHours, setQuietHours] = useState<{ start?: string; end?: string }>({})
-  const [twilioData, setTwilioData] = useState<TwilioSettings>({})
+  const [profileData, setProfileData] = useState<ProfileSettings>(DEFAULT_PROFILE)
+  const [businessData, setBusinessData] = useState<BusinessSettings>(DEFAULT_BUSINESS)
+  const [brandData, setBrandData] = useState<BrandSettings>(DEFAULT_BRAND)
+  const [notifications, setNotifications] = useState<NotificationsSettings>(DEFAULT_NOTIFICATIONS)
+  const [goals, setGoals] = useState<GoalSettings>(DEFAULT_GOALS)
+  const [quietHours, setQuietHours] = useState<QuietHoursSettings>({ start: undefined, end: undefined })
+  const [twilioData, setTwilioData] = useState<TwilioSettings>({
+    accountSid: undefined,
+    authToken: undefined,
+    phoneNumber: undefined,
+    subaccountSid: undefined,
+    fromNumber: undefined,
+    provisioned: false,
+    showAuthToken: false,
+  })
   const [integrations, setIntegrations] = useState<IntegrationStatusItem[]>([])
-  const [tone, setTone] = useState('friendly')
-  const [trainingNotes, setTrainingNotes] = useState('')
+  const [tone, setTone] = useState<string>('friendly')
+  const [trainingNotes, setTrainingNotes] = useState<string>('')
 
-  const loadSettings = useCallback(async () => {
+  const loadSettings = useCallback(async (): Promise<void> => {
     setLoading(true)
     try {
       const tenantId = await getTenant()
@@ -103,17 +112,18 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps) {
         setProfileData((prev) => ({ ...prev, firstName, lastName, email: userData.email ?? prev.email }))
       }
 
-      if (data.profile) setProfileData((prev) => ({ ...prev, ...data.profile }))
-      if (data.business) setBusinessData((prev) => ({ ...prev, ...data.business }))
-      if (data.brand_profile) setBrandData((prev) => ({ ...prev, ...(data.brand_profile as SettingsTypes.BrandSettings) }))
-      if (data.notifications) setNotifications((prev) => ({ ...prev, ...data.notifications }))
-      if (data.goals) setGoals((prev) => ({ ...prev, ...data.goals }))
+      if (data.profile) setProfileData({ ...DEFAULT_PROFILE, ...data.profile })
+      if (data.business) setBusinessData({ ...DEFAULT_BUSINESS, ...data.business })
+      if (data.brand_profile) setBrandData({ ...DEFAULT_BRAND, ...data.brand_profile })
+      if (data.notifications) setNotifications({ ...DEFAULT_NOTIFICATIONS, ...data.notifications })
+      if (data.goals) setGoals({ ...DEFAULT_GOALS, ...data.goals })
       if (data.quiet_hours) setQuietHours(data.quiet_hours)
       if (data.tone) setTone(data.tone)
       if (data.training_notes) setTrainingNotes(data.training_notes)
+      // providers_live deferred
 
       const messaging = data.messaging ?? {}
-    setTwilioData({
+      setTwilioData({
         accountSid: messaging.twilio_subaccount_sid,
         authToken: messaging.twilio_auth_token,
         phoneNumber: messaging.sms_from_number,
@@ -130,7 +140,7 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps) {
     }
   }, [userData])
 
-  const loadIntegrations = useCallback(async () => {
+  const loadIntegrations = useCallback(async (): Promise<void> => {
     setIntegrationLoading(true)
     try {
       const tenantId = await getTenant()
@@ -145,7 +155,16 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps) {
       }
 
       const providers = response.providers ?? {}
-      const items: SettingsTypes.IntegrationStatusItem[] = Object.keys(PROVIDER_LABELS).map((key) => {
+      const items: IntegrationStatusItem[] = Object.keys({
+        square: true,
+        acuity: true,
+        hubspot: true,
+        google: true,
+        instagram: true,
+        twilio: true,
+        sendgrid: true,
+        shopify: true,
+      }).map((key) => {
         const providerData = providers[key] ?? { linked: false }
         return {
           provider: key,
@@ -159,27 +178,30 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps) {
       setIntegrations(items)
     } catch (err) {
       console.error('Integrations status failed', err)
+      toast.error('Unable to load integrations right now')
     } finally {
       setIntegrationLoading(false)
     }
   }, [])
 
-  const saveSettings = useCallback(async () => {
+  // Provider and Twilio logic deferred (placeholders removed)
+
+  const saveSettings = useCallback(async (): Promise<void> => {
     setSaving(true)
     try {
       const tenantId = await getTenant()
       if (!tenantId) throw new Error('Missing tenant context')
       await api.post('/settings', {
         tenant_id: tenantId,
+        profile: profileData,
+        business: businessData,
+        notifications,
+        goals,
         tone,
         training_notes: trainingNotes,
         quiet_hours: quietHours,
         brand_profile: brandData,
-        preferences: undefined,
-        providers_live: integrations.reduce<Record<string, boolean>>((acc, item) => {
-          acc[item.provider] = item.linked
-          return acc
-        }, {}),
+        // providers_live: omitted (deferred)
         messaging: twilioData.provisioned
           ? {
               twilio_subaccount_sid: twilioData.subaccountSid,
@@ -195,7 +217,7 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps) {
     } finally {
       setSaving(false)
     }
-  }, [brandData, integrations, quietHours, tone, trainingNotes, twilioData])
+  }, [brandData, businessData, goals, notifications, profileData, quietHours, tone, trainingNotes, twilioData])
 
   useEffect(() => {
     loadSettings()
@@ -203,23 +225,23 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps) {
   }, [loadIntegrations, loadSettings])
 
   const renderIntegrations = () => (
-          <Card>
-            <CardHeader>
+    <Card>
+      <CardHeader>
         <CardTitle className="flex items-center gap-2" style={{ fontFamily: 'Playfair Display, serif' }}>
           <CardIcon />
           Connect your tools
         </CardTitle>
-              <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           See which systems are linked today and connect booking or marketing platforms in one click.
-              </p>
-            </CardHeader>
+        </p>
+      </CardHeader>
       <CardContent className="space-y-4">
         {integrationLoading ? (
           <div className="space-y-3">
             {Array.from({ length: 4 }).map((_, index) => (
               <Skeleton key={index} className="h-14 w-full rounded-xl" />
             ))}
-                </div>
+          </div>
         ) : (
           <div className="space-y-3">
             {integrations.map((integration) => (
@@ -232,11 +254,9 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps) {
               >
                 <div>
                   <div className="flex items-center gap-2">
-                    <div className="text-sm font-semibold text-foreground">
-                      {PROVIDER_LABELS[integration.provider] ?? integration.provider}
-                    </div>
+                    <div className="text-sm font-semibold text-foreground">{integration.provider}</div>
                     <Badge variant={integration.linked ? 'outline' : 'secondary'} className="text-xs capitalize">
-                      {integration.linked ? (integration.status || 'Connected') : 'Not connected'}
+                      {integration.linked ? integration.status || 'Connected' : 'Not connected'}
                     </Badge>
                   </div>
                   <div className="text-xs text-muted-foreground">

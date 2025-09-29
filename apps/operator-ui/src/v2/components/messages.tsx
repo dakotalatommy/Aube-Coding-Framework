@@ -1,10 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ClipboardList, Copy, Inbox, Loader2, MessageSquare, Send, Sparkles, TrendingUp, RefreshCw } from 'lucide-react'
+import {
+  ClipboardList,
+  Copy,
+  Inbox,
+  Loader2,
+  MessageSquare,
+  Send,
+  Sparkles,
+  TrendingUp,
+  RefreshCw,
+  Clock,
+} from 'lucide-react'
 import { toast } from 'sonner'
 
 import { api, getTenant } from '../../lib/api'
 import { trackEvent } from '../../lib/analytics'
-import type { ConversationContact, FollowupBundle, MessageFilter, MessageHistoryItem, QuietHoursSettings } from './types/messages'
+import type {
+  ConversationContact,
+  FollowupBundle,
+  MessageFilter,
+  MessageHistoryItem,
+  QuietHoursSettings,
+} from './types/messages'
 import { Button } from './ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
@@ -142,6 +159,7 @@ const formatPhone = (value?: string | null) => {
 const ensureTenant = async (cacheRef: React.MutableRefObject<string | null>) => {
   if (cacheRef.current) return cacheRef.current
   const tid = await getTenant()
+  if (!tid) throw new Error('Missing tenant context')
   cacheRef.current = tid
   return tid
 }
@@ -160,7 +178,21 @@ export function Messages() {
 
   const [templateId, setTemplateId] = useState<ComposeTemplateId>('lead_followup')
   const activeTemplate = PROMPT_MAP.get(templateId)
-  const [messageBody, setMessageBody] = useState(activeTemplate?.preview || '')
+  const draftStorageKey = 'bvx_messages_draft'
+  const [messageBody, setMessageBody] = useState(() => {
+    try {
+      const cached = sessionStorage.getItem(draftStorageKey)
+      if (cached) {
+        const parsed = JSON.parse(cached) as { templateId?: ComposeTemplateId; body?: string }
+        if (parsed.templateId && PROMPT_MAP.has(parsed.templateId)) {
+          return parsed.body ?? activeTemplate?.preview ?? ''
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return activeTemplate?.preview || ''
+  })
   const [lastAutoBody, setLastAutoBody] = useState(activeTemplate?.preview || '')
   const [sendMode, setSendMode] = useState<SendMode>('draft')
   const [isDrafting, setIsDrafting] = useState(false)
@@ -178,6 +210,7 @@ export function Messages() {
 
   const pendingBundleRef = useRef<FollowupBundle | null>(null)
   const bundleAppliedRef = useRef(false)
+  const followupStatusErrorNotifiedRef = useRef(false)
 
   const contactsById = useMemo(() => {
     const map = new Map<string, ConversationContact>()
@@ -215,8 +248,20 @@ export function Messages() {
       setContacts(mapped)
     } catch (error) {
       console.error('Failed to load contacts', error)
+      toast.error('Unable to load contacts right now')
     }
   }, [])
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(
+        draftStorageKey,
+        JSON.stringify({ templateId, body: messageBody }),
+      )
+    } catch {
+      // ignore storage issues
+    }
+  }, [messageBody, templateId])
 
   const loadQuietHours = useCallback(async () => {
     try {
@@ -229,6 +274,7 @@ export function Messages() {
       })
     } catch (error) {
       console.error('Failed to load quiet hours', error)
+      toast.error('Unable to load quiet hours right now')
     }
   }, [])
 
@@ -240,6 +286,7 @@ export function Messages() {
     } catch (error) {
       console.error('Failed to load Twilio status', error)
       setTwilioStatusError('Unable to verify Twilio status right now.')
+      toast.error('Unable to verify messaging status right now')
     }
   }, [])
 
@@ -275,9 +322,11 @@ export function Messages() {
           }
         })
         setHistoryItems(mapped)
+        followupStatusErrorNotifiedRef.current = false
       } catch (error) {
         console.error('Failed to load message history', error)
         setHistoryError('Unable to load messages right now.')
+        toast.error('Unable to load messages right now')
       } finally {
         setHistoryLoading(false)
       }
@@ -408,7 +457,7 @@ export function Messages() {
       const templateMeta = PROMPT_MAP.get(templateId)
       const messagesPayload = templateMeta ? buildPromptMessages(templateMeta, recipients) : []
 
-  trackEvent('messages.draft', { bucket: templateId, count: recipients.length })
+      trackEvent('messages.draft', { bucket: templateId, count: recipients.length })
 
       let markdown = ''
       if (messagesPayload.length) {
@@ -484,14 +533,21 @@ export function Messages() {
         toast.success('Follow-up drafts ready', {
           description: 'Open the notifications drawer to approve and send.',
         })
+        followupStatusErrorNotifiedRef.current = false
       } else if (status === 'error') {
         setDraftStatus('Draft failed — check notifications for details')
         toast.error('Draft failed', { description: res?.detail || details?.error || 'See To-Do for more information.' })
+        followupStatusErrorNotifiedRef.current = false
       } else if (status === 'queued' || status === 'running') {
         setDraftStatus('Draft running — we will notify you when ready')
+        followupStatusErrorNotifiedRef.current = false
       }
     } catch (error) {
       console.warn('followups status poll failed', error)
+      if (!followupStatusErrorNotifiedRef.current) {
+        followupStatusErrorNotifiedRef.current = true
+        toast.error('Unable to refresh follow-up status right now')
+      }
     }
   }, [tenantRef])
 
@@ -504,7 +560,7 @@ export function Messages() {
     return () => window.clearInterval(handle)
   }, [pollFollowupStatus])
 
-  const handleSendNow = useCallback(async () => {
+  const handleSend = useCallback(async () => {
     if (!selectedContacts.length) {
       toast.error('Choose at least one client before sending')
       return
@@ -517,28 +573,51 @@ export function Messages() {
     try {
       setSendingMode('sending')
       const tenantId = await ensureTenant(tenantRef)
-      for (const contact of selectedContacts) {
-        try {
-          await api.post('/messages/send', {
+      const cadenceId = activeTemplate?.cadenceId || 'custom'
+
+      if (sendMode === 'now' && selectedContacts.length === 1) {
+        const target = selectedContacts[0]
+        await api.post(
+          '/messages/send',
+          {
             tenant_id: tenantId,
-            contact_id: contact.id,
+            contact_id: target.id,
             channel: 'sms',
             template_id: templateId,
             body: messageBody,
-          })
-        } catch (error) {
-          console.error('Message send failed', error)
+          },
+          { timeoutMs: 20_000 },
+        )
+        toast.success('Message sent', { description: 'Queued via messaging worker.' })
+      } else {
+        const payload = {
+          tenant_id: tenantId,
+          contact_ids: selectedContacts.map((contact) => contact.id),
+          cadence_id: cadenceId,
+          template_id: templateId,
+          body: messageBody,
+          send_immediately: sendMode === 'now',
         }
+        await api.post('/followups/enqueue', payload, { timeoutMs: 20_000 })
+        toast.success('Follow-ups scheduled', {
+          description:
+            selectedContacts.length === 1
+              ? 'We will draft and send this follow-up shortly.'
+              : `We will draft and send ${selectedContacts.length} follow-ups shortly.`,
+        })
       }
-      toast.success('Messages sent', { description: 'Queued for delivery via messaging worker.' })
-      setSendingMode('queued')
+
+      setSendingMode('idle')
+      setMessageBody('')
+      setSelectedContacts([])
       loadHistory(historyFilter)
+      pollFollowupStatus()
     } catch (error) {
-      console.error('Send now failed', error)
+      console.error('Send failed', error)
       toast.error('Unable to send messages right now')
       setSendingMode('idle')
     }
-  }, [ensureTenant, historyFilter, loadHistory, messageBody, selectedContacts, templateId, toast])
+  }, [activeTemplate?.cadenceId, historyFilter, loadHistory, messageBody, pollFollowupStatus, selectedContacts, sendMode, templateId])
 
   const handleSaveQuietHours = async () => {
     try {
@@ -680,18 +759,20 @@ export function Messages() {
                 )}
                 {isDrafting ? 'Drafting…' : 'Generate Draft'}
               </Button>
-              <Button
-                variant="outline"
-                onClick={handleSendNow}
-                disabled={sendingMode === 'sending'}
-              >
-                {sendingMode === 'sending' ? (
-                  <Loader2 className="h-4 w-4 mr-2" />
-                ) : (
-                  <Send className="h-4 w-4 mr-2" />
-                )}
-                {sendingMode === 'sending' ? 'Sending…' : 'Send Now (Beta)'}
-              </Button>
+      <Button variant="outline" onClick={handleSend} disabled={sendingMode === 'sending'}>
+        {sendingMode === 'sending' ? (
+          <Loader2 className="h-4 w-4 mr-2" />
+        ) : sendMode === 'now' && selectedContacts.length <= 1 ? (
+          <Send className="h-4 w-4 mr-2" />
+        ) : (
+          <Clock className="h-4 w-4 mr-2" />
+        )}
+        {sendingMode === 'sending'
+          ? 'Sending…'
+          : sendMode === 'now' && selectedContacts.length <= 1
+          ? 'Send Now'
+          : 'Queue Follow-ups'}
+      </Button>
             </div>
             {draftDownloadUrl && (
               <div className="mt-4">

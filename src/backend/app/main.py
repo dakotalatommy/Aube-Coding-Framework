@@ -1456,6 +1456,9 @@ class FollowupsEnqueue(BaseModel):
     tenant_id: str
     contact_ids: List[str]
     cadence_id: str = "never_answered"
+    template_id: Optional[str] = None
+    body: Optional[str] = None
+    send_immediately: Optional[bool] = False
 
 
 @app.post("/followups/enqueue", tags=["Cadences"])
@@ -1750,6 +1753,46 @@ def todo_add(req: TodoAdd, db: Session = Depends(get_db), ctx: UserContext = Dep
         return {"status": "error", "detail": str(e)[:200]}
 
 
+
+
+class TodoCreate(BaseModel):
+    tenant_id: str
+    title: str
+    description: Optional[str] = None
+    priority: Optional[str] = None
+    due_time: Optional[str] = None
+
+
+@app.post("/todo/create", tags=["Plans"])
+def todo_create(req: TodoCreate, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    if _todo_disabled():
+        return {"status": "disabled"}
+    title = (req.title or "").strip()
+    if not title:
+        return {"status": "error", "detail": "missing_title"}
+    details = {
+        "description": (req.description or "").strip(),
+        "priority": (req.priority or "medium").lower(),
+    }
+    if req.due_time:
+        details["due_time"] = req.due_time
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                _sql_text(
+                    """
+                    INSERT INTO todo_items (tenant_id, type, title, details_json, status)
+                    VALUES (CAST(:t AS uuid), 'manual', :title, :details::jsonb, 'pending')
+                    RETURNING id
+                    """
+                ),
+                {"t": req.tenant_id, "title": title, "details": json.dumps(details)},
+            )
+        return {"status": "ok"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:200]}
 class TodoAck(BaseModel):
     tenant_id: str
     id: int
@@ -1765,6 +1808,140 @@ def todo_ack(req: TodoAck, db: Session = Depends(get_db), ctx: UserContext = Dep
         return {"status": "ok"}
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
+
+
+@app.get("/dashboard/agenda", tags=["Dashboard"])
+def dashboard_agenda(
+    tenant_id: str,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"agenda": [], "queue": []}
+
+    limit = max(1, min(limit, 60))
+    tasks: List[Dict[str, Any]] = []
+    reminders: List[Dict[str, Any]] = []
+
+    if not _todo_disabled():
+        try:
+            task_rows = db.execute(
+                _sql_text(
+                    """
+                    SELECT id, title, details_json, status, created_at, resolved_at
+                    FROM todo_items
+                    WHERE tenant_id = CAST(:t AS uuid)
+                    ORDER BY CASE WHEN status = 'resolved' THEN 1 ELSE 0 END, created_at DESC
+                    LIMIT :lim
+                    """
+                ),
+                {"t": tenant_id, "lim": limit},
+            ).fetchall()
+            for row in task_rows:
+                details: Dict[str, Any]
+                raw_details = row[2]
+                if isinstance(raw_details, dict):
+                    details = raw_details
+                else:
+                    try:
+                        details = json.loads(raw_details or "{}")
+                    except Exception:
+                        details = {}
+
+                priority_raw = str(details.get("priority", "")).strip().lower()
+                priority_label = priority_raw.capitalize() if priority_raw in {"high", "medium", "low"} else None
+                subtitle = details.get("subtitle") or details.get("description") or details.get("summary")
+                duration_label = details.get("duration_label") or details.get("duration") or details.get("time_label")
+                impact_label = details.get("impact_label") or details.get("impact")
+                color_class = details.get("color_class") or details.get("tone")
+                icon_name = details.get("icon_name") or details.get("icon")
+
+                status_value = str(row[3] or "").lower()
+                completed = status_value in {"resolved", "done", "complete", "completed"}
+
+                tasks.append(
+                    {
+                        "id": str(row[0]),
+                        "title": row[1],
+                        "subtitle": subtitle,
+                        "durationLabel": duration_label,
+                        "impactLabel": impact_label,
+                        "priority": priority_label,
+                        "completed": completed,
+                        "colorClass": color_class,
+                        "iconName": icon_name,
+                        "todoId": str(row[0]),
+                    }
+                )
+        except Exception as exc:
+            logger.exception(
+                "dashboard_agenda_tasks_failed",
+                exc_info=exc,
+                extra={"tenant_id": tenant_id},
+            )
+
+    try:
+        queue_rows = db.execute(
+            _sql_text(
+                """
+                SELECT cs.contact_id, cs.cadence_id, cs.next_action_epoch, cs.last_status,
+                       c.display_name, c.first_name, c.last_name
+                FROM cadence_state cs
+                LEFT JOIN contacts c
+                  ON c.contact_id = cs.contact_id AND c.tenant_id = cs.tenant_id
+                WHERE cs.tenant_id = CAST(:t AS uuid)
+                  AND cs.next_action_epoch IS NOT NULL
+                ORDER BY cs.next_action_epoch ASC
+                LIMIT :lim
+                """
+            ),
+            {"t": tenant_id, "lim": limit},
+        ).fetchall()
+
+        now_ts = int(datetime.utcnow().timestamp())
+        for row in queue_rows:
+            contact_id = str(row[0] or "")
+            cadence_id = str(row[1] or "")
+            next_action = row[2]
+            display_name = row[4] or ""
+            first_name = row[5] or ""
+            last_name = row[6] or ""
+
+            name = display_name.strip()
+            if not name:
+                name = " ".join(part for part in [first_name.strip(), last_name.strip()] if part).strip()
+            if not name:
+                name = "Client"
+
+            due_ts = int(next_action) if next_action is not None else None
+            urgency = "low"
+            if due_ts is not None:
+                if due_ts <= now_ts + 3600:
+                    urgency = "high"
+                elif due_ts <= now_ts + 86400:
+                    urgency = "medium"
+
+            reminders.append(
+                {
+                    "id": f"{contact_id}:{cadence_id}" if cadence_id else contact_id or name,
+                    "title": f"Follow up with {name}",
+                    "description": row[3] or None,
+                    "clientName": name,
+                    "actionLabel": "Open follow-up",
+                    "dueTs": due_ts,
+                    "urgency": urgency,
+                    "type": cadence_id or "follow-up",
+                }
+            )
+    except Exception as exc:
+        logger.exception(
+            "dashboard_agenda_queue_failed",
+            exc_info=exc,
+            extra={"tenant_id": tenant_id},
+        )
+
+    return {"agenda": tasks, "queue": reminders}
 
 
 # ----------------------- Provider Refresh -----------------------
@@ -6154,6 +6331,7 @@ def contacts_list(
     tenant_id: str,
     limit: int = 1000,
     offset: int = 0,
+    scope: str = None,  # Optional scope parameter for dashboard filtering
     db: Session = Depends(get_db),
     ctx: UserContext = Depends(get_user_context_relaxed),
 ):
@@ -6238,6 +6416,343 @@ def contacts_list(
         if "invalid token" in msg or "invalid_token" in msg:
             return _JR({"error": "unauthorized", "detail": msg}, status_code=401)
         return _JR({"error": "internal_error", "detail": msg}, status_code=500)
+
+
+# --- Contacts segments for dashboard/client filtering ---
+@app.get("/contacts/segments", tags=["Contacts"])
+def contacts_segments(
+    tenant_id: str,
+    scope: str = "dashboard",
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context_relaxed),
+):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"segments": [], "smart_lists": []}
+    try:
+        # Cast tenant_id to UUID if model uses PG UUID type
+        tid = tenant_id
+        try:
+            import uuid as _uuid
+            tid = _uuid.UUID(str(tenant_id))
+        except Exception:
+            tid = tenant_id
+
+        # Static segments for now - can be made dynamic later
+        segments = [
+            {
+                "id": "all",
+                "name": "All clients",
+                "count": 0,
+                "description": "Complete client list",
+            },
+            {
+                "id": "vip",
+                "name": "VIP Clients",
+                "count": 0,
+                "description": "High-value clients with lifetime value > $800",
+            },
+            {
+                "id": "new",
+                "name": "New Clients",
+                "count": 0,
+                "description": "Clients with ≤2 visits",
+            },
+            {
+                "id": "regular",
+                "name": "Regular Clients",
+                "count": 0,
+                "description": "Established clients with 3+ visits",
+            },
+            {
+                "id": "inactive",
+                "name": "Inactive Clients",
+                "count": 0,
+                "description": "No visits in last 90 days",
+            },
+        ]
+
+        # Count clients in each segment
+        base_query = db.query(dbm.Contact).filter(dbm.Contact.tenant_id == tid, dbm.Contact.deleted == False)
+
+        for segment in segments:
+            if segment["id"] == "all":
+                segment["count"] = base_query.count()
+            elif segment["id"] == "vip":
+                segment["count"] = base_query.filter(dbm.Contact.lifetime_cents > 80000).count()
+            elif segment["id"] == "new":
+                segment["count"] = base_query.filter(dbm.Contact.txn_count <= 2).count()
+            elif segment["id"] == "regular":
+                segment["count"] = base_query.filter(dbm.Contact.txn_count >= 3).count()
+            elif segment["id"] == "inactive":
+                cutoff_date = int(time.time()) - (90 * 24 * 60 * 60)  # 90 days ago
+                segment["count"] = base_query.filter(dbm.Contact.last_visit < cutoff_date).count()
+
+        # Smart lists based on behavior patterns
+        smart_lists = [
+            {
+                "id": "reengagement",
+                "name": "Ready for Re-engagement",
+                "count": 0,
+                "description": "Lapsed clients (30+ days) who historically respond well",
+            },
+            {
+                "id": "birthday_upcoming",
+                "name": "Birthday This Month",
+                "count": 0,
+                "description": "Clients with birthdays in the next 30 days",
+            },
+        ]
+
+        # Count smart lists
+        for smart_list in smart_lists:
+            if smart_list["id"] == "reengagement":
+                cutoff_date = int(time.time()) - (30 * 24 * 60 * 60)  # 30 days ago
+                smart_list["count"] = base_query.filter(dbm.Contact.last_visit < cutoff_date).count()
+            elif smart_list["id"] == "birthday_upcoming":
+                current_month = datetime.now().month
+                current_year = datetime.now().year
+                smart_list["count"] = base_query.filter(
+                    dbm.Contact.birthday.isnot(None),
+                    db.extract('month', dbm.Contact.birthday) == current_month
+                ).count()
+
+        return {
+            "segments": segments,
+            "smart_lists": smart_lists
+        }
+    except Exception as e:
+        from fastapi.responses import JSONResponse as _JR
+        msg = str(e)[:200]
+        return _JR({"error": "internal_error", "detail": msg}, status_code=500)
+
+
+# --- Appointments list for client history ---
+@app.get("/appointments", tags=["Cadences"])
+def list_appointments(
+    tenant_id: str,
+    contact_id: str = None,
+    limit: int = 50,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"items": [], "total": 0}
+    try:
+        # Cast tenant_id to UUID if model uses PG UUID type
+        tid = tenant_id
+        try:
+            import uuid as _uuid
+            tid = _uuid.UUID(str(tenant_id))
+        except Exception:
+            tid = tenant_id
+
+        q = db.query(dbm.Appointment).filter(dbm.Appointment.tenant_id == tid)  # type: ignore
+        if contact_id:
+            q = q.filter(dbm.Appointment.contact_id == contact_id)
+
+        total = q.count()
+        rows = (
+            q.order_by(dbm.Appointment.start_time.desc())
+            .offset(max(0, int(offset)))
+            .limit(max(1, min(limit, 500)))
+            .all()
+        )
+
+        out = []
+        for r in rows:
+            out.append({
+                "id": r.id,
+                "contact_id": r.contact_id,
+                "start_time": int(getattr(r, "start_time", 0) or 0),
+                "end_time": int(getattr(r, "end_time", 0) or 0),
+                "status": getattr(r, "status", "scheduled"),
+                "service_name": getattr(r, "service_name", None),
+                "provider_name": getattr(r, "provider_name", None),
+                "notes": getattr(r, "notes", None),
+                "location": getattr(r, "location", None),
+            })
+
+        return {"items": out, "total": total}
+    except Exception as e:
+        from fastapi.responses import JSONResponse as _JR
+        msg = str(e)[:200]
+        return _JR({"error": "internal_error", "detail": msg}, status_code=500)
+
+
+# --- Cadence drafts for message analytics ---
+@app.get("/cadences/drafts", tags=["Cadences"])
+def cadences_drafts(
+    tenant_id: str,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"items": []}
+    try:
+        # Cast tenant_id to UUID if model uses PG UUID type
+        tid = tenant_id
+        try:
+            import uuid as _uuid
+            tid = _uuid.UUID(str(tenant_id))
+        except Exception:
+            tid = tenant_id
+
+        # Get recent cadence jobs for analytics
+        jobs = db.query(dbm.Job).filter(
+            dbm.Job.tenant_id == tid,
+            dbm.Job.job_type.in_(["cadence_send", "followup_send"])
+        ).order_by(dbm.Job.created_at.desc()).limit(100).all()
+
+        out = []
+        for job in jobs:
+            out.append({
+                "id": job.id,
+                "job_type": job.job_type,
+                "status": job.status,
+                "created_at": int(getattr(job, "created_at", 0) or 0),
+                "completed_at": int(getattr(job, "completed_at", 0) or 0),
+                "error_message": getattr(job, "error_message", None),
+                "metadata": getattr(job, "metadata", {}),
+            })
+
+        return {"items": out}
+    except Exception as e:
+        from fastapi.responses import JSONResponse as _JR
+        msg = str(e)[:200]
+        return _JR({"error": "internal_error", "detail": msg}, status_code=500)
+
+
+# --- Cadence stats for message performance ---
+@app.get("/cadences/stats", tags=["Cadences"])
+def cadences_stats(
+    tenant_id: str,
+    days: int = 30,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"total_sent": 0, "success_rate": 0, "reply_rate": 0, "by_channel": {}}
+    try:
+        # Cast tenant_id to UUID if model uses PG UUID type
+        tid = tenant_id
+        try:
+            import uuid as _uuid
+            tid = _uuid.UUID(str(tenant_id))
+        except Exception:
+            tid = tenant_id
+
+        cutoff_date = datetime.now() - timedelta(days=days)
+
+        # Get message stats
+        messages = db.query(dbm.Message).filter(
+            dbm.Message.tenant_id == tid,
+            dbm.Message.created_at >= cutoff_date
+        ).all()
+
+        total_sent = len(messages)
+        successful = len([m for m in messages if getattr(m, "status", "") == "delivered"])
+        replied = len([m for m in messages if getattr(m, "direction", "") == "inbound"])
+
+        success_rate = (successful / total_sent * 100) if total_sent > 0 else 0
+        reply_rate = (replied / total_sent * 100) if total_sent > 0 else 0
+
+        # Group by channel
+        by_channel = {}
+        for message in messages:
+            channel = getattr(message, "channel", "unknown")
+            if channel not in by_channel:
+                by_channel[channel] = {"sent": 0, "delivered": 0, "replied": 0}
+            by_channel[channel]["sent"] += 1
+            if getattr(message, "status", "") == "delivered":
+                by_channel[channel]["delivered"] += 1
+            if getattr(message, "direction", "") == "inbound":
+                by_channel[channel]["replied"] += 1
+
+        return {
+            "total_sent": total_sent,
+            "success_rate": round(success_rate, 1),
+            "reply_rate": round(reply_rate, 1),
+            "by_channel": by_channel
+        }
+    except Exception as e:
+        from fastapi.responses import JSONResponse as _JR
+        msg = str(e)[:200]
+        return _JR({"error": "internal_error", "detail": msg}, status_code=500)
+
+
+# --- Message templates library ---
+@app.get("/templates", tags=["Cadences"])
+def list_templates(
+    tenant_id: str,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"items": []}
+    try:
+        # For now, return hardcoded templates - can be made dynamic later
+        templates = [
+            {
+                "id": "welcome_new",
+                "name": "Welcome New Client",
+                "category": "onboarding",
+                "content": "Hi {{name}}! Welcome to {{business_name}}. We're excited to have you as a client. When would you like to schedule your next appointment?",
+                "variables": ["name", "business_name"],
+                "channel": "both"
+            },
+            {
+                "id": "reengagement",
+                "name": "Re-engagement",
+                "category": "retention",
+                "content": "Hi {{name}}! It's been a while since your last visit. We'd love to see you again! We have {{service}} available next week. Would you like to book?",
+                "variables": ["name", "service"],
+                "channel": "both"
+            },
+            {
+                "id": "birthday",
+                "name": "Birthday Special",
+                "category": "promotion",
+                "content": "Happy Birthday {{name}}! 🎉 As our gift to you, enjoy 20% off your next service. Valid for the next 30 days!",
+                "variables": ["name"],
+                "channel": "both"
+            },
+            {
+                "id": "appointment_reminder",
+                "name": "Appointment Reminder",
+                "category": "reminders",
+                "content": "Hi {{name}}! Just a friendly reminder about your appointment tomorrow at {{time}} for {{service}}. See you then!",
+                "variables": ["name", "time", "service"],
+                "channel": "both"
+            }
+        ]
+
+        return {"items": templates}
+    except Exception as e:
+        from fastapi.responses import JSONResponse as _JR
+        msg = str(e)[:200]
+        return _JR({"error": "internal_error", "detail": msg}, status_code=500)
+
+
+# --- Job status for background processes ---
+@app.get("/jobs/{job_id}", tags=["Jobs"])
+def job_status(job_id: str, ctx: UserContext = Depends(get_user_context)) -> Dict[str, Any]:
+    try:
+        # For now, return mock data - can be enhanced to query actual job status
+        return {
+            "id": job_id,
+            "status": "completed",
+            "progress": 100,
+            "result": {"success": True, "message": "Job completed successfully"},
+            "created_at": int(time.time()),
+            "completed_at": int(time.time())
+        }
+    except Exception as e:
+        from fastapi.responses import JSONResponse as _JR
+        msg = str(e)[:200]
+        return _JR({"error": "internal_error", "detail": msg}, status_code=500)
+
+
 # --- Human-friendly tool schema for AskVX palette ---
 @app.get("/ai/tools/schema_human", tags=["AI"])
 def ai_tools_schema_human_endpoint() -> Dict[str, object]:
@@ -7112,16 +7627,20 @@ def onboarding_complete_tour(
 
 @app.get("/messages/list", tags=["Cadences"])
 def list_messages(
-    tenant_id: str,
+    tenant_id: str = None,
     contact_id: Optional[str] = None,
     limit: int = 50,
     filter: Optional[str] = None,  # unread|needs_reply|scheduled|failed|all
     db: Session = Depends(get_db),
     ctx: UserContext = Depends(get_user_context),
 ):
-    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+    # Use tenant_id from query param if provided, otherwise fall back to context
+    effective_tenant_id = tenant_id or ctx.tenant_id
+    if not effective_tenant_id:
         return {"items": []}
-    q = db.query(dbm.Message).filter(dbm.Message.tenant_id == tenant_id)
+    if ctx.tenant_id != effective_tenant_id and ctx.role != "owner_admin":
+        return {"items": []}
+    q = db.query(dbm.Message).filter(dbm.Message.tenant_id == effective_tenant_id)
     if contact_id:
         q = q.filter(dbm.Message.contact_id == contact_id)
     # Simple filters: relies on status + direction
@@ -9586,15 +10105,19 @@ def onboarding_complete(
 
 @app.get("/messages/list", tags=["Cadences"])
 def list_messages(
-    tenant_id: str,
+    tenant_id: str = None,
     contact_id: Optional[str] = None,
     limit: int = 50,
     db: Session = Depends(get_db),
     ctx: UserContext = Depends(get_user_context),
 ):
-    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+    # Use tenant_id from query param if provided, otherwise fall back to context
+    effective_tenant_id = tenant_id or ctx.tenant_id
+    if not effective_tenant_id:
         return {"items": []}
-    q = db.query(dbm.Message).filter(dbm.Message.tenant_id == tenant_id)
+    if ctx.tenant_id != effective_tenant_id and ctx.role != "owner_admin":
+        return {"items": []}
+    q = db.query(dbm.Message).filter(dbm.Message.tenant_id == effective_tenant_id)
     if contact_id:
         q = q.filter(dbm.Message.contact_id == contact_id)
     rows = q.order_by(dbm.Message.id.desc()).limit(max(1, min(limit, 200))).all()

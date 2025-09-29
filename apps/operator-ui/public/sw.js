@@ -1,4 +1,5 @@
-const VERSION = 'v4-2025-09-16-1';
+// @ts-ignore injected by Vite define
+const VERSION = typeof __BUILD_ID__ !== 'undefined' ? __BUILD_ID__ : 'dev';
 const CACHE_NAME = `bvx-cache-${VERSION}`;
 const CORE_ASSETS = [
   '/',
