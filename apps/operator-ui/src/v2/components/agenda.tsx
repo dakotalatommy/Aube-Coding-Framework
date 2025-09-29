@@ -199,9 +199,9 @@ export function Agenda() {
       }
 
       const [agendaResponse, calendarResponse] = await Promise.all([
-        api.get(`/dashboard/agenda?tenant_id=${encodeURIComponent(tenantId)}`, { timeoutMs: 10_000 }),
+        api.get(`/dashboard/agenda`, { timeoutMs: 10_000 }),
         api.get(
-          `/calendar/list?tenant_id=${encodeURIComponent(tenantId)}&start_ts=${Math.floor(Date.now() / 1000) - 7 * 86400}&end_ts=${Math.floor(Date.now() / 1000) + 21 * 86400}`,
+          `/calendar/list?start_ts=${Math.floor(Date.now() / 1000) - 7 * 86400}&end_ts=${Math.floor(Date.now() / 1000) + 21 * 86400}`,
           { timeoutMs: 12_000 },
         ),
       ])

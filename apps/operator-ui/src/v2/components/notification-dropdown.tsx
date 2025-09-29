@@ -87,7 +87,7 @@ export function NotificationDropdown({ onViewAgenda }: NotificationDropdownProps
     const tenantId = await getTenant()
     if (!tenantId) return
 
-    const response = await api.get(`/notifications?tenant_id=${encodeURIComponent(tenantId)}&limit=12`, {
+    const response = await api.get(`/notifications?limit=12`, {
       timeoutMs: 10_000,
     })
 

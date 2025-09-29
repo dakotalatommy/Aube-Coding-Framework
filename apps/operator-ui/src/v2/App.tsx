@@ -267,22 +267,22 @@ export default function App() {
           referralResult,
           followupsResult,
         ] = await Promise.allSettled([
-          api.get(`/admin/kpis?tenant_id=${encodeURIComponent(tenantId)}`, {
+          api.get(`/admin/kpis`, {
             timeoutMs,
           }),
-          api.get(`/metrics?tenant_id=${encodeURIComponent(tenantId)}`, {
+          api.get(`/metrics`, {
             timeoutMs,
           }),
-          api.get(`/cadences/queue?tenant_id=${encodeURIComponent(tenantId)}&limit=10`, {
+          api.get(`/cadences/queue?limit=10`, {
             timeoutMs,
           }),
-          api.get(`/contacts/list?tenant_id=${encodeURIComponent(tenantId)}&limit=4`, {
+          api.get(`/contacts/list?limit=4`, {
             timeoutMs,
           }),
-          api.get(`/referrals/qr?tenant_id=${encodeURIComponent(tenantId)}`, {
+          api.get(`/referrals/qr`, {
             timeoutMs,
           }),
-          api.get(`/followups/candidates?tenant_id=${encodeURIComponent(tenantId)}&scope=reengage_30d`, {
+          api.get(`/followups/candidates?scope=reengage_30d`, {
             timeoutMs,
           }),
         ])
@@ -504,14 +504,11 @@ export default function App() {
         setShowSplash(true)
         setShowSplashGuard(true)
       }
-      const me = await api.get('/me')
-      const tenantId = (me?.tenant_id || '').trim()
-      if (tenantId) {
-        try { localStorage.setItem('bvx_tenant', tenantId) } catch {}
-      }
+      // Get tenant_id from localStorage (set during login)
+
       const settingsResp = await api.get('/settings')
       const settingsData = settingsResp?.data || {}
-      const subscription = me?.subscription || {}
+      const subscription = settingsData?.subscription || {}
 
       const trialEndTs = typeof subscription?.trial_end_ts === 'number'
         ? subscription.trial_end_ts

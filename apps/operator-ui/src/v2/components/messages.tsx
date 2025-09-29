@@ -228,9 +228,9 @@ export function Messages() {
 
   const loadContacts = useCallback(async () => {
     try {
-      const tenantId = await ensureTenant(tenantRef)
+      await ensureTenant(tenantRef)
       const response = await api.get(
-        `/contacts/list?tenant_id=${encodeURIComponent(tenantId)}&limit=${CONTACT_FETCH_LIMIT}&offset=0`,
+        `/contacts/list?limit=${CONTACT_FETCH_LIMIT}&offset=0`,
       )
       const items = Array.isArray(response?.items) ? response.items : []
       const mapped: ConversationContact[] = items.map((item: any) => ({
@@ -265,8 +265,8 @@ export function Messages() {
 
   const loadQuietHours = useCallback(async () => {
     try {
-      const tenantId = await ensureTenant(tenantRef)
-      const response = await api.get(`/settings?tenant_id=${encodeURIComponent(tenantId)}`)
+      await ensureTenant(tenantRef)
+      const response = await api.get(`/settings`)
       const quiet = response?.data?.quiet_hours || {}
       setQuietHours({
         start: typeof quiet.start === 'string' ? quiet.start : undefined,
@@ -281,8 +281,8 @@ export function Messages() {
   const loadTwilioStatus = useCallback(async () => {
     try {
       setTwilioStatusError(null)
-      const tenantId = await ensureTenant(tenantRef)
-      await api.get(`/integrations/status?tenant_id=${encodeURIComponent(tenantId)}`)
+      await ensureTenant(tenantRef)
+      await api.get(`/integrations/status`)
     } catch (error) {
       console.error('Failed to load Twilio status', error)
       setTwilioStatusError('Unable to verify Twilio status right now.')
@@ -519,8 +519,8 @@ export function Messages() {
 
   const pollFollowupStatus = useCallback(async () => {
     try {
-      const tenantId = await ensureTenant(tenantRef)
-      const res = await api.get(`/followups/draft_status?tenant_id=${encodeURIComponent(tenantId)}`)
+      await ensureTenant(tenantRef)
+      const res = await api.get(`/followups/draft_status`)
       const details = res?.details || {}
       setDraftJobId(res?.job_id ? String(res.job_id) : null)
       setDraftTodoId(typeof res?.todo_id === 'number' ? res.todo_id : null)

@@ -55,7 +55,7 @@ function DashboardHeaderComponent({ onNotificationClick, onOpenSettings, onNavig
         return
       }
       const response = await api.get(
-        `/search?tenant_id=${encodeURIComponent(tenantId)}&q=${encodeURIComponent(term)}&limit=6`,
+        `/search?q=${encodeURIComponent(term)}&limit=6`,
         { timeoutMs: 8000 },
       )
       const clients = Array.isArray(response?.clients) ? response.clients : []

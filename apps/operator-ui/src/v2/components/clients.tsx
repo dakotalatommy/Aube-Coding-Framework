@@ -16,7 +16,6 @@ import {
 import { toast } from 'sonner'
 
 import { api, getTenant, API_BASE } from '../../lib/api'
-import { supabase } from '../../lib/supabase'
 import { formatRelativeTime } from '../lib/formatters'
 import type { ClientsListResponse, ClientRecord, ClientSegmentSummary, ClientsQueryParams } from './types/clients'
 import { Button } from './ui/button'
@@ -123,7 +122,7 @@ export function Clients({ initialSearch, onAckSearch }: ClientsProps = {}) {
       const tenantId = await getTenant()
       if (!tenantId) return
       const response = (await api.get(
-        `/contacts/segments?tenant_id=${encodeURIComponent(tenantId)}&scope=dashboard`,
+        `/contacts/segments?scope=dashboard`,
         { timeoutMs: 10_000 },
       )) as { segments?: ClientSegmentSummary[]; smart_lists?: ClientSegmentSummary[] }
       const segmentList = Array.isArray(response?.segments) && response.segments.length > 0
@@ -204,12 +203,10 @@ export function Clients({ initialSearch, onAckSearch }: ClientsProps = {}) {
     try {
       const tenantId = await getTenant()
       if (!tenantId) throw new Error('Missing tenant context')
-      const session = (await supabase.auth.getSession()).data.session
-      const headers: Record<string, string> = session?.access_token
-        ? { Authorization: `Bearer ${session.access_token}` }
-        : {}
+      // Use legacy session-based authentication (no explicit headers needed)
+      const headers: Record<string, string> = {}
 
-      const downloadUrl = `${API_BASE}/contacts/export.csv?tenant_id=${encodeURIComponent(tenantId)}`
+      const downloadUrl = `${API_BASE}/contacts/export.csv`
       const response = await fetch(downloadUrl, { headers })
       if (!response.ok) throw new Error('Export failed')
       const blob = await response.blob()

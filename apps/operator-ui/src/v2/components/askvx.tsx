@@ -161,7 +161,7 @@ export function AskVX() {
           setMessages([WELCOME_MESSAGE])
           return
         }
-        const query = `/ai/chat/history?tenant_id=${encodeURIComponent(tenantId)}&session_id=${encodeURIComponent(sessionId)}&limit=50`
+        const query = `/ai/chat/history?session_id=${encodeURIComponent(sessionId)}&limit=50`
         const history = await api.get(query)
         const historyMessages: ChatMessage[] = Array.isArray(history?.messages)
           ? history.messages

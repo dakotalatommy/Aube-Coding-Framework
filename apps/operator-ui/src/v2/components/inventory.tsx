@@ -201,7 +201,7 @@ export function Inventory() {
         return
       }
       const response = (await api.get(
-        `/inventory/metrics?tenant_id=${encodeURIComponent(tenantId)}`,
+        `/inventory/metrics`,
         { timeoutMs: 12_000 },
       )) as InventoryMetricsResponse
 

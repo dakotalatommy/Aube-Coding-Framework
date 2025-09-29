@@ -102,7 +102,7 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
     try {
       const tenantId = await getTenant()
       if (!tenantId) return
-      const response = (await api.get(`/settings?tenant_id=${encodeURIComponent(tenantId)}`, {
+      const response = (await api.get(`/settings`, {
         timeoutMs: 10_000,
       })) as { data?: SettingsResponseData }
       const data = response.data ?? {}
@@ -145,7 +145,7 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
     try {
       const tenantId = await getTenant()
       if (!tenantId) return
-      const response = (await api.get(`/integrations/status?tenant_id=${encodeURIComponent(tenantId)}`, {
+      const response = (await api.get(`/integrations/status`, {
         timeoutMs: 10_000,
       })) as {
         providers?: Record<string, { linked?: boolean; status?: string }>
