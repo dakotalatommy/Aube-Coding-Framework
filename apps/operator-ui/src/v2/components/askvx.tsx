@@ -19,6 +19,7 @@ import {
   Target,
   Lightbulb,
   ArrowRight,
+  Loader2,
 } from 'lucide-react'
 import { api, getTenant } from '../../lib/api'
 import { trackEvent } from '../../lib/analytics'
@@ -121,12 +122,15 @@ export function AskVX() {
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME_MESSAGE])
   const [inputValue, setInputValue] = useState('')
   const [isTyping, setIsTyping] = useState(false)
+  const [isStreaming, setIsStreaming] = useState(false)
   const [loadingHistory, setLoadingHistory] = useState(true)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [sessionId] = useState(buildSessionId)
+  const [draftingFollowups, setDraftingFollowups] = useState(false)
 
   const messagesRef = useRef<ChatMessage[]>(messages)
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
+  const streamTimerRef = useRef<number | null>(null)
 
   useEffect(() => {
     messagesRef.current = messages
@@ -137,6 +141,15 @@ export function AskVX() {
     if (!container) return
     container.scrollTop = container.scrollHeight
   }, [messages, isTyping])
+
+  useEffect(() => {
+    return () => {
+      if (streamTimerRef.current) {
+        window.clearInterval(streamTimerRef.current)
+        streamTimerRef.current = null
+      }
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -175,7 +188,7 @@ export function AskVX() {
     }
   }, [sessionId])
 
-  const canSend = inputValue.trim().length > 0 && !isTyping
+  const canSend = inputValue.trim().length > 0 && !isTyping && !isStreaming
 
   const lastAssistantSuggestions = useMemo(() => {
     const lastAssistant = [...messages].reverse().find((msg) => msg.role === 'assistant')
@@ -186,7 +199,7 @@ export function AskVX() {
   const sendPrompt = useCallback(
     async (prompt: string) => {
       const trimmed = prompt.trim()
-      if (!trimmed || isTyping) return
+      if (!trimmed || isTyping || isStreaming) return
 
       setErrorMessage(null)
       const userMessage: ChatMessage = {
@@ -224,22 +237,63 @@ export function AskVX() {
           ? response.suggestions.map((s: unknown) => String(s)).filter(Boolean).slice(0, 4)
           : undefined
 
-        const assistantMessage: ChatMessage = {
-          id: `assistant-${Date.now()}`,
+        const finalText = assistantContent || 'I’m here to help with anything on the platform—try asking about scheduling, clients, or analytics.'
+        const assistantId = `assistant-${Date.now()}`
+        const placeholder: ChatMessage = {
+          id: assistantId,
           role: 'assistant',
-          content: assistantContent || 'I’m here to help with anything on the platform—try asking about scheduling, clients, or analytics.',
+          content: '',
           createdAt: new Date(),
-          suggestions: assistantSuggestions,
+          suggestions: undefined,
+        }
+        setMessages((prev) => [...prev, placeholder])
+        setIsStreaming(true)
+
+        const totalLength = finalText.length
+        const step = Math.max(2, Math.floor(totalLength / 200) || 2)
+        let index = 0
+
+        if (streamTimerRef.current) {
+          window.clearInterval(streamTimerRef.current)
+          streamTimerRef.current = null
         }
 
-        setMessages((prev) => [...prev, assistantMessage])
-        try {
-          trackEvent('ask.response_stream_complete', {
-            source: 'v2',
-            chars: assistantMessage.content.length,
-          })
-        } catch {}
+        streamTimerRef.current = window.setInterval(() => {
+          index = Math.min(totalLength, index + step)
+          const chunk = finalText.slice(0, index)
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === assistantId
+                ? {
+                    ...msg,
+                    content: chunk,
+                    suggestions: index >= totalLength ? assistantSuggestions : msg.suggestions,
+                  }
+                : msg,
+            ),
+          )
+
+          if (index >= totalLength) {
+            if (streamTimerRef.current) {
+              window.clearInterval(streamTimerRef.current)
+              streamTimerRef.current = null
+            }
+            setIsStreaming(false)
+            setIsTyping(false)
+            try {
+              trackEvent('ask.response_stream_complete', {
+                source: 'v2',
+                chars: finalText.length,
+              })
+            } catch {}
+          }
+        }, 20)
       } catch (error) {
+        if (streamTimerRef.current) {
+          window.clearInterval(streamTimerRef.current)
+          streamTimerRef.current = null
+        }
+        setIsStreaming(false)
         const detail = error instanceof Error ? error.message : String(error)
         setErrorMessage(detail)
         setMessages((prev) => [
@@ -251,11 +305,10 @@ export function AskVX() {
             createdAt: new Date(),
           },
         ])
-      } finally {
         setIsTyping(false)
       }
     },
-    [isTyping, sessionId],
+    [isTyping, isStreaming, sessionId],
   )
 
   const handleQuickPrompt = (prompt: string) => {
@@ -271,6 +324,52 @@ export function AskVX() {
   const handleSubmit = () => {
     void sendPrompt(inputValue)
   }
+
+  const handleDraftFollowups = useCallback(async () => {
+    if (draftingFollowups) return
+    setDraftingFollowups(true)
+    try {
+      const tenantId = await getTenant()
+      trackEvent('ask.followups.draft', { source: 'v2' })
+      const response = await api.post(
+        '/followups/draft_batch',
+        {
+          tenant_id: tenantId,
+          scope: 'reengage_30d',
+          template_id: 'reengage_30d',
+        },
+        { timeoutMs: 45000 },
+      )
+      const status = String(response?.status || 'queued')
+      const message =
+        status === 'ready'
+          ? 'Drafted follow-up messages are ready in your To-Do list.'
+          : 'Drafting follow-up messages now. You’ll see a notification as soon as they’re ready.'
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant-followup-${Date.now()}`,
+          role: 'assistant',
+          content: message,
+          createdAt: new Date(),
+          suggestions: ['Open notifications', 'Show follow-ups'],
+        },
+      ])
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant-followup-error-${Date.now()}`,
+          role: 'assistant',
+          content: `I couldn’t start that follow-up batch. ${detail}`,
+          createdAt: new Date(),
+        },
+      ])
+    } finally {
+      setDraftingFollowups(false)
+    }
+  }, [draftingFollowups])
 
   const handleKeyPress = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter') {
@@ -325,6 +424,26 @@ export function AskVX() {
                 </Button>
               )
             })}
+          </div>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <Button
+              variant="default"
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
+              onClick={handleDraftFollowups}
+              disabled={draftingFollowups}
+            >
+              {draftingFollowups ? (
+                <span className="flex items-center gap-2 text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Queuing follow-ups…
+                </span>
+              ) : (
+                <span className="text-sm flex items-center gap-2">
+                  <Sparkles className="h-4 w-4" />
+                  Draft follow-up messages
+                </span>
+              )}
+            </Button>
           </div>
         </CardContent>
       </Card>

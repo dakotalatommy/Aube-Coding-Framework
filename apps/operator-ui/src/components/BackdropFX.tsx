@@ -2,10 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 type BackdropFXProps = {
   withSpline?: boolean;
-  modelUrl?: string; // optional GLB served from /public
 };
 
-export function BackdropFX({ withSpline = false, modelUrl }: BackdropFXProps) {
+export function BackdropFX({ withSpline = false }: BackdropFXProps) {
   const [SplineComp, setSplineComp] = useState<React.ComponentType<any> | null>(null);
   const sceneUrl = (import.meta as any)?.env?.VITE_SPLINE_SCENE as string | undefined;
   const reducedMotion = useMemo(()=>{
@@ -21,15 +20,14 @@ export function BackdropFX({ withSpline = false, modelUrl }: BackdropFXProps) {
     }
     return () => { mounted = false; };
   }, [withSpline, sceneUrl, reducedMotion]);
+
   return (
-    <div aria-hidden className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
+    <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
       {/* Base vertical blue gradient wash */}
       <div
         className="absolute inset-0"
         style={{
-          background: [
-            'linear-gradient(180deg, rgba(186,218,255,0.28) 0%, rgba(255,255,255,0) 55%)',
-          ].join(', '),
+          background: 'linear-gradient(180deg, rgba(186,218,255,0.26) 0%, rgba(186,218,255,0.16) 32%, rgba(255,255,255,0.08) 58%, rgba(255,255,255,0) 88%)',
         }}
       />
 
@@ -57,28 +55,8 @@ export function BackdropFX({ withSpline = false, modelUrl }: BackdropFXProps) {
           <SplineComp scene={sceneUrl} />
         </div>
       )}
-
-      {/* Optional GLB via <model-viewer> (always render; keep static for a11y) */}
-      {!withSpline && modelUrl && (
-        // @ts-ignore
-        <model-viewer
-          src={modelUrl}
-          auto-rotate
-          camera-controls
-          interaction-prompt="none"
-          ar="false"
-          style={{ position:'absolute', inset:'0', width:'100%', height:'100%', opacity:0.32, transform:'scale(1.04)' }}
-          exposure="0.9"
-          disable-zoom
-          disable-pan
-          disable-tap
-          shadow-intensity="0"
-        />
-      )}
     </div>
   );
 }
 
 export default BackdropFX;
-
-

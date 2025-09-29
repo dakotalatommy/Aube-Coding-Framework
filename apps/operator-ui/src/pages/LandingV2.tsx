@@ -150,10 +150,15 @@ export default function LandingV2(){
 
 
   return (
-    <div className="relative w-full min-h-[100dvh]" style={{ backgroundColor: '#F7CBDD' }}>
+    <div
+      className="relative w-full min-h-[100dvh]"
+      style={{
+        background: 'linear-gradient(180deg, #f8eff8 0%, #f5d8e9 32%, #f4c9df 58%, #f6c6dd 76%, #f9d2e5 100%)',
+      }}
+    >
       <div className="mx-auto max-w-6xl relative z-10 flex flex-col min-h-[100dvh]">
       {/* Use GLB copied to /public/spline */}
-      <BackdropFX modelUrl="/spline/swirl.glb" />
+      <BackdropFX />
       {/* Hairlines */}
       <div aria-hidden className="absolute top-0 left-0 right-0 h-px bg-black/10" />
       {/* bottom hairline removed to avoid visible white line on short laptops */}

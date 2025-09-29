@@ -11,6 +11,7 @@ export interface AgendaTaskItem {
   type?: string
   iconName?: string
   colorClass?: string
+  todoId?: string | number
 }
 
 export interface AgendaEventItem {

@@ -21,6 +21,8 @@ export interface NotificationItem {
   urgent: boolean
   completed?: boolean
   status?: string
+  link?: string
+  pane?: string
 }
 
 const PRIORITY_ORDER: Record<NotificationPriority, number> = {
@@ -33,19 +35,11 @@ export interface NotificationDropdownProps {
   onViewAgenda?: (notification?: NotificationItem) => void
 }
 
-const derivePriority = (dueTs?: number | null): NotificationPriority => {
-  if (!dueTs) return 'Medium'
-  const diffMs = dueTs * 1000 - Date.now()
-  if (diffMs <= 0) return 'High'
-  if (diffMs <= 6 * 60 * 60 * 1000) return 'High'
-  if (diffMs <= 24 * 60 * 60 * 1000) return 'Medium'
-  return 'Low'
-}
-
-const formatTimeLabel = (time?: string | null, dueTs?: number | null) => {
-  if (time) return time
-  if (!dueTs) return null
-  const target = new Date(dueTs * 1000)
+const formatRelativeLabel = (dueTs?: number | null, createdTs?: number | null) => {
+  const sourceTs = dueTs ?? createdTs
+  if (!sourceTs) return null
+  const target = new Date(sourceTs * 1000)
+  if (Number.isNaN(target.getTime())) return null
   const now = new Date()
   const sameDay = target.toDateString() === now.toDateString()
   const tomorrow = new Date(now)
@@ -93,52 +87,36 @@ export function NotificationDropdown({ onViewAgenda }: NotificationDropdownProps
     const tenantId = await getTenant()
     if (!tenantId) return
 
-    const [queueResp, agendaResp] = await Promise.allSettled([
-      api.get(`/cadences/queue?tenant_id=${encodeURIComponent(tenantId)}&limit=10`),
-      api.get(`/followups/candidates?tenant_id=${encodeURIComponent(tenantId)}&scope=urgent`),
-    ])
+    const response = await api.get(`/notifications?tenant_id=${encodeURIComponent(tenantId)}&limit=12`, {
+      timeoutMs: 10_000,
+    })
 
-    const queueItems: NotificationItem[] =
-      queueResp.status === 'fulfilled'
-        ? ((queueResp.value as any)?.items ?? []).map((item: any, index: number) => {
-            const dueTs = typeof item.next_action_at === 'number' ? item.next_action_at : null
-            const priority = derivePriority(dueTs)
-            return {
-              id: `queue-${item.contact_id ?? index}`,
-              type: 'task',
-              title: `Follow up with ${item.friendly_name || 'client'}`,
-              subtitle: item.cadence_id ? item.cadence_id.replaceAll('_', ' ') : 'Follow-up sequence',
-              time: formatTimeLabel(undefined, dueTs),
-              dueTs,
-              priority,
-              urgent: priority === 'High',
-              status: item.status,
-            }
-          })
-        : []
+    const items = Array.isArray(response?.items) ? response.items : []
+    const mapped: NotificationItem[] = items.map((item: any) => {
+      const priority = (item?.priority ?? 'Medium') as NotificationPriority
+      return {
+        id: String(item?.id ?? Math.random().toString(36).slice(2)),
+        type: (item?.type ?? 'general') as NotificationType,
+        title: String(item?.title ?? 'Notification'),
+        subtitle: String(item?.subtitle ?? 'Tap to view details'),
+        time: item?.time_label || formatRelativeLabel(item?.due_ts, item?.created_ts),
+        dueTs: typeof item?.due_ts === 'number' ? item.due_ts : null,
+        priority,
+        urgent: Boolean(item?.urgent) || priority === 'High',
+        completed: Boolean(item?.completed),
+        status: item?.status ? String(item.status) : undefined,
+        link: item?.link ? String(item.link) : undefined,
+        pane: item?.pane ? String(item.pane) : undefined,
+      }
+    })
 
-    const agendaItems: NotificationItem[] =
-      agendaResp.status === 'fulfilled'
-        ? ((agendaResp.value as any)?.items ?? []).map((candidate: any, index: number) => ({
-            id: `candidate-${candidate.contact_id ?? index}`,
-            type: 'task',
-            title: 'Re-engage lapsed client',
-            subtitle: candidate.reason || 'Send a personalized check-in message',
-            time: null,
-            dueTs: null,
-            priority: 'Medium',
-            urgent: false,
-          }))
-        : []
-
-    const merged = [...queueItems, ...agendaItems]
-    merged.sort((a, b) => {
+    mapped.sort((a, b) => {
       if (a.urgent && !b.urgent) return -1
       if (!a.urgent && b.urgent) return 1
       return PRIORITY_ORDER[b.priority] - PRIORITY_ORDER[a.priority]
     })
 
-    const limited = merged.slice(0, 6)
+    const limited = mapped.slice(0, 6)
     setNotifications(limited)
     setUnreadCount(limited.filter((item) => item.urgent || item.priority === 'High').length)
   }, [])
@@ -167,6 +145,11 @@ export function NotificationDropdown({ onViewAgenda }: NotificationDropdownProps
   const handleNotificationClick = useCallback(
     (notification: NotificationItem) => {
       setIsOpen(false)
+      if (notification.pane) {
+        window.dispatchEvent(new CustomEvent('bvx:navigate', { detail: { pane: notification.pane, search: notification.subtitle } }))
+      } else if (notification.link) {
+        window.location.assign(notification.link)
+      }
       onViewAgenda?.(notification)
     },
     [onViewAgenda],
@@ -221,26 +204,27 @@ export function NotificationDropdown({ onViewAgenda }: NotificationDropdownProps
                     >
                       <Icon className="h-4 w-4" />
                     </span>
-                    <span className="flex flex-1 flex-col">
-                      <span className="text-sm font-semibold text-foreground">{notification.title}</span>
-                      <span className="text-xs text-muted-foreground">{notification.subtitle}</span>
-                      <span className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground">
-                        <Clock className="h-3 w-3" />
-                        {formatTimeLabel(notification.time ?? undefined, notification.dueTs ?? undefined) ?? 'Anytime'}
-                      </span>
-                    </span>
-                    <ChevronRight className="mt-1 h-4 w-4 text-muted-foreground" />
+                    <div className="flex-1 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium text-slate-900">{notification.title}</p>
+                        {notification.time && (
+                          <span className="text-xs text-muted-foreground">{notification.time}</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">{notification.subtitle}</p>
+                      {notification.status && (
+                        <span className="inline-flex text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                          {notification.status}
+                        </span>
+                      )}
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-muted-foreground" />
                   </button>
                 )
               })
             )}
           </CardContent>
         </Card>
-        <div className="border-t border-primary/10 bg-muted/30 px-4 py-3">
-          <Button variant="outline" className="w-full" onClick={() => handleNotificationClick(notifications[0])}>
-            View agenda
-          </Button>
-        </div>
       </PopoverContent>
     </Popover>
   )

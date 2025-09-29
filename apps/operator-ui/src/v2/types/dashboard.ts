@@ -8,6 +8,7 @@ export interface DashboardAgendaItem {
   completed?: boolean
   colorClass?: string
   iconName?: 'clients' | 'revenue' | 'retention' | 'automation'
+  todoId?: string
 }
 
 export interface DashboardClientPreviewItem {

@@ -47,4 +47,22 @@ export interface ClientsQueryParams {
 export interface ClientsListResponse {
   items: ClientRecord[]
   total: number
+  filters?: ClientFilterDefinition[]
+  generated_at?: number
+}
+
+export interface ClientFilterDefinition {
+  id: string
+  label: string
+  description?: string
+  active?: boolean
+  pillText?: string
+}
+
+export interface ClientHealthSummary {
+  vipCount: number
+  atRiskCount: number
+  referralChampions: number
+  lastSyncTs?: number | null
+  connectedProviders?: string[]
 }

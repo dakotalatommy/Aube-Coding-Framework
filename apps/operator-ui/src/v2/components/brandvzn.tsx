@@ -1,6 +1,6 @@
 // @ts-nocheck
-import { useState, useEffect } from 'react'
-import { Upload, Sparkles, Camera, Eye, Download, Share2, RotateCcw, Zap, MessageSquare, Wand2 } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Upload, Sparkles, Camera, Eye, Download, Share2, RotateCcw, Zap, MessageSquare, Wand2, Loader2 } from 'lucide-react'
 import { Button } from './ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card'
 import { Badge } from './ui/badge'
@@ -9,6 +9,7 @@ import { Textarea } from './ui/textarea'
 import { Label } from './ui/label'
 import { ImageWithFallback } from './figma/ImageWithFallback'
 import { BeforeAfterSlider } from './before-after-slider'
+import { api, getTenant } from '../../lib/api'
 
 interface BrandVZNProps {
   onConsultationGenerated: (data: { beforeImageUrl: string; afterImageUrl: string; promptText: string }) => void
@@ -21,8 +22,19 @@ export function BrandVZN({ onConsultationGenerated }: BrandVZNProps) {
   const [hasBeforeImage, setHasBeforeImage] = useState(false)
 
   const [beforeImageUrl, setBeforeImageUrl] = useState('')
+  const [beforeImageBase64, setBeforeImageBase64] = useState<string | null>(null)
   const [afterImageUrl, setAfterImageUrl] = useState('')
   const [processingComplete, setProcessingComplete] = useState(false)
+  const [processingError, setProcessingError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const previewUrlRef = useRef<string | null>(null)
+
+  useEffect(() => () => {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current)
+      previewUrlRef.current = null
+    }
+  }, [])
 
   // Handle navigation when processing is complete
   useEffect(() => {
@@ -37,36 +49,101 @@ export function BrandVZN({ onConsultationGenerated }: BrandVZNProps) {
   }, [processingComplete, afterImageUrl, beforeImageUrl, promptText, onConsultationGenerated])
 
   const handleImageUpload = () => {
-    setHasBeforeImage(true)
-    // Set the before image (in real app, this would be the uploaded image)
-    setBeforeImageUrl("https://images.unsplash.com/photo-1600637070413-0798fafbb6c7?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBtYWtldXAlMjBhcnRpc3R8ZW58MXx8fHwxNzU4NjU0MTcxfDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral")
+    setProcessingError(null)
+    fileInputRef.current?.click()
   }
 
-  const generateVisualization = () => {
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = reader.result as string
+      if (!result) return
+      const base64 = result.includes(',') ? result.split(',')[1] : undefined
+      if (!base64) {
+        setProcessingError('Unable to read that image. Please try a different file.')
+        return
+      }
+      setBeforeImageBase64(base64)
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current)
+        previewUrlRef.current = null
+      }
+      const objectUrl = URL.createObjectURL(file)
+      previewUrlRef.current = objectUrl
+      setBeforeImageUrl(objectUrl)
+      setHasBeforeImage(true)
+      setProcessingError(null)
+      setAfterImageUrl('')
+      setProcessingProgress(0)
+      event.target.value = ''
+    }
+    reader.onerror = () => {
+      setProcessingError('We could not read that image. Please try again.')
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const generateVisualization = async () => {
     if (!promptText.trim()) return
-    
+    if (!beforeImageBase64) {
+      setProcessingError('Upload a photo before generating a transformation.')
+      return
+    }
+
+    setProcessingError(null)
     setIsProcessing(true)
-    setProcessingProgress(0)
-    
-    // Simulate AI processing with more realistic timing
-    const interval = setInterval(() => {
-      setProcessingProgress(prev => {
-        if (prev >= 100) {
-          clearInterval(interval)
-          setIsProcessing(false)
-          
-          // Set the after image
-          const generatedAfterImageUrl = "https://images.unsplash.com/photo-1610207928705-0ecd72bd4b6e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxiZWF1dHklMjBjb25zdWx0YXRpb24lMjBiZWZvcmUlMjBhZnRlcnxlbnwxfHx8fDE3NTg2NTQxNjV8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
-          setAfterImageUrl(generatedAfterImageUrl)
-          
-          // Trigger navigation via useEffect
-          setProcessingComplete(true)
-          
-          return 100
-        }
-        return prev + 8
-      })
-    }, 400)
+    setProcessingProgress(12)
+
+    let interval: number | null = null
+    interval = window.setInterval(() => {
+      setProcessingProgress((prev) => (prev >= 90 ? prev : prev + 5))
+    }, 300)
+
+    try {
+      const tenantId = await getTenant()
+      const response = await api.post(
+        '/ai/tools/execute',
+        {
+          tenant_id: tenantId,
+          name: 'image.edit',
+          require_approval: false,
+          params: {
+            tenant_id: tenantId,
+            inputImageBase64: beforeImageBase64,
+            prompt: promptText.trim(),
+            preserveDims: true,
+          },
+        },
+        { timeoutMs: 120000 },
+      )
+
+      if (!response || response.status !== 'ok') {
+        const detail = String(response?.detail || response?.message || 'Unable to generate the visualization.')
+        throw new Error(detail)
+      }
+
+      const generatedAfterImageUrl = response.data_url || response.preview_url
+      if (!generatedAfterImageUrl) {
+        throw new Error('The AI did not return an image. Please try again.')
+      }
+
+      setAfterImageUrl(generatedAfterImageUrl)
+      setProcessingProgress(100)
+      setProcessingComplete(true)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      setProcessingError(detail)
+      setProcessingComplete(false)
+      setAfterImageUrl('')
+    } finally {
+      if (interval) {
+        window.clearInterval(interval)
+      }
+      setIsProcessing(false)
+    }
   }
 
   const resetConsultation = () => {
@@ -74,12 +151,25 @@ export function BrandVZN({ onConsultationGenerated }: BrandVZNProps) {
     setPromptText('')
     setProcessingProgress(0)
     setBeforeImageUrl('')
+     setBeforeImageBase64(null)
     setAfterImageUrl('')
     setProcessingComplete(false)
+    setProcessingError(null)
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current)
+      previewUrlRef.current = null
+    }
   }
 
   return (
     <div className="space-y-6">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileChange}
+      />
       {/* Header Section */}
       <div className="flex items-center justify-between">
         <div>
@@ -92,10 +182,11 @@ export function BrandVZN({ onConsultationGenerated }: BrandVZNProps) {
         </div>
         <div className="flex items-center space-x-2">
           {!hasBeforeImage ? (
-            <Button 
+            <Button
               onClick={handleImageUpload}
               className="bg-primary hover:bg-primary/90"
               size="sm"
+              disabled={isProcessing}
             >
               <Upload className="h-4 w-4 mr-2" />
               Upload Photo
@@ -137,11 +228,17 @@ export function BrandVZN({ onConsultationGenerated }: BrandVZNProps) {
               </CardHeader>
               <CardContent>
                 <div className="aspect-square rounded-lg overflow-hidden bg-muted">
-                  <ImageWithFallback 
-                    src="https://images.unsplash.com/photo-1600637070413-0798fafbb6c7?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBtYWtldXAlMjBhcnRpc3R8ZW58MXx8fHwxNzU4NjU0MTcxfDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral"
-                    alt="Client before photo"
-                    className="w-full h-full object-cover"
-                  />
+                  {beforeImageUrl ? (
+                    <ImageWithFallback
+                      src={beforeImageUrl}
+                      alt="Client before photo"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center text-xs text-muted-foreground">
+                      Upload a photo to begin
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -183,11 +280,20 @@ export function BrandVZN({ onConsultationGenerated }: BrandVZNProps) {
                     <Button 
                       className="w-full bg-primary hover:bg-primary/90 text-primary-foreground" 
                       onClick={generateVisualization}
-                      disabled={isProcessing}
+                      disabled={isProcessing || !beforeImageBase64}
                       size="lg"
                     >
-                      <Sparkles className="h-5 w-5 mr-2" />
-                      {isProcessing ? 'AI Processing...' : 'Generate Transformation'}
+                      {isProcessing ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                          AI Processing…
+                        </span>
+                      ) : (
+                        <span className="flex items-center justify-center gap-2">
+                          <Sparkles className="h-5 w-5" />
+                          Generate Transformation
+                        </span>
+                      )}
                     </Button>
                   </div>
                 )}
@@ -222,6 +328,11 @@ export function BrandVZN({ onConsultationGenerated }: BrandVZNProps) {
                     {processingProgress >= 95 && "Finalizing your consultation!"}
                   </p>
                 </div>
+                {processingError && (
+                  <div className="mt-3 text-sm text-destructive bg-destructive/10 border border-destructive/30 rounded-md p-2">
+                    {processingError}
+                  </div>
+                )}
               </CardContent>
             </Card>
           )}

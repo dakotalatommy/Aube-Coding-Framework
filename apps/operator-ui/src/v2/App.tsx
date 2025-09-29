@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, lazy, Suspense } from 'react'
 import type { Session } from '@supabase/supabase-js'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import './index.css'
 import './styles/globals.css'
 import { Crown } from 'lucide-react'
@@ -25,12 +26,9 @@ import { ClientRemindersProvider } from './components/client-reminders-context'
 import { OnboardingProvider } from './components/onboarding-context'
 import { OnboardingTooltip } from './components/onboarding-tooltip'
 import { Toaster } from './components/ui/sonner'
-import type {
-  DashboardAgendaItem,
-  DashboardClientPreviewItem,
-  DashboardReminderItem,
-  DashboardReferralInfo,
-} from './types/dashboard'
+import LandingV2 from './components/landing-page'
+import { AuthCallback } from './components/auth-callback'
+import type { DashboardAgendaItem, DashboardClientPreviewItem, DashboardReminderItem, DashboardReferralInfo } from './components/types/dashboard'
 
 const AskVX = lazy(() => import('./components/askvx').then(m => ({ default: m.AskVX })))
 const BrandVZN = lazy(() => import('./components/brandvzn').then(m => ({ default: m.BrandVZN })))
@@ -45,8 +43,6 @@ const Tutorials = lazy(() => import('./components/tutorials').then(m => ({ defau
 const Settings = lazy(() => import('./components/settings').then(m => ({ default: m.Settings })))
 const GrowWithVX = lazy(() => import('./components/grow-with-vx').then(m => ({ default: m.GrowWithVX })))
 
-type AuthView = 'signIn' | 'signUp'
-
 type UserProfile = {
   fullName?: string
   businessName?: string
@@ -59,9 +55,9 @@ type UserProfile = {
 }
 
 const DEFAULT_PROFILE: Required<Pick<UserProfile, 'fullName' | 'businessName' | 'jobTitle'>> = {
-  fullName: 'Sarah Johnson',
-  businessName: 'Elegant Beauty Studio',
-  jobTitle: 'Cosmetologist'
+  fullName: '',
+  businessName: '',
+  jobTitle: ''
 }
 
 const DEFAULT_TRIAL_LENGTH = 7
@@ -145,9 +141,13 @@ function DashboardContent({
   referral?: DashboardReferralInfo | null
   referralLoading: boolean
 }) {
-  const displayName = userData?.fullName ? userData.fullName.split(' ')[0] : DEFAULT_PROFILE.fullName.split(' ')[0]
-  const businessName = userData?.businessName || DEFAULT_PROFILE.businessName
-  const profession = userData?.jobTitle || DEFAULT_PROFILE.jobTitle
+  const rawName = (userData?.fullName || DEFAULT_PROFILE.fullName || '').trim()
+  const firstName = rawName ? rawName.split(/\s+/)[0] : ''
+  const greeting = firstName ? `Welcome back, ${firstName}` : 'Welcome back'
+  const businessName = (userData?.businessName || DEFAULT_PROFILE.businessName || '').trim()
+  const profession = (userData?.jobTitle || DEFAULT_PROFILE.jobTitle || '').trim()
+  const hasBusiness = Boolean(businessName)
+  const hasProfession = Boolean(profession)
   const showTrialBanner = isTrialUser(userData)
 
   return (
@@ -162,28 +162,34 @@ function DashboardContent({
 
       <div>
         <h2 className="text-3xl font-bold tracking-tight text-black" style={{ fontFamily: 'Playfair Display, serif' }}>
-          Welcome back, {displayName}
+          {greeting}
         </h2>
-        <div className="flex items-center space-x-2 mb-2">
-          <p className="text-lg font-medium text-primary" style={{ fontFamily: 'Playfair Display, serif' }}>
-            {businessName}
-          </p>
-          <span className="text-muted-foreground">•</span>
-          <p className="text-sm text-muted-foreground" style={{ fontFamily: 'Montserrat, sans-serif' }}>
-            {profession}
-          </p>
-          {userData?.plan && ['pro', 'premium'].includes(userData.plan.toLowerCase()) && (
-            <>
-              <span className="text-muted-foreground">•</span>
-              <div className="flex items-center space-x-1">
-                <Crown className="h-3 w-3 text-primary" />
-                <span className="text-xs font-medium text-primary uppercase">
-                  {userData.plan} Member
-                </span>
-              </div>
-            </>
-          )}
-        </div>
+        {(hasBusiness || hasProfession || (userData?.plan && ['pro', 'premium'].includes(userData.plan.toLowerCase()))) && (
+          <div className="flex items-center space-x-2 mb-2">
+            {hasBusiness && (
+              <p className="text-lg font-medium text-primary" style={{ fontFamily: 'Playfair Display, serif' }}>
+                {businessName}
+              </p>
+            )}
+            {hasBusiness && hasProfession && <span className="text-muted-foreground">•</span>}
+            {hasProfession && (
+              <p className="text-sm text-muted-foreground" style={{ fontFamily: 'Montserrat, sans-serif' }}>
+                {profession}
+              </p>
+            )}
+            {userData?.plan && ['pro', 'premium'].includes(userData.plan.toLowerCase()) && (
+              <>
+                {(hasBusiness || hasProfession) && <span className="text-muted-foreground">•</span>}
+                <div className="flex items-center space-x-1">
+                  <Crown className="h-3 w-3 text-primary" />
+                  <span className="text-xs font-medium text-primary uppercase">
+                    {userData.plan} Member
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+        )}
         <p className="text-muted-foreground" style={{ fontFamily: 'Montserrat, sans-serif' }}>
           Here's what's happening with your beauty business today.
         </p>
@@ -207,7 +213,6 @@ function DashboardContent({
 }
 
 export default function App() {
-  const [authView, setAuthView] = useState<AuthView>('signIn')
   const [session, setSession] = useState<Session | null>(null)
   const [userData, setUserData] = useState<UserProfile | null>(null)
   const [showSplash, setShowSplash] = useState(false)
@@ -230,6 +235,7 @@ export default function App() {
   const [currentTrialDay, setCurrentTrialDay] = useState<number | undefined>(undefined)
   const [showSplashGuard, setShowSplashGuard] = useState(false)
   const [settingsInitialTab, setSettingsInitialTab] = useState('onboarding')
+  const [clientSearchPrefill, setClientSearchPrefill] = useState<string | undefined>(undefined)
 
   const fetchDashboardData = useCallback(
     async (tenantIdOverride?: string) => {
@@ -469,6 +475,7 @@ export default function App() {
   const handleSplashComplete = useCallback(() => {
     setShowSplash(false)
     setShowSplashGuard(false)
+    setInitializing(false)
   }, [])
 
   const bootstrapSession = useCallback(async (activeSession: Session | null) => {
@@ -517,13 +524,38 @@ export default function App() {
         trialEndTs,
         trialLengthDays: typeof settingsData?.trial_length_days === 'number' ? settingsData.trial_length_days : undefined,
       }
-
       setUserData(profile)
       const trialDay = computeTrialDay(profile)
       setCurrentTrialDay(trialDay)
       setOnboardingRequired(!Boolean(settingsData?.onboarding_completed))
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to bootstrap session', error)
+      const status = error?.response?.status ?? error?.status
+      if (status === 401) {
+        try {
+          await supabase.auth.signOut()
+        } catch (signOutError) {
+          console.warn('Failed to sign out after bootstrap error', signOutError)
+        }
+        setSession(null)
+        setUserData(null)
+        setOnboardingRequired(false)
+        setCurrentTrialDay(undefined)
+        setShowSplash(false)
+        setShowSplashGuard(false)
+        if (typeof window !== 'undefined') {
+          window.location.replace('/login')
+        }
+        return
+      }
+      setUserData(null)
+      setOnboardingRequired(false)
+      setCurrentTrialDay(undefined)
+      setShowSplash(false)
+      setShowSplashGuard(false)
+    } finally {
+      setShowSplash(false)
+      setShowSplashGuard(false)
     }
   }, [])
 
@@ -533,8 +565,22 @@ export default function App() {
       try {
         const { data } = await supabase.auth.getSession()
         if (cancelled) return
+        if (!data.session) {
+          setSession(null)
+          setShowSplash(false)
+          setShowSplashGuard(false)
+          setInitializing(false)
+          return
+        }
         setSession(data.session)
+        setInitializing(false)
         await bootstrapSession(data.session)
+      } catch (error) {
+        console.warn('Initial session bootstrap failed', error)
+        setSession(null)
+        setShowSplash(false)
+        setShowSplashGuard(false)
+        setInitializing(false)
       } finally {
         if (!cancelled) setInitializing(false)
       }
@@ -543,9 +589,13 @@ export default function App() {
     const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
       if (cancelled) return
       setSession(newSession)
-      await bootstrapSession(newSession)
+      if (newSession) {
+        await bootstrapSession(newSession)
+      } else {
+        setShowSplash(false)
+        setShowSplashGuard(false)
+      }
       if (!newSession) {
-        setAuthView('signIn')
         setCurrentPage('dashboard')
       }
     })
@@ -575,6 +625,23 @@ export default function App() {
     const trialDay = computeTrialDay(userData)
     setCurrentTrialDay(trialDay)
   }, [userData])
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    console.info('[v2] shell state', {
+      initializing,
+      showSplash,
+      showSplashGuard,
+      hasSession: Boolean(session?.user),
+    })
+  }, [initializing, showSplash, showSplashGuard, session])
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    try {
+      console.info('[v2] route', window.location.pathname)
+    } catch {}
+  }, [])
 
   const handleConsultationGenerated = (data: ConsultationData) => {
     setConsultationData(data)
@@ -607,6 +674,24 @@ export default function App() {
     setSettingsInitialTab('plan')
     setCurrentPage('settings')
   }
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent<{ pane?: string; search?: string }>).detail
+      if (!detail) return
+      if (detail.pane) {
+        setCurrentPage(detail.pane)
+      }
+      if (detail.pane === 'clients' && typeof detail.search === 'string') {
+        setClientSearchPrefill(detail.search)
+      }
+      if (detail.pane === 'settings') {
+        handleNavigateToSettings()
+      }
+    }
+    window.addEventListener('bvx:navigate', handler as EventListener)
+    return () => window.removeEventListener('bvx:navigate', handler as EventListener)
+  }, [])
 
   const handleOnboardingComplete = async (completeUserData: UserProfile) => {
     setUserData(prev => ({ ...prev, ...completeUserData }))
@@ -683,7 +768,10 @@ export default function App() {
       case 'clients':
         return (
           <Suspense fallback={<LoadingSpinner />}>
-            <Clients />
+            <Clients
+              initialSearch={clientSearchPrefill}
+              onAckSearch={() => setClientSearchPrefill(undefined)}
+            />
           </Suspense>
         )
       case 'agenda':
@@ -787,71 +875,90 @@ export default function App() {
     }
   }
 
-  const handleShowSignUp = () => setAuthView('signUp')
-  const handleShowSignIn = () => setAuthView('signIn')
-
-  const handleSignedIn = () => {
-    setShowSplash(true)
-    setShowSplashGuard(true)
-  }
-
   if (initializing) {
     return <SplashScreen onComplete={handleSplashComplete} />
   }
 
-  if (!session) {
-    if (authView === 'signUp') {
-      return <SignUp onBackToSignIn={handleShowSignIn} />
-    }
-    return <SignIn onSignUp={handleShowSignUp} onSignedIn={handleSignedIn} />
-  }
+      return (
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<LandingV2 />} />
+            <Route path="/brandvx" element={<LandingV2 />} />
+            {!session ? (
+              <>
+                <Route path="/login" element={<SignIn />} />
+                <Route path="/signup" element={<SignUp />} />
+                <Route path="/auth/callback" element={<AuthCallback />} />
+                <Route path="*" element={<Navigate to="/" replace />} />
+              </>
+            ) : (
+              <>
+                <Route
+                  path="/workspace"
+                  element={
+                    onboardingRequired ? (
+                      <Onboarding userData={userData} onComplete={handleOnboardingComplete} />
+                    ) : showSplash || showSplashGuard ? (
+                      <SplashScreen onComplete={handleSplashComplete} />
+                    ) : (
+                      <OnboardingProvider>
+                        <ClientRemindersProvider>
+                          <AgendaProvider>
+                            <div className="min-h-screen bg-background flex">
+                              <SidebarNav
+                                currentPage={currentPage}
+                                setCurrentPage={setCurrentPage}
+                                userData={userData}
+                                onNavigateToSettings={handleNavigateToSettings}
+                              />
 
-  if (onboardingRequired) {
-    return <Onboarding userData={userData} onComplete={handleOnboardingComplete} />
-  }
+                              <div className="flex-1 flex flex-col">
+                                <DashboardHeader
+                                  onNotificationClick={handleNotificationClick}
+                                  onOpenSettings={handleNavigateToSettings}
+                                  onNavigate={(pane, payload) => {
+                                    setCurrentPage(pane)
+                                    if (pane === 'clients' && payload?.search) {
+                                      setClientSearchPrefill(payload.search)
+                                    }
+                                  }}
+                                  userData={userData}
+                                />
 
-  if (showSplash || showSplashGuard) {
-    return <SplashScreen onComplete={handleSplashComplete} />
-  }
+                                <main className="flex-1 p-6">
+                                  {renderPageContent()}
+                                </main>
+                              </div>
+                            </div>
 
-  return (
-    <OnboardingProvider>
-      <ClientRemindersProvider>
-        <AgendaProvider>
-          <div className="min-h-screen bg-background flex">
-            <SidebarNav
-              currentPage={currentPage}
-              setCurrentPage={setCurrentPage}
-              userData={userData}
-              onNavigateToSettings={handleNavigateToSettings}
-            />
+                            {(() => {
+                              const getOnboardingPageId = (page: string) => {
+                                const pageMap: Record<string, string> = {
+                                  'grow-your-list': 'grow-your-list',
+                                  'grow-with-vx': 'grow-with-vx',
+                                  'follow-ups': 'follow-ups',
+                                  'consultation-results': 'brandvzn',
+                                }
+                                return pageMap[page] || page
+                              }
 
-            <div className="flex-1 flex flex-col">
-              <DashboardHeader onNotificationClick={handleNotificationClick} userData={userData} />
+                              return <OnboardingTooltip pageId={getOnboardingPageId(currentPage) as any} />
+                            })()}
 
-              <main className="flex-1 p-6">
-                {renderPageContent()}
-              </main>
-            </div>
-          </div>
-
-          {(() => {
-            const getOnboardingPageId = (page: string) => {
-              const pageMap: Record<string, string> = {
-                'grow-your-list': 'grow-your-list',
-                'grow-with-vx': 'grow-with-vx',
-                'follow-ups': 'follow-ups',
-                'consultation-results': 'brandvzn',
-              }
-              return pageMap[page] || page
-            }
-
-            return <OnboardingTooltip pageId={getOnboardingPageId(currentPage) as any} />
-          })()}
-
-          <Toaster />
-        </AgendaProvider>
-      </ClientRemindersProvider>
-    </OnboardingProvider>
-  )
+                            <Toaster />
+                          </AgendaProvider>
+                        </ClientRemindersProvider>
+                      </OnboardingProvider>
+                    )
+                  }
+                />
+                <Route path="/auth/callback" element={<AuthCallback />} />
+                <Route path="/login" element={<SignIn />} />
+                <Route path="/signup" element={<SignUp />} />
+                <Route path="*" element={<Navigate to="/workspace" replace />} />
+              </>
+            )}
+          </Routes>
+        </BrowserRouter>
+      )
 }

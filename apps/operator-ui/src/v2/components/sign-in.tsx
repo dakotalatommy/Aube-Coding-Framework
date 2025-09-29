@@ -8,13 +8,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Separator } from './ui/separator'
 import bvxLogo from '../assets/539f8d3190f79d835fe0af50f92a753850eb6ff7.png'
 import { supabase } from '../../lib/supabase'
+import { useNavigate } from 'react-router-dom'
 
-interface SignInProps {
-  onSignedIn?: () => void
-  onSignUp: () => void
-}
-
-export function SignIn({ onSignedIn, onSignUp }: SignInProps) {
+export function SignIn() {
+  const nav = useNavigate()
   const [showPassword, setShowPassword] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -36,7 +33,7 @@ export function SignIn({ onSignedIn, onSignUp }: SignInProps) {
           return
         }
       } catch {}
-      onSignedIn?.()
+      nav('/workspace')
     } catch (err: any) {
       setErrorMessage(String(err?.message || err || 'Unable to sign in'))
     } finally {
@@ -222,7 +219,7 @@ export function SignIn({ onSignedIn, onSignUp }: SignInProps) {
             <p className="text-sm text-muted-foreground">
               Don't have an account?{' '}
               <button
-                onClick={onSignUp}
+                onClick={() => nav('/signup')}
                 className="text-primary hover:text-primary/80 font-medium"
               >
                 Sign up

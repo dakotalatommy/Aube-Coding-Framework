@@ -34,6 +34,7 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
   return (
     <motion.div
       className="fixed inset-0 bg-gradient-to-br from-primary via-primary/90 to-accent flex items-center justify-center z-50"
+      style={{ pointerEvents: 'none' }}
       initial={{ opacity: 1 }}
       animate={{ opacity: isExiting ? 0 : 1 }}
       transition={{ duration: 0.8, ease: "easeInOut" }}

@@ -84,6 +84,7 @@ const mapAgendaTasks = (items: DashboardAgendaItem[] = []): AgendaTaskItem[] =>
     type: item.iconName,
     iconName: item.iconName,
     colorClass: item.colorClass,
+    todoId: item.todoId,
   }))
 
 const mapReminders = (items: DashboardReminderItem[] = []): AgendaReminderItem[] =>
@@ -177,6 +178,11 @@ export function Agenda() {
   const [reminders, setReminders] = useState<AgendaReminderItem[]>([])
   const [lastSync, setLastSync] = useState<Record<string, { status?: string; ts?: number | null }>>({})
   const [syncing, setSyncing] = useState(false)
+  const [creatingTask, setCreatingTask] = useState(false)
+  const [newTaskTitle, setNewTaskTitle] = useState('')
+  const [newTaskDescription, setNewTaskDescription] = useState('')
+  const [newTaskPriority, setNewTaskPriority] = useState<'high' | 'medium' | 'low'>('medium')
+  const [newTaskTime, setNewTaskTime] = useState('')
 
   const loadAgenda = useCallback(async () => {
     setLoading(true)
@@ -231,6 +237,77 @@ export function Agenda() {
       }
     },
     [loadAgenda, syncing],
+  )
+
+  const handleCompleteTask = useCallback(
+    async (task: AgendaTaskItem) => {
+      if (!task.todoId || task.completed) return
+      try {
+        const tenantId = await getTenant()
+        if (!tenantId) throw new Error('Missing tenant context')
+        await api.post('/todo/ack', { tenant_id: tenantId, id: task.todoId })
+        toast.success('Task completed')
+        await loadAgenda()
+        window.dispatchEvent(new CustomEvent('bvx:navigate', { detail: { pane: 'agenda' } }))
+      } catch (error) {
+        console.error('Task completion failed', error)
+        toast.error('Unable to mark the task complete right now')
+      }
+    },
+    [loadAgenda],
+  )
+
+  const handleCompleteReminder = useCallback(
+    async (reminder: AgendaReminderItem) => {
+      if (!reminder.id) return
+      try {
+        const tenantId = await getTenant()
+        if (!tenantId) throw new Error('Missing tenant context')
+        await api.post('/todo/ack', { tenant_id: tenantId, id: reminder.id })
+        toast.success('Reminder cleared')
+        await loadAgenda()
+        window.dispatchEvent(new CustomEvent('bvx:navigate', { detail: { pane: 'agenda' } }))
+      } catch (error) {
+        console.error('Reminder completion failed', error)
+        toast.error('Unable to clear the reminder right now')
+      }
+    },
+    [loadAgenda],
+  )
+
+  const handleCreateTask = useCallback(
+    async () => {
+      if (!newTaskTitle.trim()) {
+        toast.error('Please enter a task title before saving.')
+        return
+      }
+      try {
+        setCreatingTask(true)
+        const tenantId = await getTenant()
+        if (!tenantId) throw new Error('Missing tenant context')
+        await api.post('/todo/create', {
+          tenant_id: tenantId,
+          title: newTaskTitle.trim(),
+          description: newTaskDescription.trim() || undefined,
+          priority: newTaskPriority,
+          due_time: newTaskTime || undefined,
+        })
+        toast.success('Task created')
+        setNewTaskTitle('')
+        setNewTaskDescription('')
+        setNewTaskPriority('medium')
+        setNewTaskTime('')
+        setShowAddDialog(false)
+        await loadAgenda()
+        window.dispatchEvent(new CustomEvent('bvx:navigate', { detail: { pane: 'agenda' } }))
+      } catch (error) {
+        console.error('Task creation failed', error)
+        toast.error('Unable to create the task right now')
+      } finally {
+        setCreatingTask(false)
+      }
+    },
+    [newTaskTitle, newTaskDescription, newTaskPriority, newTaskTime, loadAgenda],
   )
 
   useEffect(() => {
@@ -304,7 +381,9 @@ export function Agenda() {
             {task.impactLabel ? <span>• {task.impactLabel}</span> : null}
           </div>
           <div className="flex items-center gap-2">
-            <Button size="sm" variant={task.completed ? 'default' : 'outline'}>
+            <Button size="sm" variant={task.completed ? 'default' : 'outline'}
+              onClick={() => handleCompleteTask(task)}
+            >
               {task.completed ? 'Completed' : 'Mark complete'}
             </Button>
             <DropdownMenu>
@@ -354,7 +433,9 @@ export function Agenda() {
             </div>
           </div>
           <div className="flex items-center justify-end gap-2">
-            <Button size="sm" variant="outline">
+            <Button size="sm" variant="outline"
+              onClick={() => handleCompleteReminder(reminder)}
+            >
               {reminder.actionLabel ?? 'Mark done'}
             </Button>
           </div>
@@ -401,11 +482,11 @@ export function Agenda() {
                 <DialogTitle>Create task</DialogTitle>
               </DialogHeader>
               <div className="space-y-4">
-                <Input placeholder="Task title" />
-                <Textarea placeholder="Description" />
+                <Input placeholder="Task title" value={newTaskTitle} onChange={(event) => setNewTaskTitle(event.target.value)} />
+                <Textarea placeholder="Description" value={newTaskDescription} onChange={(event) => setNewTaskDescription(event.target.value)} />
                 <div className="grid grid-cols-2 gap-4">
-                  <Input type="time" />
-                  <Select defaultValue="medium">
+                  <Input type="time" value={newTaskTime} onChange={(event) => setNewTaskTime(event.target.value)} />
+                  <Select value={newTaskPriority} onValueChange={(value) => setNewTaskPriority(value as 'high' | 'medium' | 'low')}>
                     <SelectTrigger>
                       <SelectValue placeholder="Priority" />
                     </SelectTrigger>
@@ -420,7 +501,9 @@ export function Agenda() {
                   <Button variant="outline" onClick={() => setShowAddDialog(false)}>
                     Cancel
                   </Button>
-                  <Button disabled>Add task</Button>
+                  <Button onClick={handleCreateTask} disabled={creatingTask}>
+                    {creatingTask ? 'Saving…' : 'Add task'}
+                  </Button>
                 </div>
               </div>
             </DialogContent>

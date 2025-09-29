@@ -9,11 +9,7 @@ import { Separator } from './ui/separator'
 import bvxLogo from '../assets/539f8d3190f79d835fe0af50f92a753850eb6ff7.png'
 import { supabase } from '../../lib/supabase'
 
-interface SignUpProps {
-  onBackToSignIn: () => void
-}
-
-export function SignUp({ onBackToSignIn }: SignUpProps) {
+export function SignUp() {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [awaitingConfirm, setAwaitingConfirm] = useState(false)
@@ -303,14 +299,12 @@ export function SignUp({ onBackToSignIn }: SignUpProps) {
             animate={{ opacity: 1 }}
             transition={{ duration: 0.6, delay: 0.8 }}
           >
-            <button
-              type="button"
-              className="inline-flex items-center space-x-2 text-sm text-muted-foreground hover:text-foreground"
-              onClick={onBackToSignIn}
-            >
-              <ArrowLeft className="h-4 w-4" />
-              <span>Back to sign in</span>
-            </button>
+            <Button type="button" variant="ghost" onClick={() => (window.location.href = '/login')}>
+              <div className="flex items-center justify-center gap-2 text-primary font-medium">
+                <ArrowLeft className="h-4 w-4" />
+                Back to sign in
+              </div>
+            </Button>
           </motion.div>
         </motion.div>
       </div>

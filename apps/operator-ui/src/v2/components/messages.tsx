@@ -1,27 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { 
-  ClipboardList,
-  Copy,
-  Inbox,
-  Loader2,
-  MessageSquare, 
-  Send, 
-  Sparkles,
-  TrendingUp,
-  RefreshCw,
-} from 'lucide-react'
+import { ClipboardList, Copy, Inbox, Loader2, MessageSquare, Send, Sparkles, TrendingUp, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { api, getTenant } from '../../lib/api'
 import { trackEvent } from '../../lib/analytics'
-import type {
-  ConversationContact,
-  FollowupBundle,
-  MessageFilter,
-  MessageHistoryItem,
-  QuietHoursSettings,
-  TemplateOption,
-} from './types/messages'
+import type { ConversationContact, FollowupBundle, MessageFilter, MessageHistoryItem, QuietHoursSettings } from './types/messages'
 import { Button } from './ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
@@ -29,7 +12,7 @@ import { Input } from './ui/input'
 import { Textarea } from './ui/textarea'
 import { Badge } from './ui/badge'
 import { Label } from './ui/label'
-import { Alert, AlertDescription } from './ui/alert'
+import { Alert, AlertDescription, AlertTitle } from './ui/alert'
 import { ScrollArea } from './ui/scroll-area'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu'
 import { Table, TableBody as TBody, TableCell as TD, TableHead as TH, TableHeader as THead, TableRow as TR } from './ui/table'
@@ -37,15 +20,69 @@ import { Table, TableBody as TBody, TableCell as TD, TableHead as TH, TableHeade
 const CONTACT_FETCH_LIMIT = 500
 const HISTORY_LIMIT = 200
 
-const TEMPLATE_OPTIONS: TemplateOption[] = [
-  { id: 'reminder_24h', label: 'Reminder • 24h before' },
-  { id: 'waitlist_open', label: 'Waitlist • Open slot' },
-  { id: 'lead_followup', label: 'Lead • Follow-up' },
-  { id: 'reengage_30d', label: 'Re-engage • 30 days' },
-  { id: 'winback_45d', label: 'Win-back • 45+ days' },
-  { id: 'no_show_followup', label: 'No-show • Follow-up' },
-  { id: 'first_time_nurture', label: 'First-time • Nurture' },
-]
+const PROMPT_REGISTRY = [
+  {
+    id: 'lead_followup',
+    label: 'Lead • Follow-up',
+    promptId: 'BVX_lead_nurture_v1',
+    cadenceId: 'lead_followup',
+    preview: "Hi {{name}}! I saw you were looking at {{service}}. I'd love to answer any questions or get you scheduled. What day works best?",
+    guardrails: ['Keep it under 320 characters', 'Name the service they asked about', 'End with a question that prompts a reply'],
+  },
+  {
+    id: 'reminder_24h',
+    label: 'Reminder • 24h before',
+    promptId: 'BVX_reminder_24h',
+    cadenceId: 'reminder',
+    preview: 'Hey {{name}} — we are excited to see you tomorrow at {{time}}. Need to change it? Tap the booking link and we will take care of it for you.',
+    guardrails: ['Confirm date/time plainly', 'Offer reschedule help', 'Mention STOP/HELP compliance'],
+  },
+  {
+    id: 'waitlist_open',
+    label: 'Waitlist • Open slot',
+    promptId: 'BVX_waitlist_slot',
+    cadenceId: 'reminder_week',
+    preview: 'A spot opened for {{service}} at {{time}}. Want it? Reply YES and I will lock it in or send the best alternatives.',
+    guardrails: ['Highlight urgency kindly', 'Offer alternative options', 'Keep CTA short'],
+  },
+  {
+    id: 'reengage_30d',
+    label: 'Re-engage • 30 days',
+    promptId: 'BVX_reengage_30d',
+    cadenceId: 'reengage_30d',
+    preview: "It has been a minute since your last visit, {{name}}. Would you like me to hold a chair next week? We would love to keep the glow going!",
+    guardrails: ['Celebrate their return', 'Offer specific scheduling help', 'One CTA question'],
+  },
+  {
+    id: 'winback_45d',
+    label: 'Win-back • 45+ days',
+    promptId: 'BVX_winback_45d',
+    cadenceId: 'winback_45d_plus',
+    preview: 'I would love to see you again, {{name}}! Reply with a day that works and consider it reserved. I have an opening later this week.',
+    guardrails: ['Lead with appreciation', 'Offer limited-time perk', 'Invite an easy reply'],
+  },
+  {
+    id: 'no_show_followup',
+    label: 'No-show • Follow-up',
+    promptId: 'BVX_no_show_followup',
+    cadenceId: 'no_show_followup',
+    preview: 'Life happens, {{name}}—shall I find a new time for you? I have flexibility over the next few days and can hold something easy.',
+    guardrails: ['Start with empathy', 'Offer 2–3 new slots', 'Mention STOP/HELP compliance'],
+  },
+  {
+    id: 'first_time_nurture',
+    label: 'First-time • Nurture',
+    promptId: 'BVX_first_time_nurture',
+    cadenceId: 'first_time_nurture',
+    preview: 'Welcome to the studio, {{name}}! Here is 20% off your next visit within 30 days. Want me to reserve your next experience?',
+    guardrails: ['Celebrate their first visit', 'Include a time-bound perk', 'Offer concierge-level booking help'],
+  },
+ ] as const
+
+type PromptTemplate = (typeof PROMPT_REGISTRY)[number]
+type ComposeTemplateId = PromptTemplate['id']
+
+const PROMPT_MAP = new Map<ComposeTemplateId, PromptTemplate>(PROMPT_REGISTRY.map((item) => [item.id, item]))
 
 const MESSAGE_FILTERS: Array<{ id: MessageFilter; label: string }> = [
   { id: 'all', label: 'All' },
@@ -54,8 +91,6 @@ const MESSAGE_FILTERS: Array<{ id: MessageFilter; label: string }> = [
   { id: 'scheduled', label: 'Scheduled' },
   { id: 'failed', label: 'Failed' },
 ]
-
-type ComposeTemplateId = (typeof TEMPLATE_OPTIONS)[number]['id']
 
 type SendMode = 'draft' | 'now'
 
@@ -124,12 +159,17 @@ export function Messages() {
   const [selectedContacts, setSelectedContacts] = useState<ConversationContact[]>([])
 
   const [templateId, setTemplateId] = useState<ComposeTemplateId>('lead_followup')
-  const [messageBody, setMessageBody] = useState(DEFAULT_TEMPLATE_TEXT['lead_followup'])
-  const [lastAutoBody, setLastAutoBody] = useState(DEFAULT_TEMPLATE_TEXT['lead_followup'])
+  const activeTemplate = PROMPT_MAP.get(templateId)
+  const [messageBody, setMessageBody] = useState(activeTemplate?.preview || '')
+  const [lastAutoBody, setLastAutoBody] = useState(activeTemplate?.preview || '')
   const [sendMode, setSendMode] = useState<SendMode>('draft')
   const [isDrafting, setIsDrafting] = useState(false)
   const [draftDownloadUrl, setDraftDownloadUrl] = useState<string>('')
   const [draftStatus, setDraftStatus] = useState<string>('')
+  const [, setDraftJobId] = useState<string | null>(null)
+  const [, setDraftTodoId] = useState<number | null>(null)
+  const [, setDraftContacts] = useState<string[]>([])
+  const [sendingMode, setSendingMode] = useState<'idle' | 'sending' | 'queued'>('idle')
 
   const [quietHours, setQuietHours] = useState<QuietHoursSettings>({})
   const [savingQuietHours, setSavingQuietHours] = useState(false)
@@ -273,9 +313,9 @@ export function Messages() {
     if (!bundle || !contacts.length) return
     pendingBundleRef.current = null
 
-    if (bundle.bucket && TEMPLATE_OPTIONS.some((option) => option.id === bundle.bucket)) {
+    if (bundle.bucket && PROMPT_REGISTRY.some((option) => option.id === bundle.bucket)) {
       setTemplateId(bundle.bucket as ComposeTemplateId)
-      setLastAutoBody(DEFAULT_TEMPLATE_TEXT[bundle.bucket as ComposeTemplateId])
+      setLastAutoBody(activeTemplate?.preview || DEFAULT_TEMPLATE_TEXT[bundle.bucket as ComposeTemplateId])
     }
     if (bundle.markdown) {
       setMessageBody(bundle.markdown)
@@ -290,15 +330,15 @@ export function Messages() {
         bundleAppliedRef.current = true
       }
     }
-  }, [contacts, contactsById])
+  }, [contacts, contactsById, activeTemplate])
 
   useEffect(() => {
     if (bundleAppliedRef.current) return
-    const templateText = DEFAULT_TEMPLATE_TEXT[templateId]
-    if (!templateText) return
-    if (messageBody.trim().length === 0 || messageBody === lastAutoBody) {
-      setMessageBody(templateText)
-      setLastAutoBody(templateText)
+    const template = PROMPT_MAP.get(templateId)
+    const preview = template?.preview
+    if (preview && (messageBody.trim().length === 0 || messageBody === lastAutoBody)) {
+      setMessageBody(preview)
+      setLastAutoBody(preview)
     }
   }, [templateId, messageBody, lastAutoBody])
 
@@ -324,6 +364,35 @@ export function Messages() {
     }
   }
 
+  const buildPromptMessages = (template: PromptTemplate, people: ConversationContact[]) => {
+    const clientLines = people.map((person) => {
+      const name = person.name || 'client'
+      const tags = Array.isArray(person.tags) && person.tags.length ? `Tags: ${person.tags.join(', ')}` : ''
+      const lastVisit = person.totalVisits ? `${person.totalVisits} visits recorded` : ''
+      return `- ${name}${lastVisit ? ` (${lastVisit})` : ''}${tags ? ` | ${tags}` : ''}`
+    })
+
+    return [
+      {
+        role: 'system',
+        content: 'You are BrandVX, a concierge for beauty professionals. Tone: celebratory, direct, consent-first.',
+      },
+      {
+        role: 'user',
+        content: [
+          `Prompt template: ${template.promptId}`,
+          'Write one SMS per client in Markdown format (## Name).',
+          'Keep each message under 320 characters, no placeholders like {{name}}—use the real name.',
+          'Respect STOP/HELP compliance and consent context.',
+          template.preview ? `Reference this sample tone: ${template.preview}` : '',
+          '',
+          'Client roster:',
+          ...clientLines,
+        ].join('\n'),
+      },
+    ]
+  }
+
   const handleDraft = async () => {
     if (isDrafting) return
     const recipients = selectedContacts
@@ -336,35 +405,41 @@ export function Messages() {
       setIsDrafting(true)
       setDraftStatus('Generating draft…')
       const tenantId = await ensureTenant(tenantRef)
-      const names = recipients.map((person) => person.name).join(', ')
-      const prompt = [
-        'Create a concise, friendly set of SMS drafts for beauty clients. Use warm, professional language and avoid jargon.',
-        `Template bucket: ${templateId}`,
-        `Clients: ${names}`,
-        'Output as a Markdown document with one section per client:',
-        '- Heading = client name',
-        '- 1–2 sentence SMS, personalised with their name',
-        '- No variables like {FirstName}. Use the given name directly.',
-      ].join('\n')
+      const templateMeta = PROMPT_MAP.get(templateId)
+      const messagesPayload = templateMeta ? buildPromptMessages(templateMeta, recipients) : []
 
-      trackEvent('messages.draft', { bucket: templateId, count: recipients.length })
-      const response = await api.post(
-        '/ai/chat/raw',
-        {
-          tenant_id: tenantId,
-          messages: [
-            { role: 'user', content: prompt },
-            { role: 'assistant', content: DEFAULT_TEMPLATE_TEXT[templateId] },
-          ],
-          mode: 'messages',
-        },
-        { timeoutMs: 60_000 },
-      )
+  trackEvent('messages.draft', { bucket: templateId, count: recipients.length })
 
-      const markdown = String(response?.text || '').trim()
+      let markdown = ''
+      if (messagesPayload.length) {
+        try {
+          const response = await api.post(
+            '/ai/chat/raw',
+            {
+              tenant_id: tenantId,
+              messages: messagesPayload,
+              mode: 'messages',
+              metadata: {
+                feature: 'messages.workspace',
+                template_id: templateId,
+              },
+            },
+            { timeoutMs: 60_000 },
+          )
+          markdown = String(response?.text || response?.choices?.[0]?.message?.content || '').trim()
+        } catch (error) {
+          console.warn('Responses API draft failed, falling back to template preview', error)
+        }
+      }
+
       if (!markdown) {
-        toast.error('Draft unavailable', { description: 'The AI did not return any content. Try again shortly.' })
-        setDraftStatus('No draft returned')
+        const fallbackCopy = templateMeta?.preview
+        if (fallbackCopy) {
+          setMessageBody(fallbackCopy)
+          setLastAutoBody(fallbackCopy)
+        }
+        setDraftStatus('Draft service unavailable — using template preview copy for now')
+        toast.error('Draft unavailable', { description: 'Using saved template copy until the assistant responds.' })
         return
       }
 
@@ -379,6 +454,7 @@ export function Messages() {
         const url = URL.createObjectURL(blob)
         setDraftDownloadUrl(url)
       } catch {}
+
       try {
         await navigator.clipboard.writeText(markdown)
         toast.success('Markdown copied to clipboard')
@@ -391,6 +467,78 @@ export function Messages() {
       setIsDrafting(false)
     }
   }
+
+  const pollFollowupStatus = useCallback(async () => {
+    try {
+      const tenantId = await ensureTenant(tenantRef)
+      const res = await api.get(`/followups/draft_status?tenant_id=${encodeURIComponent(tenantId)}`)
+      const details = res?.details || {}
+      setDraftJobId(res?.job_id ? String(res.job_id) : null)
+      setDraftTodoId(typeof res?.todo_id === 'number' ? res.todo_id : null)
+      setDraftContacts(Array.isArray(details?.contact_ids) ? details.contact_ids.map((cid: any) => String(cid)) : [])
+      const status = String(res?.status || 'pending')
+      if (status === 'ready' && details?.draft_markdown) {
+        setMessageBody(String(details.draft_markdown))
+        setLastAutoBody(String(details.draft_markdown))
+        setDraftStatus('Draft ready — copied to editor')
+        toast.success('Follow-up drafts ready', {
+          description: 'Open the notifications drawer to approve and send.',
+        })
+      } else if (status === 'error') {
+        setDraftStatus('Draft failed — check notifications for details')
+        toast.error('Draft failed', { description: res?.detail || details?.error || 'See To-Do for more information.' })
+      } else if (status === 'queued' || status === 'running') {
+        setDraftStatus('Draft running — we will notify you when ready')
+      }
+    } catch (error) {
+      console.warn('followups status poll failed', error)
+    }
+  }, [tenantRef])
+
+  useEffect(() => {
+    const handle = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        void pollFollowupStatus()
+      }
+    }, 8000)
+    return () => window.clearInterval(handle)
+  }, [pollFollowupStatus])
+
+  const handleSendNow = useCallback(async () => {
+    if (!selectedContacts.length) {
+      toast.error('Choose at least one client before sending')
+      return
+    }
+    if (!messageBody.trim()) {
+      toast.error('Draft is empty', { description: 'Generate or write a message before sending.' })
+      return
+    }
+
+    try {
+      setSendingMode('sending')
+      const tenantId = await ensureTenant(tenantRef)
+      for (const contact of selectedContacts) {
+        try {
+          await api.post('/messages/send', {
+            tenant_id: tenantId,
+            contact_id: contact.id,
+            channel: 'sms',
+            template_id: templateId,
+            body: messageBody,
+          })
+        } catch (error) {
+          console.error('Message send failed', error)
+        }
+      }
+      toast.success('Messages sent', { description: 'Queued for delivery via messaging worker.' })
+      setSendingMode('queued')
+      loadHistory(historyFilter)
+    } catch (error) {
+      console.error('Send now failed', error)
+      toast.error('Unable to send messages right now')
+      setSendingMode('idle')
+    }
+  }, [ensureTenant, historyFilter, loadHistory, messageBody, selectedContacts, templateId, toast])
 
   const handleSaveQuietHours = async () => {
     try {
@@ -410,7 +558,7 @@ export function Messages() {
   }
 
   const renderComposeTab = () => {
-    const templateLabel = TEMPLATE_OPTIONS.find((option) => option.id === templateId)?.label || 'Template'
+    const activeTemplate = PROMPT_MAP.get(templateId)
   return (
         <Card>
           <CardHeader>
@@ -426,14 +574,27 @@ export function Messages() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" className="w-full justify-between">
-                  <span>{templateLabel}</span>
+                  <span>{activeTemplate?.label || 'Template'}</span>
                   <TrendingUp className="h-4 w-4 text-muted-foreground" />
-              </Button>
+                </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-[240px]">
-                {TEMPLATE_OPTIONS.map((option) => (
-                  <DropdownMenuItem key={option.id} onClick={() => setTemplateId(option.id as ComposeTemplateId)}>
-                    {option.label}
+              <DropdownMenuContent align="start" className="w-[320px] space-y-2">
+                {PROMPT_REGISTRY.map((option) => (
+                  <DropdownMenuItem
+                    key={option.id}
+                    onClick={() => {
+                      setTemplateId(option.id as ComposeTemplateId)
+                      if (option.preview) {
+                        setMessageBody(option.preview)
+                        setLastAutoBody(option.preview)
+                      }
+                    }}
+                    className="flex flex-col items-start space-y-1"
+                  >
+                    <span className="font-semibold text-sm text-slate-900">{option.label}</span>
+                    <span className="text-xs text-muted-foreground leading-tight">
+                      {option.preview.replace(/\{\{name\}\}/g, 'Jess').slice(0, 96)}...
+                    </span>
                   </DropdownMenuItem>
                 ))}
               </DropdownMenuContent>
@@ -490,7 +651,17 @@ export function Messages() {
 
           <div className="space-y-3">
             <Label className="text-sm font-medium">Message Body</Label>
-                <Textarea
+            {activeTemplate?.guardrails && activeTemplate.guardrails.length > 0 && (
+              <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-primary">
+                <div className="font-semibold mb-1">Draft checklist</div>
+                <ul className="list-disc ml-4 space-y-1">
+                  {activeTemplate.guardrails.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <Textarea
               placeholder="Write your message here..."
               value={messageBody}
               onChange={(event) => setMessageBody(event.target.value)}
@@ -500,16 +671,28 @@ export function Messages() {
               <Button variant="outline" onClick={handleCopyDraft}>
                 <Copy className="h-4 w-4 mr-2" />
                 Copy Draft
-                    </Button>
+              </Button>
               <Button onClick={handleDraft} disabled={isDrafting}>
                 {isDrafting ? (
                   <Loader2 className="h-4 w-4 mr-2" />
                 ) : (
+                  <Sparkles className="h-4 w-4 mr-2" />
+                )}
+                {isDrafting ? 'Drafting…' : 'Generate Draft'}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleSendNow}
+                disabled={sendingMode === 'sending'}
+              >
+                {sendingMode === 'sending' ? (
+                  <Loader2 className="h-4 w-4 mr-2" />
+                ) : (
                   <Send className="h-4 w-4 mr-2" />
                 )}
-                {isDrafting ? 'Drafting...' : 'Generate Draft'}
-                        </Button>
-                      </div>
+                {sendingMode === 'sending' ? 'Sending…' : 'Send Now (Beta)'}
+              </Button>
+            </div>
             {draftDownloadUrl && (
               <div className="mt-4">
                 <a
@@ -524,8 +707,9 @@ export function Messages() {
             )}
             {draftStatus && (
               <Alert className="border-primary/40 bg-primary/5 text-primary">
+                <AlertTitle>Draft status</AlertTitle>
                 <AlertDescription>{draftStatus}</AlertDescription>
-                </Alert>
+              </Alert>
             )}
                   </div>
 
@@ -653,7 +837,7 @@ export function Messages() {
                     <TD>{item.status}</TD>
                     <TD>
                       {item.templateId
-                        ? TEMPLATE_OPTIONS.find((option) => option.id === item.templateId)?.label ?? 'Custom'
+                        ? PROMPT_REGISTRY.find((option) => option.id === item.templateId)?.label ?? 'Custom'
                         : 'N/A'}
                     </TD>
                     <TD>{item.timestampLabel}</TD>

@@ -1235,6 +1235,223 @@ def followups_candidates(tenant_id: str, scope: str = "this_week", db: Session =
         return {"items": []}
 
 
+@app.get("/notifications", tags=["Cadences"])
+def notifications_list(
+    tenant_id: str,
+    limit: int = 12,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"items": []}
+
+    limit = max(1, min(limit, 50))
+    items: List[Dict[str, Any]] = []
+
+    try:
+        queue_rows = db.execute(
+            _sql_text(
+                """
+                SELECT cs.contact_id, cs.cadence_id, cs.next_action_epoch, cs.last_status,
+                       c.display_name, c.first_name, c.last_name
+                FROM cadence_state cs
+                LEFT JOIN contacts c
+                  ON c.contact_id = cs.contact_id AND c.tenant_id = cs.tenant_id
+                WHERE cs.tenant_id = CAST(:t AS uuid)
+                  AND cs.next_action_epoch IS NOT NULL
+                ORDER BY cs.next_action_epoch ASC
+                LIMIT :lim
+                """
+            ),
+            {"t": tenant_id, "lim": limit},
+        ).fetchall()
+
+        now_ms = int(datetime.utcnow().timestamp() * 1000)
+        for row in queue_rows:
+            due_ts = row[2]
+            display_name = row[4] or ""
+            if not display_name:
+                first = (row[5] or "").strip()
+                last = (row[6] or "").strip()
+                display_name = " ".join(part for part in [first, last] if part)
+            if not display_name:
+                display_name = "Client"
+
+            priority = 'Medium'
+            if isinstance(due_ts, (int, float)):
+                diff = int(due_ts) * 1000 - now_ms
+                if diff <= 0 or diff <= 6 * 60 * 60 * 1000:
+                    priority = 'High'
+                elif diff <= 24 * 60 * 60 * 1000:
+                    priority = 'Medium'
+                else:
+                    priority = 'Low'
+
+            items.append(
+                {
+                    "id": f"queue:{row[0]}:{row[1]}",
+                    "type": "task",
+                    "title": f"Follow up with {display_name}",
+                    "subtitle": row[1].replace('_', ' ') if isinstance(row[1], str) else 'Follow-up sequence',
+                    "priority": priority,
+                    "urgent": priority == 'High',
+                    "due_ts": int(due_ts) if isinstance(due_ts, (int, float)) else None,
+                    "status": row[3],
+                    "pane": 'agenda',
+                }
+            )
+    except Exception:
+        pass
+
+    try:
+        todo_rows = db.execute(
+            _sql_text(
+                """
+                SELECT id, type, title, details_json, status,
+                       EXTRACT(EPOCH FROM created_at)::bigint AS created_ts
+                FROM todo_items
+                WHERE tenant_id = CAST(:t AS uuid)
+                  AND status IN ('pending','ready')
+                ORDER BY created_at DESC
+                LIMIT :lim
+                """
+            ),
+            {"t": tenant_id, "lim": limit},
+        ).fetchall()
+
+        for row in todo_rows:
+            details = {}
+            try:
+                details = json.loads(row[3] or "{}")
+            except Exception:
+                details = {}
+
+            items.append(
+                {
+                    "id": f"todo:{row[0]}",
+                    "type": 'task',
+                    "title": row[2] or 'Task queued',
+                    "subtitle": str(details.get('template_label') or details.get('scope') or 'Review and approve.'),
+                    "priority": 'Medium',
+                    "urgent": False,
+                    "created_ts": int(row[5]) if isinstance(row[5], (int, float)) else None,
+                    "status": row[4],
+                    "pane": 'follow-ups',
+                }
+            )
+    except Exception:
+        pass
+
+    items.sort(
+        key=lambda item: (
+            0 if item.get('urgent') else 1,
+            item.get('due_ts') or float('inf'),
+            -1 * (item.get('created_ts') or 0),
+        )
+    )
+
+    return {"items": items[:limit]}
+
+
+@app.get("/search", tags=["Search"])
+def global_search(
+    tenant_id: str,
+    q: str,
+    limit: int = 6,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context),
+):
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"clients": [], "appointments": []}
+
+    term = (q or "").strip()
+    if not term:
+        return {"clients": [], "appointments": []}
+
+    limit = max(1, min(limit, 25))
+    pattern = f"%{term}%"
+    prefix = f"{term}%"
+
+    clients: List[Dict[str, Any]] = []
+    try:
+        client_rows = db.execute(
+            _sql_text(
+                """
+                SELECT contact_id, display_name, first_name, last_name, last_visit, lifetime_cents, txn_count
+                FROM contacts
+                WHERE tenant_id = CAST(:t AS uuid)
+                  AND deleted = FALSE
+                  AND (
+                    display_name ILIKE :pattern
+                    OR first_name ILIKE :pattern
+                    OR last_name ILIKE :pattern
+                  )
+                ORDER BY
+                  CASE WHEN display_name ILIKE :prefix THEN 0 ELSE 1 END,
+                  last_visit DESC NULLS LAST
+                LIMIT :lim
+                """
+            ),
+            {"t": tenant_id, "pattern": pattern, "prefix": prefix, "lim": limit},
+        ).fetchall()
+        for row in client_rows:
+            lifetime = int(row[5] or 0)
+            status = None
+            if lifetime >= 100000:
+                status = 'VIP'
+            elif lifetime >= 30000:
+                status = 'Active'
+            clients.append(
+                {
+                    "contact_id": row[0],
+                    "display_name": row[1],
+                    "first_name": row[2],
+                    "last_name": row[3],
+                    "last_visit": row[4],
+                    "status": status,
+                }
+            )
+    except Exception:
+        clients = []
+
+    appointments: List[Dict[str, Any]] = []
+    try:
+        appointment_rows = db.execute(
+            _sql_text(
+                """
+                SELECT a.id, a.service, a.start_ts, a.status, a.contact_id,
+                       COALESCE(c.display_name, CONCAT_WS(' ', c.first_name, c.last_name)) AS contact_name
+                FROM appointments a
+                LEFT JOIN contacts c
+                  ON c.contact_id = a.contact_id AND c.tenant_id = a.tenant_id
+                WHERE a.tenant_id = CAST(:t AS uuid)
+                  AND (
+                    a.service ILIKE :pattern
+                    OR COALESCE(c.display_name, CONCAT_WS(' ', c.first_name, c.last_name)) ILIKE :pattern
+                  )
+                ORDER BY a.start_ts DESC
+                LIMIT :lim
+                """
+            ),
+            {"t": tenant_id, "pattern": pattern, "lim": limit},
+        ).fetchall()
+        for row in appointment_rows:
+            appointments.append(
+                {
+                    "id": row[0],
+                    "service": row[1],
+                    "start_ts": row[2],
+                    "status": row[3],
+                    "contact_id": row[4],
+                    "contact_name": row[5],
+                }
+            )
+    except Exception:
+        appointments = []
+
+    return {"clients": clients, "appointments": appointments}
+
+
 class FollowupsEnqueue(BaseModel):
     tenant_id: str
     contact_ids: List[str]

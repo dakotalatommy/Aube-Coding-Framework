@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { 
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
   Calendar,
   ChevronDown,
   ChevronUp,
-  Download, 
+  Download,
   Heart,
   MoreHorizontal,
   Phone,
@@ -38,6 +38,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Skeleton } from './ui/skeleton'
 import { cn } from './ui/utils'
 
+// ICU collator just for client search matching (fallback when API results filtered client-side)
 const SORT_OPTIONS: Array<{ id: ClientsQueryParams['sortBy']; label: string }> = [
   { id: 'name', label: 'Name (A–Z)' },
   { id: 'lastVisit', label: 'Last visit (newest first)' },
@@ -61,8 +62,8 @@ const LIFETIME_CLASSES: Record<NonNullable<ClientRecord['lifetimeValue']>, strin
 }
 
 const DEFAULT_SEGMENTS: ClientSegmentSummary[] = [
-    { 
-      id: 'all', 
+    {
+      id: 'all',
     name: 'All clients',
     count: 0,
     description: 'Complete client list',
@@ -95,7 +96,12 @@ const makeAvatarFallback = (name: string) => {
   return `${parts[0]!.charAt(0)}${parts[parts.length - 1]!.charAt(0)}`.toUpperCase()
 }
 
-export function Clients() {
+interface ClientsProps {
+  initialSearch?: string
+  onAckSearch?: () => void
+}
+
+export function Clients({ initialSearch, onAckSearch }: ClientsProps = {}) {
   const [clients, setClients] = useState<ClientRecord[]>([])
   const [totalClients, setTotalClients] = useState(0)
   const [segments, setSegments] = useState<ClientSegmentSummary[]>(DEFAULT_SEGMENTS)
@@ -110,6 +116,7 @@ export function Clients() {
   const [syncing, setSyncing] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [importing, setImporting] = useState(false)
+  const initialAppliedRef = useRef<string | undefined>(undefined)
 
   const loadSegments = useCallback(async () => {
     try {
@@ -248,6 +255,16 @@ export function Clients() {
   useEffect(() => {
     loadClients()
   }, [loadClients])
+
+  useEffect(() => {
+    if (typeof initialSearch === 'string') {
+      if (initialAppliedRef.current === initialSearch) return
+      initialAppliedRef.current = initialSearch
+      setSearch(initialSearch)
+      setPage(0)
+      onAckSearch?.()
+    }
+  }, [initialSearch, onAckSearch])
 
   const segmentOptions = useMemo(() => {
     return segments.map((segment) => ({
