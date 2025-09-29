@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { readNumberParam, syncParamToState } from '../lib/url';
 import { api, API_BASE } from '../lib/api';
+import { supabase } from '../lib/supabase';
 import Button from '../components/ui/Button';
 // import Input from '../components/ui/Input';
 import Skeleton from '../components/ui/Skeleton';
@@ -229,8 +230,12 @@ export default function Contacts(){
             )}
             <Button variant="outline" size="sm" data-guide="clients-export" onClick={async()=>{
               try{
-                // Use legacy session-based authentication (no explicit headers needed)
+                // Get Supabase session for authentication
+                const session = (await supabase.auth.getSession()).data.session;
                 const headers: Record<string,string> = {};
+                if (session?.access_token) {
+                  headers['Authorization'] = `Bearer ${session.access_token}`;
+                }
                 // Fetch in pages to avoid backend changes; cap at 10k for safety
                 let offset = 0; const limit = 1000; const max = 10000; const rows: any[] = [];
                 for (; offset < max; offset += limit) {

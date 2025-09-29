@@ -16,6 +16,7 @@ import {
 import { toast } from 'sonner'
 
 import { api, getTenant, API_BASE } from '../../lib/api'
+import { supabase } from '../../lib/supabase'
 import { formatRelativeTime } from '../lib/formatters'
 import type { ClientsListResponse, ClientRecord, ClientSegmentSummary, ClientsQueryParams } from './types/clients'
 import { Button } from './ui/button'
@@ -203,8 +204,12 @@ export function Clients({ initialSearch, onAckSearch }: ClientsProps = {}) {
     try {
       const tenantId = await getTenant()
       if (!tenantId) throw new Error('Missing tenant context')
-      // Use legacy session-based authentication (no explicit headers needed)
+      // Get Supabase session for authentication
+      const session = (await supabase.auth.getSession()).data.session
       const headers: Record<string, string> = {}
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`
+      }
 
       const downloadUrl = `${API_BASE}/contacts/export.csv`
       const response = await fetch(downloadUrl, { headers })

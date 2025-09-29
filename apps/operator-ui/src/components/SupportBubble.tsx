@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import OverlayPortal from './OverlayPortal';
 import { api, getTenant, API_BASE } from '../lib/api';
+import { supabase } from '../lib/supabase';
 import { track } from '../lib/analytics';
 
 type BugAttachment = {
@@ -325,8 +326,12 @@ export default function SupportBubble({ hideTrigger }: SupportBubbleProps){
       attachments.forEach(item => {
         fd.append('attachments', item.file, item.file.name);
       });
-      // Use legacy session-based authentication (no explicit headers needed)
+      // Get Supabase session for authentication
+      const session = (await supabase.auth.getSession()).data.session;
       const headers: Record<string, string> = {};
+      if (session?.access_token) {
+        headers['Authorization'] = `Bearer ${session.access_token}`;
+      }
       const res = await fetch(`${API_BASE}/support/send`, {
         method: 'POST',
         body: fd,
