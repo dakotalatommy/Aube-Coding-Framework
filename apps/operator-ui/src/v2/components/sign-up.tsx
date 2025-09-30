@@ -95,7 +95,12 @@ export function SignUp() {
         },
       })
       if (error) throw error
-      if (data?.url) window.location.assign(data.url)
+      console.info('[auth] Google OAuth sign-up initiated', { url: data?.url, redirectTo })
+      if (data?.url) {
+        window.location.assign(data.url)
+        return
+      }
+      setErrorMessage('Unable to start Google sign-up (no redirect URL returned).')
     } catch (err: any) {
       setErrorMessage(String(err?.message || err || 'Unable to start Google sign-up'))
     } finally {

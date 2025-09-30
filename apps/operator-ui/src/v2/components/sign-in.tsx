@@ -73,10 +73,12 @@ export function SignIn() {
         },
       })
       if (error) throw error
+      console.info('[auth] Google OAuth initiated', { url: data?.url, redirectTo })
       if (data?.url) {
         window.location.assign(data.url)
         return
       }
+      setErrorMessage('Unable to start Google sign-in (no redirect URL returned).')
       setIsLoading(false)
     } catch (err: any) {
       setErrorMessage(String(err?.message || err || 'Unable to start Google sign-in'))
