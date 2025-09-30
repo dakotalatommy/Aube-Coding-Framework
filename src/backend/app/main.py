@@ -8361,61 +8361,64 @@ def get_cadence_queue(
 ):
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"items": []}
-    q = (
-        db.query(dbm.CadenceState)
-        .filter(dbm.CadenceState.tenant_id == tenant_id)
-        .filter(dbm.CadenceState.next_action_epoch != None)
-        .order_by(dbm.CadenceState.next_action_epoch.asc())
-        .limit(max(1, min(limit, 200)))
-    )
-    rows = q.all()
-    items = []
-    contact_ids = [r.contact_id for r in rows if getattr(r, "contact_id", None)]
-    friendly_map: Dict[str, str] = {}
-    if contact_ids:
-        try:
-            from . import models as dbm  # type: ignore
-
-            contacts = (
-                db.query(dbm.Contact)
-                .filter(dbm.Contact.tenant_id == tenant_id)
-                .filter(dbm.Contact.contact_id.in_(contact_ids))
-                .all()
-            )
-            for c in contacts:
-                dn = (getattr(c, "display_name", "") or "").strip()
-                first = (getattr(c, "first_name", "") or "").strip()
-                last = (getattr(c, "last_name", "") or "").strip()
-                full = f"{first} {last}".strip()
-                friendly = full or dn or "Client"
-                try:
-                    import re as _re
-
-                    looks_like_square = bool(
-                        friendly
-                        and (
-                            _re.match(r"^sq[:_].+", friendly, flags=_re.IGNORECASE)
-                            or _re.match(r"^sq[0-9a-z]{5,}$", friendly.replace(" ", ""), flags=_re.IGNORECASE)
-                        )
-                    )
-                except Exception:
-                    looks_like_square = False
-                if looks_like_square:
-                    friendly = "Client"
-                friendly_map[c.contact_id] = friendly
-        except Exception:
-            friendly_map = {}
-    for r in rows:
-        items.append(
-            {
-                "contact_id": r.contact_id,
-                "cadence_id": r.cadence_id,
-                "step_index": r.step_index,
-                "next_action_at": r.next_action_epoch,
-                "friendly_name": friendly_map.get(r.contact_id, "Client" if r.contact_id else ""),
-            }
+    
+    try:
+        q = (
+            db.query(dbm.CadenceState)
+            .filter(dbm.CadenceState.tenant_id == tenant_id)
+            .filter(dbm.CadenceState.next_action_epoch != None)
+            .order_by(dbm.CadenceState.next_action_epoch.asc())
+            .limit(max(1, min(limit, 200)))
         )
-    return {"items": items}
+        rows = q.all()
+        items = []
+        contact_ids = [r.contact_id for r in rows if getattr(r, "contact_id", None)]
+        friendly_map: Dict[str, str] = {}
+        if contact_ids:
+            try:
+                contacts = (
+                    db.query(dbm.Contact)
+                    .filter(dbm.Contact.tenant_id == tenant_id)
+                    .filter(dbm.Contact.contact_id.in_(contact_ids))
+                    .all()
+                )
+                for c in contacts:
+                    dn = (getattr(c, "display_name", "") or "").strip()
+                    first = (getattr(c, "first_name", "") or "").strip()
+                    last = (getattr(c, "last_name", "") or "").strip()
+                    full = f"{first} {last}".strip()
+                    friendly = full or dn or "Client"
+                    try:
+                        import re as _re
+
+                        looks_like_square = bool(
+                            friendly
+                            and (
+                                _re.match(r"^sq[:_].+", friendly, flags=_re.IGNORECASE)
+                                or _re.match(r"^sq[0-9a-z]{5,}$", friendly.replace(" ", ""), flags=_re.IGNORECASE)
+                            )
+                        )
+                    except Exception:
+                        looks_like_square = False
+                    if looks_like_square:
+                        friendly = "Client"
+                    friendly_map[c.contact_id] = friendly
+            except Exception:
+                friendly_map = {}
+        for r in rows:
+            items.append(
+                {
+                    "contact_id": r.contact_id,
+                    "cadence_id": r.cadence_id,
+                    "step_index": r.step_index,
+                    "next_action_at": r.next_action_epoch,
+                    "friendly_name": friendly_map.get(r.contact_id, "Client" if r.contact_id else ""),
+                }
+            )
+        return {"items": items}
+    except Exception as exc:
+        logger.exception("cadence_queue_failed", extra={"tenant_id": tenant_id}, exc_info=exc)
+        return {"items": []}
 
 
 @app.get("/funnel/daily", tags=["Health"])
