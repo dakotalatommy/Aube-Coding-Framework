@@ -755,6 +755,7 @@ export default function App() {
         logSplash('disable', { reason: 'SIGNED_IN-complete' })
         setShowSplash(false)
         setShowSplashGuard(false)
+        setIsLoadingSession(false)
       } else if (event === 'SIGNED_OUT' || !newSession) {
         clearSplashGuard(lastUserIdRef.current)
         setSession(null)
@@ -763,6 +764,7 @@ export default function App() {
         logSplash('disable', { reason: 'SIGNED_OUT' })
         setShowSplash(false)
         setShowSplashGuard(false)
+        setIsLoadingSession(false)
         hasBootedRef.current = true
         if (!newSession) {
           navigateToPage('dashboard')
@@ -770,6 +772,8 @@ export default function App() {
       } else if (newSession) {
         // TOKEN_REFRESHED or other events: update session silently
         setSession(newSession)
+        // Ensure loading session is false for silent auth events
+        setIsLoadingSession(false)
       }
     })
 
