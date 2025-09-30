@@ -532,27 +532,56 @@ export default function App() {
         hasShownSplash.current = true
       }
 
-      // Get tenant_id from /me endpoint and persist to localStorage
-      let tenantId: string | undefined
-      try {
-        const meResponse = await api.get('/me')
-        tenantId = meResponse?.tenant_id
-        if (tenantId) {
-          localStorage.setItem('bvx_tenant', tenantId)
+      // Resolve tenant id before hitting tenant-scoped APIs.
+      let tenantId = (() => {
+        const meta = activeSession.user?.app_metadata || activeSession.user?.user_metadata || {}
+        const claimed = typeof meta?.tenant_id === 'string' ? meta.tenant_id : undefined
+        return claimed?.trim() || undefined
+      })()
+
+      let tenantSource: 'me' | 'metadata' | 'fallback' | 'unknown' = tenantId ? 'metadata' : 'unknown'
+
+      if (!tenantId) {
+        try {
+          const meResponse = await api.get('/me')
+          if (meResponse?.tenant_id && typeof meResponse.tenant_id === 'string') {
+            tenantId = meResponse.tenant_id.trim()
+            tenantSource = tenantId ? 'me' : tenantSource
+          }
+        } catch (meError) {
+          console.warn('Failed to fetch /me for tenant_id', meError)
         }
-      } catch (meError) {
-        console.warn('Failed to fetch /me for tenant_id', meError)
-        // Continue with bootstrap even if /me fails
       }
 
-      // After storing tenant id, trigger a refresh of dashboard data
+      if (!tenantId) {
+        const fromStorage = (() => {
+          try { return localStorage.getItem('bvx_tenant')?.trim() || undefined } catch { return undefined }
+        })()
+        if (fromStorage) {
+          tenantId = fromStorage
+          tenantSource = 'fallback'
+        }
+      }
+
       if (tenantId) {
+        try { localStorage.setItem('bvx_tenant', tenantId) } catch {}
         fetchDashboardData(tenantId).catch((error) => {
           console.error('Dashboard metrics fetch failed during bootstrap', error)
         })
+      } else {
+        console.warn('[v2] no tenant_id resolved during bootstrap; deferring tenant-scoped calls', {
+          user: activeSession.user?.id,
+          source: tenantSource,
+          metadata: activeSession.user?.app_metadata,
+        })
+        setDashboardStats([])
+        setAgendaItems([])
+        setClientsPreview([])
+        setReminders([])
+        setReferralInfo(null)
       }
 
-      const settingsResp = await api.get('/settings')
+      const settingsResp = tenantId ? await api.get('/settings') : { data: {} }
       const settingsData = settingsResp?.data || {}
       const subscription = settingsData?.subscription || {}
 
@@ -594,13 +623,15 @@ export default function App() {
         }
         return
       }
-      // For other errors, explicitly set session to null and hide splash to avoid infinite splash
-      setSession(null)
-      setUserData(null)
+
+      console.warn('[v2] bootstrap encountered non-auth error; preserving session for retry', {
+        status,
+        message: error?.message,
+      })
+
+      setUserData(prev => prev ?? null)
       setOnboardingRequired(false)
-      setCurrentTrialDay(undefined)
-      setShowSplash(false)
-      setShowSplashGuard(false)
+      setCurrentTrialDay(prev => prev)
     } finally {
       setShowSplash(false)
       setShowSplashGuard(false)
