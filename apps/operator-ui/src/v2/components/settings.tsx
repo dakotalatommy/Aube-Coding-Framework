@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
-import { api, getTenant } from '../../lib/api'
+import { api } from '../../lib/api'
 import { OnboardingSettings } from './onboarding-settings'
 import {
   DEFAULT_BRAND,
@@ -19,7 +19,6 @@ import type {
   TwilioSettings,
   IntegrationStatusItem,
   SettingsResponseData,
-  SettingsPayload,
   QuietHoursSettings,
 } from './types/settings.ts'
 
@@ -100,8 +99,6 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
   const loadSettings = useCallback(async (): Promise<void> => {
     setLoading(true)
     try {
-      const tenantId = await getTenant()
-      if (!tenantId) return
       const response = (await api.get(`/settings`, {
         timeoutMs: 10_000,
       })) as { data?: SettingsResponseData }
@@ -143,8 +140,6 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
   const loadIntegrations = useCallback(async (): Promise<void> => {
     setIntegrationLoading(true)
     try {
-      const tenantId = await getTenant()
-      if (!tenantId) return
       const response = (await api.get(`/integrations/status`, {
         timeoutMs: 10_000,
       })) as {
@@ -189,10 +184,7 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
   const saveSettings = useCallback(async (): Promise<void> => {
     setSaving(true)
     try {
-      const tenantId = await getTenant()
-      if (!tenantId) throw new Error('Missing tenant context')
       await api.post('/settings', {
-        tenant_id: tenantId,
         profile: profileData,
         business: businessData,
         notifications,
@@ -209,7 +201,7 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
               sms_from_number: twilioData.fromNumber,
             }
           : undefined,
-      } satisfies SettingsPayload)
+      })
       toast.success('Settings saved')
     } catch (err) {
       console.error('Settings save failed', err)

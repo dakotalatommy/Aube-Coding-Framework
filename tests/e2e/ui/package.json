@@ -1,0 +1,28 @@
+{
+  "name": "@brandvx/ui-tests",
+  "version": "1.0.0",
+  "description": "BrandVX UI Test Suite - Comprehensive Launch Validation",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:splash": "playwright test splash/",
+    "test:nav": "playwright test navigation/",
+    "test:auth": "playwright test auth/",
+    "test:askvx": "playwright test sections/askvx.spec.ts",
+    "test:performance": "playwright test performance/",
+    "test:laptop": "playwright test --project=laptop-chrome",
+    "test:mobile": "playwright test --project=iphone",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "test:ui": "playwright test --ui",
+    "report": "playwright show-report test-results/html",
+    "codegen": "playwright codegen https://brandvx.io"
+  },
+  "keywords": ["playwright", "e2e", "testing", "brandvx"],
+  "author": "BrandVX Team",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "@playwright/test": "^1.48.2",
+    "typescript": "~5.8.3"
+  }
+}

@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { api, getTenant } from '../../lib/api'
+import { api, getTenant, API_BASE } from '../../lib/api'
 import { supabase } from '../../lib/supabase'
 import { formatRelativeTime } from '../lib/formatters'
 import type { ClientsListResponse, ClientRecord, ClientSegmentSummary, ClientsQueryParams } from './types/clients'
@@ -120,8 +120,6 @@ export function Clients({ initialSearch, onAckSearch }: ClientsProps = {}) {
 
   const loadSegments = useCallback(async () => {
     try {
-      const tenantId = await getTenant()
-      if (!tenantId) return
       const response = (await api.get(
         `/contacts/segments?scope=dashboard`,
         { timeoutMs: 10_000 },
@@ -144,13 +142,6 @@ export function Clients({ initialSearch, onAckSearch }: ClientsProps = {}) {
     setLoading(true)
     setError(null)
     try {
-      const tenantId = await getTenant()
-      if (!tenantId) {
-        setClients([])
-        setTotalClients(0)
-        return
-      }
-
       const params: ClientsQueryParams = {
         limit: PAGE_SIZE,
         offset: page * PAGE_SIZE,
@@ -164,7 +155,6 @@ export function Clients({ initialSearch, onAckSearch }: ClientsProps = {}) {
         if (value === undefined || value === null || value === '') return
         query.set(key, String(value))
       })
-      query.set('tenant_id', tenantId)
 
       const response = (await api.get(`/contacts/list?${query.toString()}`, {
         timeoutMs: 15_000,
@@ -185,10 +175,40 @@ export function Clients({ initialSearch, onAckSearch }: ClientsProps = {}) {
     if (importing) return
     setImporting(true)
     try {
-      const tenantId = await getTenant()
-      if (!tenantId) throw new Error('Missing tenant context')
-      await api.post('/integrations/refresh', { tenant_id: tenantId, provider: 'auto' })
-      toast.success('Import kicked off — we will refresh clients once it’s done.')
+      // Analyze connected providers first
+      const analyze = await api.post('/onboarding/analyze', {})
+      const connected = (analyze?.summary?.connected || {}) as Record<string, string>
+      const sqStatus = String(connected.square || '').toLowerCase()
+      const aqStatus = String(connected.acuity || '').toLowerCase()
+      const squareReady = sqStatus === 'connected' || sqStatus === 'pending_config'
+      const acuityReady = aqStatus === 'connected' || aqStatus === 'pending_config'
+      const provider = squareReady ? 'square' : (acuityReady ? 'acuity' : 'auto')
+
+      let imported = 0
+
+      if (provider === 'square') {
+        const r = await api.post('/ai/tools/execute', {
+          name: 'contacts.import.square',
+          params: {},
+          require_approval: false,
+          idempotency_key: `square_import_${Date.now()}`
+        })
+        imported = Number(r?.imported || 0)
+
+        // Backfill metrics after Square import
+        try {
+          await api.post('/integrations/booking/square/backfill-metrics', {})
+        } catch (err) {
+          console.warn('Square backfill failed, continuing...', err)
+        }
+      } else if (provider === 'acuity') {
+        const r = await api.post('/integrations/booking/acuity/import', { since: '0', until: '', cursor: '' })
+        imported = Number(r?.imported || 0)
+      } else {
+        await api.post('/calendar/sync', { provider: 'auto' })
+      }
+
+      toast.success(`Import complete — ${imported} contacts imported`)
       await loadClients()
     } catch (err) {
       console.error('Client import failed', err)
@@ -202,16 +222,25 @@ export function Clients({ initialSearch, onAckSearch }: ClientsProps = {}) {
     if (exporting) return
     setExporting(true)
     try {
-      const tenantId = await getTenant()
-      if (!tenantId) throw new Error('Missing tenant context')
-      // Get Supabase session for authentication
+      // Get Supabase session for authentication (tenant_id will be injected by API helper)
       const session = (await supabase.auth.getSession()).data.session
       const headers: Record<string, string> = {}
       if (session?.access_token) {
         headers['Authorization'] = `Bearer ${session.access_token}`
       }
 
-      const response = await api.get(`/contacts/export.csv`, { headers })
+      // Use fetch directly for binary response handling, include tenant_id explicitly
+      const tenantId = await getTenant()
+      if (!tenantId) throw new Error('Missing tenant context')
+      const response = await fetch(`${API_BASE}/exports/contacts?tenant_id=${encodeURIComponent(tenantId)}`, {
+        headers,
+        method: 'GET'
+      })
+
+      if (!response.ok) {
+        throw new Error(`${response.status} ${response.statusText}`)
+      }
+
       const blob = await response.blob()
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
@@ -234,9 +263,7 @@ export function Clients({ initialSearch, onAckSearch }: ClientsProps = {}) {
     if (syncing) return
     setSyncing(true)
     try {
-      const tenantId = await getTenant()
-      if (!tenantId) throw new Error('Missing tenant context')
-      await api.post('/onboarding/analyze', { tenant_id: tenantId })
+      await api.post('/onboarding/analyze', {})
       toast.success('Connected tools re-checked')
       await loadSegments()
       await loadClients()

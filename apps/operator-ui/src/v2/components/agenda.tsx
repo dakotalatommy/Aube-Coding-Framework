@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { api, getTenant } from '../../lib/api'
+import { api } from '../../lib/api'
 import * as Sentry from '@sentry/react'
 import { formatRelativeTime } from '../lib/formatters'
 import type { AgendaEventItem, AgendaReminderItem, AgendaTaskItem, AgendaDayBundle } from './types/agenda'
@@ -191,14 +191,6 @@ export function Agenda() {
     setLoading(true)
     setError(null)
     try {
-      const tenantId = await getTenant()
-      if (!tenantId) {
-        setEvents([])
-        setTasks([])
-        setReminders([])
-        return
-      }
-
       const [agendaResponse, calendarResponse] = await Promise.all([
         api.get(`/dashboard/agenda`, { timeoutMs: 10_000 }),
         api.get(
@@ -227,9 +219,7 @@ export function Agenda() {
       if (syncing) return
       setSyncing(true)
       try {
-        const tenantId = await getTenant()
-        if (!tenantId) throw new Error('Missing tenant context')
-        await api.post('/calendar/sync', { tenant_id: tenantId, provider }, { timeoutMs: 20_000 })
+        await api.post('/calendar/sync', { provider }, { timeoutMs: 20_000 })
         toast.success('Calendar sync queued')
         await loadAgenda()
       } catch (err) {
@@ -246,10 +236,8 @@ export function Agenda() {
     async (task: AgendaTaskItem) => {
       if (!task.todoId || task.completed) return
       try {
-        const tenantId = await getTenant()
-        if (!tenantId) throw new Error('Missing tenant context')
         setCompletingTaskId(task.id)
-        await api.post('/todo/ack', { tenant_id: tenantId, id: task.todoId })
+        await api.post('/todo/ack', { id: task.todoId })
         toast.success('Task completed')
         await loadAgenda()
         window.dispatchEvent(new CustomEvent('bvx:navigate', { detail: { pane: 'agenda' } }))
@@ -268,10 +256,8 @@ export function Agenda() {
     async (reminder: AgendaReminderItem) => {
       if (!reminder.id) return
       try {
-        const tenantId = await getTenant()
-        if (!tenantId) throw new Error('Missing tenant context')
         setClearingReminderId(reminder.id)
-        await api.post('/todo/ack', { tenant_id: tenantId, id: reminder.id })
+        await api.post('/todo/ack', { id: reminder.id })
         toast.success('Reminder cleared')
         await loadAgenda()
         window.dispatchEvent(new CustomEvent('bvx:navigate', { detail: { pane: 'agenda' } }))
@@ -294,12 +280,9 @@ export function Agenda() {
       }
       try {
         setCreatingTask(true)
-        const tenantId = await getTenant()
-        if (!tenantId) throw new Error('Missing tenant context')
         await api.post(
           '/todo/create',
           {
-            tenant_id: tenantId,
             title: newTaskTitle.trim(),
             description: newTaskDescription.trim() || undefined,
             priority: newTaskPriority,

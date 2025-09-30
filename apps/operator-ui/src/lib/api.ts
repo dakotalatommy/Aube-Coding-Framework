@@ -43,10 +43,13 @@ async function request(path: string, options: RequestInit = {}) {
 
   // Resolve tenant id and inject it into requests
   let tenantId: string | undefined
+  const includeTenant = (options as any).includeTenant !== false // default true
   try {
-    tenantId = await getTenant()
-    if (tenantId) {
-      try { console.info('[bvx:api] injecting tenant_id', tenantId); } catch {}
+    if (includeTenant) {
+      tenantId = await getTenant()
+      if (tenantId) {
+        try { console.info('[bvx:api] injecting tenant_id', tenantId); } catch {}
+      }
     }
   } catch (error) {
     console.warn('Failed to resolve tenant_id', error)
@@ -124,7 +127,7 @@ async function request(path: string, options: RequestInit = {}) {
 }
 
 export const api = {
-  get: (path: string, opts?: RequestInit & { timeoutMs?: number }) => request(path, opts),
+  get: (path: string, opts?: RequestInit & { timeoutMs?: number; includeTenant?: boolean }) => request(path, opts),
   post: (path: string, body: any, opts?: RequestInit & { timeoutMs?: number }) => {
     try {
       // Beta switch: route execute -> qa to avoid gating during early trials

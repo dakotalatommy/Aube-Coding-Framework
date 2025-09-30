@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { api, getTenant } from '../../lib/api'
+import { api } from '../../lib/api'
 import { Badge } from './ui/badge'
 import { Button } from './ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
@@ -195,11 +195,6 @@ export function Inventory() {
     setLoading(true)
     setError(null)
     try {
-      const tenantId = await getTenant()
-      if (!tenantId) {
-        setState(DEFAULT_STATE)
-        return
-      }
       const response = (await api.get(
         `/inventory/metrics`,
         { timeoutMs: 12_000 },
@@ -227,13 +222,9 @@ export function Inventory() {
       if (syncing) return
       setSyncing(true)
       try {
-        const tenantId = await getTenant()
-        if (!tenantId) throw new Error('Missing tenant context')
-
         await api.post(
           '/inventory/sync',
           {
-            tenant_id: tenantId,
             provider,
           },
           { timeoutMs: 25_000 },
@@ -255,12 +246,9 @@ export function Inventory() {
 
   const handleMergeDuplicates = useCallback(async () => {
     try {
-      const tenantId = await getTenant()
-      if (!tenantId) throw new Error('Missing tenant context')
       await api.post(
         '/inventory/merge',
         {
-          tenant_id: tenantId,
           strategy: 'sku_then_name',
         },
         { timeoutMs: 20_000 },

@@ -9,7 +9,7 @@ import { Textarea } from './ui/textarea'
 import { Label } from './ui/label'
 import { ImageWithFallback } from './figma/ImageWithFallback'
 import { BeforeAfterSlider } from './before-after-slider'
-import { api, getTenant } from '../../lib/api'
+import { api } from '../../lib/api'
 
 interface BrandVZNProps {
   onConsultationGenerated: (data: { beforeImageUrl: string; afterImageUrl: string; promptText: string }) => void
@@ -103,15 +103,12 @@ export function BrandVZN({ onConsultationGenerated }: BrandVZNProps) {
     }, 300)
 
     try {
-      const tenantId = await getTenant()
       const response = await api.post(
         '/ai/tools/execute',
         {
-          tenant_id: tenantId,
           name: 'image.edit',
           require_approval: false,
           params: {
-            tenant_id: tenantId,
             inputImageBase64: beforeImageBase64,
             prompt: promptText.trim(),
             preserveDims: true,

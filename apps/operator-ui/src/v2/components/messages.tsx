@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { api, getTenant } from '../../lib/api'
+import { api } from '../../lib/api'
 import { trackEvent } from '../../lib/analytics'
 import type {
   ConversationContact,
@@ -156,16 +156,9 @@ const formatPhone = (value?: string | null) => {
   return value
 }
 
-const ensureTenant = async (cacheRef: React.MutableRefObject<string | null>) => {
-  if (cacheRef.current) return cacheRef.current
-  const tid = await getTenant()
-  if (!tid) throw new Error('Missing tenant context')
-  cacheRef.current = tid
-  return tid
-}
+// ensureTenant removed - API helper now injects tenant_id automatically
 
 export function Messages() {
-  const tenantRef = useRef<string | null>(null)
 
   const [historyFilter, setHistoryFilter] = useState<MessageFilter>('all')
   const [historyItems, setHistoryItems] = useState<HistoryRow[]>([])
@@ -228,7 +221,6 @@ export function Messages() {
 
   const loadContacts = useCallback(async () => {
     try {
-      await ensureTenant(tenantRef)
       const response = await api.get(
         `/contacts/list?limit=${CONTACT_FETCH_LIMIT}&offset=0`,
       )
@@ -265,7 +257,6 @@ export function Messages() {
 
   const loadQuietHours = useCallback(async () => {
     try {
-      await ensureTenant(tenantRef)
       const response = await api.get(`/settings`)
       const quiet = response?.data?.quiet_hours || {}
       setQuietHours({
@@ -281,7 +272,6 @@ export function Messages() {
   const loadTwilioStatus = useCallback(async () => {
     try {
       setTwilioStatusError(null)
-      await ensureTenant(tenantRef)
       await api.get(`/integrations/status`)
     } catch (error) {
       console.error('Failed to load Twilio status', error)
@@ -295,8 +285,7 @@ export function Messages() {
       setHistoryLoading(true)
       setHistoryError(null)
       try {
-        const tenantId = await ensureTenant(tenantRef)
-        const params = new URLSearchParams({ tenant_id: tenantId, limit: String(HISTORY_LIMIT) })
+        const params = new URLSearchParams({ limit: String(HISTORY_LIMIT) })
         if (filter !== 'all') params.set('filter', filter)
         const response = await api.get(`/messages/list?${params.toString()}`)
         const items = Array.isArray(response?.items) ? response.items : []
@@ -453,7 +442,6 @@ export function Messages() {
     try {
       setIsDrafting(true)
       setDraftStatus('Generating draft…')
-      const tenantId = await ensureTenant(tenantRef)
       const templateMeta = PROMPT_MAP.get(templateId)
       const messagesPayload = templateMeta ? buildPromptMessages(templateMeta, recipients) : []
 
@@ -465,7 +453,6 @@ export function Messages() {
           const response = await api.post(
             '/ai/chat/raw',
             {
-              tenant_id: tenantId,
               messages: messagesPayload,
               mode: 'messages',
               metadata: {
@@ -519,7 +506,6 @@ export function Messages() {
 
   const pollFollowupStatus = useCallback(async () => {
     try {
-      await ensureTenant(tenantRef)
       const res = await api.get(`/followups/draft_status`)
       const details = res?.details || {}
       setDraftJobId(res?.job_id ? String(res.job_id) : null)
@@ -549,7 +535,7 @@ export function Messages() {
         toast.error('Unable to refresh follow-up status right now')
       }
     }
-  }, [tenantRef])
+  }, [])
 
   useEffect(() => {
     const handle = window.setInterval(() => {
@@ -572,7 +558,6 @@ export function Messages() {
 
     try {
       setSendingMode('sending')
-      const tenantId = await ensureTenant(tenantRef)
       const cadenceId = activeTemplate?.cadenceId || 'custom'
 
       if (sendMode === 'now' && selectedContacts.length === 1) {
@@ -580,7 +565,6 @@ export function Messages() {
         await api.post(
           '/messages/send',
           {
-            tenant_id: tenantId,
             contact_id: target.id,
             channel: 'sms',
             template_id: templateId,
@@ -591,7 +575,6 @@ export function Messages() {
         toast.success('Message sent', { description: 'Queued via messaging worker.' })
       } else {
         const payload = {
-          tenant_id: tenantId,
           contact_ids: selectedContacts.map((contact) => contact.id),
           cadence_id: cadenceId,
           template_id: templateId,
@@ -622,9 +605,7 @@ export function Messages() {
   const handleSaveQuietHours = async () => {
     try {
       setSavingQuietHours(true)
-      const tenantId = await ensureTenant(tenantRef)
       await api.post('/settings', {
-        tenant_id: tenantId,
         quiet_hours: quietHours,
       })
       toast.success('Quiet hours saved')

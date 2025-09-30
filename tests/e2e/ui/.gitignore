@@ -1,0 +1,20 @@
+# Test results
+test-results/
+screenshots/*.png
+*.png
+*.jpg
+*.webm
+
+# Node modules (if tests have their own)
+node_modules/
+
+# Playwright
+playwright-report/
+playwright/.cache/
+
+# Environment
+.env
+
+# OS files
+.DS_Store
+Thumbs.db

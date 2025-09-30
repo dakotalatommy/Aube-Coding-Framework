@@ -112,7 +112,6 @@ export type QuietHoursSettings = NonNullable<SettingsResponseData['quiet_hours']
 export type ProvidersLiveMap = NonNullable<SettingsResponseData['providers_live']>
 
 export interface SettingsPayload {
-  tenant_id: string
   tone?: string
   services?: Array<{ id: string; name: string }>
   preferences?: Record<string, unknown>

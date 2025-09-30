@@ -216,9 +216,10 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [userData, setUserData] = useState<UserProfile | null>(null)
   const [showSplash, setShowSplash] = useState(false)
-  const [initializing, setInitializing] = useState(true)
+  const [initializing, setInitializing] = useState(false)
+  const [isLoadingSession, setIsLoadingSession] = useState(true)
   const hasBootedRef = useRef(false)
-  const hasShownSplash = useRef(false)
+  const lastUserIdRef = useRef<string | null>(null)
   const [onboardingRequired, setOnboardingRequired] = useState(false)
   const [dashboardStats, setDashboardStats] = useState<DashboardStat[] | null>(null)
   const [dashboardStatsLoading, setDashboardStatsLoading] = useState(false)
@@ -238,6 +239,44 @@ export default function App() {
   const [showSplashGuard, setShowSplashGuard] = useState(false)
   const [settingsInitialTab, setSettingsInitialTab] = useState('onboarding')
   const [clientSearchPrefill, setClientSearchPrefill] = useState<string | undefined>(undefined)
+
+  const logSplash = useCallback((event: string, detail?: Record<string, unknown>) => {
+    try {
+      const payload = { initializing, showSplash, showSplashGuard, hasBooted: hasBootedRef.current, ...detail }
+      console.info(`[v2:splash] ${event}`, payload)
+    } catch {}
+  }, [initializing, showSplash, showSplashGuard])
+
+  // Keep lastUserIdRef in sync with session for sign-out cleanup
+  useEffect(() => {
+    if (session?.user?.id) {
+      lastUserIdRef.current = session.user.id
+    }
+  }, [session])
+
+  // Session guard helpers using existing key format
+  const getSessionSplashKey = (userId: string) => `bvx_splash_shown_${userId}`
+
+  const hasShownSplashThisSession = useCallback((userId: string): boolean => {
+    try {
+      return sessionStorage.getItem(getSessionSplashKey(userId)) === '1'
+    } catch {
+      return false
+    }
+  }, [])
+
+  const markSplashShown = useCallback((userId: string) => {
+    try {
+      sessionStorage.setItem(getSessionSplashKey(userId), '1')
+    } catch {}
+  }, [])
+
+  const clearSplashGuard = useCallback((userId: string | null) => {
+    if (!userId) return
+    try {
+      sessionStorage.removeItem(getSessionSplashKey(userId))
+    } catch {}
+  }, [])
 
   // Centralized navigation function that dispatches events for pane synchronization
   const navigateToPage = useCallback((nextPage: string, payload?: any) => {
@@ -500,13 +539,15 @@ export default function App() {
   )
 
   const handleSplashComplete = useCallback(() => {
+    logSplash('complete')
     setShowSplash(false)
     setShowSplashGuard(false)
     setInitializing(false)
-  }, [])
+  }, [logSplash])
 
   const bootstrapSession = useCallback(async (activeSession: Session | null) => {
     if (!activeSession) {
+      clearSplashPersist()
       setUserData(null)
       setOnboardingRequired(false)
       setShowSplash(false)
@@ -530,12 +571,6 @@ export default function App() {
         user: activeSession.user?.id,
         email: activeSession.user?.email
       })
-
-      if (!hasBootedRef.current && !hasShownSplash.current) {
-        setShowSplash(true)
-        setShowSplashGuard(true)
-        hasShownSplash.current = true
-      }
 
       // Immediately after getSession resolves with session, call /me
       let meResponse: any = null
@@ -664,11 +699,12 @@ export default function App() {
       setOnboardingRequired(false)
       setCurrentTrialDay(prev => prev)
     } finally {
+      logSplash('disable', { reason: 'bootstrap-finally' })
       setShowSplash(false)
       setShowSplashGuard(false)
       hasBootedRef.current = true
     }
-  }, [])
+  }, [fetchDashboardData, logSplash])
 
   useEffect(() => {
     let cancelled = false
@@ -677,7 +713,9 @@ export default function App() {
         const { data } = await supabase.auth.getSession()
         if (cancelled) return
         if (!data.session) {
+          clearSplashPersist()
           setSession(null)
+          logSplash('disable', { reason: 'bootstrap:no-session' })
           setShowSplash(false)
           setShowSplashGuard(false)
           setInitializing(false)
@@ -695,6 +733,8 @@ export default function App() {
       } catch (error) {
         console.warn('Initial session bootstrap failed', error)
         setSession(null)
+        clearSplashPersist()
+        logSplash('disable', { reason: 'bootstrap:error' })
         setShowSplash(false)
         setShowSplashGuard(false)
         setInitializing(false)
@@ -711,14 +751,14 @@ export default function App() {
 
         if (isOnAuthCallback) {
           // Keep splash visible during entire bootstrap process on auth callback
-          setShowSplash(true)
-          setShowSplashGuard(true)
+          maybeEnableSplash('auth-callback')
         }
 
         await bootstrapSession(newSession)
 
         // Only hide splash after bootstrap completes AND we're not on auth callback
         if (!isOnAuthCallback) {
+          logSplash('disable', { reason: 'auth-change' })
           setShowSplash(false)
           setShowSplashGuard(false)
         }
@@ -727,10 +767,12 @@ export default function App() {
         try {
           const onCallback = typeof window !== 'undefined' && window.location.pathname.startsWith('/auth')
           if (!onCallback) {
+            logSplash('disable', { reason: 'auth-change:no-session' })
             setShowSplash(false)
             setShowSplashGuard(false)
           }
         } catch {}
+        clearSplashPersist()
         // Ensure hasBootedRef flips true when session is cleared
         hasBootedRef.current = true
       }
@@ -743,7 +785,7 @@ export default function App() {
       cancelled = true
       authListener?.subscription?.unsubscribe()
     }
-  }, [bootstrapSession])
+  }, [bootstrapSession, clearSplashPersist, logSplash, maybeEnableSplash])
 
   // Dashboard data is already fetched in bootstrapSession after tenant_id is resolved
   // Remove this duplicate fetch to prevent race conditions

@@ -1,0 +1,23 @@
+{
+  "name": "@brandvx/e2e-tests",
+  "version": "1.0.0",
+  "description": "UI V2 Launch Test Suite - End-to-End API Testing",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "test": "tsx run-tests.ts",
+    "test:local": "API_BASE_URL=http://localhost:8000 tsx run-tests.ts",
+    "test:staging": "API_BASE_URL=https://api-staging.brandvx.io tsx run-tests.ts",
+    "test:prod": "tsx run-tests.ts",
+    "test:brandvzn": "tsx test-brandvzn-gemini.ts"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.55.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.8.3"
+  }
+}

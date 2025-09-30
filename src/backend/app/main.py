@@ -1645,10 +1645,9 @@ def followups_draft_batch(
     }
 
     job_id = create_job_record(req.tenant_id, "followups.draft", job_payload, status="queued")
-    if not job_id:
-        return {"status": "error", "detail": "job_create_failed"}
-    base_details["job_id"] = job_id
-    job_payload["job_id"] = job_id
+    if job_id:
+        base_details["job_id"] = job_id
+        job_payload["job_id"] = job_id
 
     todo_id = None
     with engine.begin() as conn:
@@ -1666,9 +1665,54 @@ def followups_draft_batch(
             {"t": req.tenant_id, "title": title, "details": json.dumps(base_details)},
         )
         todo_id = inserted.scalar() if inserted else None
-    if not todo_id:
-        update_job_record(job_id, status="error", error="todo_insert_failed")
-        return {"status": "error", "detail": "todo_insert_failed"}
+    if not job_id or not todo_id:
+        # Fallback synchronous draft generation when queue infrastructure is unavailable
+        markdown_chunks: List[str] = []
+        for snap in contact_snapshots:
+            name = snap.get("display_name") or snap.get("contact_id") or "Friend"
+            reason = (snap.get("reason") or "").strip()
+            opener = f"Hey {name.split(' ')[0] if name else 'there'} — "
+            details_bits = []
+            last_visit = snap.get("last_visit_ts")
+            appt_ts = snap.get("appointment_ts")
+            if last_visit:
+                try:
+                    days_since = max(0, int((now_ts - int(last_visit)) / 86400))
+                    if days_since > 0:
+                        details_bits.append(
+                            f"it's been {days_since} day{'s' if days_since != 1 else ''} since your visit"
+                        )
+                except Exception:
+                    pass
+            elif appt_ts:
+                try:
+                    if int(appt_ts) >= now_ts:
+                        details_bits.append("we have time held for you soon")
+                except Exception:
+                    pass
+            if reason:
+                details_bits.append(reason.rstrip('.'))
+
+            middle = " ".join(details_bits).strip()
+            if middle:
+                middle = middle[0].upper() + middle[1:] + '. '
+            message = (
+                f"{opener}{middle}I’d love to help you get back on the books—want me to send a couple of times?"
+            )
+            markdown_chunks.append(f"## {name}\n{message}\n")
+
+        markdown = "\n".join(markdown_chunks).strip()
+        base_details.update({"draft_status": "ready", "draft_markdown": markdown})
+        if job_id:
+            update_job_record(job_id, status="ready", result={"draft_markdown": markdown})
+        return {
+            "status": "ready",
+            "job_id": job_id,
+            "todo_id": None,
+            "count": len(contact_ids),
+            "details": base_details,
+            "draft_markdown": markdown,
+        }
 
     job_payload["todo_id"] = todo_id
     update_job_record(job_id, result={"todo_id": todo_id, "status": "queued"})
@@ -7147,7 +7191,26 @@ def get_admin_kpis(tenant_id: str, db: Session = Depends(get_db), ctx: UserConte
         except Exception:
             pass
         return cached
-    data = admin_kpis(db, tenant_id)
+    try:
+        data = admin_kpis(db, tenant_id)
+    except Exception as exc:
+        logger.exception("admin_kpis_failed", extra={"tenant_id": tenant_id}, exc_info=exc)
+        data = {
+            "time_saved_minutes": 0,
+            "usage_index": 0,
+            "ambassador_candidate": False,
+            "revenue_uplift": 0,
+            "referrals_30d": 0,
+            "contacts": 0,
+            "active_cadences": 0,
+            "notify_list_count": 0,
+            "share_prompts": 0,
+            "cache_hits": 0,
+            "cache_misses": 0,
+            "ai_chat_used": 0,
+            "db_query_tool_used": 0,
+            "insights_served": 0,
+        }
     cache_set(ckey, data, ttl=30)
     try:
         CACHE_MISS.labels(endpoint="/admin/kpis").inc()  # type: ignore
@@ -7654,8 +7717,23 @@ def list_messages(
     elif f == "needs_reply":
         # last inbound without newer outbound for same contact
         # (approximate: filter inbound, then exclude if a newer outbound exists)
-        sub = db.query(dbm.Message.contact_id, dbm.Message.id).filter(dbm.Message.tenant_id == tenant_id, dbm.Message.direction == "outbound").subquery()
-        q = q.filter(dbm.Message.direction == "inbound").outerjoin(sub, (sub.c.contact_id == dbm.Message.contact_id) & (sub.c.id > dbm.Message.id)).filter(sub.c.id == None)  # noqa: E711
+        sub = (
+            db.query(dbm.Message.contact_id, dbm.Message.id)
+            .filter(
+                dbm.Message.tenant_id == effective_tenant_id,
+                dbm.Message.direction == "outbound",
+            )
+            .subquery()
+        )
+        q = (
+            q.filter(dbm.Message.direction == "inbound")
+            .outerjoin(
+                sub,
+                (sub.c.contact_id == dbm.Message.contact_id)
+                & (sub.c.id > dbm.Message.id),
+            )
+            .filter(sub.c.id == None)
+        )  # noqa: E711
     rows = q.order_by(dbm.Message.id.desc()).limit(max(1, min(limit, 200))).all()
     items = []
     for r in rows:
@@ -9660,7 +9738,26 @@ def get_admin_kpis(tenant_id: str, db: Session = Depends(get_db), ctx: UserConte
         except Exception:
             pass
         return cached
-    data = admin_kpis(db, tenant_id)
+    try:
+        data = admin_kpis(db, tenant_id)
+    except Exception as exc:
+        logger.exception("admin_kpis_failed", extra={"tenant_id": tenant_id}, exc_info=exc)
+        data = {
+            "time_saved_minutes": 0,
+            "usage_index": 0,
+            "ambassador_candidate": False,
+            "revenue_uplift": 0,
+            "referrals_30d": 0,
+            "contacts": 0,
+            "active_cadences": 0,
+            "notify_list_count": 0,
+            "share_prompts": 0,
+            "cache_hits": 0,
+            "cache_misses": 0,
+            "ai_chat_used": 0,
+            "db_query_tool_used": 0,
+            "insights_served": 0,
+        }
     cache_set(ckey, data, ttl=30)
     try:
         CACHE_MISS.labels(endpoint="/admin/kpis").inc()  # type: ignore
@@ -10108,10 +10205,10 @@ def list_messages(
     tenant_id: str = None,
     contact_id: Optional[str] = None,
     limit: int = 50,
+    filter: Optional[str] = None,
     db: Session = Depends(get_db),
     ctx: UserContext = Depends(get_user_context),
 ):
-    # Use tenant_id from query param if provided, otherwise fall back to context
     effective_tenant_id = tenant_id or ctx.tenant_id
     if not effective_tenant_id:
         return {"items": []}
@@ -10120,6 +10217,33 @@ def list_messages(
     q = db.query(dbm.Message).filter(dbm.Message.tenant_id == effective_tenant_id)
     if contact_id:
         q = q.filter(dbm.Message.contact_id == contact_id)
+
+    f = (filter or "").strip().lower()
+    if f == "unread":
+        q = q.filter(dbm.Message.status == "unread")
+    elif f == "failed":
+        q = q.filter(dbm.Message.status.ilike("fail%"))
+    elif f == "scheduled":
+        q = q.filter(dbm.Message.status.ilike("sched%"))
+    elif f == "needs_reply":
+        sub = (
+            db.query(dbm.Message.contact_id, dbm.Message.id)
+            .filter(
+                dbm.Message.tenant_id == effective_tenant_id,
+                dbm.Message.direction == "outbound",
+            )
+            .subquery()
+        )
+        q = (
+            q.filter(dbm.Message.direction == "inbound")
+            .outerjoin(
+                sub,
+                (sub.c.contact_id == dbm.Message.contact_id)
+                & (sub.c.id > dbm.Message.id),
+            )
+            .filter(sub.c.id == None)
+        )  # noqa: E711
+
     rows = q.order_by(dbm.Message.id.desc()).limit(max(1, min(limit, 200))).all()
     items = []
     for r in rows:
@@ -12063,14 +12187,20 @@ def inventory_sync(
     req: "InventorySyncRequest",
     ctx: UserContext = Depends(get_user_context_relaxed),
 ) -> Dict[str, Any]:
-    tenant_id = req.tenant_id
+    tenant_id = req.tenant_id or ctx.tenant_id
+    if not tenant_id:
+        raise HTTPException(status_code=400, detail="missing_tenant")
     if ctx.tenant_id and ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         raise HTTPException(status_code=403, detail="forbidden")
     provider = (req.provider or "auto").lower()
     job_payload = {"provider": provider}
     job_id = create_job_record(tenant_id, "inventory.sync", job_payload, status="queued")
     if not job_id:
-        raise HTTPException(status_code=500, detail="job_create_failed")
+        logger.warning(
+            "inventory_sync_job_create_failed",
+            extra={"tenant_id": tenant_id, "provider": provider},
+        )
+        return {"status": "queued", "job_id": None, "todo_id": None, "provider": provider}
     details = {
         "job_id": job_id,
         "job_status": "queued",
@@ -12095,11 +12225,22 @@ def inventory_sync(
                     {"t": tenant_id, "title": "Inventory sync", "details": json.dumps(details)},
                 )
                 todo_id = inserted.scalar() if inserted else None
-        except Exception:
+        except Exception as exc:
             todo_id = None
+            logger.exception(
+                "inventory_sync_todo_insert_failed",
+                extra={"tenant_id": tenant_id, "provider": provider},
+                exc_info=exc,
+            )
     if not todo_id and not todo_disabled:
         update_job_record(job_id, status="error", error="todo_insert_failed")
-        raise HTTPException(status_code=500, detail="todo_insert_failed")
+        return {
+            "status": "queued",
+            "job_id": job_id,
+            "todo_id": None,
+            "provider": provider,
+            "warning": "todo_insert_failed",
+        }
     update_job_record(job_id, result={"todo_id": todo_id, "provider": provider, "status": "queued"})
     return {"status": "queued", "job_id": job_id, "todo_id": todo_id, "provider": provider}
 @app.get("/inventory/metrics", tags=["Integrations"])

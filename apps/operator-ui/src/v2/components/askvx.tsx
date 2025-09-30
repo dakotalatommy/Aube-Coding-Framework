@@ -21,7 +21,7 @@ import {
   ArrowRight,
   Loader2,
 } from 'lucide-react'
-import { api, getTenant } from '../../lib/api'
+import { api } from '../../lib/api'
 import { trackEvent } from '../../lib/analytics'
 
 interface ChatMessage {
@@ -156,11 +156,6 @@ export function AskVX() {
     ;(async () => {
       try {
         setLoadingHistory(true)
-        const tenantId = await getTenant()
-        if (!tenantId) {
-          setMessages([WELCOME_MESSAGE])
-          return
-        }
         const query = `/ai/chat/history?session_id=${encodeURIComponent(sessionId)}&limit=50`
         const history = await api.get(query)
         const historyMessages: ChatMessage[] = Array.isArray(history?.messages)
@@ -217,7 +212,6 @@ export function AskVX() {
       } catch {}
 
       try {
-        const tenantId = await getTenant()
         const payloadMessages = messagesRef.current
           .concat(userMessage)
           .map(({ role, content }) => ({ role, content }))
@@ -225,7 +219,6 @@ export function AskVX() {
         const response = await api.post(
           '/ai/chat/raw',
           {
-            tenant_id: tenantId,
             session_id: sessionId,
             messages: payloadMessages,
           },
