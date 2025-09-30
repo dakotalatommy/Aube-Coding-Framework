@@ -218,6 +218,7 @@ export default function App() {
   const [showSplash, setShowSplash] = useState(false)
   const [initializing, setInitializing] = useState(true)
   const hasBootedRef = useRef(false)
+  const hasShownSplash = useRef(false)
   const [onboardingRequired, setOnboardingRequired] = useState(false)
   const [dashboardStats, setDashboardStats] = useState<DashboardStat[] | null>(null)
   const [dashboardStatsLoading, setDashboardStatsLoading] = useState(false)
@@ -237,6 +238,12 @@ export default function App() {
   const [showSplashGuard, setShowSplashGuard] = useState(false)
   const [settingsInitialTab, setSettingsInitialTab] = useState('onboarding')
   const [clientSearchPrefill, setClientSearchPrefill] = useState<string | undefined>(undefined)
+
+  // Centralized navigation function that dispatches events for pane synchronization
+  const navigateToPage = useCallback((nextPage: string, payload?: any) => {
+    setCurrentPage(nextPage)
+    window.dispatchEvent(new CustomEvent('bvx:navigate', { detail: { pane: nextPage, payload } }))
+  }, [])
 
   const fetchDashboardData = useCallback(
     async (tenantIdOverride?: string) => {
@@ -292,6 +299,19 @@ export default function App() {
           metricsResult.status === 'fulfilled'
             ? (metricsResult.value as Record<string, any>)
             : {}
+
+        // Log specific endpoint failures for diagnostics
+        const failedEndpoints: string[] = []
+        if (kpiResult.status === 'rejected') failedEndpoints.push('/admin/kpis')
+        if (metricsResult.status === 'rejected') failedEndpoints.push('/metrics')
+        if (queueResult.status === 'rejected') failedEndpoints.push('/cadences/queue')
+        if (contactsResult.status === 'rejected') failedEndpoints.push('/contacts/list')
+        if (referralResult.status === 'rejected') failedEndpoints.push('/referrals/qr')
+        if (followupsResult.status === 'rejected') failedEndpoints.push('/followups/candidates')
+
+        if (failedEndpoints.length > 0) {
+          console.error('Dashboard fetch failed for endpoints:', failedEndpoints)
+        }
 
         if (kpiResult.status === 'rejected' && metricsResult.status === 'rejected') {
           setDashboardStatsError('Unable to load dashboard metrics right now.')
@@ -461,13 +481,19 @@ export default function App() {
       } catch (error) {
         console.error('Failed to load dashboard data', error)
         setDashboardStatsError('Unable to load dashboard metrics right now.')
+        // Set explicit empty states for better UX
         setDashboardStats([])
+        setAgendaItems([])
+        setClientsPreview([])
+        setReminders([])
+        setReferralInfo(null)
       } finally {
         setDashboardStatsLoading(false)
         setAgendaLoading(false)
         setClientsLoading(false)
         setRemindersLoading(false)
         setReferralLoading(false)
+        handleSplashComplete()
       }
     },
     [],
@@ -500,9 +526,10 @@ export default function App() {
     }
 
     try {
-      if (!hasBootedRef.current) {
+      if (!hasBootedRef.current && !hasShownSplash.current) {
         setShowSplash(true)
         setShowSplashGuard(true)
+        hasShownSplash.current = true
       }
 
       // Get tenant_id from /me endpoint and persist to localStorage
@@ -640,7 +667,7 @@ export default function App() {
         } catch {}
       }
       if (!newSession) {
-        setCurrentPage('dashboard')
+        navigateToPage('dashboard')
       }
     })
 
@@ -689,41 +716,42 @@ export default function App() {
 
   const handleConsultationGenerated = (data: ConsultationData) => {
     setConsultationData(data)
-    setCurrentPage('consultation-results')
+    navigateToPage('consultation-results')
   }
 
   const handleBackToConsultation = () => {
-    setCurrentPage('brandvzn')
+    navigateToPage('brandvzn')
   }
 
   const handleNewConsultation = () => {
     setConsultationData(null)
-    setCurrentPage('brandvzn')
+    navigateToPage('brandvzn')
   }
 
   const handleNotificationClick = () => {
-    setCurrentPage('agenda')
+    navigateToPage('agenda')
   }
 
   const handleViewAgenda = () => {
-    setCurrentPage('agenda')
+    navigateToPage('agenda')
   }
 
   const handleNavigateToSettings = () => {
     setSettingsInitialTab('profile')
-    setCurrentPage('settings')
+    navigateToPage('settings')
   }
 
   const handleUpgrade = () => {
     setSettingsInitialTab('plan')
-    setCurrentPage('settings')
+    navigateToPage('settings')
   }
 
+  // Listen for bvx:navigate events to keep currentPage in sync with URL/workspace shell
   useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ pane?: string; search?: string }>).detail
       if (!detail) return
-      if (detail.pane) {
+      if (detail.pane && detail.pane !== currentPage) {
         setCurrentPage(detail.pane)
       }
       if (detail.pane === 'clients' && typeof detail.search === 'string') {
@@ -735,7 +763,7 @@ export default function App() {
     }
     window.addEventListener('bvx:navigate', handler as EventListener)
     return () => window.removeEventListener('bvx:navigate', handler as EventListener)
-  }, [])
+  }, [currentPage])
 
   const handleOnboardingComplete = async (completeUserData: UserProfile) => {
     setUserData(prev => ({ ...prev, ...completeUserData }))
@@ -966,7 +994,7 @@ export default function App() {
                                   onNotificationClick={handleNotificationClick}
                                   onOpenSettings={handleNavigateToSettings}
                                   onNavigate={(pane, payload) => {
-                                    setCurrentPage(pane)
+                                    navigateToPage(pane, payload)
                                     if (pane === 'clients' && payload?.search) {
                                       setClientSearchPrefill(payload.search)
                                     }

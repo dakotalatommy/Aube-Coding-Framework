@@ -14,20 +14,16 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
   useEffect(() => {
     const taglineTimer = setTimeout(() => {
       setShowTagline(true)
-    }, 1200)
+    }, 800)
 
     const exitTimer = setTimeout(() => {
       setIsExiting(true)
-    }, 3000)
-
-    const completeTimer = setTimeout(() => {
-      onComplete()
-    }, 3800)
+      onComplete() // Call immediately when exiting starts
+    }, 1500)
 
     return () => {
       clearTimeout(taglineTimer)
       clearTimeout(exitTimer)
-      clearTimeout(completeTimer)
     }
   }, [onComplete])
 
