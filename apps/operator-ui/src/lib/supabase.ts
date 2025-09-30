@@ -57,6 +57,7 @@ if (!url || !anon) {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true,
+        flowType: 'pkce',
       },
     },
   )
@@ -68,5 +69,4 @@ if (typeof window !== 'undefined') {
 }
 
 export const supabase = client
-
 
