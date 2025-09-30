@@ -54,6 +54,13 @@ function DashboardHeaderComponent({ onNotificationClick, onOpenSettings, onNavig
         setSearchError(null)
         return
       }
+      // Check integrations status first (non-blocking)
+      try {
+        await api.get(`/integrations/status`)
+      } catch (error) {
+        console.warn('Failed to check integrations status', error)
+      }
+
       const response = await api.get(
         `/search?q=${encodeURIComponent(term)}&limit=6`,
         { timeoutMs: 8000 },

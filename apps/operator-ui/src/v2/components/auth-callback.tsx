@@ -85,6 +85,7 @@ export function AuthCallback() {
       // Hard redirect to avoid router timing races (immediate)
       const target = computed || altTarget || '/workspace?pane=dashboard';
       try { console.info('[bvx:auth] redirect', { target, nextTarget, altTarget, onboardingDone, forcedOnboarding }); } catch {}
+      console.info('[bvx:auth] auth callback completed successfully')
       window.location.replace(target);
       // Backstops: retry if still on /auth after a short delay, and once more after 2s
       try { setTimeout(() => { try{ if (window.location.pathname.includes('/auth')) window.location.replace(target); } catch {} }, 800); } catch {}

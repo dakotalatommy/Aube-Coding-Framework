@@ -526,33 +526,48 @@ export default function App() {
     }
 
     try {
+      console.info('[bvx:auth] session created', {
+        user: activeSession.user?.id,
+        email: activeSession.user?.email
+      })
+
       if (!hasBootedRef.current && !hasShownSplash.current) {
         setShowSplash(true)
         setShowSplashGuard(true)
         hasShownSplash.current = true
       }
 
-      // Resolve tenant id before hitting tenant-scoped APIs.
-      let tenantId = (() => {
+      // Immediately after getSession resolves with session, call /me
+      let meResponse: any = null
+      let tenantId: string | undefined
+      let tenantSource: 'me' | 'metadata' | 'fallback' | 'unknown' = 'unknown'
+
+      try {
+        meResponse = await api.get('/me')
+        console.info('[bvx:auth] /me response', {
+          hasTenantId: Boolean(meResponse?.tenant_id),
+          userId: activeSession.user?.id
+        })
+
+        if (meResponse?.tenant_id && typeof meResponse.tenant_id === 'string') {
+          tenantId = meResponse.tenant_id.trim()
+          tenantSource = 'me'
+        }
+      } catch (meError) {
+        console.warn('[bvx:auth] /me failed', meError)
+      }
+
+      // Fallback to metadata if /me didn't provide tenant_id
+      if (!tenantId) {
         const meta = activeSession.user?.app_metadata || activeSession.user?.user_metadata || {}
         const claimed = typeof meta?.tenant_id === 'string' ? meta.tenant_id : undefined
-        return claimed?.trim() || undefined
-      })()
-
-      let tenantSource: 'me' | 'metadata' | 'fallback' | 'unknown' = tenantId ? 'metadata' : 'unknown'
-
-      if (!tenantId) {
-        try {
-          const meResponse = await api.get('/me')
-          if (meResponse?.tenant_id && typeof meResponse.tenant_id === 'string') {
-            tenantId = meResponse.tenant_id.trim()
-            tenantSource = tenantId ? 'me' : tenantSource
-          }
-        } catch (meError) {
-          console.warn('Failed to fetch /me for tenant_id', meError)
+        if (claimed?.trim()) {
+          tenantId = claimed.trim()
+          tenantSource = 'metadata'
         }
       }
 
+      // Final fallback to localStorage before any tenant-scoped calls
       if (!tenantId) {
         const fromStorage = (() => {
           try { return localStorage.getItem('bvx_tenant')?.trim() || undefined } catch { return undefined }
@@ -563,13 +578,21 @@ export default function App() {
         }
       }
 
+      // Persist tenant_id to localStorage before requesting any tenant-scoped endpoint
       if (tenantId) {
-        try { localStorage.setItem('bvx_tenant', tenantId) } catch {}
+        try {
+          localStorage.setItem('bvx_tenant', tenantId)
+          console.info('[bvx:auth] tenant_id persisted', { tenantId, source: tenantSource })
+        } catch (storageError) {
+          console.warn('[bvx:auth] failed to persist tenant_id', storageError)
+        }
+
+        // Only fetch dashboard data after tenant_id is resolved and persisted
         fetchDashboardData(tenantId).catch((error) => {
           console.error('Dashboard metrics fetch failed during bootstrap', error)
         })
       } else {
-        console.warn('[v2] no tenant_id resolved during bootstrap; deferring tenant-scoped calls', {
+        console.warn('[bvx:auth] no tenant_id resolved during bootstrap; blocking tenant-scoped calls', {
           user: activeSession.user?.id,
           source: tenantSource,
           metadata: activeSession.user?.app_metadata,
@@ -581,6 +604,7 @@ export default function App() {
         setReferralInfo(null)
       }
 
+      // Fetch settings only after tenant_id is resolved and persisted
       const settingsResp = tenantId ? await api.get('/settings') : { data: {} }
       const settingsData = settingsResp?.data || {}
       const subscription = settingsData?.subscription || {}
@@ -603,6 +627,13 @@ export default function App() {
       const trialDay = computeTrialDay(profile)
       setCurrentTrialDay(trialDay)
       setOnboardingRequired(!Boolean(settingsData?.onboarding_completed))
+
+      console.info('[bvx:auth] bootstrap completed', {
+        tenantId,
+        source: tenantSource,
+        hasProfile: Boolean(profile),
+        onboardingRequired
+      })
     } catch (error: any) {
       console.error('Failed to bootstrap session', error)
       const status = error?.response?.status ?? error?.status
@@ -659,6 +690,8 @@ export default function App() {
         await bootstrapSession(data.session)
         if (cancelled) return
         setInitializing(false)
+        // Ensure hasBootedRef flips true after bootstrap completes (both with and without session)
+        hasBootedRef.current = true
       } catch (error) {
         console.warn('Initial session bootstrap failed', error)
         setSession(null)
@@ -698,6 +731,7 @@ export default function App() {
             setShowSplashGuard(false)
           }
         } catch {}
+        // Ensure hasBootedRef flips true when session is cleared
         hasBootedRef.current = true
       }
       if (!newSession) {
@@ -711,16 +745,8 @@ export default function App() {
     }
   }, [bootstrapSession])
 
-  useEffect(() => {
-    if (session?.user) {
-      fetchDashboardData().catch((error) => {
-        console.error('Dashboard metrics fetch failed', error)
-      })
-    } else {
-      setDashboardStats(null)
-      setDashboardStatsError(null)
-    }
-  }, [session, fetchDashboardData])
+  // Dashboard data is already fetched in bootstrapSession after tenant_id is resolved
+  // Remove this duplicate fetch to prevent race conditions
 
   useEffect(() => {
     if (!userData) {

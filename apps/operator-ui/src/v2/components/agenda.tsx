@@ -14,6 +14,7 @@ import {
 import { toast } from 'sonner'
 
 import { api, getTenant } from '../../lib/api'
+import * as Sentry from '@sentry/react'
 import { formatRelativeTime } from '../lib/formatters'
 import type { AgendaEventItem, AgendaReminderItem, AgendaTaskItem, AgendaDayBundle } from './types/agenda'
 import type { DashboardAgendaItem, DashboardReminderItem } from '../types/dashboard'
@@ -254,6 +255,7 @@ export function Agenda() {
         window.dispatchEvent(new CustomEvent('bvx:navigate', { detail: { pane: 'agenda' } }))
       } catch (error) {
         console.error('Task completion failed', error)
+        try { Sentry.addBreadcrumb({ category: 'agenda', level: 'error', message: 'Task completion failed', data: { error: String(error) } }) } catch {}
         toast.error('Unable to mark the task complete right now')
       } finally {
         setCompletingTaskId(null)
@@ -275,6 +277,7 @@ export function Agenda() {
         window.dispatchEvent(new CustomEvent('bvx:navigate', { detail: { pane: 'agenda' } }))
       } catch (error) {
         console.error('Reminder completion failed', error)
+        try { Sentry.addBreadcrumb({ category: 'agenda', level: 'error', message: 'Reminder completion failed', data: { error: String(error) } }) } catch {}
         toast.error('Unable to clear the reminder right now')
       } finally {
         setClearingReminderId(null)
@@ -314,6 +317,7 @@ export function Agenda() {
         window.dispatchEvent(new CustomEvent('bvx:navigate', { detail: { pane: 'agenda' } }))
       } catch (error) {
         console.error('Task creation failed', error)
+        try { Sentry.addBreadcrumb({ category: 'agenda', level: 'error', message: 'Task creation failed', data: { error: String(error) } }) } catch {}
         toast.error('Unable to create the task right now')
       } finally {
         setCreatingTask(false)

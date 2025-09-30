@@ -94,16 +94,22 @@ export function SignUp() {
           flowType: 'pkce',
         },
       })
+      console.info('[bvx:oauth] response', { data, error })
+
       if (error) throw error
-      console.info('[auth] Google OAuth sign-up initiated', { url: data?.url, redirectTo })
+
       if (data?.url) {
+        console.info('[bvx:oauth] redirecting to', data.url)
         window.location.assign(data.url)
         return
       }
-      setErrorMessage('Unable to start Google sign-up (no redirect URL returned).')
+
+      // If data?.url is falsy, display a user-facing error and keep the button enabled again
+      setErrorMessage('Unable to start Google sign-up (no redirect URL returned). Please try again.')
+      setIsLoading(false)
     } catch (err: any) {
+      console.error('[bvx:oauth] error', err)
       setErrorMessage(String(err?.message || err || 'Unable to start Google sign-up'))
-    } finally {
       setIsLoading(false)
     }
   }

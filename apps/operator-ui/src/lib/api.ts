@@ -33,7 +33,7 @@ async function request(path: string, options: RequestInit = {}) {
   headers.set('Content-Type', 'application/json');
 
   // Send Authorization header with Supabase access token for authentication
-  // Backend expects Bearer token but not X-Tenant-Id header or tenant_id query params
+  // Backend expects Bearer token and tenant_id parameter/body field
   try {
     const session = (await supabase.auth.getSession()).data.session;
     if (session?.access_token) {
