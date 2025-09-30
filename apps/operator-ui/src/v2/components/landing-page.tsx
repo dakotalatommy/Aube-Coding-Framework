@@ -2,7 +2,6 @@ import { createElement, useEffect, useMemo, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { track } from '../../lib/analytics'
-import BackdropFX from '../../components/BackdropFX'
 import './landing-v2-fixes.css'
 import '@google/model-viewer'
 
@@ -188,8 +187,16 @@ export default function LandingV2() {
       }}
     >
       <div className="mx-auto max-w-6xl relative z-10 flex flex-col min-h-[100dvh]">
-      {/* Gradient wash + 3D hero background */}
-      <BackdropFX />
+      {/* Full-page gradient overlay - extended and softened, sits behind 3D model */}
+      <div
+        aria-hidden
+        className="absolute inset-0 -z-20 pointer-events-none"
+        style={{
+          background:
+            'radial-gradient(65vw 85vh at 60% 42%, rgba(96,165,250,0.35), transparent 75%), radial-gradient(54vw 75vh at 75% 58%, rgba(236,72,153,0.24), transparent 80%)',
+        }}
+      />
+      
       <div className="absolute inset-0 -z-10 overflow-hidden pointer-events-none">
         <ModelViewerElement
           ref={modelRef as any}
@@ -213,14 +220,6 @@ export default function LandingV2() {
         <main ref={mainRef} className="min-h-full grid grid-rows-[auto_auto_1fr] overflow-visible relative">
           {/* Hero (words-only + single CTA) */}
           <section className="relative pt-4 md:pt-6 pb-10 md:pb-12 mt-[7px]">
-            <div
-              aria-hidden
-              className="absolute inset-0 -z-10"
-              style={{
-                background:
-                  'radial-gradient(65vw 48vh at 60% 42%, rgba(96,165,250,0.48), transparent 70%), radial-gradient(54vw 40vh at 75% 58%, rgba(236,72,153,0.28), transparent 76%)',
-              }}
-            />
 
             <div className="max-w-7xl mx-auto px-2 md:px-3">
               <div className="relative inline-block w-full">
