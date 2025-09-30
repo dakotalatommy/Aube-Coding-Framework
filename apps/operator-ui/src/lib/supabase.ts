@@ -9,6 +9,9 @@ const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 
 const existing = (typeof globalThis !== 'undefined' && (globalThis as any).__bvxSupabase) as any
 
+// Declare client variable that will be assigned in the conditional blocks
+let client: any
+
 // Guard: only create Supabase client if credentials exist
 if (!url || !anon) {
   // In development, throw clear error for debugging
@@ -32,9 +35,9 @@ if (!url || !anon) {
     }),
   } as any;
 
-  const client = stubClient;
+  client = stubClient;
 } else {
-  const client = existing || createClient(
+  client = existing || createClient(
     url,
     anon,
     {
