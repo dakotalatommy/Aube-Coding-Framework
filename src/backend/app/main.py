@@ -7149,59 +7149,73 @@ def acuity_debug_token_lens(
 def get_metrics(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"messages_sent": 0, "time_saved_minutes": 0}
-    m = db.query(dbm.Metrics).filter(dbm.Metrics.tenant_id == tenant_id).first()
-    if not m:
-        base = {"messages_sent": 0, "time_saved_minutes": 0, "ambassador_candidate": False}
-    else:
-        base = {
-            "messages_sent": m.messages_sent,
-            "time_saved_minutes": compute_time_saved_minutes(db, tenant_id),
-            "ambassador_candidate": ambassador_candidate(db, tenant_id),
-        }
-    # Compute rebook stats (last 30d)
+    
     try:
-        rebook_total = 0
-        rebooked = 0
-        rows = db.execute(
-            _sql_text(
-                """
-                WITH base AS (
-                  SELECT id, contact_id, start_ts
-                  FROM appointments
-                  WHERE tenant_id = CAST(:t AS uuid)
-                    AND status = 'completed'
-                    AND start_ts >= (EXTRACT(epoch FROM now())::bigint - 30*86400)
-                ), rebook AS (
-                  SELECT b.id
-                  FROM base b
-                  WHERE EXISTS (
-                    SELECT 1 FROM appointments a2
-                    WHERE a2.tenant_id = CAST(:t AS uuid)
-                      AND a2.contact_id = b.contact_id
-                      AND a2.status = 'completed'
-                      AND a2.start_ts > b.start_ts AND a2.start_ts <= b.start_ts + 30*86400
-                  )
-                )
-                SELECT (SELECT COUNT(*) FROM base) AS total, (SELECT COUNT(*) FROM rebook) AS rebooked
-                """
-            ),
-            {"t": tenant_id},
-        ).fetchone()
-        if rows:
-            rebook_total = int(rows[0] or 0)
-            rebooked = int(rows[1] or 0)
-    except Exception:
-        rebook_total = rebooked = 0
-    rebook_rate = round((100.0 * rebooked / rebook_total), 1) if rebook_total > 0 else 0.0
-    # enrich via admin_kpis for revenue/referrals
-    k = admin_kpis(db, tenant_id)
-    base.update({
-        "revenue_uplift": k.get("revenue_uplift", 0),
-        "referrals_30d": k.get("referrals_30d", 0),
-        "rebooks_30d": rebooked,
-        "rebook_rate_30d": rebook_rate,
-    })
-    return base
+        m = db.query(dbm.Metrics).filter(dbm.Metrics.tenant_id == tenant_id).first()
+        if not m:
+            base = {"messages_sent": 0, "time_saved_minutes": 0, "ambassador_candidate": False}
+        else:
+            base = {
+                "messages_sent": m.messages_sent,
+                "time_saved_minutes": compute_time_saved_minutes(db, tenant_id),
+                "ambassador_candidate": ambassador_candidate(db, tenant_id),
+            }
+        # Compute rebook stats (last 30d)
+        try:
+            rebook_total = 0
+            rebooked = 0
+            rows = db.execute(
+                _sql_text(
+                    """
+                    WITH base AS (
+                      SELECT id, contact_id, start_ts
+                      FROM appointments
+                      WHERE tenant_id = CAST(:t AS uuid)
+                        AND status = 'completed'
+                        AND start_ts >= (EXTRACT(epoch FROM now())::bigint - 30*86400)
+                    ), rebook AS (
+                      SELECT b.id
+                      FROM base b
+                      WHERE EXISTS (
+                        SELECT 1 FROM appointments a2
+                        WHERE a2.tenant_id = CAST(:t AS uuid)
+                          AND a2.contact_id = b.contact_id
+                          AND a2.status = 'completed'
+                          AND a2.start_ts > b.start_ts AND a2.start_ts <= b.start_ts + 30*86400
+                      )
+                    )
+                    SELECT (SELECT COUNT(*) FROM base) AS total, (SELECT COUNT(*) FROM rebook) AS rebooked
+                    """
+                ),
+                {"t": tenant_id},
+            ).fetchone()
+            if rows:
+                rebook_total = int(rows[0] or 0)
+                rebooked = int(rows[1] or 0)
+        except Exception:
+            rebook_total = rebooked = 0
+        rebook_rate = round((100.0 * rebooked / rebook_total), 1) if rebook_total > 0 else 0.0
+        # enrich via admin_kpis for revenue/referrals
+        k = admin_kpis(db, tenant_id)
+        base.update({
+            "revenue_uplift": k.get("revenue_uplift", 0),
+            "referrals_30d": k.get("referrals_30d", 0),
+            "rebooks_30d": rebooked,
+            "rebook_rate_30d": rebook_rate,
+        })
+        return base
+    except Exception as exc:
+        logger.exception("metrics_failed", extra={"tenant_id": tenant_id}, exc_info=exc)
+        # Return fallback metrics on any error
+        return {
+            "messages_sent": 0,
+            "time_saved_minutes": 0,
+            "ambassador_candidate": False,
+            "revenue_uplift": 0,
+            "referrals_30d": 0,
+            "rebooks_30d": 0,
+            "rebook_rate_30d": 0.0,
+        }
 @app.get("/admin/kpis", tags=["Health"])
 def get_admin_kpis(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
     if ctx.role != "owner_admin" and ctx.tenant_id != tenant_id:
