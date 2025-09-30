@@ -542,12 +542,11 @@ export default function App() {
     logSplash('complete')
     setShowSplash(false)
     setShowSplashGuard(false)
-    setInitializing(false)
+    setIsLoadingSession(false)
   }, [logSplash])
 
   const bootstrapSession = useCallback(async (activeSession: Session | null) => {
     if (!activeSession) {
-      clearSplashPersist()
       setUserData(null)
       setOnboardingRequired(false)
       setShowSplash(false)
