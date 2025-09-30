@@ -82,9 +82,7 @@ export function SignIn() {
         return
       }
 
-      // If data?.url is falsy, display a user-facing error and keep the button enabled again
-      setErrorMessage('Unable to start Google sign-in (no redirect URL returned). Please try again.')
-      setIsLoading(false)
+      console.info('[bvx:oauth] Supabase will handle redirect automatically')
     } catch (err: any) {
       console.error('[bvx:oauth] error', err)
       setErrorMessage(String(err?.message || err || 'Unable to start Google sign-in'))
