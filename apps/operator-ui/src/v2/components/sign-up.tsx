@@ -89,7 +89,10 @@ export function SignUp() {
       const redirectTo = `${window.location.origin}/auth/callback?next=/onboarding`
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo }
+        options: {
+          redirectTo,
+          flowType: 'pkce',
+        },
       })
       if (error) throw error
       if (data?.url) window.location.assign(data.url)

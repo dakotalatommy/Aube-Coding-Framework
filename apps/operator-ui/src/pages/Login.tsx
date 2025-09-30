@@ -75,7 +75,13 @@ export default function Login() {
               const next = '/onboarding';
               const fallback = '/workspace?pane=dashboard&postVerify=1';
               const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}&alt=${encodeURIComponent(fallback)}`;
-              const { data, error } = await supabase.auth.signInWithOAuth({ provider:'google', options:{ redirectTo } });
+              const { data, error } = await supabase.auth.signInWithOAuth({
+                provider: 'google',
+                options: {
+                  redirectTo,
+                  flowType: 'pkce',
+                },
+              });
               if (error) { alert(String(error.message||error)); return; }
               if (data && (data as any).url) window.location.assign((data as any).url as string);
             } catch(e:any){ alert(String(e?.message||e)); }

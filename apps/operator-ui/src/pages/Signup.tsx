@@ -119,7 +119,13 @@ export default function Signup() {
             <button type="button" className="text-sm text-slate-700 hover:underline" onClick={async()=>{
               try{
                 const googleRedirect = `${window.location.origin}/auth/callback?next=/onboarding`;
-                const { data, error } = await supabase.auth.signInWithOAuth({ provider:'google', options:{ redirectTo: googleRedirect } });
+                const { data, error } = await supabase.auth.signInWithOAuth({
+                  provider: 'google',
+                  options: {
+                    redirectTo: googleRedirect,
+                    flowType: 'pkce',
+                  },
+                });
                 if (error) { alert(String(error.message||error)); return; }
                 if (data && (data as any).url) window.location.assign((data as any).url as string);
               } catch(e:any){ alert(String(e?.message||e)); }
@@ -137,7 +143,13 @@ export default function Signup() {
             try{
               const oauthRedirect = `${window.location.origin}/auth/callback?next=/onboarding`;
               try{ localStorage.setItem('bvx_auth_in_progress','1'); }catch{}
-              const { data, error } = await supabase.auth.signInWithOAuth({ provider:'google', options:{ redirectTo: oauthRedirect } });
+              const { data, error } = await supabase.auth.signInWithOAuth({
+                provider: 'google',
+                options: {
+                  redirectTo: oauthRedirect,
+                  flowType: 'pkce',
+                },
+              });
               if (error) {
                 alert(String(error.message||error));
                 return;

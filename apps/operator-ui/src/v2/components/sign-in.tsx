@@ -67,7 +67,10 @@ export function SignIn() {
       const redirectTo = `${window.location.origin}/auth/callback?next=/workspace?pane=dashboard`
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo }
+        options: {
+          redirectTo,
+          flowType: 'pkce',
+        },
       })
       if (error) throw error
       if (data?.url) {
