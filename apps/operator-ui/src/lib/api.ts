@@ -1,22 +1,46 @@
+import { track } from './analytics';
+import * as Sentry from '@sentry/react';
+import { supabase } from './supabase';
+
 // Normalize API base URL to avoid malformed values (e.g., stray characters after port)
 function resolveApiBase(): string {
   const raw = (import.meta.env.VITE_API_BASE_URL || '').toString().trim();
   const fallback = 'http://localhost:8000';
-  if (!raw) return fallback;
+  if (!raw) {
+    // In production, try to infer a sensible default before throwing
+    if (import.meta.env.PROD) {
+      if (typeof window !== 'undefined') {
+        const host = window.location.host || '';
+        const isLocal = host.includes('localhost') || host.startsWith('127.') || host.startsWith('0.0.0.0');
+        if (isLocal) {
+          return fallback;
+        }
+        if (host.endsWith('.brandvx.io')) {
+          return 'https://api.brandvx.io';
+        }
+        if (window.location.origin) {
+          return window.location.origin;
+        }
+      }
+      throw new Error('VITE_API_BASE_URL must be set in production');
+    }
+    return fallback;
+  }
   try {
     // If raw is a full URL, use its origin; if it lacks protocol, prefix http://
     const candidate = raw.startsWith('http') ? raw : `http://${raw}`;
     const url = new URL(candidate);
     return url.origin;
   } catch {
+    // In production, don't fall back to localhost on invalid URLs
+    if (import.meta.env.PROD) {
+      throw new Error(`Invalid VITE_API_BASE_URL in production: ${raw}`);
+    }
     return fallback;
   }
 }
 
 export const API_BASE = resolveApiBase();
-import { track } from './analytics';
-import * as Sentry from '@sentry/react';
-import { supabase } from './supabase';
 
 // Resolve tenant id from localStorage (set during login)
 export async function getTenant(): Promise<string> {
@@ -113,7 +137,7 @@ async function request(path: string, options: RequestInit = {}) {
     // Network/mixed-content fallback: retry against production API if local base failed
     const msg = String(e?.message || e || '');
     const isNetwork = msg.includes('Failed to fetch') || msg.includes('TypeError');
-    if (isNetwork && API_BASE.includes('localhost')) {
+    if (isNetwork && API_BASE.includes('localhost') && !import.meta.env.PROD) {
       try {
         try { track('api_retry_prod', { path, reason: msg }); } catch {}
         try { Sentry.addBreadcrumb({ category: 'api', level: 'warning', message: 'Retrying API against prod', data: { path, reason: msg } }); } catch {}
@@ -193,4 +217,3 @@ class AbortSignalAny implements AbortSignal {
     this.dispatchEvent = ctrl.signal.dispatchEvent.bind(ctrl.signal);
   }
 }
-

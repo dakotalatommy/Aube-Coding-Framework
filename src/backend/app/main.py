@@ -6522,12 +6522,18 @@ def contacts_list(
         q = db.query(dbm.Contact).filter(dbm.Contact.tenant_id == tid)  # type: ignore
         q = q.filter(dbm.Contact.deleted == False)  # type: ignore
         total = q.count()
-        rows = (
-            q.order_by(dbm.Contact.lifetime_cents.desc(), dbm.Contact.last_visit.desc())
-            .offset(max(0, int(offset)))
-            .limit(max(1, min(limit, 1000)))
-            .all()
-        )
+        try:
+            raw_limit = int(limit)
+        except (TypeError, ValueError):
+            raw_limit = None
+
+        query = q.order_by(dbm.Contact.lifetime_cents.desc(), dbm.Contact.last_visit.desc())
+        query = query.offset(max(0, int(offset)))
+
+        if raw_limit is not None and raw_limit > 0:
+            query = query.limit(raw_limit)
+
+        rows = query.all()
         out = []
         for r in rows:
             dn = getattr(r, "display_name", None)
@@ -6666,10 +6672,9 @@ def contacts_segments(
                 smart_list["count"] = base_query.filter(dbm.Contact.last_visit < cutoff_date).count()
             elif smart_list["id"] == "birthday_upcoming":
                 current_month = datetime.now().month
-                current_year = datetime.now().year
                 smart_list["count"] = base_query.filter(
                     dbm.Contact.birthday.isnot(None),
-                    db.extract('month', dbm.Contact.birthday) == current_month
+                    _sql_func.extract('month', dbm.Contact.birthday.cast(Date)) == current_month,
                 ).count()
 
         return {
@@ -8452,14 +8457,22 @@ def get_cadence_queue(
         return {"items": []}
     
     try:
-        q = (
+        try:
+            raw_limit = int(limit)
+        except (TypeError, ValueError):
+            raw_limit = None
+
+        query = (
             db.query(dbm.CadenceState)
             .filter(dbm.CadenceState.tenant_id == tenant_id)
             .filter(dbm.CadenceState.next_action_epoch != None)
             .order_by(dbm.CadenceState.next_action_epoch.asc())
-            .limit(max(1, min(limit, 200)))
         )
-        rows = q.all()
+
+        if raw_limit is not None and raw_limit > 0:
+            query = query.limit(raw_limit)
+
+        rows = query.all()
         items = []
         contact_ids = [r.contact_id for r in rows if getattr(r, "contact_id", None)]
         friendly_map: Dict[str, str] = {}
@@ -10895,14 +10908,22 @@ def get_cadence_queue(
 ):
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"items": []}
-    q = (
+    try:
+        raw_limit = int(limit)
+    except (TypeError, ValueError):
+        raw_limit = None
+
+    query = (
         db.query(dbm.CadenceState)
         .filter(dbm.CadenceState.tenant_id == tenant_id)
         .filter(dbm.CadenceState.next_action_epoch != None)
         .order_by(dbm.CadenceState.next_action_epoch.asc())
-        .limit(max(1, min(limit, 200)))
     )
-    rows = q.all()
+
+    if raw_limit is not None and raw_limit > 0:
+        query = query.limit(raw_limit)
+
+    rows = query.all()
     items = []
     for r in rows:
         items.append(
