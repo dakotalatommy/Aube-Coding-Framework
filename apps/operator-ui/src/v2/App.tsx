@@ -1054,8 +1054,8 @@ export default function App() {
     setIntroComplete(true)
   }, [])
 
-  // Show splash during initial load OR during fade-out (showSplashGuard)
-  if (isLoadingSession || showSplash || showSplashGuard) {
+  // Show splash only during explicit auth cycles or guard fade-out state
+  if (showSplash || showSplashGuard) {
     return <SplashScreen onComplete={handleSplashComplete} />
   }
 
