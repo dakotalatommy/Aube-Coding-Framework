@@ -289,26 +289,26 @@ export function getTestImageBase64(): string {
 
 /**
  * Seed demo contacts for follow-up drafting tests
+ * Uses backend RLS probe endpoint to bypass RLS/FK constraints
  */
 export async function seedTestContacts(count = 3): Promise<string[]> {
   const insertedIds: string[] = [];
-  const supabase = getServiceClient();
   const { tenantId } = await getAccessToken();
 
   for (let i = 0; i < count; i += 1) {
     const contactId = `test-contact-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    insertedIds.push(contactId);
-    await supabase.from('contacts').insert({
-      tenant_id: tenantId,
-      contact_id: contactId,
-      first_name: `Test${i + 1}`,
-      last_name: 'Client',
-      display_name: `Test ${i + 1} Client`,
-      consent_sms: true,
-      consent_email: true,
-      last_visit: Math.floor(Date.now() / 1000) - (i + 1) * 86400,
-      creation_source: 'e2e_tests',
+    
+    // Use backend probe endpoint which sets session variables correctly
+    const response = await apiRequest('POST', '/integrations/rls/probe-insert-contact', {
+      body: {
+        tenant_id: tenantId,
+        contact_id: contactId,
+      },
     });
+
+    if (response.ok && response.data.status === 'ok') {
+      insertedIds.push(contactId);
+    }
   }
 
   return insertedIds;

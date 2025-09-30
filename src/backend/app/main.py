@@ -113,6 +113,29 @@ import secrets as _secrets
 import uuid as _uuid
 
 
+# Helper: Ensure tenant row exists (safety net for pre-trigger users)
+def ensure_tenant_exists(tenant_id: str) -> None:
+    """Idempotent: ensure tenant row exists for given ID. Silent on error."""
+    try:
+        with engine.begin() as conn:
+            try:
+                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+            except Exception:
+                pass
+            conn.execute(
+                _sql_text(
+                    """
+                    INSERT INTO public.tenants (id, name, created_at)
+                    VALUES (CAST(:t AS uuid), 'Workspace', NOW())
+                    ON CONFLICT (id) DO NOTHING
+                    """
+                ),
+                {"t": tenant_id},
+            )
+    except Exception:
+        pass  # RLS/permissions issues are non-fatal
+
+
 tags_metadata = [
     {"name": "Health", "description": "Health checks and metrics."},
     {"name": "Contacts", "description": "Contact import and consent."},
@@ -11006,6 +11029,11 @@ def whoami(
     ctx: UserContext = Depends(get_user_context),
 ) -> Dict[str, Any]:
     tenant_id = ctx.tenant_id or ""
+    
+    # Ensure tenant exists on first access (safety net for pre-trigger users)
+    if tenant_id:
+        ensure_tenant_exists(tenant_id)
+    
     out: Dict[str, Any] = {"tenant_id": tenant_id, "role": ctx.role or ""}
     if not tenant_id:
         out["subscription"] = {}
