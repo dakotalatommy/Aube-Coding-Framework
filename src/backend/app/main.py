@@ -8,6 +8,7 @@ from typing import List, Dict, Optional, Any, Tuple
 from datetime import datetime, date, timedelta, timezone
 from zoneinfo import ZoneInfo
 import logging
+import os
 from sqlalchemy.orm import Session
 from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST, CollectorRegistry
 from .events import emit_event
@@ -23,6 +24,10 @@ from .metrics_counters import CACHE_HIT, CACHE_MISS, AI_CHAT_USED, INSIGHTS_SERV
 from .messaging import send_message
 from .integrations import crm_hubspot, booking_acuity
 from .integrations import instagram_basic as ig_basic
+from .workers.followups import _update_todo_details
+FOLLOWUPS_MAX_CHUNK = max(1, int(os.getenv("FOLLOWUPS_MAX_CHUNK", "25")))
+
+
 class EmailOwnerRequest(BaseModel):
     profile: Dict[str, Any]
     source: Optional[str] = "demo"
@@ -1503,6 +1508,57 @@ class FollowupsDraftRequest(BaseModel):
     template_id: str
 
 
+def _generate_followup_markdown(
+    snapshots: List[Dict[str, Any]],
+    reasons: Dict[str, str],
+    now_ts: int,
+) -> str:
+    lines: List[str] = []
+    for snap in snapshots:
+        name = (snap.get("display_name") or snap.get("contact_id") or "Friend").strip()
+        contact_id = str(snap.get("contact_id") or "")
+        reason = (reasons.get(contact_id, "") or "").strip()
+        opener = f"Hey {name.split(' ')[0] if name else 'there'} — "
+
+        details_bits: List[str] = []
+        last_visit = snap.get("last_visit_ts")
+        appointment_ts = snap.get("appointment_ts")
+
+        try:
+            if last_visit:
+                lv = int(last_visit)
+                if lv > 0:
+                    days_since = max(0, int((now_ts - lv) / 86400))
+                    if days_since > 0:
+                        details_bits.append(
+                            f"it's been {days_since} day{'s' if days_since != 1 else ''} since your visit"
+                        )
+        except Exception:
+            pass
+
+        try:
+            if appointment_ts:
+                appt = int(appointment_ts)
+                if appt >= now_ts:
+                    details_bits.append("we have time held for you soon")
+        except Exception:
+            pass
+
+        if reason:
+            details_bits.append(reason.rstrip('.'))
+
+        middle = " ".join(details_bits).strip()
+        if middle:
+            middle = middle[0].upper() + middle[1:] + '. '
+
+        message_body = (
+            f"{opener}{middle}I’d love to help you get back on the books—want me to send a couple of times?"
+        )
+        lines.append(f"## {name}\n{message_body}\n")
+
+    return "\n".join(lines).strip()
+
+
 @app.post("/followups/draft_batch", tags=["Cadences"])
 def followups_draft_batch(
     req: FollowupsDraftRequest,
@@ -1640,19 +1696,12 @@ def followups_draft_batch(
             snap["appointment_ts"] = appointment_lookup[cid]
         contact_snapshots.append(snap)
 
-    job_payload = {
-        "scope": req.scope,
-        "template_id": req.template_id,
-        "template_label": template["label"],
-        "template_prompt": template["prompt"],
-        "template_variations": list(template.get("variations", [])),
-        "todo_id": None,  # filled after creating To-Do
-        "contact_ids": contact_ids,
-        "contacts": contact_snapshots,
-        "requested_at": now_ts,
-        "tenant_timezone": tenant_timezone,
-        "tenant_timezone_offset": tenant_offset_minutes,
-    }
+    chunked_snapshots: List[List[Dict[str, Any]]] = []
+    if contact_snapshots:
+        for idx in range(0, len(contact_snapshots), FOLLOWUPS_MAX_CHUNK):
+            chunked_snapshots.append(contact_snapshots[idx : idx + FOLLOWUPS_MAX_CHUNK])
+
+    chunk_total = max(1, len(chunked_snapshots) or 1)
 
     title = f"Draft follow-ups • {template['label']} ({len(contact_ids)})"
     base_details = {
@@ -1663,14 +1712,9 @@ def followups_draft_batch(
         "draft_status": "queued",
         "generated_at": None,
         "count": len(contact_ids),
-        "job_id": None,
-        "job_status": "queued",
+        "chunk_total": chunk_total,
+        "job_ids": [],
     }
-
-    job_id = create_job_record(req.tenant_id, "followups.draft", job_payload, status="queued")
-    if job_id:
-        base_details["job_id"] = job_id
-        job_payload["job_id"] = job_id
 
     todo_id = None
     with engine.begin() as conn:
@@ -1688,64 +1732,109 @@ def followups_draft_batch(
             {"t": req.tenant_id, "title": title, "details": json.dumps(base_details)},
         )
         todo_id = inserted.scalar() if inserted else None
-    if not job_id or not todo_id:
-        # Fallback synchronous draft generation when queue infrastructure is unavailable
-        markdown_chunks: List[str] = []
-        for snap in contact_snapshots:
-            name = snap.get("display_name") or snap.get("contact_id") or "Friend"
-            reason = (snap.get("reason") or "").strip()
-            opener = f"Hey {name.split(' ')[0] if name else 'there'} — "
-            details_bits = []
-            last_visit = snap.get("last_visit_ts")
-            appt_ts = snap.get("appointment_ts")
-            if last_visit:
-                try:
-                    days_since = max(0, int((now_ts - int(last_visit)) / 86400))
-                    if days_since > 0:
-                        details_bits.append(
-                            f"it's been {days_since} day{'s' if days_since != 1 else ''} since your visit"
-                        )
-                except Exception:
-                    pass
-            elif appt_ts:
-                try:
-                    if int(appt_ts) >= now_ts:
-                        details_bits.append("we have time held for you soon")
-                except Exception:
-                    pass
-            if reason:
-                details_bits.append(reason.rstrip('.'))
 
-            middle = " ".join(details_bits).strip()
-            if middle:
-                middle = middle[0].upper() + middle[1:] + '. '
-            message = (
-                f"{opener}{middle}I’d love to help you get back on the books—want me to send a couple of times?"
-            )
-            markdown_chunks.append(f"## {name}\n{message}\n")
+    job_ids: List[str] = []
+    fallback_markdown: List[str] = []
 
-        markdown = "\n".join(markdown_chunks).strip()
-        base_details.update({"draft_status": "ready", "draft_markdown": markdown})
-        if job_id:
-            update_job_record(job_id, status="ready", result={"draft_markdown": markdown})
-        return {
-            "status": "ready",
-            "job_id": job_id,
-            "todo_id": None,
-            "count": len(contact_ids),
-            "details": base_details,
-            "draft_markdown": markdown,
+    for chunk_index, chunk in enumerate(chunked_snapshots or [contact_snapshots]):
+        if not chunk:
+            continue
+        chunk_contact_ids = [snap.get("contact_id") for snap in chunk if snap.get("contact_id")]
+        chunk_payload = {
+            "scope": req.scope,
+            "template_id": req.template_id,
+            "template_label": template["label"],
+            "template_prompt": template["prompt"],
+            "template_variations": list(template.get("variations", [])),
+            "todo_id": todo_id,
+            "contact_ids": chunk_contact_ids,
+            "contacts": chunk,
+            "requested_at": now_ts,
+            "tenant_timezone": tenant_timezone,
+            "tenant_timezone_offset": tenant_offset_minutes,
+            "chunk_index": chunk_index,
+            "chunk_total": chunk_total,
         }
 
-    job_payload["todo_id"] = todo_id
-    update_job_record(job_id, result={"todo_id": todo_id, "status": "queued"})
+        job_id = create_job_record(req.tenant_id, "followups.draft", chunk_payload, status="queued")
+        if job_id:
+            job_ids.append(job_id)
+            update_job_record(
+                job_id,
+                status="queued",
+                result={
+                    "todo_id": todo_id,
+                    "chunk_index": chunk_index,
+                    "chunk_total": chunk_total,
+                    "status": "queued",
+                },
+            )
+        else:
+            logger.warning(
+                "followups_draft_job_create_failed",
+                extra={"tenant_id": req.tenant_id, "chunk_index": chunk_index},
+            )
+            fallback_markdown.append(_generate_followup_markdown(chunk, reasons, now_ts))
+
+    if job_ids and todo_id:
+        _update_todo_details(
+            todo_id,
+            req.tenant_id,
+            {
+                "job_ids": job_ids,
+                "chunk_total": chunk_total,
+                "draft_status": "queued",
+            },
+        )
+        if fallback_markdown:
+            combined_fallback = "\n\n".join([section for section in fallback_markdown if section])
+            if combined_fallback:
+                _update_todo_details(
+                    todo_id,
+                    req.tenant_id,
+                    {
+                        "fallback_markdown": combined_fallback,
+                        "fallback_chunks": len(fallback_markdown),
+                    },
+                )
+        return {
+            "status": "queued",
+            "job_ids": job_ids,
+            "todo_id": todo_id,
+            "chunk_total": chunk_total,
+            "count": len(contact_ids),
+            "details": {**base_details, "job_ids": job_ids},
+        }
+
+    combined_markdown = "\n\n".join([section for section in fallback_markdown if section])
+    if not combined_markdown:
+        combined_markdown = _generate_followup_markdown(contact_snapshots, reasons, now_ts)
+
+    if todo_id:
+        _update_todo_details(
+            todo_id,
+            req.tenant_id,
+            {
+                "draft_status": "ready",
+                "draft_markdown": combined_markdown,
+                "job_ids": job_ids,
+                "chunk_total": chunk_total,
+            },
+            todo_status="ready",
+        )
+
+    logger.warning(
+        "followups_draft_fallback_used",
+        extra={"tenant_id": req.tenant_id, "chunk_total": chunk_total},
+    )
 
     return {
-        "status": "queued",
-        "job_id": job_id,
+        "status": "ready",
+        "job_ids": job_ids,
         "todo_id": todo_id,
         "count": len(contact_ids),
-        "details": base_details,
+        "details": {**base_details, "draft_status": "ready", "draft_markdown": combined_markdown},
+        "draft_markdown": combined_markdown,
     }
 
 

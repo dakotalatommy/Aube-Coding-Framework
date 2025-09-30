@@ -77,3 +77,33 @@ Eliminate duplicate tenant parameter plumbing, restore Square/Acuity import pari
 - `git status` clean except intended files.
 - Optional: `npm run lint` & `npm run test` (if suites exist).
 - Prepare summary for release notes (include tenant duplication fix & import/export restorations).
+
+---
+
+## Tenant DB Sweep Status (2025-09-30)
+- `scripts/db/tenant_sweep.sh` run with `RUN_POLICY_MERGE=1`, `RUN_INDEX_CLEANUP=1`.
+- Inventory log: `cadence_state` legacy view absent; `cadence_states` rowcount 866. Timestamp audit still flags bigint/integer columns (calendar_events.created_at, contacts.created_at/updated_at, etc.).
+- `02_harden_functions_and_rls`: helper functions (`_has_table`, `_has_column`, `current_tenant_id`, `bootstrap_tenant`) pinned to `search_path=public,pg_temp`; tenant/admin predicates rewritten to use `select current_setting(...)`.
+- `03_merge_duplicate_policies`: refactored to skip tables already split into granular `*_insert_public` policies; latest run completes without errors.
+- `04_index_cleanup_and_fk`: dropped redundant tenant indexes across 35+ tables; added covering indexes for `cadence_rules.template_id`, `messages.contact_id`, `profiles.tenant_id`, `referrals.ref_code`, `referrals.referrer_user_id`.
+- `messages_select_tenant` (authenticated role) created; `service_role_bypass` retained for backend jobs.
+
+## Supabase Console Actions
+- **Pending**: In Authentication → Settings, set OTP expiry ≤ 3600s and enable leaked-password protection (HaveIBeenPwned). Capture before/after screenshots and append to repo artifact store.
+- **Postgres upgrade**: Supabase reports `supabase-postgres-17.4.1.074` has security patches available. Schedule upgrade via Supabase dashboard; note maintenance window.
+
+## Advisor Snapshot (after 2025-09-30 sweep)
+- Cleared: `policy_exists_rls_disabled`, `function_search_path_mutable`, `duplicate_index` (for dropped duplicates).
+- Pending warnings:
+  - `auth_rls_initplan` on tables whose policies still reference `current_setting()` without the `SELECT` wrapper (e.g., refactor remaining legacy policies such as `client_action_flags_all`, `referrals_sel`, etc.).
+  - `multiple_permissive_policies` should be clear post-refactor; re-run Advisor to confirm.
+  - `auth_otp_long_expiry` and `auth_leaked_password_protection` remain until console toggles applied.
+  - `vulnerable_postgres_version` persists until Supabase upgrade is completed.
+  - `unused_index`, `unindexed_foreign_keys` informational items: review after traffic captures; new FK indexes created address warnings for cadences/messages/profiles/referrals.
+
+## Next Steps
+1. Complete Supabase console security toggles, capture screenshots, and archive in repo (e.g., `docs/screenshots/`).
+2. Re-run Supabase Advisor to confirm remaining warnings, export report (PDF/CSV) for reference.
+3. Update this document with screenshots, Advisor before/after summary, and mark any residual warnings with owners/ETAs.
+4. Work with Supabase to schedule the Postgres patch upgrade; document outcome and any migration steps.
+*** End Patch
