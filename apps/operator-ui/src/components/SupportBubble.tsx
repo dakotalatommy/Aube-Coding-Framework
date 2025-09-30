@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import OverlayPortal from './OverlayPortal';
-import { api, getTenant, API_BASE } from '../lib/api';
+import { api, getTenant } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import { track } from '../lib/analytics';
 
@@ -332,9 +332,7 @@ export default function SupportBubble({ hideTrigger }: SupportBubbleProps){
       if (session?.access_token) {
         headers['Authorization'] = `Bearer ${session.access_token}`;
       }
-      const res = await fetch(`${API_BASE}/support/send`, {
-        method: 'POST',
-        body: fd,
+      const res = await api.post(`/support/send`, fd, {
         headers,
       });
       if (res.status === 401) {

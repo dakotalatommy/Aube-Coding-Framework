@@ -19,19 +19,31 @@ if (!url || !anon) {
     throw new Error(`Missing Supabase credentials: URL=${!!url}, ANON=${!!anon}. Check your environment variables.`);
   }
 
-  // For static/landing builds, return a minimal stub that doesn't break
+  // For static/landing builds, return a stub that mirrors expected methods
+  const noop = () => {};
+  const resolved = (data: any = null, error: any = null) => Promise.resolve({ data, error });
+  const stubSubscription = { unsubscribe: noop };
+  const stubAuth = {
+    getSession: () => resolved({ session: null }, null),
+    onAuthStateChange: (_cb?: any) => ({ data: { subscription: stubSubscription }, error: null }),
+    getUser: () => resolved({ user: null }, null),
+    setSession: () => resolved({ user: null, session: null }, null),
+    exchangeCodeForSession: () => resolved({ user: null, session: null }, null),
+    resetPasswordForEmail: () => resolved({}, null),
+    signInWithOAuth: () => resolved({ user: null, session: null, url: undefined }, null),
+    resend: () => resolved({}, null),
+    signOut: () => resolved(null, null),
+    signInWithPassword: () => resolved({ user: null, session: null }, { message: 'Supabase client not initialized - missing credentials' }),
+    signUp: () => resolved({ user: null, session: null }, { message: 'Supabase client not initialized - missing credentials' }),
+  } as any;
+
   const stubClient = {
-    auth: {
-      getSession: () => Promise.resolve({ data: { session: null }, error: null }),
-      signOut: () => Promise.resolve({ error: null }),
-      signInWithPassword: () => Promise.resolve({ data: { user: null, session: null }, error: { message: 'Supabase client not initialized - missing credentials' } }),
-      signUp: () => Promise.resolve({ data: { user: null, session: null }, error: { message: 'Supabase client not initialized - missing credentials' } }),
-    },
+    auth: stubAuth,
     from: () => ({
-      select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) }),
-      insert: () => ({ select: () => Promise.resolve({ data: null, error: null }) }),
-      update: () => ({ eq: () => ({ select: () => Promise.resolve({ data: null, error: null }) }) }),
-      delete: () => ({ eq: () => Promise.resolve({ data: null, error: null }) }),
+      select: () => ({ eq: () => ({ single: () => resolved(null, null) }) }),
+      insert: () => ({ select: () => resolved(null, null) }),
+      update: () => ({ eq: () => ({ select: () => resolved(null, null) }) }),
+      delete: () => ({ eq: () => resolved(null, null) }),
     }),
   } as any;
 

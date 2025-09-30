@@ -16,6 +16,7 @@ function resolveApiBase(): string {
 export const API_BASE = resolveApiBase();
 import { track } from './analytics';
 import * as Sentry from '@sentry/react';
+import { supabase } from './supabase';
 
 // Resolve tenant id from localStorage (set during login)
 export async function getTenant(): Promise<string> {
@@ -31,8 +32,25 @@ async function request(path: string, options: RequestInit = {}) {
   const headers = new Headers(options.headers || {});
   headers.set('Content-Type', 'application/json');
 
-  // Use legacy session-based authentication (no explicit headers needed)
-  // The backend should handle authentication via session cookies
+  // Send Authorization header with Supabase access token for authentication
+  // Backend expects Bearer token but not X-Tenant-Id header or tenant_id query params
+  try {
+    const session = (await supabase.auth.getSession()).data.session;
+    if (session?.access_token) {
+      headers.set('Authorization', `Bearer ${session.access_token}`);
+    }
+  } catch {}
+
+  // Resolve tenant id and inject it into requests
+  let tenantId: string | undefined
+  try {
+    tenantId = await getTenant()
+    if (tenantId) {
+      try { console.info('[bvx:api] injecting tenant_id', tenantId); } catch {}
+    }
+  } catch (error) {
+    console.warn('Failed to resolve tenant_id', error)
+  }
 
   const doFetch = async (base: string) => {
     // Add a default timeout and preserve any passed AbortController
@@ -41,9 +59,34 @@ async function request(path: string, options: RequestInit = {}) {
     const timeoutMs = (options as any).timeoutMs as number | undefined;
     const to = window.setTimeout(()=>{ try { ctl.abort('timeout'); } catch {} }, typeof timeoutMs === 'number' ? timeoutMs : 20000);
     const compositeSignal = passedSignal ? new AbortSignalAny([passedSignal, ctl.signal]) : ctl.signal;
-    const url = `${base}${path}`;
+
+    // Inject tenant_id into URL for GET/DELETE requests
+    let url = `${base}${path}`
+    if (tenantId && (options.method === 'GET' || options.method === 'DELETE' || !options.method)) {
+      const separator = url.includes('?') ? '&' : '?'
+      url += `${separator}tenant_id=${encodeURIComponent(tenantId)}`
+    }
+
     try { console.info('[bvx:api] fetch', url); } catch {}
-    const res = await fetch(url, { ...options, headers, signal: compositeSignal });
+
+    // Prepare body with tenant_id for POST/PUT/PATCH requests
+    let finalOptions = { ...options, headers, signal: compositeSignal }
+    if (tenantId && (options.method === 'POST' || options.method === 'PUT' || options.method === 'PATCH')) {
+      try {
+        let body = finalOptions.body
+        if (typeof body === 'string') {
+          body = JSON.parse(body)
+        }
+        if (body && typeof body === 'object' && body !== null && !Array.isArray(body) && !(body instanceof URLSearchParams) && !(body instanceof FormData) && !(body instanceof Blob) && !(body instanceof ReadableStream)) {
+          (body as any).tenant_id = tenantId
+          finalOptions.body = JSON.stringify(body)
+        }
+      } catch (error) {
+        console.warn('Failed to inject tenant_id into request body', error)
+      }
+    }
+
+    const res = await fetch(url, finalOptions);
     if (!res.ok) {
       try { console.warn('[bvx:api] error', res.status, res.statusText, path); } catch {}
       try { track('api_error', { path, status: res.status, statusText: res.statusText, base }); } catch {}
@@ -101,12 +144,11 @@ export const api = {
           body = b;
         } else {
           if (b && !b.idempotency_key) {
-            const tid = (typeof window !== 'undefined' ? (localStorage.getItem('bvx_tenant')||'') : '') || 'anon';
             const paramsStr = JSON.stringify(b?.params||{});
             let hash = 0;
             for (let i = 0; i < paramsStr.length; i++) { hash = ((hash << 5) - hash + paramsStr.charCodeAt(i)) | 0; }
             const bucket = Math.floor(Date.now() / 10000); // 10s bucket
-            b.idempotency_key = `${tid}:${toolName||'tool'}:${hash}:${bucket}`;
+            b.idempotency_key = `${toolName||'tool'}:${hash}:${bucket}`;
             body = b;
           }
         }

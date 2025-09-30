@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { readNumberParam, syncParamToState } from '../lib/url';
-import { api, API_BASE } from '../lib/api';
+import { api } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import Button from '../components/ui/Button';
 // import Input from '../components/ui/Input';
@@ -239,10 +239,7 @@ export default function Contacts(){
                 // Fetch in pages to avoid backend changes; cap at 10k for safety
                 let offset = 0; const limit = 1000; const max = 10000; const rows: any[] = [];
                 for (; offset < max; offset += limit) {
-                  const url = `${API_BASE}/contacts/list?limit=${limit}&offset=${offset}`;
-                  const res = await fetch(url, { headers });
-                  if (!res.ok) break;
-                  const j = await res.json().catch(() => ({}));
+                  const j = await api.get(`/contacts/list?limit=${limit}&offset=${offset}`, { headers });
                   const pageItems = Array.isArray(j?.items) ? j.items : [];
                   rows.push(...pageItems);
                   if (pageItems.length < limit) break;

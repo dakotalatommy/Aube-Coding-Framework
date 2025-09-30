@@ -15,7 +15,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 
-import { api, getTenant, API_BASE } from '../../lib/api'
+import { api, getTenant } from '../../lib/api'
 import { supabase } from '../../lib/supabase'
 import { formatRelativeTime } from '../lib/formatters'
 import type { ClientsListResponse, ClientRecord, ClientSegmentSummary, ClientsQueryParams } from './types/clients'
@@ -211,9 +211,7 @@ export function Clients({ initialSearch, onAckSearch }: ClientsProps = {}) {
         headers['Authorization'] = `Bearer ${session.access_token}`
       }
 
-      const downloadUrl = `${API_BASE}/contacts/export.csv`
-      const response = await fetch(downloadUrl, { headers })
-      if (!response.ok) throw new Error('Export failed')
+      const response = await api.get(`/contacts/export.csv`, { headers })
       const blob = await response.blob()
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')

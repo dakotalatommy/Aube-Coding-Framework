@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useParams } from 'react-router-dom';
-import { API_BASE } from '../lib/api';
+import { api } from '../lib/api';
 import { supabase } from '../lib/supabase';
 
 type ShareData = {
@@ -33,9 +33,7 @@ export default function Share() {
         if (session?.access_token) {
           headers['Authorization'] = `Bearer ${session.access_token}`;
         }
-        const r = await fetch(`${API_BASE}/share/${token}`, { headers });
-        if (!r.ok) throw new Error(`${r.status}`);
-        const j = await r.json();
+        const j = await api.get(`/share/${token}`, { headers });
         if (!cancelled) setData(j);
       } catch (e: any) {
         if (!cancelled) setErr('not_found');

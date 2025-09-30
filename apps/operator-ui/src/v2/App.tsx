@@ -504,7 +504,26 @@ export default function App() {
         setShowSplash(true)
         setShowSplashGuard(true)
       }
-      // Get tenant_id from localStorage (set during login)
+
+      // Get tenant_id from /me endpoint and persist to localStorage
+      let tenantId: string | undefined
+      try {
+        const meResponse = await api.get('/me')
+        tenantId = meResponse?.tenant_id
+        if (tenantId) {
+          localStorage.setItem('bvx_tenant', tenantId)
+        }
+      } catch (meError) {
+        console.warn('Failed to fetch /me for tenant_id', meError)
+        // Continue with bootstrap even if /me fails
+      }
+
+      // After storing tenant id, trigger a refresh of dashboard data
+      if (tenantId) {
+        fetchDashboardData(tenantId).catch((error) => {
+          console.error('Dashboard metrics fetch failed during bootstrap', error)
+        })
+      }
 
       const settingsResp = await api.get('/settings')
       const settingsData = settingsResp?.data || {}
@@ -548,6 +567,8 @@ export default function App() {
         }
         return
       }
+      // For other errors, explicitly set session to null and hide splash to avoid infinite splash
+      setSession(null)
       setUserData(null)
       setOnboardingRequired(false)
       setCurrentTrialDay(undefined)

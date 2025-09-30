@@ -26,7 +26,7 @@ export default function Billing(){
     if (publishableKey) return;
     (async()=>{
       try{
-        const cfg = await fetch((window as any)?.API_BASE || 'https://api.brandvx.io/billing/config').then(r=> r.json()).catch(()=> ({} as any));
+        const cfg = await api.get('/billing/config').catch(()=> ({} as any));
         if (cfg && typeof cfg.publishable_key === 'string' && cfg.publishable_key) {
           setRuntimePk(cfg.publishable_key);
         }
@@ -57,7 +57,7 @@ export default function Billing(){
         setError('');
         // Fetch server-side billing config (truth for price ids)
         try {
-          const cfg = await fetch('https://api.brandvx.io/billing/config').then(r=> r.json());
+          const cfg = await api.get('/billing/config');
           if (mounted) setBillingCfg(cfg||{});
           if (!publishableKey && cfg?.publishable_key && !runtimePk) {
             setRuntimePk(String(cfg.publishable_key));
