@@ -650,6 +650,7 @@ export default function App() {
           setShowSplash(false)
           setShowSplashGuard(false)
           setInitializing(false)
+          hasBootedRef.current = true
           return
         }
         setSession(data.session)
@@ -664,6 +665,7 @@ export default function App() {
         setShowSplash(false)
         setShowSplashGuard(false)
         setInitializing(false)
+        hasBootedRef.current = true
       }
     })()
 
@@ -696,6 +698,7 @@ export default function App() {
             setShowSplashGuard(false)
           }
         } catch {}
+        hasBootedRef.current = true
       }
       if (!newSession) {
         navigateToPage('dashboard')
