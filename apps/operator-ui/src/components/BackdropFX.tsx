@@ -23,11 +23,11 @@ export function BackdropFX({ withSpline = false }: BackdropFXProps) {
 
   return (
     <div aria-hidden className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
-      {/* Base vertical blue gradient wash */}
+      {/* Base vertical blue gradient wash - smoothed to blend seamlessly */}
       <div
         className="absolute inset-0"
         style={{
-          background: 'linear-gradient(180deg, rgba(186,218,255,0.26) 0%, rgba(186,218,255,0.16) 32%, rgba(255,255,255,0.08) 58%, rgba(255,255,255,0) 88%)',
+          background: 'linear-gradient(180deg, rgba(186,218,255,0.26) 0%, rgba(186,218,255,0.16) 28%, rgba(186,218,255,0.10) 48%, rgba(255,255,255,0.05) 68%, rgba(255,255,255,0.02) 82%, rgba(255,255,255,0) 100%)',
         }}
       />
 

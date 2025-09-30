@@ -28,6 +28,7 @@ import { OnboardingTooltip } from './components/onboarding-tooltip'
 import { Toaster } from './components/ui/sonner'
 import LandingV2 from './components/landing-page'
 import { AuthCallback } from './components/auth-callback'
+import LandingIntroAnimation from '../components/LandingIntroAnimation'
 import type { DashboardAgendaItem, DashboardClientPreviewItem, DashboardReminderItem, DashboardReferralInfo } from './components/types/dashboard'
 
 const AskVX = lazy(() => import('./components/askvx').then(m => ({ default: m.AskVX })))
@@ -216,7 +217,6 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [userData, setUserData] = useState<UserProfile | null>(null)
   const [showSplash, setShowSplash] = useState(false)
-  const [initializing, setInitializing] = useState(false)
   const [isLoadingSession, setIsLoadingSession] = useState(true)
   const hasBootedRef = useRef(false)
   const lastUserIdRef = useRef<string | null>(null)
@@ -242,10 +242,10 @@ export default function App() {
 
   const logSplash = useCallback((event: string, detail?: Record<string, unknown>) => {
     try {
-      const payload = { initializing, showSplash, showSplashGuard, hasBooted: hasBootedRef.current, ...detail }
+      const payload = { isLoadingSession, showSplash, showSplashGuard, hasBooted: hasBootedRef.current, ...detail }
       console.info(`[v2:splash] ${event}`, payload)
     } catch {}
-  }, [initializing, showSplash, showSplashGuard])
+  }, [isLoadingSession, showSplash, showSplashGuard])
 
   // Keep lastUserIdRef in sync with session for sign-out cleanup
   useEffect(() => {
@@ -713,12 +713,11 @@ export default function App() {
         const { data } = await supabase.auth.getSession()
         if (cancelled) return
         if (!data.session) {
-          clearSplashPersist()
           setSession(null)
           logSplash('disable', { reason: 'bootstrap:no-session' })
           setShowSplash(false)
           setShowSplashGuard(false)
-          setInitializing(false)
+          setIsLoadingSession(false)
           hasBootedRef.current = true
           return
         }
@@ -727,57 +726,51 @@ export default function App() {
         // intermediate renders that race with route changes.
         await bootstrapSession(data.session)
         if (cancelled) return
-        setInitializing(false)
+        setIsLoadingSession(false)
         // Ensure hasBootedRef flips true after bootstrap completes (both with and without session)
         hasBootedRef.current = true
       } catch (error) {
         console.warn('Initial session bootstrap failed', error)
         setSession(null)
-        clearSplashPersist()
         logSplash('disable', { reason: 'bootstrap:error' })
         setShowSplash(false)
         setShowSplashGuard(false)
-        setInitializing(false)
+        setIsLoadingSession(false)
         hasBootedRef.current = true
       }
     })()
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (_event: any, newSession: Session | null) => {
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event: any, newSession: Session | null) => {
       if (cancelled) return
-      setSession(newSession)
-      if (newSession) {
-        // During auth callback, ensure we stay on splash until bootstrap is fully complete
-        const isOnAuthCallback = typeof window !== 'undefined' && window.location.pathname.startsWith('/auth')
 
-        if (isOnAuthCallback) {
-          // Keep splash visible during entire bootstrap process on auth callback
-          maybeEnableSplash('auth-callback')
+      if (event === 'SIGNED_IN' && newSession) {
+        setSession(newSession)
+        const userId = newSession.user?.id
+        if (userId && !hasShownSplashThisSession(userId)) {
+          logSplash('enable', { reason: 'SIGNED_IN' })
+          setShowSplash(true)
+          setShowSplashGuard(true)
+          markSplashShown(userId)
         }
-
         await bootstrapSession(newSession)
-
-        // Only hide splash after bootstrap completes AND we're not on auth callback
-        if (!isOnAuthCallback) {
-          logSplash('disable', { reason: 'auth-change' })
-          setShowSplash(false)
-          setShowSplashGuard(false)
-        }
-      } else {
-        // While on /auth/callback, keep splash until redirect completes to prevent Landing from flashing
-        try {
-          const onCallback = typeof window !== 'undefined' && window.location.pathname.startsWith('/auth')
-          if (!onCallback) {
-            logSplash('disable', { reason: 'auth-change:no-session' })
-            setShowSplash(false)
-            setShowSplashGuard(false)
-          }
-        } catch {}
-        clearSplashPersist()
-        // Ensure hasBootedRef flips true when session is cleared
+        logSplash('disable', { reason: 'SIGNED_IN-complete' })
+        setShowSplash(false)
+        setShowSplashGuard(false)
+      } else if (event === 'SIGNED_OUT' || !newSession) {
+        clearSplashGuard(lastUserIdRef.current)
+        setSession(null)
+        setUserData(null)
+        setOnboardingRequired(false)
+        logSplash('disable', { reason: 'SIGNED_OUT' })
+        setShowSplash(false)
+        setShowSplashGuard(false)
         hasBootedRef.current = true
-      }
-      if (!newSession) {
-        navigateToPage('dashboard')
+        if (!newSession) {
+          navigateToPage('dashboard')
+        }
+      } else if (newSession) {
+        // TOKEN_REFRESHED or other events: update session silently
+        setSession(newSession)
       }
     })
 
@@ -785,7 +778,7 @@ export default function App() {
       cancelled = true
       authListener?.subscription?.unsubscribe()
     }
-  }, [bootstrapSession, clearSplashPersist, logSplash, maybeEnableSplash])
+  }, [bootstrapSession, logSplash, hasShownSplashThisSession, markSplashShown, clearSplashGuard, navigateToPage])
 
   // Dashboard data is already fetched in bootstrapSession after tenant_id is resolved
   // Remove this duplicate fetch to prevent race conditions
@@ -802,12 +795,12 @@ export default function App() {
   useEffect(() => {
     if (!import.meta.env.DEV) return
     console.info('[v2] shell state', {
-      initializing,
+      isLoadingSession,
       showSplash,
       showSplashGuard,
       hasSession: Boolean(session?.user),
     })
-  }, [initializing, showSplash, showSplashGuard, session])
+  }, [isLoadingSession, showSplash, showSplashGuard, session])
 
   useEffect(() => {
     if (!import.meta.env.DEV) return
@@ -1049,21 +1042,30 @@ export default function App() {
     }
   }
 
-  if (initializing) {
+  // Track whether the intro animation has completed
+  const [introComplete, setIntroComplete] = useState(() => {
+    return !!localStorage.getItem('bvx_landing_intro_shown')
+  })
+
+  const handleIntroComplete = useCallback(() => {
+    setIntroComplete(true)
+  }, [])
+
+  // Show splash during initial load OR during fade-out (showSplashGuard)
+  if (isLoadingSession || showSplash || showSplashGuard) {
     return <SplashScreen onComplete={handleSplashComplete} />
   }
 
       return (
         <BrowserRouter>
           <Routes>
-            <Route path="/" element={<LandingV2 />} />
-            <Route path="/brandvx" element={<LandingV2 />} />
-            {!session && !hasBootedRef.current ? (
-              // During initial boot without a session, keep showing splash only
-              <>
-                <Route path="*" element={<SplashScreen onComplete={handleSplashComplete} />} />
-              </>
-            ) : !session ? (
+            <Route path="/" element={
+              introComplete ? <LandingV2 /> : <LandingIntroAnimation onComplete={handleIntroComplete} />
+            } />
+            <Route path="/brandvx" element={
+              introComplete ? <LandingV2 /> : <LandingIntroAnimation onComplete={handleIntroComplete} />
+            } />
+            {!session ? (
               <>
                 <Route path="/login" element={<SignIn />} />
                 <Route path="/signup" element={<SignUp />} />
@@ -1077,8 +1079,6 @@ export default function App() {
                   element={
                     onboardingRequired ? (
                       <Onboarding userData={userData} onComplete={handleOnboardingComplete} />
-                    ) : showSplash || showSplashGuard ? (
-                      <SplashScreen onComplete={handleSplashComplete} />
                     ) : (
                       <OnboardingProvider>
                         <ClientRemindersProvider>

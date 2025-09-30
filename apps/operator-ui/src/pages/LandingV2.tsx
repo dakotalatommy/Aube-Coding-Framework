@@ -153,7 +153,7 @@ export default function LandingV2(){
     <div
       className="relative w-full min-h-[100dvh]"
       style={{
-        background: 'linear-gradient(180deg, #f8eff8 0%, #f5d8e9 32%, #f4c9df 58%, #f6c6dd 76%, #f9d2e5 100%)',
+        background: 'radial-gradient(65vw 48vh at 60% 42%, rgba(96,165,250,0.48), transparent 70%), radial-gradient(54vw 40vh at 75% 58%, rgba(236,72,153,0.28), transparent 76%), linear-gradient(180deg, #f8eff8 0%, #f5d8e9 32%, #f4c9df 58%, #f6c6dd 76%, #f9d2e5 100%)',
       }}
     >
       <div className="mx-auto max-w-6xl relative z-10 flex flex-col min-h-[100dvh]">
@@ -168,14 +168,6 @@ export default function LandingV2(){
         <main ref={mainRef} className="min-h-full grid grid-rows-[auto_auto_1fr] overflow-visible relative">
           {/* Hero (words-only + single CTA) */}
           <section className="relative pt-4 md:pt-6 pb-10 md:pb-12 mt-[7px]">
-            <div
-              aria-hidden
-              className="absolute inset-0 -z-10"
-              style={{
-                background:
-                  'radial-gradient(65vw 48vh at 60% 42%, rgba(96,165,250,0.48), transparent 70%), radial-gradient(54vw 40vh at 75% 58%, rgba(236,72,153,0.28), transparent 76%)',
-              }}
-            />
 
             <div className="max-w-7xl mx-auto px-2 md:px-3">
               <div className="relative inline-block w-full">
