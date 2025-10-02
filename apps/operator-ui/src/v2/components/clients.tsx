@@ -99,9 +99,10 @@ const makeAvatarFallback = (name: string) => {
 interface ClientsProps {
   initialSearch?: string
   onAckSearch?: () => void
+  onNavigate?: (page: string, payload?: any) => void
 }
 
-export function Clients({ initialSearch, onAckSearch }: ClientsProps = {}) {
+export function Clients({ initialSearch, onAckSearch, onNavigate }: ClientsProps = {}) {
   const [clients, setClients] = useState<ClientRecord[]>([])
   const [totalClients, setTotalClients] = useState(0)
   const [segments, setSegments] = useState<ClientSegmentSummary[]>(DEFAULT_SEGMENTS)
@@ -277,11 +278,11 @@ export function Clients({ initialSearch, onAckSearch }: ClientsProps = {}) {
 
   useEffect(() => {
     loadSegments().catch((err) => console.warn(err))
-  }, [loadSegments])
+  }, [])
 
   useEffect(() => {
     loadClients()
-  }, [loadClients])
+  }, [activeSegment, page, search, sortBy, sortDirection, loadClients])
 
   useEffect(() => {
     if (typeof initialSearch === 'string') {
@@ -391,12 +392,12 @@ export function Clients({ initialSearch, onAckSearch }: ClientsProps = {}) {
                       ts: Date.now(),
                     }),
                   )
-                  window.location.assign('/messages?tab=compose')
+                  onNavigate?.('messages', { tab: 'compose' })
                 }}
               >
                 Send follow-up
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => window.location.assign(`/clients/${client.id}`)}>
+              <DropdownMenuItem onClick={() => onNavigate?.('clients', { clientId: client.id })}>
                 View profile
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -683,7 +684,7 @@ export function Clients({ initialSearch, onAckSearch }: ClientsProps = {}) {
                             ts: Date.now(),
                           }),
                         )
-                        window.location.assign('/messages?tab=compose')
+                        onNavigate?.('messages', { tab: 'compose' })
                       }}
                     >
                       Draft win-back campaign
@@ -722,7 +723,7 @@ export function Clients({ initialSearch, onAckSearch }: ClientsProps = {}) {
                             ts: Date.now(),
                           }),
                         )
-                        window.location.assign('/messages?tab=compose')
+                        onNavigate?.('messages', { tab: 'compose' })
                       }}
                     >
                       Draft birthday notes
