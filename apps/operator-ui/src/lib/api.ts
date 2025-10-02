@@ -27,10 +27,11 @@ function resolveApiBase(): string {
     return fallback;
   }
   try {
-    // If raw is a full URL, use its origin; if it lacks protocol, prefix http://
+    // If raw is a full URL, preserve any path prefix; if it lacks protocol, prefix http://
     const candidate = raw.startsWith('http') ? raw : `http://${raw}`;
     const url = new URL(candidate);
-    return url.origin;
+    const pathname = url.pathname && url.pathname !== '/' ? url.pathname.replace(/\/$/, '') : '';
+    return `${url.origin}${pathname}`;
   } catch {
     // In production, don't fall back to localhost on invalid URLs
     if (import.meta.env.PROD) {
@@ -53,33 +54,50 @@ export async function getTenant(): Promise<string> {
 
 async function request(path: string, options: RequestInit = {}) {
   try { console.info('[bvx:api] request', path, { method: (options as any).method||'GET' }); } catch {}
-  const headers = new Headers(options.headers || {});
-  headers.set('Content-Type', 'application/json');
-
-  // Send Authorization header with Supabase access token for authentication
-  // Backend expects Bearer token and tenant_id parameter/body field
+  
+  // Timeout for request preparation phase (before fetch even starts)
+  const prepTimeout = setTimeout(() => {
+    console.error('[bvx:api] TIMEOUT during request preparation for', path);
+    throw new Error(`Request preparation timeout for ${path}`);
+  }, 5000); // 5 second timeout for prep
+  
   try {
-    const session = (await supabase.auth.getSession()).data.session;
-    if (session?.access_token) {
-      headers.set('Authorization', `Bearer ${session.access_token}`);
-    }
-  } catch {}
+    const headers = new Headers(options.headers || {});
+    headers.set('Content-Type', 'application/json');
 
-  // Resolve tenant id and inject it into requests
-  let tenantId: string | undefined
-  const includeTenant = (options as any).includeTenant !== false // default true
-  try {
-    if (includeTenant) {
-      tenantId = await getTenant()
-      if (tenantId) {
-        try { console.info('[bvx:api] injecting tenant_id', tenantId); } catch {}
+    // Send Authorization header with Supabase access token for authentication
+    // Backend expects Bearer token and tenant_id parameter/body field
+    try {
+      try { console.info('[bvx:api] getting supabase session for', path); } catch {}
+      const session = (await supabase.auth.getSession()).data.session;
+      try { console.info('[bvx:api] got supabase session for', path); } catch {}
+      if (session?.access_token) {
+        headers.set('Authorization', `Bearer ${session.access_token}`);
       }
+    } catch (authError) {
+      console.warn('[bvx:api] auth error for', path, authError);
     }
-  } catch (error) {
-    console.warn('Failed to resolve tenant_id', error)
-  }
 
-  const doFetch = async (base: string) => {
+    // Resolve tenant id and inject it into requests
+    let tenantId: string | undefined
+    const includeTenant = (options as any).includeTenant !== false // default true
+    try {
+      if (includeTenant) {
+        try { console.info('[bvx:api] getting tenant_id for', path); } catch {}
+        tenantId = await getTenant()
+        try { console.info('[bvx:api] got tenant_id:', tenantId, 'for', path); } catch {}
+        if (tenantId) {
+          try { console.info('[bvx:api] injecting tenant_id', tenantId); } catch {}
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to resolve tenant_id', error)
+    }
+    
+    clearTimeout(prepTimeout); // Prep complete, clear timeout
+    try { console.info('[bvx:api] prep complete for', path); } catch {}
+
+    const doFetch = async (base: string) => {
     // Add a default timeout and preserve any passed AbortController
     const ctl = new AbortController();
     const passedSignal = (options as any).signal as AbortSignal | undefined;
@@ -97,7 +115,7 @@ async function request(path: string, options: RequestInit = {}) {
     try { console.info('[bvx:api] fetch', url); } catch {}
 
     // Prepare body with tenant_id for POST/PUT/PATCH requests
-    let finalOptions = { ...options, headers, signal: compositeSignal }
+    const finalOptions = { ...options, headers, signal: compositeSignal }
     if (tenantId && (options.method === 'POST' || options.method === 'PUT' || options.method === 'PATCH')) {
       try {
         let body = finalOptions.body
@@ -125,15 +143,15 @@ async function request(path: string, options: RequestInit = {}) {
       const json = await res.json();
       try { console.info('[bvx:api] ok', path, { keys: Object.keys(json||{}) }); } catch {}
       return json;
-    } catch (e) {
+    } catch {
       try { console.warn('[bvx:api] non-json', path); } catch {}
       return null as any;
     }
   };
 
-  try {
-    return await doFetch(API_BASE);
-  } catch (e: any) {
+    try {
+      return await doFetch(API_BASE);
+    } catch (e: any) {
     // Network/mixed-content fallback: retry against production API if local base failed
     const msg = String(e?.message || e || '');
     const isNetwork = msg.includes('Failed to fetch') || msg.includes('TypeError');
@@ -144,9 +162,14 @@ async function request(path: string, options: RequestInit = {}) {
         return await doFetch('https://api.brandvx.io');
       } catch {}
     }
-    try { track('api_request_failed', { path, message: msg }); } catch {}
-    try { Sentry.captureException(e); } catch {}
-    throw e;
+      try { track('api_request_failed', { path, message: msg }); } catch {}
+      try { Sentry.captureException(e); } catch {}
+      throw e;
+    }
+  } catch (prepError: any) {
+    clearTimeout(prepTimeout);
+    console.error('[bvx:api] Request preparation failed for', path, prepError);
+    throw prepError;
   }
 }
 

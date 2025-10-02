@@ -258,19 +258,20 @@ export default function App() {
   // Session guard helpers using existing key format
   const getSessionSplashKey = (userId: string) => `bvx_splash_shown_${userId}`
 
-  const hasShownSplashThisSession = useCallback((userId: string): boolean => {
-    try {
-      return sessionStorage.getItem(getSessionSplashKey(userId)) === '1'
-    } catch {
-      return false
-    }
-  }, [])
+  // Commented out - no longer using session-based splash tracking
+  // const hasShownSplashThisSession = useCallback((userId: string): boolean => {
+  //   try {
+  //     return sessionStorage.getItem(getSessionSplashKey(userId)) === '1'
+  //   } catch {
+  //     return false
+  //   }
+  // }, [])
 
-  const markSplashShown = useCallback((userId: string) => {
-    try {
-      sessionStorage.setItem(getSessionSplashKey(userId), '1')
-    } catch {}
-  }, [])
+  // const markSplashShown = useCallback((userId: string) => {
+  //   try {
+  //     sessionStorage.setItem(getSessionSplashKey(userId), '1')
+  //   } catch {}
+  // }, [])
 
   const clearSplashGuard = useCallback((userId: string | null) => {
     if (!userId) return
@@ -702,12 +703,26 @@ export default function App() {
       logSplash('disable', { reason: 'bootstrap-finally' })
       setShowSplash(false)
       setShowSplashGuard(false)
+      setIsLoadingSession(false)  // ALWAYS clear loading state, even if bootstrap hangs/fails
       hasBootedRef.current = true
     }
   }, [fetchDashboardData, logSplash])
 
   useEffect(() => {
     let cancelled = false
+    
+    // Absolute maximum timeout - force recovery if everything else fails
+    const maxLoadTimeout = setTimeout(() => {
+      if (!cancelled) {
+        console.error('[v2] FORCED RECOVERY: Initial load exceeded 15 seconds, forcing UI render')
+        setIsLoadingSession(false)
+        setShowSplash(false)
+        setShowSplashGuard(false)
+        hasBootedRef.current = true
+        isInitialLoadRef.current = false
+      }
+    }, 15000) // 15 second absolute maximum
+    
     ;(async () => {
       try {
         const { data } = await supabase.auth.getSession()
@@ -720,6 +735,7 @@ export default function App() {
           setIsLoadingSession(false)
           hasBootedRef.current = true
           isInitialLoadRef.current = false  // Mark initial load complete
+          clearTimeout(maxLoadTimeout)
           return
         }
         setSession(data.session)
@@ -731,6 +747,7 @@ export default function App() {
         // Ensure hasBootedRef flips true after bootstrap completes (both with and without session)
         hasBootedRef.current = true
         isInitialLoadRef.current = false  // Mark initial load complete
+        clearTimeout(maxLoadTimeout)
       } catch (error) {
         console.warn('Initial session bootstrap failed', error)
         setSession(null)
@@ -740,6 +757,7 @@ export default function App() {
         setIsLoadingSession(false)
         hasBootedRef.current = true
         isInitialLoadRef.current = false  // Mark initial load complete
+        clearTimeout(maxLoadTimeout)
       }
     })()
 
@@ -783,9 +801,10 @@ export default function App() {
 
     return () => {
       cancelled = true
+      clearTimeout(maxLoadTimeout)
       authListener?.subscription?.unsubscribe()
     }
-  }, [bootstrapSession, logSplash, hasShownSplashThisSession, markSplashShown, clearSplashGuard, navigateToPage])
+  }, [bootstrapSession, logSplash, navigateToPage])
 
   // Dashboard data is already fetched in bootstrapSession after tenant_id is resolved
   // Remove this duplicate fetch to prevent race conditions
