@@ -1062,14 +1062,14 @@ export default function App() {
       return (
         <BrowserRouter>
           <Routes>
-            <Route path="/" element={
-              introComplete ? <LandingV2 /> : <LandingIntroAnimation onComplete={handleIntroComplete} />
-            } />
-            <Route path="/brandvx" element={
-              introComplete ? <LandingV2 /> : <LandingIntroAnimation onComplete={handleIntroComplete} />
-            } />
             {!session ? (
               <>
+                <Route path="/" element={
+                  introComplete ? <LandingV2 /> : <LandingIntroAnimation onComplete={handleIntroComplete} />
+                } />
+                <Route path="/brandvx" element={
+                  introComplete ? <LandingV2 /> : <LandingIntroAnimation onComplete={handleIntroComplete} />
+                } />
                 <Route path="/login" element={<SignIn />} />
                 <Route path="/signup" element={<SignUp />} />
                 <Route path="/auth/callback" element={<AuthCallback />} />
