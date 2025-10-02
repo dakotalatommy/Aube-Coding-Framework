@@ -220,6 +220,7 @@ export default function App() {
   const [isLoadingSession, setIsLoadingSession] = useState(true)
   const hasBootedRef = useRef(false)
   const lastUserIdRef = useRef<string | null>(null)
+  const isInitialLoadRef = useRef(true)
   const [onboardingRequired, setOnboardingRequired] = useState(false)
   const [dashboardStats, setDashboardStats] = useState<DashboardStat[] | null>(null)
   const [dashboardStatsLoading, setDashboardStatsLoading] = useState(false)
@@ -718,6 +719,7 @@ export default function App() {
           setShowSplashGuard(false)
           setIsLoadingSession(false)
           hasBootedRef.current = true
+          isInitialLoadRef.current = false  // Mark initial load complete
           return
         }
         setSession(data.session)
@@ -728,6 +730,7 @@ export default function App() {
         setIsLoadingSession(false)
         // Ensure hasBootedRef flips true after bootstrap completes (both with and without session)
         hasBootedRef.current = true
+        isInitialLoadRef.current = false  // Mark initial load complete
       } catch (error) {
         console.warn('Initial session bootstrap failed', error)
         setSession(null)
@@ -736,6 +739,7 @@ export default function App() {
         setShowSplashGuard(false)
         setIsLoadingSession(false)
         hasBootedRef.current = true
+        isInitialLoadRef.current = false  // Mark initial load complete
       }
     })()
 
@@ -744,18 +748,18 @@ export default function App() {
 
       if (event === 'SIGNED_IN' && newSession) {
         setSession(newSession)
-        const userId = newSession.user?.id
-        if (userId && !hasShownSplashThisSession(userId)) {
+        // Only show splash for actual sign-in actions (not initial page load)
+        if (!isInitialLoadRef.current) {
           logSplash('enable', { reason: 'SIGNED_IN' })
           setShowSplash(true)
           setShowSplashGuard(true)
-          markSplashShown(userId)
         }
         await bootstrapSession(newSession)
         logSplash('disable', { reason: 'SIGNED_IN-complete' })
         setShowSplash(false)
         setShowSplashGuard(false)
         setIsLoadingSession(false)
+        isInitialLoadRef.current = false  // Mark initial load complete
       } else if (event === 'SIGNED_OUT' || !newSession) {
         clearSplashGuard(lastUserIdRef.current)
         setSession(null)
