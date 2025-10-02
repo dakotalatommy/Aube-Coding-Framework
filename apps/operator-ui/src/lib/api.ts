@@ -18,6 +18,9 @@ function resolveApiBase(): string {
         if (host.endsWith('.brandvx.io')) {
           return 'https://api.brandvx.io';
         }
+        if (host.endsWith('.brandvx-operator-ui.pages.dev')) {
+          return 'https://api.brandvx.io';
+        }
         if (window.location.origin) {
           return window.location.origin;
         }
@@ -67,15 +70,26 @@ async function request(path: string, options: RequestInit = {}) {
 
     // Send Authorization header with Supabase access token for authentication
     // Backend expects Bearer token and tenant_id parameter/body field
+    // Use a short timeout on getSession to prevent hanging
     try {
-      try { console.info('[bvx:api] getting supabase session for', path); } catch {}
-      const session = (await supabase.auth.getSession()).data.session;
-      try { console.info('[bvx:api] got supabase session for', path); } catch {}
+      try { console.info('[bvx:api] getting auth token for', path); } catch {}
+      
+      // Race getSession against a 1-second timeout
+      const sessionPromise = supabase.auth.getSession();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Session fetch timeout')), 1000)
+      );
+      
+      const result = await Promise.race([sessionPromise, timeoutPromise]) as any;
+      const session = result?.data?.session;
+      
+      try { console.info('[bvx:api] got auth token for', path); } catch {}
       if (session?.access_token) {
         headers.set('Authorization', `Bearer ${session.access_token}`);
       }
     } catch (authError) {
       console.warn('[bvx:api] auth error for', path, authError);
+      // Continue without auth header if session fetch fails
     }
 
     // Resolve tenant id and inject it into requests
