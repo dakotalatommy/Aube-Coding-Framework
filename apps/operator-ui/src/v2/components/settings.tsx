@@ -214,7 +214,8 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
   useEffect(() => {
     loadSettings()
     loadIntegrations()
-  }, [loadIntegrations, loadSettings])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])  // Run only on mount to prevent recursive loop
 
   const renderIntegrations = () => (
     <Card>

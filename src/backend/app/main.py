@@ -89,6 +89,7 @@ from pathlib import Path as _Path
 from types import SimpleNamespace
 from sqlalchemy import text as _sql_text
 from sqlalchemy import func as _sql_func
+from sqlalchemy import Date
 import secrets as _secrets
 import time as _time
 import urllib.parse as _url

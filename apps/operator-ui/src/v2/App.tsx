@@ -5,7 +5,7 @@ import './index.css'
 import './styles/globals.css'
 import { Crown } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { api, getTenant } from '../lib/api'
+import { api, getTenant, setCachedAccessToken } from '../lib/api'
 import { DashboardHeader } from './components/dashboard-header'
 import { SidebarNav } from './components/sidebar-nav'
 import { StatsCards } from './components/stats-cards'
@@ -549,6 +549,7 @@ export default function App() {
 
   const bootstrapSession = useCallback(async (activeSession: Session | null) => {
     if (!activeSession) {
+      setCachedAccessToken(null)  // Clear cached token when no session
       setUserData(null)
       setOnboardingRequired(false)
       setShowSplash(false)
@@ -572,6 +573,9 @@ export default function App() {
         user: activeSession.user?.id,
         email: activeSession.user?.email
       })
+
+      // Cache the access token for API calls (prevents slow repeated getSession() calls)
+      setCachedAccessToken(activeSession.access_token)
 
       // Immediately after getSession resolves with session, call /me
       let meResponse: any = null
@@ -679,6 +683,7 @@ export default function App() {
         } catch (signOutError) {
           console.warn('Failed to sign out after bootstrap error', signOutError)
         }
+        setCachedAccessToken(null)  // Clear cached token on 401
         setSession(null)
         setUserData(null)
         setOnboardingRequired(false)
@@ -780,6 +785,7 @@ export default function App() {
         isInitialLoadRef.current = false  // Mark initial load complete
       } else if (event === 'SIGNED_OUT' || !newSession) {
         clearSplashGuard(lastUserIdRef.current)
+        setCachedAccessToken(null)  // Clear cached token on sign out
         setSession(null)
         setUserData(null)
         setOnboardingRequired(false)
@@ -792,8 +798,9 @@ export default function App() {
           navigateToPage('dashboard')
         }
       } else if (newSession) {
-        // TOKEN_REFRESHED or other events: update session silently
+        // TOKEN_REFRESHED or other events: update session and cached token silently
         setSession(newSession)
+        setCachedAccessToken(newSession.access_token)  // Update cached token
         // Ensure loading session is false for silent auth events
         setIsLoadingSession(false)
       }
@@ -1085,7 +1092,14 @@ export default function App() {
   // Wait for session bootstrap to complete before rendering app
   // This prevents race condition where workspace loads before tenant_id is set
   if (isLoadingSession) {
-    return null  // Silent loading during bootstrap
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent align-[-0.125em] motion-reduce:animate-[spin_1.5s_linear_infinite]"></div>
+          <p className="mt-4 text-muted-foreground">Setting up workspace...</p>
+        </div>
+      </div>
+    )
   }
 
       return (

@@ -1,6 +1,19 @@
 import { track } from './analytics';
 import * as Sentry from '@sentry/react';
-import { supabase } from './supabase';
+
+// Cache for Supabase session to avoid repeated slow getSession() calls
+let cachedAccessToken: string | null = null;
+
+// Set the cached access token (called from bootstrap after successful session fetch)
+export function setCachedAccessToken(token: string | null) {
+  cachedAccessToken = token;
+  try { console.info('[bvx:api] cached access token updated:', token ? 'present' : 'null'); } catch {}
+}
+
+// Get the cached access token
+export function getCachedAccessToken(): string | null {
+  return cachedAccessToken;
+}
 
 // Normalize API base URL to avoid malformed values (e.g., stray characters after port)
 function resolveApiBase(): string {
@@ -70,26 +83,20 @@ async function request(path: string, options: RequestInit = {}) {
 
     // Send Authorization header with Supabase access token for authentication
     // Backend expects Bearer token and tenant_id parameter/body field
-    // Use a short timeout on getSession to prevent hanging
+    // Use cached token to avoid slow getSession() calls
     try {
       try { console.info('[bvx:api] getting auth token for', path); } catch {}
       
-      // Race getSession against a 1-second timeout
-      const sessionPromise = supabase.auth.getSession();
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Session fetch timeout')), 1000)
-      );
+      // Use cached token if available (instant, no async call needed)
+      const accessToken = cachedAccessToken;
       
-      const result = await Promise.race([sessionPromise, timeoutPromise]) as any;
-      const session = result?.data?.session;
-      
-      try { console.info('[bvx:api] got auth token for', path); } catch {}
-      if (session?.access_token) {
-        headers.set('Authorization', `Bearer ${session.access_token}`);
+      try { console.info('[bvx:api] got auth token for', path, accessToken ? '(cached)' : '(none)'); } catch {}
+      if (accessToken) {
+        headers.set('Authorization', `Bearer ${accessToken}`);
       }
     } catch (authError) {
       console.warn('[bvx:api] auth error for', path, authError);
-      // Continue without auth header if session fetch fails
+      // Continue without auth header if cache unavailable
     }
 
     // Resolve tenant id and inject it into requests

@@ -1,0 +1,18 @@
+{
+  "cookies": [],
+  "origins": [
+    {
+      "origin": "http://localhost:5174",
+      "localStorage": [
+        {
+          "name": "sb-dwfvnqajrwruprqbjxph-auth-token",
+          "value": "{\"access_token\":\"eyJhbGciOiJIUzI1NiIsImtpZCI6IlJYeGV4QVE3REJ6TFJnZWEiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2R3ZnZucWFqcndydXBycWJqeHBoLnN1cGFiYXNlLmNvL2F1dGgvdjEiLCJzdWIiOiI1MDM3ODllZS1hMGU1LTQ0NTMtYmJmNC05NWQ4ZjYzNjc3Y2QiLCJhdWQiOiJhdXRoZW50aWNhdGVkIiwiZXhwIjoxNzU5MjU0NDAwLCJpYXQiOjE3NTkyNTA4MDAsImVtYWlsIjoicGxheXdyaWdodC10ZXN0QGJyYW5kdngudGVzdCIsInBob25lIjoiIiwiYXBwX21ldGFkYXRhIjp7InByb3ZpZGVyIjoiZW1haWwiLCJwcm92aWRlcnMiOlsiZW1haWwiXX0sInVzZXJfbWV0YWRhdGEiOnsiZW1haWxfdmVyaWZpZWQiOnRydWUsIm5hbWUiOiJQbGF5d3JpZ2h0IFRlc3QgVXNlciIsInRlc3RfdXNlciI6dHJ1ZX0sInJvbGUiOiJhdXRoZW50aWNhdGVkIiwiYWFsIjoiYWFsMSIsImFtciI6W3sibWV0aG9kIjoicGFzc3dvcmQiLCJ0aW1lc3RhbXAiOjE3NTkyNTA4MDB9XSwic2Vzc2lvbl9pZCI6IjliOTAwMmNmLWZhZDAtNGM1Zi05OWJmLTBhZTNmODZhMTQwMSIsImlzX2Fub255bW91cyI6ZmFsc2V9.FqQb77ClNpvslYS7UI-4LYYVk6IanEDBcRlwoFnr5bg\",\"token_type\":\"bearer\",\"expires_in\":3600,\"expires_at\":1759254400,\"refresh_token\":\"xyrvf3e45v5s\",\"user\":{\"id\":\"503789ee-a0e5-4453-bbf4-95d8f63677cd\",\"aud\":\"authenticated\",\"role\":\"authenticated\",\"email\":\"playwright-test@brandvx.test\",\"email_confirmed_at\":\"2025-09-30T15:53:36.269804Z\",\"phone\":\"\",\"confirmed_at\":\"2025-09-30T15:53:36.269804Z\",\"last_sign_in_at\":\"2025-09-30T16:46:40.147828842Z\",\"app_metadata\":{\"provider\":\"email\",\"providers\":[\"email\"]},\"user_metadata\":{\"email_verified\":true,\"name\":\"Playwright Test User\",\"test_user\":true},\"identities\":[{\"identity_id\":\"5eb13aaa-7d39-4c8f-b01d-db6677b4d479\",\"id\":\"503789ee-a0e5-4453-bbf4-95d8f63677cd\",\"user_id\":\"503789ee-a0e5-4453-bbf4-95d8f63677cd\",\"identity_data\":{\"email\":\"playwright-test@brandvx.test\",\"email_verified\":false,\"phone_verified\":false,\"sub\":\"503789ee-a0e5-4453-bbf4-95d8f63677cd\"},\"provider\":\"email\",\"last_sign_in_at\":\"2025-09-30T15:53:36.266909Z\",\"created_at\":\"2025-09-30T15:53:36.266965Z\",\"updated_at\":\"2025-09-30T15:53:36.266965Z\",\"email\":\"playwright-test@brandvx.test\"}],\"created_at\":\"2025-09-30T15:53:36.26461Z\",\"updated_at\":\"2025-09-30T16:46:40.151097Z\",\"is_anonymous\":false},\"weak_password\":null}"
+        },
+        {
+          "name": "bvx_ui_variant",
+          "value": "v2"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,2 @@
+-- Adjust Supabase Auth settings via SQL API if available (placeholder).
+-- Manual console steps required; record pending actions.
