@@ -6646,7 +6646,7 @@ def contacts_segments(
             elif segment["id"] == "regular":
                 segment["count"] = base_query.filter(dbm.Contact.txn_count >= 3).count()
             elif segment["id"] == "inactive":
-                cutoff_date = int(time.time()) - (90 * 24 * 60 * 60)  # 90 days ago
+                cutoff_date = int(_time.time()) - (90 * 24 * 60 * 60)  # 90 days ago
                 segment["count"] = base_query.filter(dbm.Contact.last_visit < cutoff_date).count()
 
         # Smart lists based on behavior patterns
@@ -6668,7 +6668,7 @@ def contacts_segments(
         # Count smart lists
         for smart_list in smart_lists:
             if smart_list["id"] == "reengagement":
-                cutoff_date = int(time.time()) - (30 * 24 * 60 * 60)  # 30 days ago
+                cutoff_date = int(_time.time()) - (30 * 24 * 60 * 60)  # 30 days ago
                 smart_list["count"] = base_query.filter(dbm.Contact.last_visit < cutoff_date).count()
             elif smart_list["id"] == "birthday_upcoming":
                 current_month = datetime.now().month
@@ -6905,8 +6905,8 @@ def job_status(job_id: str, ctx: UserContext = Depends(get_user_context)) -> Dic
             "status": "completed",
             "progress": 100,
             "result": {"success": True, "message": "Job completed successfully"},
-            "created_at": int(time.time()),
-            "completed_at": int(time.time())
+            "created_at": int(_time.time()),
+            "completed_at": int(_time.time())
         }
     except Exception as e:
         from fastapi.responses import JSONResponse as _JR
