@@ -1063,10 +1063,10 @@ export default function App() {
     return <SplashScreen onComplete={handleSplashComplete} />
   }
 
-  // Wait for bootstrap to complete before rendering workspace
+  // Wait for session bootstrap to complete before rendering app
   // This prevents race condition where workspace loads before tenant_id is set
-  if (session && !userData && !onboardingRequired) {
-    return null  // Silent loading - don't show splash
+  if (isLoadingSession) {
+    return null  // Silent loading during bootstrap
   }
 
       return (
