@@ -82,7 +82,7 @@ export function BeforeAfterSlider({
       onMouseDown={handleMouseDown}
       onTouchStart={handleTouchStart}
     >
-      {/* After Image (Background) */}
+      {/* After Image (Base Layer) */}
       <div className="w-full h-full">
         <ImageWithFallback 
           src={afterImage}
@@ -91,7 +91,7 @@ export function BeforeAfterSlider({
         />
       </div>
 
-      {/* Before Image (Overlay) */}
+      {/* Before Image (Overlay - clips based on slider position) */}
       <div 
         className="absolute top-0 left-0 h-full overflow-hidden"
         style={{ width: `${sliderPosition}%` }}
