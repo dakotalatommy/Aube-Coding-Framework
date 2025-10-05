@@ -93,7 +93,7 @@ const NAV_ITEMS: NavItem[] = [
 
 interface SidebarNavProps {
   currentPage: string
-  setCurrentPage: (page: string) => void
+  onNavigate: (page: string) => void
   userData?: {
     plan?: string | null
   } | null
@@ -105,24 +105,25 @@ const isTrialUser = (userData?: SidebarNavProps['userData']) => {
   return !plan || plan === 'trial' || plan === 'essentials'
 }
 
-export function SidebarNav({ currentPage, setCurrentPage, userData, onNavigateToSettings }: SidebarNavProps) {
+export function SidebarNav({ currentPage, onNavigate, userData, onNavigateToSettings }: SidebarNavProps) {
   const userIsOnTrial = isTrialUser(userData)
 
   const handleNavClick = (page: string) => {
     if (page === 'settings' && onNavigateToSettings) {
       onNavigateToSettings()
+      return  // Don't double-navigate for settings
     }
-    setCurrentPage(page)
+    onNavigate(page)
   }
 
   return (
     <div className="w-64 bg-card border-r h-full">
       <div className="p-6">
-        <div className="flex items-center space-x-3 mb-8">
+        <div className="flex items-center justify-center mb-0 overflow-hidden">
           <img 
             src={bvxLogo} 
             alt="BVX Logo" 
-            className="h-16 w-auto object-contain"
+            className="h-[110px] w-auto object-contain -my-6"
           />
         </div>
         

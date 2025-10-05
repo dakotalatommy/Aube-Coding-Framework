@@ -574,13 +574,13 @@ export default function App() {
         email: activeSession.user?.email
       })
 
-      // Cache the access token for API calls (prevents slow repeated getSession() calls)
-      setCachedAccessToken(activeSession.access_token)
+      // Note: Token is already cached before bootstrap is called (see lines 748, 778)
+      // No need to cache it again here
 
       // Immediately after getSession resolves with session, call /me
       let meResponse: any = null
       let tenantId: string | undefined
-      let tenantSource: 'me' | 'metadata' | 'fallback' | 'unknown' = 'unknown'
+      let tenantSource: 'me' | 'metadata' | 'fallback' | 'settings' | 'unknown' = 'unknown'
 
       try {
         meResponse = await api.get('/me')
@@ -618,7 +618,17 @@ export default function App() {
         }
       }
 
-      // Persist tenant_id to localStorage before requesting any tenant-scoped endpoint
+      // Fetch settings (allows resolving tenant_id for brand-new accounts)
+      const settingsResp = await api.get('/settings', tenantId ? undefined : { includeTenant: false })
+      const settingsData = settingsResp?.data || {}
+      if (!tenantId) {
+        const claimedTenant = typeof settingsData?.tenant_id === 'string' ? settingsData.tenant_id.trim() : undefined
+        if (claimedTenant) {
+          tenantId = claimedTenant
+          tenantSource = 'settings'
+        }
+      }
+
       if (tenantId) {
         try {
           localStorage.setItem('bvx_tenant', tenantId)
@@ -627,7 +637,6 @@ export default function App() {
           console.warn('[bvx:auth] failed to persist tenant_id', storageError)
         }
 
-        // Only fetch dashboard data after tenant_id is resolved and persisted
         fetchDashboardData(tenantId).catch((error) => {
           console.error('Dashboard metrics fetch failed during bootstrap', error)
         })
@@ -643,10 +652,6 @@ export default function App() {
         setReminders([])
         setReferralInfo(null)
       }
-
-      // Fetch settings only after tenant_id is resolved and persisted
-      const settingsResp = tenantId ? await api.get('/settings') : { data: {} }
-      const settingsData = settingsResp?.data || {}
       const subscription = settingsData?.subscription || {}
 
       const trialEndTs = typeof subscription?.trial_end_ts === 'number'
@@ -743,6 +748,10 @@ export default function App() {
           clearTimeout(maxLoadTimeout)
           return
         }
+        
+        // ✅ Cache token BEFORE setting session (prevents 401 errors on workspace render)
+        setCachedAccessToken(data.session.access_token)
+        
         setSession(data.session)
         // Delay splash teardown until after bootstrap completes to avoid
         // intermediate renders that race with route changes.
@@ -770,17 +779,24 @@ export default function App() {
       if (cancelled) return
 
       if (event === 'SIGNED_IN' && newSession) {
+        // ✅ Cache token FIRST (before setting session)
+        setCachedAccessToken(newSession.access_token)
+        
         setSession(newSession)
-        // Only show splash for actual sign-in actions (not initial page load)
+        
+        // Only bootstrap if NOT initial load (prevents duplicate bootstrap)
         if (!isInitialLoadRef.current) {
           logSplash('enable', { reason: 'SIGNED_IN' })
           setShowSplash(true)
           setShowSplashGuard(true)
+          
+          await bootstrapSession(newSession)
+          
+          logSplash('disable', { reason: 'SIGNED_IN-complete' })
+          setShowSplash(false)
+          setShowSplashGuard(false)
         }
-        await bootstrapSession(newSession)
-        logSplash('disable', { reason: 'SIGNED_IN-complete' })
-        setShowSplash(false)
-        setShowSplashGuard(false)
+        
         setIsLoadingSession(false)
         isInitialLoadRef.current = false  // Mark initial load complete
       } else if (event === 'SIGNED_OUT' || !newSession) {
@@ -885,7 +901,7 @@ export default function App() {
       if (detail.pane === 'clients' && typeof detail.search === 'string') {
         setClientSearchPrefill(detail.search)
       }
-      if (detail.pane === 'settings') {
+      if (detail.pane === 'settings' && currentPage !== 'settings') {
         handleNavigateToSettings()
       }
     }
@@ -1132,7 +1148,7 @@ export default function App() {
                             <div className="min-h-screen bg-background flex">
                               <SidebarNav
                                 currentPage={currentPage}
-                                setCurrentPage={setCurrentPage}
+                                onNavigate={navigateToPage}
                                 userData={userData}
                                 onNavigateToSettings={handleNavigateToSettings}
                               />
@@ -1178,8 +1194,8 @@ export default function App() {
                   }
                 />
                 <Route path="/auth/callback" element={<AuthCallback />} />
-                <Route path="/login" element={<SignIn />} />
-                <Route path="/signup" element={<SignUp />} />
+                <Route path="/login" element={<Navigate to="/workspace" replace />} />
+                <Route path="/signup" element={<Navigate to="/workspace" replace />} />
                 <Route path="*" element={<Navigate to="/workspace" replace />} />
               </>
             )}

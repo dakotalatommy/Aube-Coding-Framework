@@ -1,15 +1,17 @@
 // @ts-nocheck
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { ArrowRight, ArrowLeft, Palette, Users, Briefcase } from 'lucide-react'
+import { ArrowRight, ArrowLeft, Palette, Users, Briefcase, Check } from 'lucide-react'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
 import { Label } from './ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select'
 import { Textarea } from './ui/textarea'
+import { Badge } from './ui/badge'
 import bvxLogo from '../assets/539f8d3190f79d835fe0af50f92a753850eb6ff7.png'
 import { api, getTenant } from '../../lib/api'
+import { startOAuth } from '../../sdk/connectionsClient'
 
 interface OnboardingProps {
   userData: any
@@ -84,6 +86,36 @@ export function Onboarding({ userData, onComplete }: OnboardingProps) {
     businessGoals: '',
     experience: ''
   })
+  const [integrations, setIntegrations] = useState<Record<string, boolean>>({ square: false, acuity: false })
+  const [connectingProvider, setConnectingProvider] = useState<string | null>(null)
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const tenantId = await getTenant()
+        const status = await api.get(`/integrations/status?tenant_id=${encodeURIComponent(tenantId)}`)
+        const providers = status?.providers || {}
+        setIntegrations({
+          square: Boolean(providers?.square?.linked),
+          acuity: Boolean(providers?.acuity?.linked),
+        })
+      } catch (err) {
+        console.error('Failed to load integration status', err)
+      }
+    })()
+  }, [])
+
+  const handleOAuthConnect = async (provider: 'square' | 'acuity') => {
+    try {
+      setConnectingProvider(provider)
+      await startOAuth(provider, { returnTo: 'workspace' })
+    } catch (err) {
+      console.error(`Failed to connect ${provider}`, err)
+      setErrorMessage(`Unable to connect ${provider}. Please try again.`)
+    } finally {
+      setConnectingProvider(null)
+    }
+  }
 
   const handleServiceToggle = (service: string) => {
     setOnboardingData(prev => ({
@@ -109,7 +141,23 @@ export function Onboarding({ userData, onComplete }: OnboardingProps) {
     setIsLoading(true)
     setErrorMessage('')
     try {
-      const tenantId = await getTenant()
+      let tenantId = await getTenant()
+      if (!tenantId) {
+        try {
+          const me = await api.get('/me', { includeTenant: false })
+          const resolved = typeof me?.tenant_id === 'string' ? me.tenant_id.trim() : ''
+          if (resolved) {
+            tenantId = resolved
+            try { localStorage.setItem('bvx_tenant', resolved) } catch {}
+          }
+        } catch (lookupError) {
+          console.warn('Unable to resolve tenant before onboarding submit', lookupError)
+        }
+      }
+      if (!tenantId) {
+        setErrorMessage('We are finalizing your workspace. Please try again in a moment.')
+        return
+      }
       const payload: Record<string, any> = {
         tenant_id: tenantId,
         onboarding_completed: true,
@@ -314,19 +362,64 @@ export function Onboarding({ userData, onComplete }: OnboardingProps) {
                         className="border-primary/20 focus:border-primary"
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label className="text-black font-medium">Experience Level</Label>
-                      <Textarea
-                        value={onboardingData.experience}
-                        onChange={(e) => setOnboardingData(prev => ({ ...prev, experience: e.target.value }))}
-                        placeholder="Tell us about your background and specialties"
-                        className="border-primary/20 focus:border-primary"
-                      />
-                    </div>
+                  <div className="space-y-2">
+                    <Label className="text-black font-medium">Experience Level</Label>
+                    <Textarea
+                      value={onboardingData.experience}
+                      onChange={(e) => setOnboardingData(prev => ({ ...prev, experience: e.target.value }))}
+                      placeholder="Tell us about your background and specialties"
+                      className="border-primary/20 focus:border-primary"
+                    />
                   </div>
                 </div>
 
-                <div className="flex justify-end">
+                <div className="mt-6 space-y-4 border-t border-primary/10 pt-6">
+                  <div className="flex items-center space-x-3 mb-4">
+                    <Briefcase className="h-6 w-6 text-primary" />
+                    <h3 className="text-xl font-semibold text-black" style={{ fontFamily: 'Playfair Display, serif' }}>
+                      Connect Your Booking System (Optional)
+                    </h3>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Link Square or Acuity to sync appointments and client data automatically. You can skip this and connect later in Settings.
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {(['square', 'acuity'] as const).map((provider) => (
+                      <Button
+                        key={provider}
+                        type="button"
+                        onClick={() => handleOAuthConnect(provider)}
+                        disabled={connectingProvider !== null || integrations[provider]}
+                        className={`flex items-center justify-between px-6 py-6 h-auto ${
+                          integrations[provider]
+                            ? 'bg-emerald-500 hover:bg-emerald-600'
+                            : 'bg-primary hover:bg-primary/90'
+                        }`}
+                      >
+                        <span className="font-semibold text-lg">
+                          {provider.charAt(0).toUpperCase() + provider.slice(1)}
+                        </span>
+                        {integrations[provider] ? (
+                          <Badge variant="secondary" className="bg-white/20 text-white border-white/30 flex items-center gap-1">
+                            <Check className="h-3 w-3" />
+                            Connected
+                          </Badge>
+                        ) : connectingProvider === provider ? (
+                          <Badge variant="secondary" className="bg-white/20 text-white border-white/30">
+                            Connecting...
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="bg-white/20 text-white border-white/30">
+                            Not connected
+                          </Badge>
+                        )}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end">
                   <div className="flex items-center space-x-3">
                     <Button
                       type="button"

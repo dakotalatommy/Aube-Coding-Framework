@@ -3,10 +3,15 @@ import { useState, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Button } from './ui/button'
 import { Badge } from './ui/badge'
+import { Input } from './ui/input'
+import { Label } from './ui/label'
 import { useOnboarding } from './onboarding-context'
+import { api, getTenant } from '../../lib/api'
+import founderImage from '../../assets/onboarding/IMG_7577.jpeg'
 import { 
   X, 
-  ArrowRight, 
+  ArrowRight,
+  ArrowLeft,
   Lightbulb, 
   Sparkles,
   ChevronRight,
@@ -153,6 +158,53 @@ const PAGE_ONBOARDING_CONTENT = {
   }
 }
 
+const FOUNDER_SLIDES = [
+  {
+    title: 'A brief note from Dakota',
+    content: (
+      <p className="text-muted-foreground">
+        Hi! My name is Dakota LaTommy and I created this platform for beauty professionals like <strong>you</strong>. 
+        In a world that underestimates your ability, hustle, and drive, I wanted to design something that lets you know I see you.
+      </p>
+    ),
+  },
+  {
+    title: 'Our tribe',
+    content: (
+      <div>
+        <p className="text-muted-foreground mb-3">
+          From my girlfriend Rachel to my business partner Jaydn, I have deep connections with the beauty industry. 
+          You are hustlers, business-savvy <strong>artists</strong>, but the mounting pressure to survive has stripped 
+          the joy from a craft you once loved.
+        </p>
+        <div className="flex justify-center">
+          <img 
+            src={founderImage} 
+            alt="Dakota and Rachel" 
+            className="w-32 h-32 rounded-2xl object-cover shadow-lg"
+          />
+        </div>
+      </div>
+    ),
+  },
+  {
+    title: 'Why brandVX exists',
+    content: (
+      <p className="text-muted-foreground">
+        brandVX is designed to help you optimize your business, save time, and generate more revenue. It grows with you — 
+        as a CEO, brand, salesperson, content-creator, and <strong>person</strong> — by accelerating every aspect of your passion. 
+        We are in open beta with 1,000 users and will keep shipping new features weekly. If you need anything, email{' '}
+        <strong>support@aubecreativelabs.com</strong>.
+      </p>
+    ),
+  },
+  {
+    title: "Let's stay in touch",
+    content: null, // Form will be rendered separately
+    isForm: true,
+  },
+]
+
 export function OnboardingTooltip({ 
   pageId, 
   position = 'center',
@@ -161,8 +213,72 @@ export function OnboardingTooltip({
   const { hasSeenOnboarding, markOnboardingComplete, isOnboardingEnabled } = useOnboarding()
   const [isVisible, setIsVisible] = useState(false)
   const [currentStep, setCurrentStep] = useState(0)
+  const [showFounderSlides, setShowFounderSlides] = useState(false)
+  const [founderSlideIndex, setFounderSlideIndex] = useState(0)
+  const [founderFormData, setFounderFormData] = useState({ email: '', phone: '' })
+  const [founderFormErrors, setFounderFormErrors] = useState({ email: '', phone: '' })
+  const [isSubmittingFounderForm, setIsSubmittingFounderForm] = useState(false)
 
   const content = PAGE_ONBOARDING_CONTENT[pageId]
+
+  // Check if founder slides have been seen
+  const hasSeenFounderSlides = () => {
+    try {
+      return localStorage.getItem('bvx_founder_slides_seen') === '1'
+    } catch {
+      return false
+    }
+  }
+
+  // Validate founder form
+  const validateFounderForm = () => {
+    const errors = { email: '', phone: '' }
+    let isValid = true
+
+    const email = founderFormData.email?.trim() || ''
+    const phone = founderFormData.phone?.trim() || ''
+
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      errors.email = 'Please enter a valid email address'
+      isValid = false
+    }
+
+    if (phone) {
+      const phoneDigits = phone.replace(/\D/g, '')
+      if (phoneDigits.length < 7 || phoneDigits.length > 15) {
+        errors.phone = 'Please enter a valid phone number (7-15 digits)'
+        isValid = false
+      }
+    }
+
+    setFounderFormErrors(errors)
+    return isValid
+  }
+
+  // Submit founder contact form
+  const submitFounderContact = async () => {
+    setIsSubmittingFounderForm(true)
+    try {
+      const tenantId = await getTenant()
+      const email = (founderFormData.email?.trim() || '').toLowerCase()
+      const phoneNormalized = (founderFormData.phone?.trim() || '').replace(/[^0-9+]/g, '')
+      
+      if (!email && !phoneNormalized) {
+        return // Both optional, so skip if both empty
+      }
+
+      await api.post('/onboarding/founder/contact', {
+        tenant_id: tenantId,
+        email: email || undefined,
+        phone: phoneNormalized || undefined,
+        finalize: true,
+      })
+    } catch (err) {
+      console.error('Founder contact submission failed', err)
+    } finally {
+      setIsSubmittingFounderForm(false)
+    }
+  }
 
   useEffect(() => {
     if (!isOnboardingEnabled || hasSeenOnboarding(pageId)) {
@@ -187,11 +303,54 @@ export function OnboardingTooltip({
   }
 
   const handleGotIt = () => {
+    // If on dashboard and haven't seen founder slides, show them next
+    if (pageId === 'dashboard' && !hasSeenFounderSlides()) {
+      setIsVisible(false)  // Hide welcome popup first
+      setShowFounderSlides(true)
+      setFounderSlideIndex(0)
+      return
+    }
+    
     setIsVisible(false)
     markOnboardingComplete(pageId)
   }
 
-  if (!isVisible || !content) return null
+  const handleFounderNext = async () => {
+    const currentSlide = FOUNDER_SLIDES[founderSlideIndex]
+    
+    // If on form slide, validate before proceeding
+    if (currentSlide.isForm) {
+      if (!validateFounderForm()) {
+        return
+      }
+      await submitFounderContact()
+      
+      // Mark as complete and close
+      try {
+        localStorage.setItem('bvx_founder_slides_seen', '1')
+      } catch {}
+      setIsVisible(false)
+      setShowFounderSlides(false)
+      markOnboardingComplete(pageId)
+      return
+    }
+
+    // Move to next slide or finish
+    if (founderSlideIndex < FOUNDER_SLIDES.length - 1) {
+      setFounderSlideIndex(founderSlideIndex + 1)
+    }
+  }
+
+  const handleFounderBack = () => {
+    if (founderSlideIndex > 0) {
+      setFounderSlideIndex(founderSlideIndex - 1)
+    } else {
+      // Go back to main welcome
+      setShowFounderSlides(false)
+    }
+  }
+
+  if (!showFounderSlides && (!isVisible || !content)) return null
 
   const positionClasses = {
     top: 'fixed top-4 left-1/2 transform -translate-x-1/2 z-50',
@@ -199,6 +358,116 @@ export function OnboardingTooltip({
     center: 'fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50'
   }
 
+  // Render founder slides if active
+  if (showFounderSlides) {
+    const currentSlide = FOUNDER_SLIDES[founderSlideIndex]
+    const isLastSlide = founderSlideIndex === FOUNDER_SLIDES.length - 1
+
+    return (
+      <>
+        {/* Backdrop */}
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40" />
+        
+        {/* Founder Slide Tooltip */}
+        <div className={positionClasses[position]}>
+          <Card className="w-96 max-w-[90vw] shadow-2xl border-primary/20 bg-white">
+            <CardHeader className="relative pb-4">
+              <div className="flex items-center space-x-2 mb-2">
+                <div className="p-2 bg-primary/10 rounded-full">
+                  <Sparkles className="h-5 w-5 text-primary" />
+                </div>
+                <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">
+                  {founderSlideIndex + 1} of {FOUNDER_SLIDES.length}
+                </Badge>
+              </div>
+              
+              <CardTitle className="text-xl pr-8" style={{ fontFamily: 'Playfair Display, serif' }}>
+                {currentSlide.title}
+              </CardTitle>
+            </CardHeader>
+            
+            <CardContent className="space-y-4">
+              {currentSlide.isForm ? (
+                <div className="space-y-4">
+                  <p className="text-muted-foreground" style={{ fontFamily: 'Montserrat, sans-serif' }}>
+                    I appreciate you trying brandVX and would love any feedback. Drop your contact info below and I will personally reach out to thank you. Go be great!
+                  </p>
+                  
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="founder-email" className="text-xs uppercase tracking-wide text-slate-500">
+                        Email (Optional)
+                      </Label>
+                      <Input
+                        id="founder-email"
+                        type="email"
+                        value={founderFormData.email}
+                        onChange={(e) => setFounderFormData({ ...founderFormData, email: e.target.value })}
+                        placeholder="you@example.com"
+                        className="rounded-xl border-slate-200"
+                      />
+                      {founderFormErrors.email && (
+                        <p className="text-xs text-rose-600">{founderFormErrors.email}</p>
+                      )}
+                    </div>
+                    
+                    <div className="space-y-1.5">
+                      <Label htmlFor="founder-phone" className="text-xs uppercase tracking-wide text-slate-500">
+                        Phone (Optional)
+                      </Label>
+                      <Input
+                        id="founder-phone"
+                        type="tel"
+                        value={founderFormData.phone}
+                        onChange={(e) => setFounderFormData({ ...founderFormData, phone: e.target.value })}
+                        placeholder="(555) 555-5555"
+                        className="rounded-xl border-slate-200"
+                      />
+                      {founderFormErrors.phone && (
+                        <p className="text-xs text-rose-600">{founderFormErrors.phone}</p>
+                      )}
+                    </div>
+                    
+                    <p className="text-xs text-slate-500">
+                      Share either email or phone if you'd like me to follow up.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontFamily: 'Montserrat, sans-serif' }}>
+                  {currentSlide.content}
+                </div>
+              )}
+              
+              <div className="flex items-center justify-between pt-4">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleFounderBack}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <ArrowLeft className="h-4 w-4 mr-2" />
+                  Back
+                </Button>
+                
+                <Button
+                  onClick={handleFounderNext}
+                  className="bg-primary hover:bg-primary/90 text-white"
+                  size="sm"
+                  disabled={isSubmittingFounderForm}
+                >
+                  {isSubmittingFounderForm ? 'Submitting...' : isLastSlide ? 'Finish' : 'Continue'}
+                  {!isSubmittingFounderForm && !isLastSlide && <ArrowRight className="h-4 w-4 ml-2" />}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </>
+    )
+  }
+
+  // Render main welcome tooltip
   return (
     <>
       {/* Backdrop */}

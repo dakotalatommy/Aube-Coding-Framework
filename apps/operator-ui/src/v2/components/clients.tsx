@@ -18,7 +18,7 @@ import { toast } from 'sonner'
 import { api, getTenant, API_BASE } from '../../lib/api'
 import { supabase } from '../../lib/supabase'
 import { formatRelativeTime } from '../lib/formatters'
-import type { ClientsListResponse, ClientRecord, ClientSegmentSummary, ClientsQueryParams } from './types/clients'
+import type { ClientRecord, ClientSegmentSummary, ClientsQueryParams } from './types/clients'
 import { Button } from './ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs'
@@ -70,7 +70,7 @@ const DEFAULT_SEGMENTS: ClientSegmentSummary[] = [
   },
 ]
 
-const PAGE_SIZE = 25
+const PAGE_SIZE = 12
 
 const formatCurrency = (value?: number | null) => {
   if (!value) return '$0'
@@ -90,6 +90,7 @@ const formatPhone = (value?: string | null) => {
 }
 
 const makeAvatarFallback = (name: string) => {
+  if (!name) return 'BV'  // Handle undefined/null/empty names
   const parts = name.split(' ').filter(Boolean)
   if (!parts.length) return 'BV'
   if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase()
@@ -139,6 +140,28 @@ export function Clients({ initialSearch, onAckSearch, onNavigate }: ClientsProps
     }
   }, [activeSegment])
 
+  // Transform backend snake_case fields to frontend camelCase
+  const transformClientData = (item: any): ClientRecord => ({
+    id: item.contact_id || item.id,
+    displayName: item.display_name || item.friendly_name || 'Client',
+    email: item.email,
+    phone: item.phone,
+    lastVisitTs: item.last_visit,
+    nextVisitTs: item.next_visit,
+    totalSpentCents: item.lifetime_cents,
+    visitCount: item.txn_count,
+    preferredService: item.preferred_service,
+    serviceTags: item.service_tags,
+    segment: item.segment,
+    status: item.status,
+    priority: item.priority,
+    lifetimeValue: item.lifetime_value,
+    referralsCount: item.referrals_count,
+    notes: item.notes,
+    birthday: item.birthday,
+    source: item.creation_source || item.source,
+  })
+
   const loadClients = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -159,11 +182,12 @@ export function Clients({ initialSearch, onAckSearch, onNavigate }: ClientsProps
 
       const response = (await api.get(`/contacts/list?${query.toString()}`, {
         timeoutMs: 15_000,
-      })) as ClientsListResponse
+      })) as any  // Backend returns snake_case, we transform to camelCase
 
-      const items = Array.isArray(response?.items) ? response.items : []
+      const rawItems = Array.isArray(response?.items) ? response.items : []
+      const items = rawItems.map(transformClientData)
       setClients(items)
-      setTotalClients(Number(response?.total ?? items.length))
+      setTotalClients(Number(response?.total ?? rawItems.length))
     } catch (err) {
       console.error('Failed to load clients', err)
       setError('We could not load clients right now. Try again shortly.')
@@ -175,6 +199,10 @@ export function Clients({ initialSearch, onAckSearch, onNavigate }: ClientsProps
   const handleImport = useCallback(async () => {
     if (importing) return
     setImporting(true)
+    
+    // Show progress toast
+    const progressToastId = toast.info('Analyzing connected services…', { duration: Infinity })
+    
     try {
       // Analyze connected providers first
       const analyze = await api.post('/onboarding/analyze', {})
@@ -184,8 +212,12 @@ export function Clients({ initialSearch, onAckSearch, onNavigate }: ClientsProps
       const squareReady = sqStatus === 'connected' || sqStatus === 'pending_config'
       const acuityReady = aqStatus === 'connected' || aqStatus === 'pending_config'
       const provider = squareReady ? 'square' : (acuityReady ? 'acuity' : 'auto')
+      const providerLabel = provider === 'square' ? 'Square' : provider === 'acuity' ? 'Acuity' : 'your connected service'
+      toast.dismiss(progressToastId)
+      const runToastId = toast.info(`Syncing contacts from ${providerLabel}…`, { duration: Infinity })
 
       let imported = 0
+      let stats: any = null
 
       if (provider === 'square') {
         const r = await api.post('/ai/tools/execute', {
@@ -195,6 +227,7 @@ export function Clients({ initialSearch, onAckSearch, onNavigate }: ClientsProps
           idempotency_key: `square_import_${Date.now()}`
         })
         imported = Number(r?.imported || 0)
+        stats = r?.meta?.stats
 
         // Backfill metrics after Square import
         try {
@@ -205,19 +238,41 @@ export function Clients({ initialSearch, onAckSearch, onNavigate }: ClientsProps
       } else if (provider === 'acuity') {
         const r = await api.post('/integrations/booking/acuity/import', { since: '0', until: '', cursor: '' })
         imported = Number(r?.imported || 0)
+        stats = r?.meta?.stats
       } else {
         await api.post('/calendar/sync', { provider: 'auto' })
       }
 
-      toast.success(`Import complete — ${imported} contacts imported`)
+      // Dismiss progress toast
+      toast.dismiss(runToastId)
+
+      // Show appropriate success message based on results
+      if (imported === 0 && stats?.existing > 0) {
+        toast.success(`All ${stats.existing} contacts already synced — no new contacts to import`)
+      } else if (imported > 0) {
+        toast.success(`Import complete — ${imported} new contact${imported === 1 ? '' : 's'} imported`)
+      } else {
+        toast.info('No contacts found to import')
+      }
+
+      // Refresh both clients list and segment counts
       await loadClients()
-    } catch (err) {
+      await loadSegments()
+    } catch (err: any) {
       console.error('Client import failed', err)
-      toast.error('Unable to run import right now')
+      toast.dismiss(progressToastId)
+      
+      // Show specific error details if available
+      const detail = err?.response?.data?.detail || err?.response?.data?.error || err?.message || ''
+      if (detail) {
+        toast.error(`Import failed: ${detail}`)
+      } else {
+        toast.error('Unable to run import right now. Please try again.')
+      }
     } finally {
       setImporting(false)
     }
-  }, [importing, loadClients])
+  }, [importing, loadClients, loadSegments])
 
   const handleExport = useCallback(async () => {
     if (exporting) return
@@ -282,7 +337,8 @@ export function Clients({ initialSearch, onAckSearch, onNavigate }: ClientsProps
 
   useEffect(() => {
     loadClients()
-  }, [activeSegment, page, search, sortBy, sortDirection, loadClients])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSegment, page, search, sortBy, sortDirection])
 
   useEffect(() => {
     if (typeof initialSearch === 'string') {
@@ -553,7 +609,7 @@ export function Clients({ initialSearch, onAckSearch, onNavigate }: ClientsProps
                 </Card>
               ) : (
                 <div className="rounded-2xl border bg-card">
-                  <ScrollArea className="max-h-[520px]">
+                  <ScrollArea className="max-h-[380px]">
                     <Table className="min-w-full text-sm">
                       <THead>
                         <TR>

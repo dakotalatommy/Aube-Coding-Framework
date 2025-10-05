@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
+import { useNavigate } from 'react-router-dom'
 import { Eye, EyeOff, Mail, Lock, ArrowRight, Sparkles } from 'lucide-react'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -8,20 +9,22 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Separator } from './ui/separator'
 import bvxLogo from '../assets/539f8d3190f79d835fe0af50f92a753850eb6ff7.png'
 import { supabase } from '../../lib/supabase'
-import { useNavigate } from 'react-router-dom'
 
 export function SignIn() {
-  const nav = useNavigate()
+  const navigate = useNavigate()
   const [showPassword, setShowPassword] = useState(false)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
+  const [statusMessage, setStatusMessage] = useState('')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
     setErrorMessage('')
+    setStatusMessage('')
+    let loginCompleted = false
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) throw error
@@ -33,11 +36,16 @@ export function SignIn() {
           return
         }
       } catch {}
-      nav('/workspace')
+      loginCompleted = true
+      setStatusMessage('Signing you in…')
+      // Keep spinner active; router will redirect once session is available
+      return
     } catch (err: any) {
       setErrorMessage(String(err?.message || err || 'Unable to sign in'))
     } finally {
-      setIsLoading(false)
+      if (!loginCompleted) {
+        setIsLoading(false)
+      }
     }
   }
 
@@ -189,7 +197,7 @@ export function SignIn() {
                     {isLoading ? (
                       <div className="flex items-center justify-center space-x-2">
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                        <span>Signing in…</span>
+                        <span>{statusMessage || 'Signing in…'}</span>
                       </div>
                     ) : (
                       <div className="flex items-center justify-center space-x-2">
@@ -228,7 +236,7 @@ export function SignIn() {
             <p className="text-sm text-muted-foreground">
               Don't have an account?{' '}
               <button
-                onClick={() => nav('/signup')}
+                onClick={() => navigate('/signup')}
                 className="text-primary hover:text-primary/80 font-medium"
               >
                 Sign up

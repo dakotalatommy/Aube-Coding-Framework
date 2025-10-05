@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 import { api } from '../../lib/api'
+import { startOAuth } from '../../sdk/connectionsClient'
 import { OnboardingSettings } from './onboarding-settings'
 import {
   DEFAULT_BRAND,
@@ -150,19 +151,14 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
       }
 
       const providers = response.providers ?? {}
+      // Only show Square and Acuity for now - other integrations will be added later
       const items: IntegrationStatusItem[] = Object.keys({
         square: true,
         acuity: true,
-        hubspot: true,
-        google: true,
-        instagram: true,
-        twilio: true,
-        sendgrid: true,
-        shopify: true,
       }).map((key) => {
         const providerData = providers[key] ?? { linked: false }
         return {
-          provider: key,
+          provider: key.charAt(0).toUpperCase() + key.slice(1), // Capitalize provider name
           linked: Boolean(providerData.linked),
           status: providerData.status,
           lastSyncTs: response.last_sync?.[key] ?? null,
@@ -264,11 +260,14 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
                   <Button
                     variant={integration.linked ? 'outline' : 'default'}
                     size="sm"
-                    onClick={() => {
-                      if (integration.connectUrl) {
-                        window.open(integration.connectUrl, '_blank', 'noopener')
-                      } else if (!integration.linked) {
-                        toast.info('Contact support to link this integration today.')
+                    onClick={async () => {
+                      const providerLower = integration.provider.toLowerCase()
+                      
+                      if (providerLower === 'square' || providerLower === 'acuity') {
+                        toast.info(`Redirecting to ${integration.provider} authentication...`)
+                        await startOAuth(providerLower as 'square' | 'acuity', { returnTo: 'workspace' })
+                      } else {
+                        toast.error(`${integration.provider} connection not configured yet.`)
                       }
                     }}
                   >
@@ -283,156 +282,266 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
     </Card>
   )
 
-  const renderProfileCard = () => (
+  const renderAccountCard = () => (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2" style={{ fontFamily: 'Playfair Display, serif' }}>
           <CardIcon />
-          Profile
+          Account Details
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Update your personal information and preferences.
+          Manage your personal and business information.
         </p>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid gap-3">
-          <div className="grid gap-2">
-            <Label>First Name</Label>
-                  <Input
-                    value={profileData.firstName}
-              onChange={(event) =>
-                setProfileData((prev) => ({ ...prev, firstName: event.target.value.trim() }))
-              }
-              placeholder="Sarah"
-                  />
-                </div>
-          <div className="grid gap-2">
-            <Label>Last Name</Label>
-                  <Input
-                    value={profileData.lastName}
-              onChange={(event) =>
-                setProfileData((prev) => ({ ...prev, lastName: event.target.value.trim() }))
-              }
-              placeholder="Johnson"
-                  />
-                </div>
-          <div className="grid gap-2">
-            <Label>Email</Label>
+      <CardContent className="space-y-6">
+        {/* Personal Information Section */}
+        <div className="space-y-4">
+          <h3 className="text-sm font-semibold text-foreground">Personal Information</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div className="grid gap-2">
+              <Label>First Name</Label>
+              <Input
+                value={profileData.firstName}
+                onChange={(event) =>
+                  setProfileData((prev) => ({ ...prev, firstName: event.target.value.trim() }))
+                }
+                placeholder="Sarah"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Last Name</Label>
+              <Input
+                value={profileData.lastName}
+                onChange={(event) =>
+                  setProfileData((prev) => ({ ...prev, lastName: event.target.value.trim() }))
+                }
+                placeholder="Johnson"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Email</Label>
+              <Input
+                value={profileData.email}
+                onChange={(event) =>
+                  setProfileData((prev) => ({ ...prev, email: event.target.value.trim() }))
+                }
+                placeholder="sarah@elegantbeauty.com"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Phone</Label>
+              <Input
+                value={profileData.phone}
+                onChange={(event) =>
+                  setProfileData((prev) => ({ ...prev, phone: event.target.value.trim() }))
+                }
+                placeholder="+1 (555) 123-4567"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="border-t pt-6" />
+
+        {/* Business Information Section */}
+        <div className="space-y-4">
+          <h3 className="text-sm font-semibold text-foreground">Business Information</h3>
+          <div className="grid gap-3">
+            <div className="grid gap-2">
+              <Label>Business Name</Label>
+              <Input
+                value={businessData.businessName}
+                onChange={(event) =>
+                  setBusinessData((prev) => ({ ...prev, businessName: event.target.value.trim() }))
+                }
+                placeholder="Elegant Beauty Studio"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Address</Label>
+              <Input
+                value={businessData.address}
+                onChange={(event) =>
+                  setBusinessData((prev) => ({ ...prev, address: event.target.value.trim() }))
+                }
+                placeholder="123 Beauty Lane, Beverly Hills, CA 90210"
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid gap-2">
+                <Label>Business Phone</Label>
                 <Input
-                  value={profileData.email}
-              onChange={(event) =>
-                setProfileData((prev) => ({ ...prev, email: event.target.value.trim() }))
-              }
-              placeholder="sarah@elegantbeauty.com"
+                  value={businessData.phone}
+                  onChange={(event) =>
+                    setBusinessData((prev) => ({ ...prev, phone: event.target.value.trim() }))
+                  }
+                  placeholder="+1 (555) 123-4567"
                 />
               </div>
-          <div className="grid gap-2">
-            <Label>Phone</Label>
+              <div className="grid gap-2">
+                <Label>Business Email</Label>
                 <Input
-                  value={profileData.phone}
-              onChange={(event) =>
-                setProfileData((prev) => ({ ...prev, phone: event.target.value.trim() }))
-              }
-              placeholder="+1 (555) 123-4567"
+                  value={businessData.email}
+                  onChange={(event) =>
+                    setBusinessData((prev) => ({ ...prev, email: event.target.value.trim() }))
+                  }
+                  placeholder="hello@elegantbeauty.com"
                 />
               </div>
-          <Button onClick={() => saveSettings()} disabled={saving}>
-            {saving ? 'Saving...' : 'Save Profile'}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+            </div>
+            <div className="grid gap-2">
+              <Label>Website</Label>
+              <Input
+                value={businessData.website}
+                onChange={(event) =>
+                  setBusinessData((prev) => ({ ...prev, website: event.target.value.trim() }))
+                }
+                placeholder="www.elegantbeauty.com"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Hours</Label>
+              <Input
+                value={businessData.hours}
+                onChange={(event) =>
+                  setBusinessData((prev) => ({ ...prev, hours: event.target.value.trim() }))
+                }
+                placeholder="Mon-Fri: 9AM-7PM, Sat: 9AM-5PM, Sun: Closed"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label>Description</Label>
+              <Textarea
+                value={businessData.description}
+                onChange={(event) =>
+                  setBusinessData((prev) => ({ ...prev, description: event.target.value.trim() }))
+                }
+                placeholder="Premium beauty services specializing in skincare, makeup, and wellness treatments."
+                rows={3}
+              />
+            </div>
+          </div>
+        </div>
+
+        <Button onClick={() => saveSettings()} disabled={saving} className="w-full md:w-auto">
+          {saving ? 'Saving...' : 'Save Account Details'}
+        </Button>
+      </CardContent>
+    </Card>
   )
 
-  const renderBusinessCard = () => (
-          <Card>
-            <CardHeader>
+  const renderPlanBillingCard = () => (
+    <Card>
+      <CardHeader>
         <CardTitle className="flex items-center gap-2" style={{ fontFamily: 'Playfair Display, serif' }}>
           <CardIcon />
-          Business Details
+          Subscription & Billing
         </CardTitle>
-              <p className="text-sm text-muted-foreground">
-          Configure your business information and address.
+        <p className="text-sm text-muted-foreground">
+          Manage your plan, billing, and payment method.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-6">
+        {/* Current Plan Display */}
+        <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-semibold text-foreground">
+                  {userData?.plan ? userData.plan.charAt(0).toUpperCase() + userData.plan.slice(1) : 'Pro'} Plan
+                </h3>
+                <Badge variant="outline" className="bg-primary/10">Active</Badge>
+              </div>
+              <p className="text-sm text-muted-foreground mt-1">
+                Your current subscription plan
               </p>
-            </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid gap-3">
-          <div className="grid gap-2">
-            <Label>Business Name</Label>
-                <Input
-                  value={businessData.businessName}
-              onChange={(event) =>
-                setBusinessData((prev) => ({ ...prev, businessName: event.target.value.trim() }))
-              }
-              placeholder="Elegant Beauty Studio"
-                />
-              </div>
-          <div className="grid gap-2">
-            <Label>Address</Label>
-                <Input
-                  value={businessData.address}
-              onChange={(event) =>
-                setBusinessData((prev) => ({ ...prev, address: event.target.value.trim() }))
-              }
-              placeholder="123 Beauty Lane, Beverly Hills, CA 90210"
-                />
-              </div>
-          <div className="grid gap-2">
-            <Label>Phone</Label>
-                  <Input
-                    value={businessData.phone}
-              onChange={(event) =>
-                setBusinessData((prev) => ({ ...prev, phone: event.target.value.trim() }))
-              }
-              placeholder="+1 (555) 123-4567"
-                  />
+            </div>
+          </div>
+        </div>
+
+        {/* Plan Options */}
+        <div className="space-y-4">
+          <h3 className="text-sm font-semibold text-foreground">Available Plans</h3>
+          <div className="grid gap-4 md:grid-cols-2">
+            {/* Founding Member $97/mo */}
+            <div className="rounded-xl border border-muted p-4 hover:border-primary/50 transition-colors">
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <h4 className="font-semibold text-foreground">Founding Member</h4>
+                  <p className="text-2xl font-bold text-primary mt-1">$97<span className="text-sm font-normal text-muted-foreground">/month</span></p>
                 </div>
-          <div className="grid gap-2">
-            <Label>Email</Label>
-                  <Input
-                    value={businessData.email}
-              onChange={(event) =>
-                setBusinessData((prev) => ({ ...prev, email: event.target.value.trim() }))
-              }
-              placeholder="hello@elegantbeauty.com"
-                  />
+                <Badge className="bg-gradient-to-r from-amber-500 to-amber-600 text-white">Best Value</Badge>
+              </div>
+              <ul className="space-y-2 text-sm text-muted-foreground mb-4">
+                <li className="flex items-center gap-2">
+                  <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
+                  Lock in founding member price
+                </li>
+                <li className="flex items-center gap-2">
+                  <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
+                  All Pro features included
+                </li>
+                <li className="flex items-center gap-2">
+                  <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
+                  Billed today
+                </li>
+              </ul>
+              <Button variant="outline" className="w-full" onClick={() => {
+                const stripeUrl = `https://buy.stripe.com/${import.meta.env.VITE_STRIPE_BUY_BUTTON_97 || 'buy_btn_1S3JACKsdVcBvHY1eEO0g2Mt'}`
+                window.open(stripeUrl, '_blank')
+              }}>
+                Select Plan
+              </Button>
+            </div>
+
+            {/* Pro $147/mo */}
+            <div className="rounded-xl border border-muted p-4 hover:border-primary/50 transition-colors">
+              <div className="flex items-start justify-between mb-3">
+                <div>
+                  <h4 className="font-semibold text-foreground">Pro</h4>
+                  <p className="text-2xl font-bold text-primary mt-1">$147<span className="text-sm font-normal text-muted-foreground">/month</span></p>
                 </div>
-          <div className="grid gap-2">
-            <Label>Website</Label>
-                <Input
-                  value={businessData.website}
-              onChange={(event) =>
-                setBusinessData((prev) => ({ ...prev, website: event.target.value.trim() }))
-              }
-              placeholder="www.elegantbeauty.com"
-                />
+                <Badge variant="secondary">7-Day Trial</Badge>
               </div>
-          <div className="grid gap-2">
-            <Label>Hours</Label>
-                <Input
-                  value={businessData.hours}
-              onChange={(event) =>
-                setBusinessData((prev) => ({ ...prev, hours: event.target.value.trim() }))
-              }
-              placeholder="Mon-Fri: 9AM-7PM, Sat: 9AM-5PM, Sun: Closed"
-                />
-              </div>
-          <div className="grid gap-2">
-            <Label>Description</Label>
-                <Textarea
-                  value={businessData.description}
-              onChange={(event) =>
-                setBusinessData((prev) => ({ ...prev, description: event.target.value.trim() }))
-              }
-              placeholder="Premium beauty services specializing in skincare, makeup, and wellness treatments."
-                />
-              </div>
-          <Button onClick={() => saveSettings()} disabled={saving}>
-            {saving ? 'Saving...' : 'Save Business Details'}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+              <ul className="space-y-2 text-sm text-muted-foreground mb-4">
+                <li className="flex items-center gap-2">
+                  <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
+                  7-day free trial included
+                </li>
+                <li className="flex items-center gap-2">
+                  <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
+                  All Pro features
+                </li>
+                <li className="flex items-center gap-2">
+                  <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
+                  Billed after trial
+                </li>
+              </ul>
+              <Button className="w-full" onClick={() => {
+                const stripeUrl = `https://buy.stripe.com/${import.meta.env.VITE_STRIPE_BUY_BUTTON_147 || 'buy_btn_1S3J6sKsdVcBvHY1nllLYX6Q'}`
+                window.open(stripeUrl, '_blank')
+              }}>
+                Start Trial
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Payment Method Section */}
+        <div className="border-t pt-6">
+          <h3 className="text-sm font-semibold text-foreground mb-3">Payment Method</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            Manage your payment method and billing information through Stripe.
+          </p>
+          <Button variant="outline" onClick={() => {
+            toast.info('Opening Stripe billing portal...')
+            // Add Stripe customer portal link here
+          }}>
+            Manage Payment Method
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   )
 
   const renderBrandCard = () => (
@@ -856,6 +965,24 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
             </Card>
   )
 
+  const renderPreferencesCard = () => (
+    <div className="space-y-6">
+      {renderNotificationsCard()}
+      
+      <div className="border-t border-border" />
+      
+      {renderGoalsCard()}
+      
+      <div className="border-t border-border" />
+      
+      {renderQuietHoursCard()}
+      
+      <div className="border-t border-border" />
+      
+      {renderToneCard()}
+    </div>
+  )
+
   const renderOnboardingCard = () => (
     <Card>
       <CardHeader>
@@ -873,48 +1000,51 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
     </Card>
   )
 
-  const renderTabs = () => (
-    <Tabs defaultValue={initialTab} className="w-full">
-      <TabsList className="grid w-full grid-cols-2">
-        <TabsTrigger value="profile">Profile</TabsTrigger>
-        <TabsTrigger value="business">Business</TabsTrigger>
-        <TabsTrigger value="brand">Branding</TabsTrigger>
-        <TabsTrigger value="notifications">Notifications</TabsTrigger>
-        <TabsTrigger value="goals">Goals</TabsTrigger>
-        <TabsTrigger value="quiet-hours">Quiet Hours</TabsTrigger>
-        <TabsTrigger value="tone">Tone</TabsTrigger>
-        <TabsTrigger value="integrations">Integrations</TabsTrigger>
-        <TabsTrigger value="onboarding">Onboarding</TabsTrigger>
-      </TabsList>
-      <TabsContent value="profile">
-        {renderProfileCard()}
-      </TabsContent>
-      <TabsContent value="business">
-        {renderBusinessCard()}
-      </TabsContent>
-      <TabsContent value="brand">
-        {renderBrandCard()}
-      </TabsContent>
-      <TabsContent value="notifications">
-        {renderNotificationsCard()}
-      </TabsContent>
-      <TabsContent value="goals">
-        {renderGoalsCard()}
-      </TabsContent>
-      <TabsContent value="quiet-hours">
-        {renderQuietHoursCard()}
-      </TabsContent>
-      <TabsContent value="tone">
-        {renderToneCard()}
-      </TabsContent>
-      <TabsContent value="integrations">
-        {renderIntegrations()}
-      </TabsContent>
-      <TabsContent value="onboarding">
-        {renderOnboardingCard()}
+  const renderTabs = () => {
+    // Map legacy tab names to new structure
+    const normalizedTab = 
+      initialTab === 'profile' || initialTab === 'business' ? 'account' :
+      initialTab === 'notifications' || initialTab === 'goals' || initialTab === 'quiet-hours' || initialTab === 'tone' ? 'preferences' :
+      initialTab === 'plan' ? 'billing' :
+      initialTab
+
+    return (
+      <Tabs defaultValue={normalizedTab} className="w-full">
+        <TabsList className="w-full flex flex-wrap gap-2">
+          <TabsTrigger value="account">Account</TabsTrigger>
+          <TabsTrigger value="branding">Branding</TabsTrigger>
+          <TabsTrigger value="integrations">Integrations</TabsTrigger>
+          <TabsTrigger value="billing">Plan & Billing</TabsTrigger>
+          <TabsTrigger value="preferences">Preferences</TabsTrigger>
+          <TabsTrigger value="onboarding">Onboarding</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="account">
+          {renderAccountCard()}
+        </TabsContent>
+        
+        <TabsContent value="branding">
+          {renderBrandCard()}
+        </TabsContent>
+        
+        <TabsContent value="integrations">
+          {renderIntegrations()}
+        </TabsContent>
+        
+        <TabsContent value="billing">
+          {renderPlanBillingCard()}
+        </TabsContent>
+        
+        <TabsContent value="preferences">
+          {renderPreferencesCard()}
+        </TabsContent>
+        
+        <TabsContent value="onboarding">
+          {renderOnboardingCard()}
         </TabsContent>
       </Tabs>
-  )
+    )
+  }
 
   return (
     <div className="container mx-auto p-4">

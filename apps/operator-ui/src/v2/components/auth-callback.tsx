@@ -58,7 +58,6 @@ export function AuthCallback() {
       // Drop the hash immediately to keep the URL clean even if redirect is delayed
       try { if (window.location.hash) window.history.replaceState({}, '', window.location.pathname + window.location.search); } catch {}
       // Decide target synchronously (dev mode overrides)
-      const DEV_MODE = String((import.meta as any).env?.VITE_ONBOARDING_DEV_MODE || '0') === '1';
       const sp = new URLSearchParams(window.location.search);
       const forcedFlag = sp.get('force') === '1' || sp.get('forceOnboard') === '1' || sp.get('welcome') === '1';
       const forcedOnboarding = forcedFlag;
@@ -67,7 +66,8 @@ export function AuthCallback() {
       const nextTarget = nextParam && nextParam.startsWith('/') ? decodeURIComponent(nextParam) : '';
       const altParam = sp.get('alt');
       const altTarget = altParam && altParam.startsWith('/') ? decodeURIComponent(altParam) : '';
-      const computed = DEV_MODE ? '/onboarding' : (nextTarget || ((!onboardingDone || forcedOnboarding) ? '/onboarding' : '/workspace?pane=dashboard'));
+      const defaultTarget = '/workspace?pane=dashboard';
+      const computed = nextTarget || defaultTarget;
 
       // Sanitize non-sensitive URL parts
       try {
@@ -83,7 +83,7 @@ export function AuthCallback() {
       try { (window.opener as any)?.postMessage('bvx_auth_ready', window.location.origin); } catch {}
 
       // Hard redirect to avoid router timing races (immediate)
-      const target = computed || altTarget || '/workspace?pane=dashboard';
+      const target = computed || altTarget || defaultTarget;
       try { console.info('[bvx:auth] redirect', { target, nextTarget, altTarget, onboardingDone, forcedOnboarding }); } catch {}
       console.info('[bvx:auth] auth callback completed successfully')
       window.location.replace(target);

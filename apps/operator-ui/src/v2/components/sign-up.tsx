@@ -60,7 +60,7 @@ export function SignUp() {
     setIsLoading(true)
     setErrorMessage('')
     try {
-      const redirectTo = `${window.location.origin}/auth/callback?next=/onboarding`
+      const redirectTo = `${window.location.origin}/auth/callback?next=/workspace?pane=dashboard`
       const { error } = await supabase.auth.signUp({
         email: formData.email,
         password: formData.password,
@@ -86,7 +86,7 @@ export function SignUp() {
     setIsLoading(true)
     setErrorMessage('')
     try {
-      const redirectTo = `${window.location.origin}/auth/callback?next=/onboarding`
+      const redirectTo = `${window.location.origin}/auth/callback?next=/workspace?pane=dashboard`
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
@@ -283,7 +283,7 @@ export function SignUp() {
                         onClick={async () => {
                           setIsLoading(true)
                           try {
-                            const redirectTo = `${window.location.origin}/auth/callback?next=/onboarding`
+                            const redirectTo = `${window.location.origin}/auth/callback?next=/workspace?pane=dashboard`
                             await supabase.auth.resend({ type: 'signup', email: formData.email, options: { emailRedirectTo: redirectTo } })
                             setErrorMessage('Verification email resent!')
                           } catch (err: any) {

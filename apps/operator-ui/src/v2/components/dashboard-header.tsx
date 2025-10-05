@@ -1,4 +1,4 @@
-import { Crown, Loader2, Search, Settings } from 'lucide-react'
+import { Crown, Loader2, Settings } from 'lucide-react'
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from './ui/button'
 import { Input } from './ui/input'
@@ -238,10 +238,9 @@ function DashboardHeaderComponent({ onNotificationClick, onOpenSettings, onNavig
 
       <div className="flex items-center space-x-4">
         <div className="relative" ref={containerRef}>
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4" style={{ color: '#2F5D9F' }} />
           <Input
             placeholder="Search clients, appointments..."
-            className="pl-10 w-64 text-black border-2"
+            className="pl-4 w-64 text-black border-2"
             style={{ borderColor: '#2F5D9F' }}
             value={searchValue}
             onChange={(event) => setSearchValue(event.target.value)}

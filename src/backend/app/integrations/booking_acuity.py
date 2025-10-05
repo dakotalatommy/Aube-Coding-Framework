@@ -226,8 +226,8 @@ def import_appointments(tenant_id: str, since: Optional[str] = None, until: Opti
                             if rc == 0:
                                 conn.execute(
                                     _sql_text(
-                                        "INSERT INTO contacts(tenant_id,contact_id,first_name,last_name,display_name,email_hash,phone_hash,consent_sms,consent_email,created_at,updated_at) "
-                                        "VALUES (CAST(:t AS uuid),:cid,:fn,:ln,:dn,:em,:ph,false,false,"
+                                        "INSERT INTO contacts(tenant_id,contact_id,first_name,last_name,display_name,email_hash,phone_hash,consent_sms,consent_email,first_visit,last_visit,txn_count,lifetime_cents,instant_profile,created_at,updated_at) "
+                                        "VALUES (CAST(:t AS uuid),:cid,:fn,:ln,:dn,:em,:ph,false,false,0,0,0,0,false,"
                                         + ts_expr
                                         + ","
                                         + ts_expr
