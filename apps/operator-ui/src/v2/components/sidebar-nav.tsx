@@ -222,8 +222,8 @@ export function SidebarNav({ currentPage, onNavigate, userData, onNavigateToSett
 
           {BOOKING_URL && (
             <Button
-              variant="ghost"
-              className="w-full justify-start space-x-3"
+              variant="outline"
+              className="w-full justify-start space-x-3 border-primary/20 text-primary hover:bg-primary/10"
               asChild
             >
               <a
@@ -238,8 +238,8 @@ export function SidebarNav({ currentPage, onNavigate, userData, onNavigateToSett
           )}
 
           <Button
-            variant="outline"
-            className="w-full justify-start space-x-3 border-primary/20 text-primary hover:bg-primary/10"
+            variant="ghost"
+            className="w-full justify-start space-x-3"
             onClick={handleSignOut}
           >
             <LogOut className="h-5 w-5" />
