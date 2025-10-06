@@ -29,6 +29,7 @@ import { Toaster } from './components/ui/sonner'
 import LandingV2 from './components/landing-page'
 import { AuthCallback } from './components/auth-callback'
 import LandingIntroAnimation from '../components/LandingIntroAnimation'
+import SupportBubble from '../components/SupportBubble'
 import type { DashboardAgendaItem, DashboardClientPreviewItem, DashboardReminderItem, DashboardReferralInfo } from './components/types/dashboard'
 
 const AskVX = lazy(() => import('./components/askvx').then(m => ({ default: m.AskVX })))
@@ -63,14 +64,25 @@ const DEFAULT_PROFILE: Required<Pick<UserProfile, 'fullName' | 'businessName' | 
 
 const DEFAULT_TRIAL_LENGTH = 7
 
+const isFounderTier = (profile?: UserProfile | null) => {
+  if (!profile) return false
+  const plan = (profile.plan || '').toLowerCase()
+  return plan === 'founder_unlimited'
+}
+
 const isTrialUser = (profile?: UserProfile | null) => {
   if (!profile) return true
+  // Founder tier users are not trial users
+  if (isFounderTier(profile)) return false
   const status = (profile.subscriptionStatus || '').toLowerCase()
   if (status === 'trialing') return true
   return !profile.plan || profile.plan === 'trial' || profile.plan === 'essentials'
 }
 
 const hasAccessToFeature = (featureName: string, profile?: UserProfile | null) => {
+  // Founder tier has access to everything
+  if (isFounderTier(profile)) return true
+  
   const plan = (profile?.plan || '').toLowerCase()
   if (!isTrialUser(profile)) {
     const accessMap: Record<string, string[]> = {
@@ -150,22 +162,24 @@ function DashboardContent({
   const hasBusiness = Boolean(businessName)
   const hasProfession = Boolean(profession)
   const showTrialBanner = isTrialUser(userData)
+  const isFounder = isFounderTier(userData)
 
   return (
     <div className="space-y-6">
-      {showTrialBanner && currentTrialDay && (
+      {(showTrialBanner && currentTrialDay) || isFounder ? (
         <TrialBanner
-          currentDay={currentTrialDay}
+          currentDay={currentTrialDay || 1}
           totalDays={userData?.trialLengthDays ?? DEFAULT_TRIAL_LENGTH}
           onUpgrade={onUpgrade}
+          isFounderTier={isFounder}
         />
-      )}
+      ) : null}
 
       <div>
         <h2 className="text-3xl font-bold tracking-tight text-black" style={{ fontFamily: 'Playfair Display, serif' }}>
           {greeting}
         </h2>
-        {(hasBusiness || hasProfession || (userData?.plan && ['pro', 'premium'].includes(userData.plan.toLowerCase()))) && (
+        {(hasBusiness || hasProfession || (userData?.plan && ['pro', 'premium', 'founder_unlimited'].includes(userData.plan.toLowerCase()))) && (
           <div className="flex items-center space-x-2 mb-2">
             {hasBusiness && (
               <p className="text-lg font-medium text-primary" style={{ fontFamily: 'Playfair Display, serif' }}>
@@ -185,6 +199,17 @@ function DashboardContent({
                   <Crown className="h-3 w-3 text-primary" />
                   <span className="text-xs font-medium text-primary uppercase">
                     {userData.plan} Member
+                  </span>
+                </div>
+              </>
+            )}
+            {isFounder && (
+              <>
+                {(hasBusiness || hasProfession) && <span className="text-muted-foreground">•</span>}
+                <div className="flex items-center space-x-1">
+                  <Crown className="h-3 w-3 text-green-600" />
+                  <span className="text-xs font-medium text-green-600 uppercase">
+                    Founder
                   </span>
                 </div>
               </>
@@ -1198,6 +1223,7 @@ export default function App() {
                             })()}
 
                             <Toaster />
+                            <SupportBubble hideTrigger />
                           </AgendaProvider>
                         </ClientRemindersProvider>
                       </OnboardingProvider>

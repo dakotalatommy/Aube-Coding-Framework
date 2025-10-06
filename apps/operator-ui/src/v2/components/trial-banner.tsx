@@ -22,6 +22,7 @@ interface TrialBannerProps {
   currentDay: number
   totalDays: number
   onUpgrade: () => void
+  isFounderTier?: boolean
 }
 
 const LOCKED_FEATURES = [
@@ -56,7 +57,7 @@ const PREMIUM_BENEFITS = [
   "Priority customer support"
 ]
 
-export function TrialBanner({ currentDay, totalDays, onUpgrade }: TrialBannerProps) {
+export function TrialBanner({ currentDay, totalDays, onUpgrade, isFounderTier }: TrialBannerProps) {
   const [showDetails, setShowDetails] = useState(false)
   const daysRemaining = totalDays - currentDay
   const progressPercentage = (currentDay / totalDays) * 100
@@ -68,6 +69,40 @@ export function TrialBanner({ currentDay, totalDays, onUpgrade }: TrialBannerPro
   }
 
   const status = getTrialStatus()
+  
+  // Founder Tier Banner - Green, no trial progress
+  if (isFounderTier) {
+    return (
+      <Card className="border-2 border-green-200 bg-green-50">
+        <CardContent className="pt-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="p-2 rounded-full bg-green-100">
+                <Crown className="h-5 w-5 text-green-600" />
+              </div>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <h3 className="font-bold text-green-800" style={{ fontFamily: 'Playfair Display, serif' }}>
+                    Founder Unlimited Tier
+                  </h3>
+                  <Badge className="bg-green-600 text-white text-xs">
+                    Full Access
+                  </Badge>
+                </div>
+                <p className="text-sm text-green-700" style={{ fontFamily: 'Montserrat, sans-serif' }}>
+                  Full access granted - all features unlocked with unlimited usage.
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex items-center">
+              <CheckCircle className="h-8 w-8 text-green-600" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <>

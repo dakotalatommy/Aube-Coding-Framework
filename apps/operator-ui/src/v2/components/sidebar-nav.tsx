@@ -12,6 +12,9 @@ import {
   PlayCircle,
   TrendingUp,
   Crown,
+  HelpCircle,
+  Calendar,
+  LogOut,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { Button } from './ui/button'
@@ -19,6 +22,7 @@ import { Badge } from './ui/badge'
 import { cn } from './ui/utils'
 import bvxLogo from '../assets/539f8d3190f79d835fe0af50f92a753850eb6ff7.png'
 import { flags } from '../../lib/flags'
+import { supabase } from '../../lib/supabase'
 
 interface NavItem {
   title: string
@@ -101,13 +105,21 @@ interface SidebarNavProps {
   onNavigateToSettings?: () => void
 }
 
+const isFounderTier = (userData?: SidebarNavProps['userData']) => {
+  const plan = userData?.plan?.toLowerCase() ?? ''
+  return plan === 'founder_unlimited'
+}
+
 const isTrialUser = (userData?: SidebarNavProps['userData']) => {
+  // Founder tier users are not trial users
+  if (isFounderTier(userData)) return false
   const plan = userData?.plan?.toLowerCase() ?? ''
   return !plan || plan === 'trial' || plan === 'essentials'
 }
 
 export function SidebarNav({ currentPage, onNavigate, userData, onNavigateToSettings }: SidebarNavProps) {
   const userIsOnTrial = isTrialUser(userData)
+  const BOOKING_URL = (import.meta as any).env?.VITE_BOOKING_URL || ''
 
   const handleNavClick = (page: string) => {
     if (page === 'settings' && onNavigateToSettings) {
@@ -115,6 +127,32 @@ export function SidebarNav({ currentPage, onNavigate, userData, onNavigateToSett
       return  // Don't double-navigate for settings
     }
     onNavigate(page)
+  }
+
+  const handleSupportClick = () => {
+    try {
+      window.dispatchEvent(new CustomEvent('bvx:support:open', { detail: { source: 'sidebar-cta' } }))
+    } catch (error) {
+      console.warn('Failed to open support:', error)
+    }
+  }
+
+  const handleSignOut = async () => {
+    try {
+      localStorage.setItem('bvx_signed_out', '1')
+    } catch {}
+
+    try {
+      await supabase.auth.signOut()
+    } catch (error) {
+      console.warn('Sign out error:', error)
+    }
+
+    try {
+      localStorage.removeItem('bvx_tenant')
+    } catch {}
+
+    window.location.href = '/brandvx'
   }
 
   // Filter nav items based on feature flags
@@ -170,6 +208,44 @@ export function SidebarNav({ currentPage, onNavigate, userData, onNavigateToSett
             )
           })}
         </nav>
+
+        {/* Footer actions */}
+        <div className="mt-6 pt-4 border-t space-y-2">
+          <Button
+            variant="ghost"
+            className="w-full justify-start space-x-3"
+            onClick={handleSupportClick}
+          >
+            <HelpCircle className="h-5 w-5" />
+            <span className="flex-1 text-left">Support</span>
+          </Button>
+
+          {BOOKING_URL && (
+            <Button
+              variant="ghost"
+              className="w-full justify-start space-x-3"
+              asChild
+            >
+              <a
+                href={BOOKING_URL}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <Calendar className="h-5 w-5" />
+                <span className="flex-1 text-left">Book Onboarding</span>
+              </a>
+            </Button>
+          )}
+
+          <Button
+            variant="ghost"
+            className="w-full justify-start space-x-3"
+            onClick={handleSignOut}
+          >
+            <LogOut className="h-5 w-5" />
+            <span className="flex-1 text-left">Sign out</span>
+          </Button>
+        </div>
       </div>
     </div>
   )
