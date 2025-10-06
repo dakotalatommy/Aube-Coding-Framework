@@ -5,7 +5,7 @@
 
 export const TEST_CONFIG = {
   // Base URLs
-  BASE_URL: process.env.BASE_URL || 'https://brandvx.io',
+  BASE_URL: process.env.BASE_URL || 'https://app.brandvx.io',
   API_BASE_URL: process.env.API_BASE_URL || 'https://api.brandvx.io',
   
   // Test credentials

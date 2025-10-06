@@ -19,7 +19,7 @@ export default defineConfig({
   
   // Global test settings
   use: {
-    baseURL: process.env.BASE_URL || 'https://brandvx.io',
+    baseURL: process.env.BASE_URL || 'https://app.brandvx.io',
     
     // Browser context options
     trace: 'on-first-retry',

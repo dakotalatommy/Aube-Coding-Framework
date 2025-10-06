@@ -195,7 +195,7 @@ Create `.env` in this directory:
 
 ```bash
 # Base URLs
-BASE_URL=https://brandvx.io
+BASE_URL=https://app.brandvx.io
 API_BASE_URL=https://api.brandvx.io
 
 # Test credentials (optional)
@@ -364,7 +364,7 @@ npx playwright test navigation/ --project=laptop-chrome
 ### Generate Test Code
 ```bash
 # Record actions in browser
-npx playwright codegen https://brandvx.io
+npx playwright codegen https://app.brandvx.io
 ```
 
 ### Update Snapshots

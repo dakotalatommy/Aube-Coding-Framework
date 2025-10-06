@@ -16,7 +16,7 @@
     "test:debug": "playwright test --debug",
     "test:ui": "playwright test --ui",
     "report": "playwright show-report test-results/html",
-    "codegen": "playwright codegen https://brandvx.io"
+    "codegen": "playwright codegen https://app.brandvx.io"
   },
   "keywords": [
     "playwright",
