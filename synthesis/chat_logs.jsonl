@@ -162,3 +162,5 @@
 {"ts": 1756002297, "tenant_id": "t1", "session_id": "default", "role": "assistant", "content": "Hi there\u2014BrandVX here. How can I support your beauty business today?"}
 {"ts": 1756002395, "tenant_id": "t1", "session_id": "default", "role": "user", "content": "Say hello succinctly."}
 {"ts": 1756002395, "tenant_id": "t1", "session_id": "default", "role": "assistant", "content": "Hi there\u2014how can I support your beauty business today?"}
+{"ts": 1759761411, "tenant_id": "00000000-0000-0000-0000-000000000000", "session_id": "test-session", "role": "user", "content": "Who are my top clients by revenue right now?"}
+{"ts": 1759761411, "tenant_id": "00000000-0000-0000-0000-000000000000", "session_id": "test-session", "role": "assistant", "content": "<stubbed-response>"}

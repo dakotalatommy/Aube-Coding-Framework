@@ -15,7 +15,10 @@ import {
   Lightbulb, 
   Sparkles,
   ChevronRight,
-  BookOpen
+  BookOpen,
+  Crown,
+  Check,
+  Zap
 } from 'lucide-react'
 
 interface OnboardingStep {
@@ -158,6 +161,61 @@ const PAGE_ONBOARDING_CONTENT = {
   }
 }
 
+const PRICING_TIERS = [
+  {
+    name: 'Essentials',
+    price: '$47',
+    period: '/month',
+    description: 'Perfect for solo operators getting started',
+    billingNote: 'Billed monthly, pay today',
+    features: [
+      'Essential scheduling & client management',
+      'Basic analytics and insights',
+      'AskVX AI beauty consultant',
+      'BrandVZN style recommendations',
+      'Up to 50 clients'
+    ],
+    buyButtonId: 'VITE_STRIPE_BUY_BUTTON_47',
+    highlighted: false,
+  },
+  {
+    name: 'Pro',
+    price: '$97',
+    period: '/month',
+    badge: 'Founding Member',
+    description: 'For professionals ready to scale their business',
+    billingNote: 'Billed monthly, pay today',
+    features: [
+      'Everything in Essentials',
+      'Unlimited clients',
+      'Advanced marketing automation',
+      'Premium analytics & insights',
+      'Inventory management',
+      'Priority support'
+    ],
+    buyButtonId: 'VITE_STRIPE_BUY_BUTTON_97',
+    highlighted: true,
+  },
+  {
+    name: 'Premium',
+    price: '$147',
+    period: '/month',
+    badge: 'Most Popular',
+    description: 'Complete growth suite for ambitious beauty pros',
+    billingNote: '7-day free trial, then billed monthly',
+    features: [
+      'Everything in Pro',
+      'Fill Your Chair - Lead generation tools',
+      'Grow with VX - Advanced automation',
+      'Custom branding options',
+      'Dedicated account manager',
+      'Early access to new features'
+    ],
+    buyButtonId: 'VITE_STRIPE_BUY_BUTTON_147',
+    highlighted: false,
+  },
+]
+
 const FOUNDER_SLIDES = [
   {
     title: 'A brief note from Dakota',
@@ -202,6 +260,11 @@ const FOUNDER_SLIDES = [
     title: "Let's stay in touch",
     content: null, // Form will be rendered separately
     isForm: true,
+  },
+  {
+    title: 'Choose Your Growth Path',
+    content: null, // Pricing will be rendered separately
+    isPricing: true,
   },
 ]
 
@@ -325,7 +388,15 @@ export function OnboardingTooltip({
       }
       await submitFounderContact()
       
-      // Mark as complete and close
+      // Move to next slide (pricing)
+      if (founderSlideIndex < FOUNDER_SLIDES.length - 1) {
+        setFounderSlideIndex(founderSlideIndex + 1)
+      }
+      return
+    }
+
+    // If on pricing slide or last slide, finish
+    if (currentSlide.isPricing || founderSlideIndex >= FOUNDER_SLIDES.length - 1) {
       try {
         localStorage.setItem('bvx_founder_slides_seen', '1')
       } catch {}
@@ -335,10 +406,29 @@ export function OnboardingTooltip({
       return
     }
 
-    // Move to next slide or finish
+    // Move to next slide
     if (founderSlideIndex < FOUNDER_SLIDES.length - 1) {
       setFounderSlideIndex(founderSlideIndex + 1)
     }
+  }
+
+  const handlePricingSelection = (buyButtonId: string) => {
+    const buyButtonKey = import.meta.env[buyButtonId]
+    if (!buyButtonKey) {
+      console.error('Buy button not configured:', buyButtonId)
+      return
+    }
+    
+    const stripeUrl = `https://buy.stripe.com/${buyButtonKey}`
+    window.open(stripeUrl, '_blank')
+    
+    // Mark onboarding as complete after selection
+    try {
+      localStorage.setItem('bvx_founder_slides_seen', '1')
+    } catch {}
+    setIsVisible(false)
+    setShowFounderSlides(false)
+    markOnboardingComplete(pageId)
   }
 
   const handleFounderBack = () => {
@@ -370,7 +460,7 @@ export function OnboardingTooltip({
         
         {/* Founder Slide Tooltip */}
         <div className={positionClasses[position]}>
-          <Card className="w-96 max-w-[90vw] shadow-2xl border-primary/20 bg-white">
+          <Card className={`${currentSlide.isPricing ? 'w-[480px]' : 'w-96'} max-w-[90vw] shadow-2xl border-primary/20 bg-white`}>
             <CardHeader className="relative pb-4">
               <div className="flex items-center space-x-2 mb-2">
                 <div className="p-2 bg-primary/10 rounded-full">
@@ -387,7 +477,81 @@ export function OnboardingTooltip({
             </CardHeader>
             
             <CardContent className="space-y-4">
-              {currentSlide.isForm ? (
+              {currentSlide.isPricing ? (
+                <div className="space-y-4">
+                  <p className="text-muted-foreground text-sm text-center" style={{ fontFamily: 'Montserrat, sans-serif' }}>
+                    Select the plan that fits your business goals. You can upgrade or downgrade anytime.
+                  </p>
+                  
+                  <div className="grid grid-cols-1 gap-3 max-h-[50vh] overflow-y-auto pr-2">
+                    {PRICING_TIERS.map((tier) => (
+                      <div
+                        key={tier.name}
+                        className={`relative rounded-xl border-2 p-4 transition-all hover:shadow-lg cursor-pointer ${
+                          tier.highlighted 
+                            ? 'border-primary bg-primary/5' 
+                            : 'border-muted hover:border-primary/50'
+                        }`}
+                        onClick={() => handlePricingSelection(tier.buyButtonId)}
+                      >
+                        {tier.badge && (
+                          <div className="absolute -top-2 left-1/2 transform -translate-x-1/2">
+                            <Badge className="bg-primary text-white text-xs px-3 py-0.5">
+                              {tier.badge}
+                            </Badge>
+                          </div>
+                        )}
+                        
+                        <div className="text-center mb-3">
+                          <h4 className="text-lg font-bold text-black" style={{ fontFamily: 'Playfair Display, serif' }}>
+                            {tier.name}
+                          </h4>
+                          <div className="flex items-baseline justify-center mt-1">
+                            <span className="text-3xl font-bold text-primary">{tier.price}</span>
+                            <span className="text-sm text-muted-foreground ml-1">{tier.period}</span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">{tier.description}</p>
+                          <p className="text-xs font-medium text-primary mt-1">{tier.billingNote}</p>
+                        </div>
+                        
+                        <ul className="space-y-1.5 mb-3">
+                          {tier.features.map((feature, idx) => (
+                            <li key={idx} className="flex items-start text-xs">
+                              <Check className="h-3.5 w-3.5 text-primary mt-0.5 mr-2 flex-shrink-0" />
+                              <span className="text-muted-foreground">{feature}</span>
+                            </li>
+                          ))}
+                        </ul>
+                        
+                        <Button 
+                          className={`w-full ${tier.highlighted ? 'bg-primary hover:bg-primary/90' : ''}`}
+                          variant={tier.highlighted ? 'default' : 'outline'}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handlePricingSelection(tier.buyButtonId)
+                          }}
+                        >
+                          {tier.price === '$147' ? (
+                            <>
+                              <Zap className="h-4 w-4 mr-2" />
+                              Start Free Trial
+                            </>
+                          ) : (
+                            <>
+                              <Crown className="h-4 w-4 mr-2" />
+                              Get Started
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                  
+                  <p className="text-xs text-center text-muted-foreground mt-2">
+                    Not ready? You can explore with our free tier and upgrade anytime.
+                  </p>
+                </div>
+              ) : currentSlide.isForm ? (
                 <div className="space-y-4">
                   <p className="text-muted-foreground" style={{ fontFamily: 'Montserrat, sans-serif' }}>
                     I appreciate you trying brandVX and would love any feedback. Drop your contact info below and I will personally reach out to thank you. Go be great!
@@ -450,15 +614,26 @@ export function OnboardingTooltip({
                   Back
                 </Button>
                 
-                <Button
-                  onClick={handleFounderNext}
-                  className="bg-primary hover:bg-primary/90 text-white"
-                  size="sm"
-                  disabled={isSubmittingFounderForm}
-                >
-                  {isSubmittingFounderForm ? 'Submitting...' : isLastSlide ? 'Finish' : 'Continue'}
-                  {!isSubmittingFounderForm && !isLastSlide && <ArrowRight className="h-4 w-4 ml-2" />}
-                </Button>
+                {currentSlide.isPricing ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleFounderNext}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    Skip for now
+                  </Button>
+                ) : (
+                  <Button
+                    onClick={handleFounderNext}
+                    className="bg-primary hover:bg-primary/90 text-white"
+                    size="sm"
+                    disabled={isSubmittingFounderForm}
+                  >
+                    {isSubmittingFounderForm ? 'Submitting...' : isLastSlide ? 'Finish' : 'Continue'}
+                    {!isSubmittingFounderForm && !isLastSlide && <ArrowRight className="h-4 w-4 ml-2" />}
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
