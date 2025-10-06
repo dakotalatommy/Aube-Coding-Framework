@@ -4634,7 +4634,25 @@ async def ai_chat(
         __tools = tools_schema(__chosen_mode).get("tools", []) if __chosen_mode else tools_schema().get("tools", [])
     except Exception:
         __tools = tools_schema().get("tools", [])
-    cap = {"features": app.openapi().get("tags", []), "tools": __tools}
+    try:
+        _human_tools = tools_schema_human().get("tools", [])
+    except Exception:
+        _human_tools = []
+    tool_palette = []
+    for t in _human_tools:
+        tool_palette.append(
+            {
+                "label": (t.get("label") or "").strip(),
+                "category": (t.get("category") or "General").strip(),
+                "summary": (t.get("summary") or "").strip(),
+                "requires_approval": bool(t.get("requires_approval")),
+            }
+        )
+    cap = {
+        "features": app.openapi().get("tags", []),
+        "tool_palette": tool_palette,
+        "guidance": "Discuss capabilities using human-friendly labels only. Never mention internal tool identifiers or codes.",
+    }
     try:
         import json as _json
         capabilities_text = _json.dumps(cap, ensure_ascii=False)
@@ -4724,6 +4742,19 @@ async def ai_chat(
     try:
         user_q = (req.messages[-1].content if req.messages else "").lower()
         data_notes: List[str] = []
+        def _contact_name_from_obj(obj: dbm.Contact) -> str:  # type: ignore
+            try:
+                display = (getattr(obj, "display_name", "") or "").strip()
+                if display:
+                    return display
+                first = (getattr(obj, "first_name", "") or "").strip()
+                last = (getattr(obj, "last_name", "") or "").strip()
+                name = " ".join(part for part in [first, last] if part)
+                if name:
+                    return name
+            except Exception:
+                pass
+            return "Client"
         # Direct cohort: gloss within 6 weeks of balayage, no rebook in 12 weeks (top 10 by LTV)
         if ("gloss" in user_q and "balayage" in user_q and ("no rebook" in user_q or "haven't rebooked" in user_q or "haven't rebooked" in user_q)):
             try:
@@ -4760,7 +4791,7 @@ async def ai_chat(
                                AND a2.start_ts < p.g_ts + 84*86400
                               WHERE a2.id IS NULL
                             )
-                            SELECT c.contact_id, c.lifetime_cents, c.last_visit
+                            SELECT c.contact_id, c.display_name, c.first_name, c.last_name, c.lifetime_cents, c.last_visit
                             FROM contacts c
                             JOIN (
                               SELECT contact_id, MAX(g_ts) AS last_g_ts
@@ -4778,12 +4809,18 @@ async def ai_chat(
                     lines = []
                     for r in rows:
                         try:
-                            cid = str(r[0])
-                            ltv = int(r[1] or 0) / 100.0
-                            lv = int(r[2] or 0)
+                            _display = (str(r[1] or "").strip() or None)
+                            _first = (str(r[2] or "").strip() or None)
+                            _last = (str(r[3] or "").strip() or None)
+                            name_parts = [p for p in [_display, " ".join(part for part in [(_first or "").strip(), (_last or "").strip()] if part)] if p]
+                            name = next((p for p in name_parts if p), None)
+                            if not name:
+                                name = "Client"
+                            ltv = int(r[4] or 0) / 100.0
+                            lv = int(r[5] or 0)
                             from datetime import datetime as _dt
                             lv_s = ("—" if not lv else _dt.fromtimestamp(lv if lv > 10**12 else lv).strftime("%Y-%m-%d"))
-                            lines.append(f"• {cid} — LTV ${ltv:.2f} — Last {lv_s}")
+                            lines.append(f"• {name} — LTV ${ltv:.2f} — Last {lv_s}")
                         except Exception:
                             continue
                     if lines:
@@ -4863,8 +4900,24 @@ async def ai_chat(
                         return _dt.datetime.fromtimestamp(int(ts/1000)).strftime("%Y-%m-%d")
                     except Exception:
                         return "—"
+                def _contact_name(contact: dbm.Contact) -> str:  # type: ignore
+                    try:
+                        display = (getattr(contact, "display_name", "") or "").strip()
+                        if display:
+                            return display
+                        first = (getattr(contact, "first_name", "") or "").strip()
+                        last = (getattr(contact, "last_name", "") or "").strip()
+                        name = " ".join(part for part in [first, last] if part)
+                        if name:
+                            return name
+                    except Exception:
+                        pass
+                    return "Client"
                 for r in rows:
-                    data_notes.append(f"• {r.contact_id} — LTV ${(int(getattr(r,'lifetime_cents',0) or 0)/100):.2f}, Txns {int(getattr(r,'txn_count',0) or 0)}, Last {_fmt(getattr(r,'last_visit',0))}")
+                    name = _contact_name(r)
+                    data_notes.append(
+                        f"• {name} — LTV ${(int(getattr(r,'lifetime_cents',0) or 0)/100):.2f}, Txns {int(getattr(r,'txn_count',0) or 0)}, Last {_fmt(getattr(r,'last_visit',0))}"
+                    )
             except Exception:
                 pass
         if data_notes:
@@ -4873,8 +4926,8 @@ async def ai_chat(
                 + "\n\nContext data (do not invent; use as source):\n"
                 + "\n".join(data_notes[:10])
                 + "\n\nInstruction: When context data is present and the user asks for top clients/contacts by lifetime value, answer directly using ONLY this context."
-                + " Present a short list like 'ID — LTV $X.XX — Last YYYY-MM-DD'. Do not ask for connections/exports."
-                + " Do not include any PII beyond the identifiers provided in the context. If no context rows exist, reply: 'No data available.'"
+                + " Present a short list like 'Full Name — LTV $X.XX — Last YYYY-MM-DD'. Do not ask for connections/exports."
+                + " Use the provided names exactly; do not abbreviate or introduce IDs. If no context rows exist, reply: 'No data available.'"
             )
     except Exception:
         pass
@@ -5086,14 +5139,9 @@ async def ai_chat_raw(
                 except Exception:
                     return "—"
             for r in rows:
-                _name = (getattr(r, 'display_name', None) or (f"{(getattr(r,'first_name', '') or '').strip()} {(getattr(r,'last_name','') or '').strip()}" ).strip())
-                if not _name:
-                    try:
-                        _id = str(getattr(r, 'contact_id'))
-                        _name = f"Client {_id[-6:]}"
-                    except Exception:
-                        _name = "Client"
-                data_notes.append(f"• {_name} — LTV ${(int(getattr(r,'lifetime_cents',0) or 0)/100):.2f}, Txns {int(getattr(r,'txn_count',0) or 0)}, Last {_fmt(getattr(r,'last_visit',0))}")
+                data_notes.append(
+                    f"• {_contact_name_from_obj(r)} — LTV ${(int(getattr(r,'lifetime_cents',0) or 0)/100):.2f}, Txns {int(getattr(r,'txn_count',0) or 0)}, Last {_fmt(getattr(r,'last_visit',0))}"
+                )
         # Totals / revenue summary
         if (("total" in user_q) and ("revenue" in user_q or "lifetime" in user_q or "spend" in user_q or "ltv" in user_q)):
             try:
@@ -5130,14 +5178,9 @@ async def ai_chat_raw(
                     except Exception:
                         return "—"
                 for r in rows:
-                    _name = (getattr(r, 'display_name', None) or (f"{(getattr(r,'first_name', '') or '').strip()} {(getattr(r,'last_name','') or '').strip()}" ).strip())
-                    if not _name:
-                        try:
-                            _id = str(getattr(r, 'contact_id'))
-                            _name = f"Client {_id[-6:]}"
-                        except Exception:
-                            _name = "Client"
-                    data_notes.append(f"• {_name} — Last {_fmt2(getattr(r,'last_visit',0))}, Txns {int(getattr(r,'txn_count',0) or 0)}, LTV ${(int(getattr(r,'lifetime_cents',0) or 0)/100):.2f}")
+                    data_notes.append(
+                        f"• {_contact_name_from_obj(r)} — Last {_fmt2(getattr(r,'last_visit',0))}, Txns {int(getattr(r,'txn_count',0) or 0)}, LTV ${(int(getattr(r,'lifetime_cents',0) or 0)/100):.2f}"
+                    )
             except Exception:
                 pass
         # Birthdays this month (direct list)
@@ -5155,13 +5198,7 @@ async def ai_chat_raw(
                 for r in rows:
                     b = str(getattr(r, 'birthday', '') or '')
                     if mon in b:
-                        _name = (getattr(r, 'display_name', None) or (f"{(getattr(r,'first_name', '') or '').strip()} {(getattr(r,'last_name','') or '').strip()}" ).strip()) or None
-                        if not _name:
-                            try:
-                                _id = str(getattr(r, 'contact_id'))
-                                _name = f"Client {_id[-6:]}"
-                            except Exception:
-                                _name = "Client"
+                        _name = _contact_name_from_obj(r)
                         try:
                             _bd = b[5:10] if len(b)>=10 else b
                         except Exception:
@@ -5266,6 +5303,7 @@ async def ai_chat_raw(
                 + "\n".join(data_notes[:10])
                 + "\n\nInstruction: When context data is present, answer directly and concisely using ONLY this context."
                 + " Output the result immediately in plain text with one item per line."
+                + " Use provided names exactly as written; do not abbreviate or introduce IDs."
                 + " Do not ask clarifying questions, request connections, or suggest exports."
             )
     except Exception:
