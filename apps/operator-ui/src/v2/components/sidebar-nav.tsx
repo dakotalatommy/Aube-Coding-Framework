@@ -223,7 +223,7 @@ export function SidebarNav({ currentPage, onNavigate, userData, onNavigateToSett
           {BOOKING_URL && (
             <Button
               variant="ghost"
-              className="w-full justify-start space-x-3 text-foreground"
+              className="w-full justify-start space-x-3"
               asChild
             >
               <a
