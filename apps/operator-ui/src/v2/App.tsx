@@ -70,10 +70,22 @@ const isFounderTier = (profile?: UserProfile | null) => {
   return plan === 'founder_unlimited'
 }
 
+const isPaidTier = (profile?: UserProfile | null) => {
+  if (!profile) return false
+  // Founder tier is handled separately
+  if (isFounderTier(profile)) return false
+  const plan = (profile.plan || '').toLowerCase()
+  const status = (profile.subscriptionStatus || '').toLowerCase()
+  // Paid if they have pro/premium plan or active subscription status
+  return (plan === 'pro' || plan === 'premium') || status === 'active'
+}
+
 const isTrialUser = (profile?: UserProfile | null) => {
   if (!profile) return true
   // Founder tier users are not trial users
   if (isFounderTier(profile)) return false
+  // Paid users are not trial users
+  if (isPaidTier(profile)) return false
   const status = (profile.subscriptionStatus || '').toLowerCase()
   if (status === 'trialing') return true
   return !profile.plan || profile.plan === 'trial' || profile.plan === 'essentials'
@@ -163,15 +175,18 @@ function DashboardContent({
   const hasProfession = Boolean(profession)
   const showTrialBanner = isTrialUser(userData)
   const isFounder = isFounderTier(userData)
+  const isPaid = isPaidTier(userData)
 
   return (
     <div className="space-y-6">
-      {(showTrialBanner && currentTrialDay) || isFounder ? (
+      {(showTrialBanner && currentTrialDay) || isFounder || isPaid ? (
         <TrialBanner
           currentDay={currentTrialDay || 1}
           totalDays={userData?.trialLengthDays ?? DEFAULT_TRIAL_LENGTH}
           onUpgrade={onUpgrade}
           isFounderTier={isFounder}
+          isPaidTier={isPaid}
+          planName={userData?.plan || undefined}
         />
       ) : null}
 
@@ -307,17 +322,32 @@ export default function App() {
   }, [])
 
   // Centralized navigation function that dispatches events for pane synchronization
-  const navigateToPage = useCallback((nextPage: string, payload?: any) => {
-    console.log('[v2:nav] navigating to:', nextPage, 'first:', firstNavigationRef.current)
-    
-    // Force synchronous state update for first navigation
-    if (firstNavigationRef.current) {
-      firstNavigationRef.current = false
-    }
-    
-    setCurrentPage(nextPage)
-    window.dispatchEvent(new CustomEvent('bvx:navigate', { detail: { pane: nextPage, payload } }))
-  }, [])
+  const navigateToPage = useCallback(
+    (nextPage: string, payload?: any, options?: { emit?: boolean }) => {
+      console.log('[v2:nav] navigating to:', nextPage, 'first:', firstNavigationRef.current)
+
+      // Force synchronous state update for first navigation
+      if (firstNavigationRef.current) {
+        firstNavigationRef.current = false
+      }
+
+      setCurrentPage(nextPage)
+
+      if (options?.emit === false) {
+        return
+      }
+
+      const detail: Record<string, unknown> = { pane: nextPage, source: 'app-nav' }
+      if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+        Object.assign(detail, payload)
+      } else if (payload !== undefined && payload !== null) {
+        detail.payload = payload
+      }
+
+      window.dispatchEvent(new CustomEvent('bvx:navigate', { detail }))
+    },
+    [],
+  )
 
   const fetchDashboardData = useCallback(
     async (tenantIdOverride?: string) => {
@@ -916,34 +946,56 @@ export default function App() {
     navigateToPage('agenda')
   }
 
-  const handleNavigateToSettings = () => {
-    setSettingsInitialTab('profile')
-    navigateToPage('settings')
+  const handleNavigateToSettings = (tab?: string) => {
+    const desiredTab = tab || 'profile'
+    setSettingsInitialTab(desiredTab)
+
+    if (currentPage === 'settings') {
+      return
+    }
+
+    navigateToPage('settings', { settingsTab: desiredTab })
   }
 
   const handleUpgrade = () => {
     setSettingsInitialTab('plan')
-    navigateToPage('settings')
+    navigateToPage('settings', { settingsTab: 'plan' })
   }
 
   // Listen for bvx:navigate events to keep currentPage in sync with URL/workspace shell
   useEffect(() => {
     const handler = (event: Event) => {
-      const detail = (event as CustomEvent<{ pane?: string; search?: string }>).detail
+      const detail = (event as CustomEvent<Record<string, unknown>>).detail
       if (!detail) return
-      if (detail.pane && detail.pane !== currentPage) {
-        setCurrentPage(detail.pane)
+
+      const source = typeof detail.source === 'string' ? (detail.source as string) : undefined
+      if (source === 'app-nav') {
+        return
       }
-      if (detail.pane === 'clients' && typeof detail.search === 'string') {
-        setClientSearchPrefill(detail.search)
+
+      const pane = typeof detail.pane === 'string' ? (detail.pane as string) : undefined
+      if (!pane) return
+
+      const { pane: _ignoredPane, source: _ignoredSource, ...rest } = detail
+
+      if (pane === 'clients' && typeof detail.search === 'string') {
+        setClientSearchPrefill(detail.search as string)
       }
-      if (detail.pane === 'settings' && currentPage !== 'settings') {
-        handleNavigateToSettings()
+
+      if (pane === 'settings') {
+        const requestedTab = typeof detail.settingsTab === 'string' ? (detail.settingsTab as string) : undefined
+        if (requestedTab) {
+          setSettingsInitialTab(requestedTab)
+        } else {
+          setSettingsInitialTab('profile')
+        }
       }
+
+      navigateToPage(pane, rest as Record<string, unknown>, { emit: false })
     }
     window.addEventListener('bvx:navigate', handler as EventListener)
     return () => window.removeEventListener('bvx:navigate', handler as EventListener)
-  }, [currentPage])
+  }, [navigateToPage])
 
   const handleOnboardingComplete = async (completeUserData: UserProfile) => {
     setUserData(prev => ({ ...prev, ...completeUserData }))

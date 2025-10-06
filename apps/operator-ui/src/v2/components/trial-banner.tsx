@@ -23,6 +23,8 @@ interface TrialBannerProps {
   totalDays: number
   onUpgrade: () => void
   isFounderTier?: boolean
+  isPaidTier?: boolean
+  planName?: string
 }
 
 const LOCKED_FEATURES = [
@@ -57,7 +59,7 @@ const PREMIUM_BENEFITS = [
   "Priority customer support"
 ]
 
-export function TrialBanner({ currentDay, totalDays, onUpgrade, isFounderTier }: TrialBannerProps) {
+export function TrialBanner({ currentDay, totalDays, onUpgrade, isFounderTier, isPaidTier, planName }: TrialBannerProps) {
   const [showDetails, setShowDetails] = useState(false)
   const daysRemaining = totalDays - currentDay
   const progressPercentage = (currentDay / totalDays) * 100
@@ -97,6 +99,41 @@ export function TrialBanner({ currentDay, totalDays, onUpgrade, isFounderTier }:
             
             <div className="flex items-center">
               <CheckCircle className="h-8 w-8 text-green-600" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+  
+  // Paid Tier Banner - Blue/Primary, celebratory
+  if (isPaidTier) {
+    const displayPlan = planName ? planName.charAt(0).toUpperCase() + planName.slice(1) : 'Premium'
+    return (
+      <Card className="border-2 border-blue-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+        <CardContent className="pt-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <div className="p-2 rounded-full bg-blue-100">
+                <Crown className="h-5 w-5 text-blue-600" />
+              </div>
+              <div>
+                <div className="flex items-center space-x-2">
+                  <h3 className="font-bold text-blue-900" style={{ fontFamily: 'Playfair Display, serif' }}>
+                    {displayPlan} Plan Active
+                  </h3>
+                  <Badge className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white text-xs">
+                    Paid
+                  </Badge>
+                </div>
+                <p className="text-sm text-blue-800" style={{ fontFamily: 'Montserrat, sans-serif' }}>
+                  Thank you for upgrading! All premium features are now unlocked.
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex items-center">
+              <CheckCircle className="h-8 w-8 text-blue-600" />
             </div>
           </div>
         </CardContent>

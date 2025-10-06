@@ -240,7 +240,7 @@ export function Agenda() {
         await api.post('/todo/ack', { id: task.todoId })
         toast.success('Task completed')
         await loadAgenda()
-        window.dispatchEvent(new CustomEvent('bvx:navigate', { detail: { pane: 'agenda' } }))
+        window.dispatchEvent(new CustomEvent('bvx:navigate', { detail: { pane: 'agenda', source: 'agenda-shortcut' } }))
       } catch (error) {
         console.error('Task completion failed', error)
         try { Sentry.addBreadcrumb({ category: 'agenda', level: 'error', message: 'Task completion failed', data: { error: String(error) } }) } catch {}
@@ -260,7 +260,7 @@ export function Agenda() {
         await api.post('/todo/ack', { id: reminder.id })
         toast.success('Reminder cleared')
         await loadAgenda()
-        window.dispatchEvent(new CustomEvent('bvx:navigate', { detail: { pane: 'agenda' } }))
+        window.dispatchEvent(new CustomEvent('bvx:navigate', { detail: { pane: 'agenda', source: 'agenda-shortcut' } }))
       } catch (error) {
         console.error('Reminder completion failed', error)
         try { Sentry.addBreadcrumb({ category: 'agenda', level: 'error', message: 'Reminder completion failed', data: { error: String(error) } }) } catch {}
@@ -297,7 +297,7 @@ export function Agenda() {
         setNewTaskTime('')
         setShowAddDialog(false)
         await loadAgenda()
-        window.dispatchEvent(new CustomEvent('bvx:navigate', { detail: { pane: 'agenda' } }))
+        window.dispatchEvent(new CustomEvent('bvx:navigate', { detail: { pane: 'agenda', source: 'agenda-shortcut' } }))
       } catch (error) {
         console.error('Task creation failed', error)
         try { Sentry.addBreadcrumb({ category: 'agenda', level: 'error', message: 'Task creation failed', data: { error: String(error) } }) } catch {}

@@ -159,7 +159,7 @@ function DashboardHeaderComponent({ onNotificationClick, onOpenSettings, onNavig
       lastQueryRef.current = ''
       const payload = { pane: result.type === 'client' ? 'clients' : 'agenda', search: result.searchTerm || result.title }
       onNavigate?.(payload.pane, { search: payload.search })
-      window.dispatchEvent(new CustomEvent('bvx:navigate', { detail: payload }))
+      window.dispatchEvent(new CustomEvent('bvx:navigate', { detail: { ...payload, source: 'dashboard-header' } }))
     },
     [onNavigate]
   )

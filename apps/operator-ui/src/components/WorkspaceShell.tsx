@@ -145,17 +145,40 @@ const FORCE_ONBOARD_TOUR = false;
   }, [onboardingState.phase]);
 
   const goToPane = useCallback(async (target: PaneKey) => {
-    if (paneRef.current !== target) {
-      try {
-        const sp = new URLSearchParams(window.location.search);
-        sp.set('pane', target);
-        nav({ pathname: '/workspace', search: `?${sp.toString()}` }, { replace: false });
-      } catch {
-        window.location.href = `/workspace?pane=${encodeURIComponent(target)}`;
-        return;
-      }
+    if (paneRef.current === target) {
+      await sleep(200);
+      return;
     }
-    await waitForCondition(() => paneRef.current === target, 12000);
+
+    let search = `?pane=${encodeURIComponent(target)}`;
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      sp.set('pane', target);
+      search = `?${sp.toString()}`;
+    } catch (error) {
+      console.warn('[WorkspaceShell] failed to build pane query', error);
+    }
+
+    let softNavigationWorked = true;
+    try {
+      nav({ pathname: '/workspace', search }, { replace: false });
+    } catch (error) {
+      softNavigationWorked = false;
+      console.warn('[WorkspaceShell] router navigation failed, falling back to hard redirect', error);
+    }
+
+    if (!softNavigationWorked) {
+      window.location.href = `/workspace?pane=${encodeURIComponent(target)}`;
+      return;
+    }
+
+    const switched = await waitForCondition(() => paneRef.current === target, 12000);
+    if (!switched) {
+      console.warn('[WorkspaceShell] pane change timed out, forcing hard redirect', { target });
+      window.location.href = `/workspace?pane=${encodeURIComponent(target)}`;
+      return;
+    }
+
     await sleep(200);
   }, [nav, sleep, waitForCondition]);
 

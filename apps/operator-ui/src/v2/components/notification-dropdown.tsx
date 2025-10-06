@@ -146,7 +146,11 @@ export function NotificationDropdown({ onViewAgenda }: NotificationDropdownProps
     (notification: NotificationItem) => {
       setIsOpen(false)
       if (notification.pane) {
-        window.dispatchEvent(new CustomEvent('bvx:navigate', { detail: { pane: notification.pane, search: notification.subtitle } }))
+        window.dispatchEvent(
+          new CustomEvent('bvx:navigate', {
+            detail: { pane: notification.pane, search: notification.subtitle, source: 'notification-dropdown' },
+          }),
+        )
       } else if (notification.link) {
         window.location.assign(notification.link)
       }

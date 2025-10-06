@@ -26,15 +26,18 @@ def admin_kpis(db: Session, tenant_id: str) -> dict:
     time_saved = compute_time_saved_minutes(db, tenant_id)
     amb = ambassador_candidate(db, tenant_id)
     msgs = usage_index(db, tenant_id)
-    contacts = db.query(dbm.Contact).filter(dbm.Contact.tenant_id == tenant_id).count()
+    contacts = db.query(dbm.Contact).filter(dbm.Contact.tenant_id == tenant_id, dbm.Contact.deleted == False).count()
     active_cadences = db.query(dbm.CadenceState).filter(dbm.CadenceState.tenant_id == tenant_id).count()
     notify = db.query(dbm.NotifyListEntry).filter(dbm.NotifyListEntry.tenant_id == tenant_id).count()
     shares = db.query(dbm.SharePrompt).filter(dbm.SharePrompt.tenant_id == tenant_id).count()
-    # revenue uplift (placeholder: last snapshot) — table may not exist in dev
+    # revenue uplift: sum of lifetime_cents from all contacts
     revenue_uplift = 0
     try:
-        rev = db.execute(text("SELECT amount_cents FROM revenue_snapshot WHERE tenant_id=:t ORDER BY id DESC LIMIT 1"), {"t": tenant_id}).fetchone()
-        revenue_uplift = int(rev[0]) if rev else 0
+        result = db.execute(
+            text("SELECT COALESCE(SUM(lifetime_cents), 0) as total FROM contacts WHERE tenant_id=:t AND deleted=false"),
+            {"t": tenant_id}
+        ).fetchone()
+        revenue_uplift = int(result[0]) if result else 0
     except Exception:
         revenue_uplift = 0
     # referrals (placeholder: count of SharePrompt)

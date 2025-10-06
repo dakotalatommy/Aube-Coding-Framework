@@ -97,11 +97,13 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
   const [tone, setTone] = useState<string>('friendly')
   const [trainingNotes, setTrainingNotes] = useState<string>('')
   const hasLoadedRef = React.useRef(false)
+  const settingsFetchInFlightRef = React.useRef(false)
+  const integrationsFetchInFlightRef = React.useRef(false)
 
   const loadSettings = useCallback(async (): Promise<void> => {
-    // Prevent duplicate loads
-    if (loading) return
-    
+    if (settingsFetchInFlightRef.current) return
+
+    settingsFetchInFlightRef.current = true
     setLoading(true)
     try {
       const response = (await api.get(`/settings`, {
@@ -138,11 +140,15 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
       console.error('Settings load failed', err)
       toast.error('Unable to load settings right now')
     } finally {
+      settingsFetchInFlightRef.current = false
       setLoading(false)
     }
-  }, [userData, loading])
+  }, [userData])
 
   const loadIntegrations = useCallback(async (): Promise<void> => {
+    if (integrationsFetchInFlightRef.current) return
+
+    integrationsFetchInFlightRef.current = true
     setIntegrationLoading(true)
     try {
       const response = (await api.get(`/integrations/status`, {
@@ -175,6 +181,7 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
       console.error('Integrations status failed', err)
       toast.error('Unable to load integrations right now')
     } finally {
+      integrationsFetchInFlightRef.current = false
       setIntegrationLoading(false)
     }
   }, [])
@@ -212,12 +219,11 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
   }, [brandData, businessData, goals, notifications, profileData, quietHours, tone, trainingNotes, twilioData])
 
   useEffect(() => {
-    // Only load once on mount
     if (hasLoadedRef.current) return
-    hasLoadedRef.current = true
-    
+
     loadSettings()
     loadIntegrations()
+    hasLoadedRef.current = true
   }, [loadSettings, loadIntegrations])
 
   const renderIntegrations = () => (
