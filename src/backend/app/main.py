@@ -377,7 +377,7 @@ def _generate_referral_code(length: int = 6) -> str:
     return ''.join(_secrets.choice(alphabet) for _ in range(length))
 
 
-def _ensure_referral_code(tenant_id: str) -> str:
+def _ensure_referral_code(tenant_id: str, user_id: Optional[str] = None) -> str:
     try:
         with engine.begin() as conn:
             conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
@@ -393,13 +393,29 @@ def _ensure_referral_code(tenant_id: str) -> str:
             try:
                 with engine.begin() as conn:
                     conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
-                    conn.execute(
-                        _sql_text(
-                            "INSERT INTO referral_codes (tenant_id, code) VALUES (CAST(:t AS uuid), :c) "
-                            "ON CONFLICT (tenant_id) DO UPDATE SET code=EXCLUDED.code"
-                        ),
-                        {"t": tenant_id, "c": code},
-                    )
+                    # Include user_id in insert if provided
+                    if user_id:
+                        conn.execute(
+                            _sql_text(
+                                "INSERT INTO referral_codes (tenant_id, user_id, code) VALUES (CAST(:t AS uuid), CAST(:u AS uuid), :c) "
+                                "ON CONFLICT (code) DO NOTHING"
+                            ),
+                            {"t": tenant_id, "u": user_id, "c": code},
+                        )
+                    else:
+                        # Fallback: try to find first user for this tenant
+                        user_row = conn.execute(
+                            _sql_text("SELECT user_id FROM tenant_users WHERE tenant_id = CAST(:t AS uuid) LIMIT 1"),
+                            {"t": tenant_id},
+                        ).fetchone()
+                        if user_row:
+                            conn.execute(
+                                _sql_text(
+                                    "INSERT INTO referral_codes (tenant_id, user_id, code) VALUES (CAST(:t AS uuid), CAST(:u AS uuid), :c) "
+                                    "ON CONFLICT (code) DO NOTHING"
+                                ),
+                                {"t": tenant_id, "u": str(user_row[0]), "c": code},
+                            )
                 return code
             except Exception:
                 continue
@@ -747,18 +763,21 @@ async def referrals_qr(tenant_id: str, ctx: UserContext = Depends(get_user_conte
     cached = cache_get(f"referral:qr:{tenant_id}")
     if isinstance(cached, dict) and cached.get('share_url') and cached.get('qr_url'):
         return cached
-    code = _ensure_referral_code(tenant_id)
-    public_base = os.getenv('REFERRAL_PUBLIC_BASE_URL') or os.getenv('PUBLIC_APP_URL') or os.getenv('APP_PUBLIC_URL') or 'https://brandvx.com'
+    code = _ensure_referral_code(tenant_id, ctx.user_id)
+    public_base = os.getenv('REFERRAL_PUBLIC_BASE_URL') or os.getenv('PUBLIC_APP_URL') or os.getenv('APP_PUBLIC_URL') or 'https://app.brandvx.io'
     share_url = f"{public_base.rstrip('/')}/r/{code}"
     image_bytes = _compose_referral_image(code, share_url)
     bucket = os.getenv('REFERRAL_ASSETS_BUCKET') or 'referral-assets'
     object_path = f"{tenant_id}/{code}-qr-{int(_time.time())}.png"
     uploaded = await _upload_supabase_object(bucket, object_path, image_bytes, 'image/png', expires_seconds=60 * 60 * 24 * 30)
+    # Monthly savings: 1 referral = $147 -> $127 (save $20/mo), 2 referrals = $147 -> $97 (save $50/mo)
+    monthly_savings_cents = 5000  # Default to $50 (2 referrals max discount)
     info = {
         'code': code,
         'share_url': share_url,
         'qr_url': (uploaded or {}).get('url', ''),
         'generated_at': datetime.utcnow().isoformat() + 'Z',
+        'monthly_savings_cents': monthly_savings_cents,
     }
     _mutate_settings_json(tenant_id, lambda data: data.setdefault('referral', {}).update(info))
     cache_set(f"referral:qr:{tenant_id}", info, ttl=3600)
