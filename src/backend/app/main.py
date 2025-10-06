@@ -1714,7 +1714,12 @@ def followups_draft_batch(
         "generated_at": None,
         "count": len(contact_ids),
         "chunk_total": chunk_total,
+        "chunk_done": 0,
+        "chunk_status": ["queued"] * chunk_total,
+        "chunks": [None] * chunk_total,
         "job_ids": [],
+        "job_id": None,
+        "job_status": "queued",
     }
 
     todo_id = None
@@ -1778,14 +1783,19 @@ def followups_draft_batch(
             fallback_markdown.append(_generate_followup_markdown(chunk, reasons, now_ts))
 
     if job_ids and todo_id:
+        details_update: Dict[str, Any] = {
+            "job_ids": job_ids,
+            "job_id": job_ids[0] if job_ids else None,
+            "chunk_total": chunk_total,
+            "draft_status": "queued",
+            "job_status": "queued",
+        }
+        if chunk_total:
+            details_update.setdefault("chunk_status", ["queued"] * chunk_total)
         _update_todo_details(
             todo_id,
             req.tenant_id,
-            {
-                "job_ids": job_ids,
-                "chunk_total": chunk_total,
-                "draft_status": "queued",
-            },
+            details_update,
         )
         if fallback_markdown:
             combined_fallback = "\n\n".join([section for section in fallback_markdown if section])
@@ -1798,18 +1808,31 @@ def followups_draft_batch(
                         "fallback_chunks": len(fallback_markdown),
                     },
                 )
+        response_details = {
+            **base_details,
+            "job_ids": job_ids,
+            "job_id": job_ids[0] if job_ids else None,
+            "job_status": "queued",
+            "chunk_total": chunk_total,
+            "chunk_done": 0,
+        }
         return {
             "status": "queued",
             "job_ids": job_ids,
             "todo_id": todo_id,
             "chunk_total": chunk_total,
             "count": len(contact_ids),
-            "details": {**base_details, "job_ids": job_ids},
+            "details": response_details,
         }
 
     combined_markdown = "\n\n".join([section for section in fallback_markdown if section])
     if not combined_markdown:
         combined_markdown = _generate_followup_markdown(contact_snapshots, reasons, now_ts)
+
+    fallback_chunks = [section for section in fallback_markdown if section]
+    chunks_payload = fallback_chunks or ([combined_markdown] if combined_markdown else [])
+    chunk_status = ["done"] * len(chunks_payload) if chunks_payload else ["done"] * chunk_total
+    chunk_done = len(chunks_payload) if chunks_payload else chunk_total
 
     if todo_id:
         _update_todo_details(
@@ -1819,7 +1842,11 @@ def followups_draft_batch(
                 "draft_status": "ready",
                 "draft_markdown": combined_markdown,
                 "job_ids": job_ids,
+                "job_status": "done",
                 "chunk_total": chunk_total,
+                "chunk_done": chunk_done,
+                "chunks": chunks_payload or [combined_markdown],
+                "chunk_status": chunk_status,
             },
             todo_status="ready",
         )
@@ -1834,7 +1861,17 @@ def followups_draft_batch(
         "job_ids": job_ids,
         "todo_id": todo_id,
         "count": len(contact_ids),
-        "details": {**base_details, "draft_status": "ready", "draft_markdown": combined_markdown},
+        "details": {
+            **base_details,
+            "draft_status": "ready",
+            "draft_markdown": combined_markdown,
+            "job_ids": job_ids,
+            "job_status": "done",
+            "chunk_total": chunk_total,
+            "chunk_done": chunk_done,
+            "chunks": chunks_payload or base_details.get("chunks") or [combined_markdown],
+            "chunk_status": chunk_status,
+        },
         "draft_markdown": combined_markdown,
     }
 
@@ -1855,19 +1892,43 @@ def followups_draft_status(tenant_id: str, db: Session = Depends(get_db), ctx: U
         details = json.loads(row[2] or "{}")
     except Exception:
         details = {}
-    job_id = details.get("job_id")
-    job_status = None
-    if job_id:
-        job_rec = get_job_record(str(job_id))
+    job_ids = []
+    raw_job_ids = details.get("job_ids")
+    if isinstance(raw_job_ids, list):
+        job_ids = [str(j) for j in raw_job_ids if j]
+    job_id = details.get("job_id") or (job_ids[0] if job_ids else None)
+    job_status: Optional[str] = None
+    job_statuses: Dict[str, str] = {}
+    for jid in job_ids or ([job_id] if job_id else []):
+        if not jid:
+            continue
+        job_rec = get_job_record(str(jid))
         if job_rec:
-            job_status = job_rec.get("status")
-            details.setdefault("job_status", job_status)
+            status = str(job_rec.get("status") or "")
+            job_statuses[str(jid)] = status
+            if status == "error":
+                job_status = "error"
+                break
+            if status not in {"done", "error"} and not job_status:
+                job_status = status
+    if not job_status:
+        job_status = str(details.get("job_status") or "") or None
+    details.setdefault("job_ids", job_ids)
+    details.setdefault("chunk_total", int(details.get("chunk_total") or 0))
+    details.setdefault("chunk_done", int(details.get("chunk_done") or 0))
+    if not isinstance(details.get("chunk_status"), list):
+        details["chunk_status"] = []
+    if not isinstance(details.get("chunks"), list):
+        details["chunks"] = []
+    if job_statuses:
+        details["job_status_map"] = job_statuses
     return {
         "status": details.get("draft_status", "pending"),
         "todo_status": row[1],
         "todo_id": row[0],
         "details": details,
         "job_id": job_id,
+        "job_ids": job_ids,
         "job_status": job_status,
     }
 

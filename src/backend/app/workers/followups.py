@@ -249,6 +249,128 @@ def _update_todo_details(todo_id: int, tenant_id: str, updater: Dict[str, Any], 
             )
 
 
+def _sync_followups_chunk(
+    todo_id: int,
+    tenant_id: str,
+    chunk_index: int,
+    chunk_total: int,
+    *,
+    status: Optional[str] = None,
+    markdown: Optional[str] = None,
+    error: Optional[str] = None,
+    generated_at: Optional[int] = None,
+    contact_ids: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Merge chunk progress into todo details and return the updated details."""
+
+    ready = False
+    with engine.begin() as conn:
+        try:
+            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": tenant_id})
+        except Exception:
+            pass
+
+        row = conn.execute(
+            _sql_text("SELECT details_json, status FROM todo_items WHERE tenant_id = CAST(:t AS uuid) AND id = :id FOR UPDATE"),
+            {"t": tenant_id, "id": todo_id},
+        ).fetchone()
+        details: Dict[str, Any] = {}
+        current_status: Optional[str] = None
+        if row:
+            current_status = str(row[1]) if row[1] else None
+            if row[0]:
+                try:
+                    details = json.loads(row[0]) or {}
+                except Exception:
+                    details = {}
+
+        # Normalise chunk containers
+        stored_total = int(details.get("chunk_total") or 0)
+        chunk_total = max(chunk_total, stored_total, chunk_index + 1)
+        chunks = details.get("chunks")
+        if not isinstance(chunks, list):
+            chunks = []
+        if len(chunks) < chunk_total:
+            chunks.extend([None] * (chunk_total - len(chunks)))
+
+        chunk_status = details.get("chunk_status")
+        if not isinstance(chunk_status, list):
+            chunk_status = []
+        if len(chunk_status) < chunk_total:
+            chunk_status.extend(["queued"] * (chunk_total - len(chunk_status)))
+
+        # Apply updates for this chunk
+        if markdown is not None:
+            chunks[chunk_index] = markdown.strip()
+        if contact_ids is not None:
+            chunk_contacts = details.get("chunk_contacts")
+            if not isinstance(chunk_contacts, dict):
+                chunk_contacts = {}
+            chunk_contacts[str(chunk_index)] = list(contact_ids)
+            details["chunk_contacts"] = chunk_contacts
+
+        next_status = status
+        if not next_status and error:
+            next_status = "error"
+        if next_status:
+            chunk_status[chunk_index] = next_status
+
+        details["chunks"] = chunks
+        details["chunk_status"] = chunk_status
+        details["chunk_total"] = chunk_total
+
+        done_count = sum(1 for s in chunk_status if s == "done")
+        details["chunk_done"] = done_count
+
+        todo_status_override: Optional[str] = None
+
+        if error:
+            details["draft_status"] = "error"
+            details["job_status"] = "error"
+            details["error"] = error
+            details["error_chunk"] = chunk_index
+        else:
+            if done_count >= chunk_total and chunk_total > 0:
+                combined_sections = [section.strip() for section in chunks if isinstance(section, str) and section.strip()]
+                combined_markdown = "\n\n".join(combined_sections).strip()
+                details["draft_markdown"] = combined_markdown
+                details["draft_status"] = "ready"
+                details["job_status"] = "done"
+                if generated_at:
+                    details["generated_at"] = generated_at
+                ready = True
+                todo_status_override = "ready"
+            else:
+                # Intermediary progress
+                details.pop("draft_markdown", None)
+                details["draft_status"] = "running"
+                details["job_status"] = "running"
+                if generated_at:
+                    details["generated_at"] = generated_at
+
+        update_payload = {"details": json.dumps(details), "t": tenant_id, "id": todo_id}
+        if todo_status_override:
+            conn.execute(
+                _sql_text(
+                    "UPDATE todo_items SET details_json = :details, status = :st WHERE tenant_id = CAST(:t AS uuid) AND id = :id"
+                ),
+                {**update_payload, "st": todo_status_override},
+            )
+        else:
+            conn.execute(
+                _sql_text(
+                    "UPDATE todo_items SET details_json = :details WHERE tenant_id = CAST(:t AS uuid) AND id = :id"
+                ),
+                update_payload,
+            )
+
+    if ready:
+        details.setdefault("draft_status", "ready")
+        details.setdefault("job_status", "done")
+    return details
+
+
 def _process_followups_job(job_id: str, record: Dict[str, Any], payload: Dict[str, Any]) -> None:
     tenant_id = str(record.get("tenant_id") or "")
     if not tenant_id:
@@ -291,7 +413,15 @@ def _process_followups_job(job_id: str, record: Dict[str, Any], payload: Dict[st
         _update_todo_details(todo_id_int, tenant_id, {"draft_status": "error", "job_status": "error", "error": "no_contacts"})
         return
 
-    _update_todo_details(todo_id_int, tenant_id, {"draft_status": "running", "job_status": "running"})
+    chunk_index = int(payload.get("chunk_index") or 0)
+    chunk_total = int(payload.get("chunk_total") or 1)
+    _sync_followups_chunk(
+        todo_id_int,
+        tenant_id,
+        chunk_index,
+        chunk_total,
+        status="running",
+    )
 
     prompt = _build_followups_prompt(payload, contacts)
     client = AIClient()
@@ -324,18 +454,19 @@ def _process_followups_job(job_id: str, record: Dict[str, Any], payload: Dict[st
                 "status": "done",
                 "generated_at": generated_at,
                 "contact_ids": [c["contact_id"] for c in contacts],
+                "chunk_index": chunk_index,
+                "chunk_total": chunk_total,
             },
         )
-        _update_todo_details(
+        _sync_followups_chunk(
             todo_id_int,
             tenant_id,
-            {
-                "draft_status": "ready",
-                "job_status": "done",
-                "draft_markdown": markdown,
-                "generated_at": generated_at,
-                "contact_ids": [c["contact_id"] for c in contacts],
-            },
+            chunk_index,
+            chunk_total,
+            status="done",
+            markdown=markdown,
+            generated_at=generated_at,
+            contact_ids=[c["contact_id"] for c in contacts],
         )
         try:
             emit_event(
@@ -345,20 +476,21 @@ def _process_followups_job(job_id: str, record: Dict[str, Any], payload: Dict[st
                     "todo_id": todo_id_int,
                     "count": len(contacts),
                     "template_id": payload.get("template_id"),
+                    "chunk_index": chunk_index,
+                    "chunk_total": chunk_total,
                 },
             )
         except Exception:
             pass
     else:
         update_job_record(job_id, status="error", error=error_detail or "draft_failed")
-        _update_todo_details(
+        _sync_followups_chunk(
             todo_id_int,
             tenant_id,
-            {
-                "draft_status": "error",
-                "job_status": "error",
-                "error": error_detail or "draft_failed",
-            },
+            chunk_index,
+            chunk_total,
+            status="error",
+            error=error_detail or "draft_failed",
         )
 
 

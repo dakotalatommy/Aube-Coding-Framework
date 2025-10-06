@@ -58,6 +58,9 @@ export default function Cadences(){
   const [draftMarkdown, setDraftMarkdown] = useState<string>('');
   const [draftTodoId, setDraftTodoId] = useState<number | null>(null);
   const [draftJobId, setDraftJobId] = useState<string | null>(null);
+  const [draftJobIds, setDraftJobIds] = useState<string[]>([]);
+  const [draftChunkTotal, setDraftChunkTotal] = useState<number>(0);
+  const [draftChunkDone, setDraftChunkDone] = useState<number>(0);
   const [draftContacts, setDraftContacts] = useState<string[]>([]);
   const [draftTemplateLabel, setDraftTemplateLabel] = useState<string>('');
   const [draftDownloadUrl, setDraftDownloadUrl] = useState<string>('');
@@ -71,6 +74,9 @@ export default function Cadences(){
     setDraftMarkdown('');
     setDraftTodoId(null);
     setDraftJobId(null);
+    setDraftJobIds([]);
+    setDraftChunkTotal(0);
+    setDraftChunkDone(0);
     setDraftContacts([]);
     setDraftTemplateLabel('');
     setDraftError('');
@@ -118,14 +124,25 @@ export default function Cadences(){
       const res = await api.get(`/followups/draft_status`);
       setStatus(JSON.stringify(res || {}));
       const details = res?.details || {};
-      setDraftContacts(details.contact_ids.map((cid: any)=> String(cid)));
+      const contactList = Array.isArray(details?.contact_ids)
+        ? (details.contact_ids as any[]).map((cid) => String(cid))
+        : [];
+      setDraftContacts(contactList);
       if (typeof details?.template_label === 'string') {
         setDraftTemplateLabel(details.template_label);
       }
-      if (res?.job_id) {
-        setDraftJobId(String(res.job_id));
-      }
+      const rawJobIds = Array.isArray(res?.job_ids)
+        ? res?.job_ids
+        : (Array.isArray(details?.job_ids) ? details.job_ids : []);
+      const normalizedJobIds = rawJobIds.map((jid: any) => String(jid));
+      setDraftJobIds(normalizedJobIds);
+      const primaryJobId = res?.job_id ?? details?.job_id ?? normalizedJobIds[0];
+      setDraftJobId(primaryJobId ? String(primaryJobId) : null);
       setDraftTodoId((prev)=> Number(res?.todo_id ?? details?.todo_id ?? prev ?? 0) || prev);
+      const chunkTotal = Number(details?.chunk_total ?? res?.chunk_total ?? 0);
+      const chunkDone = Number(details?.chunk_done ?? 0);
+      setDraftChunkTotal(Number.isFinite(chunkTotal) ? chunkTotal : 0);
+      setDraftChunkDone(Number.isFinite(chunkDone) ? chunkDone : 0);
       const statusValue = String(res?.status || 'pending');
       const jobStatus = String(res?.job_status || details?.job_status || '');
       if (statusValue === 'ready') {
@@ -175,6 +192,8 @@ export default function Cadences(){
         markdown: draftMarkdown,
         ts: Date.now(),
         jobId: draftJobId,
+        jobIds: draftJobIds,
+        chunk: { total: draftChunkTotal, done: draftChunkDone },
         todoId: draftTodoId,
       };
       sessionStorage.setItem('bvx_followups_bundle', JSON.stringify(bundle));
@@ -185,7 +204,7 @@ export default function Cadences(){
       console.error('openInMessages failed', err);
       toastError('Unable to open Messages', String((err as Error)?.message || err || '')); 
     }
-  }, [draftContacts, draftMarkdown, draftJobId, draftTemplateLabel, draftTodoId, loc.search, navigate, selectedTemplate, activeSegmentId, toastError]);
+  }, [draftContacts, draftMarkdown, draftJobId, draftJobIds, draftTemplateLabel, draftTodoId, draftChunkTotal, draftChunkDone, loc.search, navigate, selectedTemplate, activeSegmentId, toastError]);
 
   const startDraft = React.useCallback(async () => {
     if (isDemo) return;
@@ -210,19 +229,26 @@ export default function Cadences(){
         return;
       }
       setDraftTodoId(Number(res?.todo_id || 0));
-      if (res?.job_id) {
-        setDraftJobId(String(res.job_id));
+      const responseDetails = res?.details || {};
+      const jobIds = Array.isArray(res?.job_ids)
+        ? res.job_ids
+        : (Array.isArray(responseDetails?.job_ids) ? responseDetails.job_ids : []);
+      const normalizedJobIds = jobIds.map((jid: any) => String(jid));
+      setDraftJobIds(normalizedJobIds);
+      const primaryJobId = res?.job_id ?? responseDetails?.job_id ?? normalizedJobIds[0];
+      setDraftJobId(primaryJobId ? String(primaryJobId) : null);
+      if (Array.isArray(responseDetails?.contact_ids)) {
+        setDraftContacts(responseDetails.contact_ids.map((cid: any)=> String(cid)));
       }
-      if (res?.details) {
-        if (Array.isArray(res.details.contact_ids)) {
-          setDraftContacts(res.details.contact_ids.map((cid: any)=> String(cid)));
-        }
-        if (typeof res.details.template_label === 'string') {
-          setDraftTemplateLabel(res.details.template_label);
-        }
+      if (typeof responseDetails.template_label === 'string') {
+        setDraftTemplateLabel(responseDetails.template_label);
       } else {
         setDraftTemplateLabel(TEMPLATE_OPTIONS[selectedTemplate]?.label || segment.label);
       }
+      const chunkTotal = Number(res?.chunk_total ?? responseDetails?.chunk_total ?? 0);
+      const chunkDone = Number(responseDetails?.chunk_done ?? (res?.status === 'ready' ? chunkTotal : 0));
+      setDraftChunkTotal(Number.isFinite(chunkTotal) ? chunkTotal : 0);
+      setDraftChunkDone(Number.isFinite(chunkDone) ? chunkDone : 0);
       if (res?.status === 'ready' && res?.draft_markdown) {
         stopPolling();
         const markdown = String(res?.draft_markdown || '');
@@ -242,8 +268,26 @@ export default function Cadences(){
       } else {
         pollRef.current = window.setTimeout(pollDraftStatus, 1500) as unknown as number;
       }
-      trackEvent('cadences.followups.draft_batch', { segment: activeSegmentId, status: res?.status || 'pending', count: res?.count || segmentCandidates.length });
-      Sentry.addBreadcrumb({ category: 'cadences', level: 'info', message: 'draft_batch', data: { segment: activeSegmentId, template: selectedTemplate, status: res?.status } });
+      trackEvent('cadences.followups.draft_batch', {
+        segment: activeSegmentId,
+        status: res?.status || 'pending',
+        count: res?.count || segmentCandidates.length,
+        chunk_total: chunkTotal || normalizedJobIds.length || 0,
+        chunk_done: chunkDone || 0,
+        jobs: normalizedJobIds.length,
+      });
+      Sentry.addBreadcrumb({
+        category: 'cadences',
+        level: 'info',
+        message: 'draft_batch',
+        data: {
+          segment: activeSegmentId,
+          template: selectedTemplate,
+          status: res?.status,
+          chunk_total: chunkTotal || normalizedJobIds.length || 0,
+          chunk_done: chunkDone || 0,
+        },
+      });
     } catch (err: any) {
       console.error('draft_batch failed', err);
       setDraftStatus('error');
@@ -375,12 +419,15 @@ export default function Cadences(){
                   size="sm"
                   disabled={segmentCandidates.length === 0 || draftStatus === 'generating'}
                   onClick={startDraft}
-                >{draftStatus === 'generating' ? 'Drafting…' : 'Draft follow-ups'}</Button>
+                >{draftStatus === 'generating' ? `Drafting${draftChunkTotal > 0 ? ` (${Math.min(draftChunkDone, draftChunkTotal)}/${draftChunkTotal})` : ''}…` : 'Draft follow-ups'}</Button>
                 <span className="text-xs text-slate-500">Creates a single strategy document for review.</span>
               </div>
             </div>
             {draftStatus === 'generating' && (
               <div className="space-y-2">
+                {draftChunkTotal > 0 && (
+                  <div className="text-xs text-slate-500">Building drafts ({Math.min(draftChunkDone, draftChunkTotal)}/{draftChunkTotal})…</div>
+                )}
                 <Skeleton className="h-4" />
                 <Skeleton className="h-32" />
               </div>
