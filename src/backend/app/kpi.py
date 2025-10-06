@@ -1,7 +1,39 @@
 from sqlalchemy.orm import Session
 from . import models as dbm
 from sqlalchemy import text
+from contextlib import contextmanager
 from .metrics_counters import sum_counter, CACHE_HIT, CACHE_MISS, AI_CHAT_USED, DB_QUERY_TOOL_USED, INSIGHTS_SERVED  # type: ignore
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Import engine for RLS queries
+from .db import engine as _engine
+
+@contextmanager
+def _with_rls_conn(tenant_id: str, role: str = "owner_admin"):
+    """
+    Short-lived connection helper that sets RLS GUCs before any tenant-scoped query.
+    Per backend-db-architecture.md: ALL tenant-scoped reads/writes MUST set GUCs on the connection.
+    """
+    conn_cm = _engine.begin()
+    try:
+        conn = conn_cm.__enter__()
+        try:
+            safe_role = role.replace("'", "''")
+            conn.execute(text(f"SET LOCAL app.role = '{safe_role}'"))
+        except Exception:
+            logger.exception("Failed to set app.role GUC (role=%s)", role)
+            raise
+        try:
+            safe_tenant = tenant_id.replace("'", "''")
+            conn.execute(text(f"SET LOCAL app.tenant_id = '{safe_tenant}'"))
+        except Exception:
+            logger.exception("Failed to set app.tenant_id GUC (tenant_id=%s)", tenant_id)
+            raise
+        yield conn
+    finally:
+        conn_cm.__exit__(None, None, None)
 
 
 def compute_time_saved_minutes(db: Session, tenant_id: str) -> int:
@@ -23,25 +55,55 @@ def usage_index(db: Session, tenant_id: str) -> int:
 
 
 def admin_kpis(db: Session, tenant_id: str) -> dict:
+    """
+    Compute KPIs for a tenant using RLS-compliant queries.
+    CRITICAL: Uses _with_rls_conn to set app.tenant_id/app.role GUCs before ALL tenant-scoped queries.
+    Per backend-db-architecture.md lines 34-51.
+    """
     time_saved = compute_time_saved_minutes(db, tenant_id)
     amb = ambassador_candidate(db, tenant_id)
     msgs = usage_index(db, tenant_id)
-    contacts = db.query(dbm.Contact).filter(dbm.Contact.tenant_id == tenant_id, dbm.Contact.deleted == False).count()
-    active_cadences = db.query(dbm.CadenceState).filter(dbm.CadenceState.tenant_id == tenant_id).count()
-    notify = db.query(dbm.NotifyListEntry).filter(dbm.NotifyListEntry.tenant_id == tenant_id).count()
-    shares = db.query(dbm.SharePrompt).filter(dbm.SharePrompt.tenant_id == tenant_id).count()
-    # revenue uplift: sum of lifetime_cents from all contacts
-    revenue_uplift = 0
-    try:
-        result = db.execute(
-            text("SELECT COALESCE(SUM(lifetime_cents), 0) as total FROM contacts WHERE tenant_id=:t AND deleted=false"),
+    
+    # Use RLS-compliant connection for all tenant-scoped counts
+    with _with_rls_conn(tenant_id) as conn:
+        # Count contacts
+        result = conn.execute(
+            text("SELECT COUNT(*) FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND deleted = false"),
+            {"t": tenant_id}
+        ).fetchone()
+        contacts = int(result[0]) if result else 0
+        
+        # Count active cadences
+        result = conn.execute(
+            text("SELECT COUNT(*) FROM cadence_states WHERE tenant_id = CAST(:t AS uuid)"),
+            {"t": tenant_id}
+        ).fetchone()
+        active_cadences = int(result[0]) if result else 0
+        
+        # Count notify list entries
+        result = conn.execute(
+            text("SELECT COUNT(*) FROM notify_list WHERE tenant_id = CAST(:t AS uuid)"),
+            {"t": tenant_id}
+        ).fetchone()
+        notify = int(result[0]) if result else 0
+        
+        # Count share prompts
+        result = conn.execute(
+            text("SELECT COUNT(*) FROM share_prompts WHERE tenant_id = CAST(:t AS uuid)"),
+            {"t": tenant_id}
+        ).fetchone()
+        shares = int(result[0]) if result else 0
+        
+        # Sum revenue uplift from contacts.lifetime_cents
+        result = conn.execute(
+            text("SELECT COALESCE(SUM(lifetime_cents), 0) as total FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND deleted = false"),
             {"t": tenant_id}
         ).fetchone()
         revenue_uplift = int(result[0]) if result else 0
-    except Exception:
-        revenue_uplift = 0
+    
     # referrals (placeholder: count of SharePrompt)
     referrals_30d = shares
+    
     return {
         "time_saved_minutes": time_saved,
         "usage_index": msgs,
