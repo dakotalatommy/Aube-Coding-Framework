@@ -17,6 +17,7 @@ import {
   LogOut,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import { Button } from './ui/button'
 import { Badge } from './ui/badge'
 import { cn } from './ui/utils'
@@ -118,6 +119,7 @@ const isTrialUser = (userData?: SidebarNavProps['userData']) => {
 }
 
 export function SidebarNav({ currentPage, onNavigate, userData, onNavigateToSettings }: SidebarNavProps) {
+  const navigate = useNavigate()
   const userIsOnTrial = isTrialUser(userData)
   const BOOKING_URL = (import.meta as any).env?.VITE_BOOKING_URL || ''
 
@@ -152,7 +154,12 @@ export function SidebarNav({ currentPage, onNavigate, userData, onNavigateToSett
       localStorage.removeItem('bvx_tenant')
     } catch {}
 
-    window.location.href = '/brandvx'
+    try {
+      navigate('/brandvx', { replace: true })
+    } catch (error) {
+      console.warn('Router navigate to /brandvx failed, falling back to hard redirect', error)
+      window.location.href = '/brandvx'
+    }
   }
 
   // Filter nav items based on feature flags
@@ -223,7 +230,7 @@ export function SidebarNav({ currentPage, onNavigate, userData, onNavigateToSett
           {BOOKING_URL && (
             <Button
               variant="ghost"
-              className="w-full justify-start space-x-3"
+              className="w-full justify-start space-x-3 text-foreground hover:text-foreground"
               asChild
             >
               <a
