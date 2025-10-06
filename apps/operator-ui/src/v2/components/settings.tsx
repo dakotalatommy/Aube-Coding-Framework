@@ -511,9 +511,37 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
                       Billed today
                     </li>
                   </ul>
-                  <Button variant="outline" className="w-full" onClick={() => {
-                    const stripeUrl = `https://buy.stripe.com/${import.meta.env.VITE_STRIPE_BUY_BUTTON_97 || 'buy_btn_1S3JACKsdVcBvHY1eEO0g2Mt'}`
-                    window.open(stripeUrl, '_blank')
+                  <Button variant="outline" className="w-full" onClick={async () => {
+                    try {
+                      // Try buy button first
+                      const buyButtonId = import.meta.env.VITE_STRIPE_BUY_BUTTON_97
+                      if (buyButtonId) {
+                        window.open(`https://buy.stripe.com/${buyButtonId}`, '_blank')
+                        return
+                      }
+                      
+                      // Fallback: Create checkout session server-side (legacy flow)
+                      const price_id = import.meta.env.VITE_STRIPE_PRICE_97 || ''
+                      if (!price_id) {
+                        toast.error('Payment configuration error. Please contact support.')
+                        return
+                      }
+                      
+                      const response = await api.post('/billing/create-checkout-session', {
+                        price_id,
+                        mode: 'subscription',
+                        trial_days: 0 // Charge today for $97 plan
+                      })
+                      
+                      if (response?.url) {
+                        window.location.href = response.url
+                      } else {
+                        toast.error('Unable to start checkout. Please try again.')
+                      }
+                    } catch (error) {
+                      console.error('Checkout error:', error)
+                      toast.error('Unable to process payment. Please try again.')
+                    }
                   }}>
                     Select Plan
                   </Button>
@@ -544,9 +572,37 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
                     {!hasPaidPlan ? 'Billed after trial' : 'Advanced automation'}
                   </li>
                 </ul>
-                <Button className="w-full" onClick={() => {
-                  const stripeUrl = `https://buy.stripe.com/${import.meta.env.VITE_STRIPE_BUY_BUTTON_147 || 'buy_btn_1S3J6sKsdVcBvHY1nllLYX6Q'}`
-                  window.open(stripeUrl, '_blank')
+                <Button className="w-full" onClick={async () => {
+                  try {
+                    // Try buy button first
+                    const buyButtonId = import.meta.env.VITE_STRIPE_BUY_BUTTON_147
+                    if (buyButtonId) {
+                      window.open(`https://buy.stripe.com/${buyButtonId}`, '_blank')
+                      return
+                    }
+                    
+                    // Fallback: Create checkout session server-side (legacy flow)
+                    const price_id = import.meta.env.VITE_STRIPE_PRICE_147 || ''
+                    if (!price_id) {
+                      toast.error('Payment configuration error. Please contact support.')
+                      return
+                    }
+                    
+                    const response = await api.post('/billing/create-checkout-session', {
+                      price_id,
+                      mode: 'subscription',
+                      trial_days: 7 // 7-day trial for $147 plan
+                    })
+                    
+                    if (response?.url) {
+                      window.location.href = response.url
+                    } else {
+                      toast.error('Unable to start checkout. Please try again.')
+                    }
+                  } catch (error) {
+                    console.error('Checkout error:', error)
+                    toast.error('Unable to process payment. Please try again.')
+                  }
                 }}>
                   {has97Plan ? 'Upgrade to Pro' : 'Start Trial'}
                 </Button>

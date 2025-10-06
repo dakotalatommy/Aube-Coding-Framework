@@ -281,6 +281,7 @@ export default function App() {
   const [settingsInitialTab, setSettingsInitialTab] = useState('onboarding')
   const [clientSearchPrefill, setClientSearchPrefill] = useState<string | undefined>(undefined)
   const firstNavigationRef = useRef(true)
+  const settingsPrefetchedRef = useRef(false)
 
   const logSplash = useCallback((event: string, detail?: Record<string, unknown>) => {
     try {
@@ -961,6 +962,12 @@ export default function App() {
     setSettingsInitialTab('plan')
     navigateToPage('settings', { settingsTab: 'plan' })
   }
+
+  useEffect(() => {
+    if (!session || onboardingRequired || settingsPrefetchedRef.current) return
+    settingsPrefetchedRef.current = true
+    void import('./components/settings').catch(() => {})
+  }, [session, onboardingRequired])
 
   // Listen for bvx:navigate events to keep currentPage in sync with URL/workspace shell
   useEffect(() => {

@@ -176,6 +176,8 @@ const PRICING_TIERS = [
       'Up to 50 clients'
     ],
     buyButtonId: 'VITE_STRIPE_BUY_BUTTON_47',
+    priceId: 'VITE_STRIPE_PRICE_47',
+    trialDays: 0,
     highlighted: false,
   },
   {
@@ -194,6 +196,8 @@ const PRICING_TIERS = [
       'Priority support'
     ],
     buyButtonId: 'VITE_STRIPE_BUY_BUTTON_97',
+    priceId: 'VITE_STRIPE_PRICE_97',
+    trialDays: 0,
     highlighted: true,
   },
   {
@@ -212,6 +216,8 @@ const PRICING_TIERS = [
       'Early access to new features'
     ],
     buyButtonId: 'VITE_STRIPE_BUY_BUTTON_147',
+    priceId: 'VITE_STRIPE_PRICE_147',
+    trialDays: 7,
     highlighted: false,
   },
 ]
@@ -412,23 +418,46 @@ export function OnboardingTooltip({
     }
   }
 
-  const handlePricingSelection = (buyButtonId: string) => {
-    const buyButtonKey = import.meta.env[buyButtonId]
-    if (!buyButtonKey) {
-      console.error('Buy button not configured:', buyButtonId)
-      return
-    }
-    
-    const stripeUrl = `https://buy.stripe.com/${buyButtonKey}`
-    window.open(stripeUrl, '_blank')
-    
-    // Mark onboarding as complete after selection
+  const handlePricingSelection = async (buyButtonId: string, priceId: string, trialDays: number = 0) => {
     try {
-      localStorage.setItem('bvx_founder_slides_seen', '1')
-    } catch {}
-    setIsVisible(false)
-    setShowFounderSlides(false)
-    markOnboardingComplete(pageId)
+      // Try buy button first
+      const buyButtonKey = import.meta.env[buyButtonId]
+      if (buyButtonKey) {
+        window.open(`https://buy.stripe.com/${buyButtonKey}`, '_blank')
+        
+        // Mark onboarding as complete after selection
+        try {
+          localStorage.setItem('bvx_founder_slides_seen', '1')
+        } catch {}
+        setIsVisible(false)
+        setShowFounderSlides(false)
+        markOnboardingComplete(pageId)
+        return
+      }
+      
+      // Fallback: Create checkout session server-side (legacy flow)
+      const price_id_value = import.meta.env[priceId] || ''
+      if (!price_id_value) {
+        console.error('Payment configuration error: missing price ID')
+        return
+      }
+      
+      const response = await api.post('/billing/create-checkout-session', {
+        price_id: price_id_value,
+        mode: 'subscription',
+        trial_days: trialDays
+      })
+      
+      if (response?.url) {
+        // Mark as complete before redirect
+        try {
+          localStorage.setItem('bvx_founder_slides_seen', '1')
+        } catch {}
+        window.location.href = response.url
+      }
+    } catch (error) {
+      console.error('Checkout error:', error)
+    }
   }
 
   const handleFounderBack = () => {
@@ -487,13 +516,13 @@ export function OnboardingTooltip({
                     {PRICING_TIERS.map((tier) => (
                       <div
                         key={tier.name}
-                        className={`relative rounded-xl border-2 p-4 transition-all hover:shadow-lg cursor-pointer ${
-                          tier.highlighted 
-                            ? 'border-primary bg-primary/5' 
-                            : 'border-muted hover:border-primary/50'
-                        }`}
-                        onClick={() => handlePricingSelection(tier.buyButtonId)}
-                      >
+                      className={`relative rounded-xl border-2 p-4 transition-all hover:shadow-lg cursor-pointer ${
+                        tier.highlighted 
+                          ? 'border-primary bg-primary/5' 
+                          : 'border-muted hover:border-primary/50'
+                      }`}
+                      onClick={() => handlePricingSelection(tier.buyButtonId, tier.priceId, tier.trialDays)}
+                    >
                         {tier.badge && (
                           <div className="absolute -top-2 left-1/2 transform -translate-x-1/2">
                             <Badge className="bg-primary text-white text-xs px-3 py-0.5">
