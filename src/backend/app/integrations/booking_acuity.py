@@ -1,10 +1,11 @@
 import hashlib
 import time
-from typing import Dict, Any, Optional, List, Tuple
+from typing import Dict, Any, Optional, List, Tuple, Set
 from contextlib import contextmanager
 import base64
 import os
 import httpx
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from sqlalchemy import text as _sql_text
 from ..db import engine
 from ..crypto import decrypt_text
@@ -12,17 +13,17 @@ from ..events import emit_event
 import hmac
 import hashlib
 import logging
+from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 @contextmanager
 def _with_conn(tenant_id: str, role: str = "owner_admin"):
-    """Yield a short-lived connection with RLS GUCs set. Caller must not hold across network calls."""
     conn_cm = engine.begin()
-    # Set GUCs (tolerant)
     try:
         conn = conn_cm.__enter__()
         try:
-            # Parameter binding is not supported for SET LOCAL, so escape manually.
             safe_role = role.replace("'", "''")
             conn.execute(_sql_text(f"SET LOCAL app.role = '{safe_role}'"))
         except Exception:
@@ -50,17 +51,10 @@ def _read_one(conn, sql: str, params: Dict[str, object]) -> Optional[Tuple[objec
 
 
 def _fetch_acuity_token(tenant_id: str) -> str:
-    """Return decrypted Acuity access token (Bearer) if present; tolerate legacy column names.
-
-    Reads from connected_accounts_v2 using RLS GUCs, preferring access_token_enc but
-    falling back to access_token/token when present (schema drift tolerance).
-    """
     token = ""
-    # v2 via short-lived conn
-    for attempt in range(2):  # one retry on transient disconnect
+    for attempt in range(2):
         try:
             with _with_conn(tenant_id) as conn:  # type: ignore
-                # Simplified: mirror Square. Read newest non-empty access_token_enc only.
                 row = _read_one(
                     conn,
                     """
@@ -77,13 +71,7 @@ def _fetch_acuity_token(tenant_id: str) -> str:
                 )
                 if row and row[0]:
                     candidate = str(row[0]).strip()
-                    # Prefer decrypt; if decrypt returns falsy, fall back to raw only if it
-                    # looks like an OAuth bearer (non-empty, not obviously base64 garbage)
-                    dec = None
-                    try:
-                        dec = decrypt_text(candidate)
-                    except Exception:
-                        dec = None
+                    dec = decrypt_text(candidate) if candidate else None
                     if dec and dec.strip():
                         token = dec.strip()
                     elif candidate:
@@ -97,16 +85,15 @@ def _fetch_acuity_token(tenant_id: str) -> str:
                 continue
             raise
         break
-    # Do not fallback to legacy connected_accounts; v2-only
     return token or ""
 
 
 def _timestamp_expr(conn) -> str:
-    """Return NOW() or EXTRACT(EPOCH FROM now())::bigint based on contacts.created_at type."""
     try:
         r = conn.execute(
             _sql_text(
-                "SELECT lower(data_type) FROM information_schema.columns WHERE table_schema='public' AND table_name='contacts' AND column_name='created_at'"
+                "SELECT lower(data_type) FROM information_schema.columns "
+                "WHERE table_schema='public' AND table_name='contacts' AND column_name='created_at'"
             )
         ).fetchone()
         if r and isinstance(r[0], str) and "timestamp" in r[0].lower():
@@ -117,11 +104,9 @@ def _timestamp_expr(conn) -> str:
 
 
 def _acuity_headers(tenant_id: str) -> Dict[str, str]:
-    # Prefer OAuth Bearer first for multi-tenant app connect flow
     t = _fetch_acuity_token(tenant_id)
     if t:
         return {"Authorization": f"Bearer {t}", "Accept": "application/json"}
-    # Fallback to Basic only if Bearer absent
     user_id = os.getenv("ACUITY_USER_ID", os.getenv("ACUITY_CLIENT_ID", "")).strip()
     api_key = os.getenv("ACUITY_API_KEY", "").strip()
     if user_id and api_key:
@@ -133,17 +118,178 @@ def _acuity_headers(tenant_id: str) -> Dict[str, str]:
 def _parse_epoch(s: Optional[str]) -> int:
     if not s:
         return 0
+    normalized = str(s).strip()
+    if not normalized:
+        return 0
     try:
-        # Try ISO8601
-        from datetime import datetime
-        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        iso_candidate = normalized
+        if "T" not in iso_candidate and " " in iso_candidate:
+            iso_candidate = iso_candidate.replace(" ", "T", 1)
+        dt = datetime.fromisoformat(iso_candidate.replace("Z", "+00:00"))
         return int(dt.timestamp())
     except Exception:
-        try:
-            return int(float(s))
-        except Exception:
-            return 0
+        pass
+    try:
+        dt = datetime.strptime(normalized, "%Y-%m-%d %H:%M:%S")
+        return int(dt.timestamp())
+    except Exception:
+        pass
+    try:
+        return int(float(normalized))
+    except Exception:
+        return 0
 
+
+def _get_entry(ledger: Dict[str, Dict[str, Any]], contact_id: str) -> Dict[str, Any]:
+    entry = ledger.get(contact_id)
+    if entry is None:
+        entry = {
+            "first": 0,
+            "last": 0,
+            "txn_count": 0,
+            "lifetime_cents": 0,
+            "_txn_ids": set(),
+            "_order_ids": set(),
+        }
+        ledger[contact_id] = entry
+    else:
+        entry.setdefault("_txn_ids", set())
+        entry.setdefault("_order_ids", set())
+        entry.setdefault("txn_count", 0)
+        entry.setdefault("lifetime_cents", 0)
+        entry.setdefault("first", 0)
+        entry.setdefault("last", 0)
+    return entry
+
+
+def _apply_visit(entry: Dict[str, Any], ts: int) -> None:
+    if not ts:
+        return
+    first = int(entry.get("first", 0) or 0)
+    last = int(entry.get("last", 0) or 0)
+    if not first or ts < first:
+        entry["first"] = ts
+    if ts > last:
+        entry["last"] = ts
+
+
+def _parse_amount_to_cents(amount: Any) -> int:
+    if amount is None:
+        return 0
+    try:
+        if isinstance(amount, (int, float)):
+            decimal_val = Decimal(str(amount))
+        else:
+            decimal_val = Decimal(str(amount).strip())
+        cents = int((decimal_val * 100).to_integral_value(rounding=ROUND_HALF_UP))
+        return cents
+    except (InvalidOperation, ValueError, TypeError):
+        return 0
+
+
+def _collect_appointment_payments(
+    ledger: Dict[str, Dict[str, Any]],
+    contact_id: str,
+    client: httpx.Client,
+    base: str,
+    appointment_id: str,
+) -> None:
+    if not appointment_id:
+        return
+    try:
+        resp = client.get(f"{base}/appointments/{appointment_id}/payments")
+    except httpx.HTTPError as exc:
+        logger.warning(
+            "Acuity appointment payments request failed",
+            extra={"appointment_id": appointment_id, "error": str(exc)},
+        )
+        return
+    if resp.status_code >= 400:
+        logger.warning(
+            "Acuity appointment payments returned error",
+            extra={
+                "appointment_id": appointment_id,
+                "status": resp.status_code,
+                "body": (resp.text or "")[:200],
+            },
+        )
+        return
+    payments = resp.json() or []
+    if not isinstance(payments, list) or not payments:
+        return
+    entry = _get_entry(ledger, contact_id)
+    txn_ids: Set[str] = entry["_txn_ids"]  # type: ignore[assignment]
+    for payment in payments:
+        amount_raw = payment.get("amount")
+        cents = _parse_amount_to_cents(amount_raw)
+        transaction_id = str(payment.get("transactionID") or "").strip()
+        if transaction_id and transaction_id in txn_ids:
+            continue
+        if transaction_id:
+            txn_ids.add(transaction_id)
+        if cents:
+            entry["lifetime_cents"] = int(entry.get("lifetime_cents", 0)) + cents
+        entry["txn_count"] = int(entry.get("txn_count", 0)) + 1
+        created_ts = _parse_epoch(payment.get("created"))
+        _apply_visit(entry, created_ts)
+
+
+def _collect_orders_payments(
+    ledger: Dict[str, Dict[str, Any]],
+    client: httpx.Client,
+    base: str,
+    email_to_contact: Dict[str, str],
+) -> None:
+    offset = 0
+    page_size = 100
+    while True:
+        try:
+            resp = client.get(f"{base}/orders", params={"max": page_size, "offset": offset})
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "Acuity orders request failed",
+                extra={"offset": offset, "error": str(exc)},
+            )
+            return
+        if resp.status_code >= 400:
+            logger.warning(
+                "Acuity orders returned error",
+                extra={
+                    "offset": offset,
+                    "status": resp.status_code,
+                    "body": (resp.text or "")[:200],
+                },
+            )
+            return
+        orders = resp.json() or []
+        if not isinstance(orders, list) or not orders:
+            break
+        for order in orders:
+            email_key = str(order.get("email") or "").strip().lower()
+            contact_id = email_to_contact.get(email_key)
+            if not contact_id:
+                continue
+            entry = _get_entry(ledger, contact_id)
+            order_id = str(order.get("id") or "").strip()
+            order_ids: Set[str] = entry["_order_ids"]  # type: ignore[assignment]
+            if order_id and order_id in order_ids:
+                continue
+            if order_id:
+                order_ids.add(order_id)
+            cents = _parse_amount_to_cents(order.get("total"))
+            if cents:
+                entry["lifetime_cents"] = int(entry.get("lifetime_cents", 0)) + cents
+            entry["txn_count"] = int(entry.get("txn_count", 0)) + 1
+            created_ts = _parse_epoch(order.get("time"))
+            _apply_visit(entry, created_ts)
+        if len(orders) < page_size:
+            break
+        offset += page_size
+
+
+# -----------------------------------------------------------------------------
+#  Main import flow
+# -----------------------------------------------------------------------------
 
 def import_appointments(tenant_id: str, since: Optional[str] = None, until: Optional[str] = None, cursor: Optional[str] = None) -> Dict[str, Any]:
     base = (os.getenv("ACUITY_API_BASE", "https://acuityscheduling.com/api/v1").strip().rstrip(" /."))
@@ -156,13 +302,15 @@ def import_appointments(tenant_id: str, since: Optional[str] = None, until: Opti
     imported = 0
     updated = 0
     skipped = 0
+    appt_imported = 0
     dbg_clients_status: Optional[int] = None
     dbg_clients_count = 0
     dbg_clients_error: Optional[str] = None
     dbg_appts_status: Optional[int] = None
     dbg_appts_count = 0
     dbg_appts_error: Optional[str] = None
-    # 1) ensure tenant row for FK
+    payments_map: Dict[str, Dict[str, Any]] = {}
+
     try:
         with _with_conn(tenant_id) as conn:  # type: ignore
             conn.execute(
@@ -171,8 +319,9 @@ def import_appointments(tenant_id: str, since: Optional[str] = None, until: Opti
             )
     except Exception:
         pass
-    # 2) fetch clients and cache minimal map: clientId -> contact_id
+
     client_map: Dict[str, str] = {}
+    email_map: Dict[str, str] = {}
     try:
         with httpx.Client(timeout=20, headers=headers) as client:
             offset = 0
@@ -182,30 +331,26 @@ def import_appointments(tenant_id: str, since: Optional[str] = None, until: Opti
                 r = client.get(f"{base}/clients", params=params)
                 dbg_clients_status = r.status_code
                 if r.status_code >= 400:
-                    try:
-                        dbg_clients_error = (r.text or "")[:300]
-                    except Exception:
-                        dbg_clients_error = None
+                    dbg_clients_error = (r.text or "")[:300]
                     break
                 arr = r.json() or []
-                if not isinstance(arr, list):
+                if not isinstance(arr, list) or not arr:
                     break
-                if not arr:
-                    break
-                try:
-                    dbg_clients_count += len(arr)
-                except Exception:
-                    pass
-                # upsert contacts in batches
+                dbg_clients_count += len(arr)
                 for c in arr:
                     try:
                         cid_raw = str(c.get("id") or "")
-                        contact_id = f"acuity:{cid_raw}" if cid_raw else (f"acuity:email/{c.get('email', '')}" if c.get("email") else f"acuity:{hashlib.md5(str(c).encode()).hexdigest()[:10]}")
+                        contact_id = f"acuity:{cid_raw}" if cid_raw else (
+                            f"acuity:email/{c.get('email', '')}"
+                            if c.get("email")
+                            else f"acuity:{hashlib.md5(str(c).encode()).hexdigest()[:10]}"
+                        )
                         client_map[cid_raw] = contact_id
-                        # Upsert
+                        email_val = str(c.get("email") or "").strip().lower()
+                        if email_val:
+                            email_map[email_val] = contact_id
                         with _with_conn(tenant_id) as conn:  # type: ignore
                             ts_expr = _timestamp_expr(conn)
-                            # UPDATE first
                             u = conn.execute(
                                 _sql_text(
                                     "UPDATE contacts SET first_name=:fn,last_name=:ln,display_name=:dn,email_hash=:em,phone_hash=:ph,updated_at="
@@ -245,67 +390,152 @@ def import_appointments(tenant_id: str, since: Optional[str] = None, until: Opti
                                 )
                             else:
                                 updated += 1
-                            imported += 1
+                        imported += 1
                     except Exception:
                         skipped += 1
                 if len(arr) < limit:
                     break
                 offset += limit
-    except httpx.HTTPError:
-        pass
-    # 3) fetch appointments and upsert
-    appt_imported = 0
-    try:
-        with httpx.Client(timeout=20, headers=headers) as client:
+
             offset = 0
-            limit = 100
             while True:
                 params: Dict[str, object] = {"limit": limit, "offset": offset}
                 if since:
-                    params["minDate"] = since  # Acuity accepts ISO like 2024-01-01 per docs; tolerant usage
+                    params["minDate"] = since
                 if until:
                     params["maxDate"] = until
                 r = client.get(f"{base}/appointments", params=params)
                 dbg_appts_status = r.status_code
                 if r.status_code >= 400:
-                    try:
-                        dbg_appts_error = (r.text or "")[:300]
-                    except Exception:
-                        dbg_appts_error = None
+                    dbg_appts_error = (r.text or "")[:300]
                     break
                 arr = r.json() or []
                 if not isinstance(arr, list) or not arr:
                     break
-                try:
-                    dbg_appts_count += len(arr)
-                except Exception:
-                    pass
+                dbg_appts_count += len(arr)
                 for a in arr:
                     try:
                         aid = str(a.get("id") or "")
                         ext = f"acuity:{aid}" if aid else f"acuity:{hashlib.md5(str(a).encode()).hexdigest()[:10]}"
                         cid = str(a.get("clientID") or a.get("clientId") or a.get("client_id") or "")
-                        contact_id = client_map.get(cid) or (f"acuity:{cid}" if cid else (f"acuity:email/{a.get('email','')}" if a.get("email") else None))
+                        contact_id = client_map.get(cid) or (
+                            f"acuity:{cid}" if cid else (f"acuity:email/{a.get('email','')}" if a.get("email") else None)
+                        )
                         start_ts = _parse_epoch(a.get("datetime") or a.get("startTime") or a.get("start_ts"))
                         end_ts = _parse_epoch(a.get("endTime") or a.get("end_ts")) or None
                         status = str(a.get("status") or "booked").lower()
                         service = str(a.get("type") or a.get("title") or a.get("service") or "")
+                        if contact_id:
+                            entry = _get_entry(payments_map, contact_id)
+                            if start_ts:
+                                _apply_visit(entry, int(start_ts))
+                            try:
+                                _collect_appointment_payments(payments_map, contact_id, client, base, aid)
+                            except Exception as exc:
+                                logger.debug(
+                                    "Acuity appointment payment fetch failed",
+                                    extra={"appointment_id": aid, "error": str(exc)},
+                                )
                         with _with_conn(tenant_id) as conn:  # type: ignore
-                            r1 = conn.execute(_sql_text("UPDATE appointments SET contact_id=:c, service=:s, start_ts=:st, end_ts=:et, status=:stt WHERE tenant_id = CAST(:t AS uuid) AND external_ref = :x"), {"t": tenant_id, "x": ext, "c": (contact_id or ""), "s": service, "st": int(start_ts or 0), "et": (int(end_ts) if end_ts else None), "stt": status})
+                            r1 = conn.execute(
+                                _sql_text(
+                                    "UPDATE appointments SET contact_id=:c, service=:s, start_ts=:st, end_ts=:et, status=:stt "
+                                    "WHERE tenant_id = CAST(:t AS uuid) AND external_ref = :x"
+                                ),
+                                {
+                                    "t": tenant_id,
+                                    "x": ext,
+                                    "c": (contact_id or ""),
+                                    "s": service,
+                                    "st": int(start_ts or 0),
+                                    "et": (int(end_ts) if end_ts else None),
+                                    "stt": status,
+                                },
+                            )
                             if int(getattr(r1, "rowcount", 0) or 0) == 0:
-                                conn.execute(_sql_text("INSERT INTO appointments(tenant_id,contact_id,service,start_ts,end_ts,status,external_ref,created_at) VALUES (CAST(:t AS uuid),:c,:s,:st,:et,:stt,:x,EXTRACT(EPOCH FROM now())::bigint)"), {"t": tenant_id, "x": ext, "c": (contact_id or ""), "s": service, "st": int(start_ts or 0), "et": (int(end_ts) if end_ts else None), "stt": status})
+                                conn.execute(
+                                    _sql_text(
+                                        "INSERT INTO appointments(tenant_id,contact_id,service,start_ts,end_ts,status,external_ref,created_at) "
+                                        "VALUES (CAST(:t AS uuid),:c,:s,:st,:et,:stt,:x,EXTRACT(EPOCH FROM now())::bigint)"
+                                    ),
+                                    {
+                                        "t": tenant_id,
+                                        "x": ext,
+                                        "c": (contact_id or ""),
+                                        "s": service,
+                                        "st": int(start_ts or 0),
+                                        "et": (int(end_ts) if end_ts else None),
+                                        "stt": status,
+                                    },
+                                )
                         appt_imported += 1
                     except Exception:
                         skipped += 1
                 if len(arr) < limit:
                     break
                 offset += limit
+
+            try:
+                _collect_orders_payments(payments_map, client, base, email_map)
+            except Exception as exc:
+                logger.debug(
+                    "Acuity order payments fetch failed",
+                    extra={"error": str(exc)},
+                )
+
     except httpx.HTTPError:
         pass
-    # 4) update last_sync
+
+    if payments_map:
+        try:
+            with _with_conn(tenant_id) as conn:
+                ts_expr = _timestamp_expr(conn)
+                for cid, meta in payments_map.items():
+                    if not cid:
+                        continue
+                    meta.setdefault("first", 0)
+                    meta.setdefault("last", 0)
+                    meta.setdefault("txn_count", 0)
+                    meta.setdefault("lifetime_cents", 0)
+                    meta.pop("_txn_ids", None)
+                    meta.pop("_order_ids", None)
+                    conn.execute(
+                        _sql_text(
+                            "UPDATE contacts SET first_visit = CASE WHEN first_visit=0 OR first_visit IS NULL THEN :first ELSE LEAST(first_visit, :first) END, "
+                            "last_visit = GREATEST(COALESCE(last_visit,0), :last), "
+                            "txn_count = COALESCE(txn_count,0) + :cnt, "
+                            "lifetime_cents = COALESCE(lifetime_cents,0) + :cents, "
+                            "updated_at = " + ts_expr + " WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid"
+                        ),
+                        {
+                            "t": tenant_id,
+                            "cid": cid,
+                            "first": int(meta.get("first", 0) or 0),
+                            "last": int(meta.get("last", 0) or 0),
+                            "cnt": int(meta.get("txn_count", 0) or 0),
+                            "cents": int(meta.get("lifetime_cents", 0) or 0),
+                        },
+                    )
+                    logger.debug(
+                        "Acuity payments applied",
+                        extra={
+                            "tenant_id": tenant_id,
+                            "contact_id": cid,
+                            "txn_count": int(meta.get("txn_count", 0) or 0),
+                            "lifetime_cents": int(meta.get("lifetime_cents", 0) or 0),
+                            "first_visit": int(meta.get("first", 0) or 0),
+                            "last_visit": int(meta.get("last", 0) or 0),
+                        },
+                    )
+        except Exception as exc:
+            logger.exception("Failed to apply Acuity payment rollups", extra={"tenant_id": tenant_id, "error": str(exc)})
+
     try:
         with _with_conn(tenant_id) as conn:  # type: ignore
-            conn.execute(_sql_text("UPDATE connected_accounts_v2 SET last_sync = EXTRACT(EPOCH FROM now())::bigint WHERE tenant_id = CAST(:t AS uuid) AND provider='acuity'"), {"t": tenant_id})
+            conn.execute(
+                _sql_text("UPDATE connected_accounts_v2 SET last_sync = EXTRACT(EPOCH FROM now())::bigint WHERE tenant_id = CAST(:t AS uuid) AND provider='acuity'"),
+                {"t": tenant_id},
+            )
     except Exception:
         pass
     try:
@@ -355,4 +585,3 @@ def fetch_bookings(tenant_id: str) -> List[Dict[str, object]]:
     return [
         {"id": f"ac-{now}", "title": "Booking: Follow-up (Acuity)", "start_ts": now + 10800, "provider": "acuity"},
     ]
-logger = logging.getLogger(__name__)

@@ -96,8 +96,12 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
   const [integrations, setIntegrations] = useState<IntegrationStatusItem[]>([])
   const [tone, setTone] = useState<string>('friendly')
   const [trainingNotes, setTrainingNotes] = useState<string>('')
+  const hasLoadedRef = React.useRef(false)
 
   const loadSettings = useCallback(async (): Promise<void> => {
+    // Prevent duplicate loads
+    if (loading) return
+    
     setLoading(true)
     try {
       const response = (await api.get(`/settings`, {
@@ -136,7 +140,7 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
     } finally {
       setLoading(false)
     }
-  }, [userData])
+  }, [userData, loading])
 
   const loadIntegrations = useCallback(async (): Promise<void> => {
     setIntegrationLoading(true)
@@ -208,10 +212,13 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
   }, [brandData, businessData, goals, notifications, profileData, quietHours, tone, trainingNotes, twilioData])
 
   useEffect(() => {
+    // Only load once on mount
+    if (hasLoadedRef.current) return
+    hasLoadedRef.current = true
+    
     loadSettings()
     loadIntegrations()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])  // Run only on mount to prevent recursive loop
+  }, [loadSettings, loadIntegrations])
 
   const renderIntegrations = () => (
     <Card>
@@ -430,7 +437,13 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
     </Card>
   )
 
-  const renderPlanBillingCard = () => (
+  const renderPlanBillingCard = () => {
+    const currentPlan = userData?.plan?.toLowerCase() || ''
+    const hasPaidPlan = currentPlan && !['trial', 'essentials', ''].includes(currentPlan)
+    const has97Plan = currentPlan === 'pro' || currentPlan === 'founding'
+    const has147Plan = currentPlan === 'premium'
+    
+    return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2" style={{ fontFamily: 'Playfair Display, serif' }}>
@@ -448,84 +461,101 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-semibold text-foreground">
-                  {userData?.plan ? userData.plan.charAt(0).toUpperCase() + userData.plan.slice(1) : 'Pro'} Plan
+                  {userData?.plan ? userData.plan.charAt(0).toUpperCase() + userData.plan.slice(1) : 'Trial'} Plan
                 </h3>
-                <Badge variant="outline" className="bg-primary/10">Active</Badge>
+                <Badge variant="outline" className="bg-primary/10">
+                  {hasPaidPlan ? 'Active' : 'Trial'}
+                </Badge>
               </div>
               <p className="text-sm text-muted-foreground mt-1">
-                Your current subscription plan
+                {hasPaidPlan ? 'Your current subscription plan' : 'Upgrade to unlock all features'}
               </p>
             </div>
           </div>
         </div>
 
-        {/* Plan Options */}
-        <div className="space-y-4">
-          <h3 className="text-sm font-semibold text-foreground">Available Plans</h3>
-          <div className="grid gap-4 md:grid-cols-2">
-            {/* Founding Member $97/mo */}
-            <div className="rounded-xl border border-muted p-4 hover:border-primary/50 transition-colors">
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <h4 className="font-semibold text-foreground">Founding Member</h4>
-                  <p className="text-2xl font-bold text-primary mt-1">$97<span className="text-sm font-normal text-muted-foreground">/month</span></p>
+        {/* Plan Options - Show upgrades only */}
+        {!has147Plan && (
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold text-foreground">
+              {hasPaidPlan ? 'Upgrade Options' : 'Available Plans'}
+            </h3>
+            <div className="grid gap-4 md:grid-cols-2">
+              {/* Founding Member $97/mo - Hide if already on $97 or higher plan */}
+              {!has97Plan && !has147Plan && (
+                <div className="rounded-xl border border-muted p-4 hover:border-primary/50 transition-colors">
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <h4 className="font-semibold text-foreground">Founding Member</h4>
+                      <p className="text-2xl font-bold text-primary mt-1">$97<span className="text-sm font-normal text-muted-foreground">/month</span></p>
+                    </div>
+                    <Badge className="bg-gradient-to-r from-amber-500 to-amber-600 text-white">Best Value</Badge>
+                  </div>
+                  <ul className="space-y-2 text-sm text-muted-foreground mb-4">
+                    <li className="flex items-center gap-2">
+                      <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
+                      Lock in founding member price
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
+                      All Pro features included
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
+                      Billed today
+                    </li>
+                  </ul>
+                  <Button variant="outline" className="w-full" onClick={() => {
+                    const stripeUrl = `https://buy.stripe.com/${import.meta.env.VITE_STRIPE_BUY_BUTTON_97 || 'buy_btn_1S3JACKsdVcBvHY1eEO0g2Mt'}`
+                    window.open(stripeUrl, '_blank')
+                  }}>
+                    Select Plan
+                  </Button>
                 </div>
-                <Badge className="bg-gradient-to-r from-amber-500 to-amber-600 text-white">Best Value</Badge>
-              </div>
-              <ul className="space-y-2 text-sm text-muted-foreground mb-4">
-                <li className="flex items-center gap-2">
-                  <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
-                  Lock in founding member price
-                </li>
-                <li className="flex items-center gap-2">
-                  <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
-                  All Pro features included
-                </li>
-                <li className="flex items-center gap-2">
-                  <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
-                  Billed today
-                </li>
-              </ul>
-              <Button variant="outline" className="w-full" onClick={() => {
-                const stripeUrl = `https://buy.stripe.com/${import.meta.env.VITE_STRIPE_BUY_BUTTON_97 || 'buy_btn_1S3JACKsdVcBvHY1eEO0g2Mt'}`
-                window.open(stripeUrl, '_blank')
-              }}>
-                Select Plan
-              </Button>
-            </div>
+              )}
 
-            {/* Pro $147/mo */}
-            <div className="rounded-xl border border-muted p-4 hover:border-primary/50 transition-colors">
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <h4 className="font-semibold text-foreground">Pro</h4>
-                  <p className="text-2xl font-bold text-primary mt-1">$147<span className="text-sm font-normal text-muted-foreground">/month</span></p>
+              {/* Pro $147/mo - Always show unless already on $147 */}
+              <div className="rounded-xl border border-muted p-4 hover:border-primary/50 transition-colors">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <h4 className="font-semibold text-foreground">Pro</h4>
+                    <p className="text-2xl font-bold text-primary mt-1">$147<span className="text-sm font-normal text-muted-foreground">/month</span></p>
+                  </div>
+                  {!hasPaidPlan && <Badge variant="secondary">7-Day Trial</Badge>}
+                  {has97Plan && <Badge className="bg-gradient-to-r from-primary to-accent text-white">Upgrade</Badge>}
                 </div>
-                <Badge variant="secondary">7-Day Trial</Badge>
+                <ul className="space-y-2 text-sm text-muted-foreground mb-4">
+                  <li className="flex items-center gap-2">
+                    <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
+                    {!hasPaidPlan ? '7-day free trial included' : 'Premium features'}
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
+                    All Pro features
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
+                    {!hasPaidPlan ? 'Billed after trial' : 'Advanced automation'}
+                  </li>
+                </ul>
+                <Button className="w-full" onClick={() => {
+                  const stripeUrl = `https://buy.stripe.com/${import.meta.env.VITE_STRIPE_BUY_BUTTON_147 || 'buy_btn_1S3J6sKsdVcBvHY1nllLYX6Q'}`
+                  window.open(stripeUrl, '_blank')
+                }}>
+                  {has97Plan ? 'Upgrade to Pro' : 'Start Trial'}
+                </Button>
               </div>
-              <ul className="space-y-2 text-sm text-muted-foreground mb-4">
-                <li className="flex items-center gap-2">
-                  <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
-                  7-day free trial included
-                </li>
-                <li className="flex items-center gap-2">
-                  <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
-                  All Pro features
-                </li>
-                <li className="flex items-center gap-2">
-                  <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
-                  Billed after trial
-                </li>
-              </ul>
-              <Button className="w-full" onClick={() => {
-                const stripeUrl = `https://buy.stripe.com/${import.meta.env.VITE_STRIPE_BUY_BUTTON_147 || 'buy_btn_1S3J6sKsdVcBvHY1nllLYX6Q'}`
-                window.open(stripeUrl, '_blank')
-              }}>
-                Start Trial
-              </Button>
             </div>
           </div>
-        </div>
+        )}
+        
+        {has147Plan && (
+          <div className="text-center p-6 rounded-xl border border-primary/20 bg-primary/5">
+            <p className="text-sm text-muted-foreground">
+              You're on our highest tier plan. Thank you for your support! 🎉
+            </p>
+          </div>
+        )}
 
         {/* Payment Method Section */}
         <div className="border-t pt-6">
@@ -542,7 +572,8 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
         </div>
       </CardContent>
     </Card>
-  )
+    )
+  }
 
   const renderBrandCard = () => (
           <Card>

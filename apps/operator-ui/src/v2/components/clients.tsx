@@ -609,7 +609,7 @@ export function Clients({ initialSearch, onAckSearch, onNavigate }: ClientsProps
                 </Card>
               ) : (
                 <div className="rounded-2xl border bg-card">
-                  <ScrollArea className="max-h-[380px]">
+                  <ScrollArea className="h-[calc(100vh-520px)] min-h-[300px]">
                     <Table className="min-w-full text-sm">
                       <THead>
                         <TR>

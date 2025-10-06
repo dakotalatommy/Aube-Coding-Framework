@@ -240,6 +240,7 @@ export default function App() {
   const [showSplashGuard, setShowSplashGuard] = useState(false)
   const [settingsInitialTab, setSettingsInitialTab] = useState('onboarding')
   const [clientSearchPrefill, setClientSearchPrefill] = useState<string | undefined>(undefined)
+  const firstNavigationRef = useRef(true)
 
   const logSplash = useCallback((event: string, detail?: Record<string, unknown>) => {
     try {
@@ -282,6 +283,13 @@ export default function App() {
 
   // Centralized navigation function that dispatches events for pane synchronization
   const navigateToPage = useCallback((nextPage: string, payload?: any) => {
+    console.log('[v2:nav] navigating to:', nextPage, 'first:', firstNavigationRef.current)
+    
+    // Force synchronous state update for first navigation
+    if (firstNavigationRef.current) {
+      firstNavigationRef.current = false
+    }
+    
     setCurrentPage(nextPage)
     window.dispatchEvent(new CustomEvent('bvx:navigate', { detail: { pane: nextPage, payload } }))
   }, [])
@@ -474,7 +482,7 @@ export default function App() {
               id: `candidate-${candidate.contact_id || index}`,
               title: 'Re-engage lapsed client',
               description: 'Send a personalized check-in message.',
-              clientName: candidate.contact_id,
+              clientName: candidate.friendly_name || candidate.display_name || 'Client',
               actionLabel: 'Open follow-ups',
               dueTs: null,
               urgency: 'medium' as const,
@@ -784,8 +792,11 @@ export default function App() {
         
         setSession(newSession)
         
-        // Only bootstrap if NOT initial load (prevents duplicate bootstrap)
-        if (!isInitialLoadRef.current) {
+        // Only show splash and bootstrap if this is a REAL sign-in event
+        // (not initial load, not tab return, not token refresh)
+        const isRealSignIn = !isInitialLoadRef.current && !hasBootedRef.current
+        
+        if (isRealSignIn) {
           logSplash('enable', { reason: 'SIGNED_IN' })
           setShowSplash(true)
           setShowSplashGuard(true)

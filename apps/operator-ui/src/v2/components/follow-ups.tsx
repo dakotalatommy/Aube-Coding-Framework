@@ -1,5 +1,6 @@
 // @ts-nocheck
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import { api } from '../../lib/api'
 import { 
   Users, 
   Heart,
@@ -371,6 +372,52 @@ export function FollowUps() {
   )
   const [selectedWorkflow, setSelectedWorkflow] = useState<typeof workflowTemplates[0] | null>(null)
   const [expandedSteps, setExpandedSteps] = useState<Record<number, boolean>>({})
+  const [realStats, setRealStats] = useState({
+    activeWorkflows: 0,
+    totalClients: 0,
+    monthlyRevenueCents: 0
+  })
+  const [statsLoading, setStatsLoading] = useState(true)
+
+  const formatCurrency = (cents: number) => {
+    if (!cents) return '$0'
+    const dollars = cents / 100
+    if (dollars >= 1000) {
+      return `$${(dollars / 1000).toFixed(1)}K`
+    }
+    return `$${dollars.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+  }
+
+  const loadFollowUpStats = useCallback(async () => {
+    setStatsLoading(true)
+    try {
+      // Fetch total clients
+      const clientsResp = await api.get('/contacts/list?limit=1', { timeoutMs: 8000 })
+      const totalClients = Number(clientsResp?.total ?? 0)
+      
+      // Fetch revenue from metrics endpoint
+      const metricsResp = await api.get('/metrics', { timeoutMs: 8000 })
+      const revenueCents = Number(metricsResp?.revenue_uplift ?? 0)
+      
+      // Active workflows - default to 0 for now (workflows not fully built)
+      const activeWorkflows = 0
+      
+      setRealStats({
+        activeWorkflows,
+        totalClients,
+        monthlyRevenueCents: revenueCents
+      })
+    } catch (err) {
+      console.error('Failed to load follow-up stats', err)
+      // Keep zeros on error
+    } finally {
+      setStatsLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadFollowUpStats()
+  }, [loadFollowUpStats])
 
   const toggleWorkflow = (workflowId: number) => {
     setActiveWorkflows(prev => ({
@@ -410,7 +457,9 @@ export function FollowUps() {
                 <Play className="h-6 w-6 text-primary" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-black">{activeCount}</p>
+                <p className="text-2xl font-bold text-black">
+                  {statsLoading ? '—' : realStats.activeWorkflows}
+                </p>
                 <p className="text-sm text-muted-foreground">Active Workflows</p>
               </div>
             </div>
@@ -424,7 +473,9 @@ export function FollowUps() {
                 <Users className="h-6 w-6 text-accent" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-black">{totalClients}</p>
+                <p className="text-2xl font-bold text-black">
+                  {statsLoading ? '—' : realStats.totalClients.toLocaleString()}
+                </p>
                 <p className="text-sm text-muted-foreground">Clients Enrolled</p>
               </div>
             </div>
@@ -438,7 +489,9 @@ export function FollowUps() {
                 <BarChart3 className="h-6 w-6 text-primary" />
               </div>
               <div>
-                <p className="text-2xl font-bold text-black">$12.2K</p>
+                <p className="text-2xl font-bold text-black">
+                  {statsLoading ? '—' : formatCurrency(realStats.monthlyRevenueCents)}
+                </p>
                 <p className="text-sm text-muted-foreground">Revenue This Month</p>
               </div>
             </div>

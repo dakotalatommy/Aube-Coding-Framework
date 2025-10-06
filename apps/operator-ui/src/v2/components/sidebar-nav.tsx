@@ -18,6 +18,7 @@ import { Button } from './ui/button'
 import { Badge } from './ui/badge'
 import { cn } from './ui/utils'
 import bvxLogo from '../assets/539f8d3190f79d835fe0af50f92a753850eb6ff7.png'
+import { flags } from '../../lib/flags'
 
 interface NavItem {
   title: string
@@ -116,6 +117,12 @@ export function SidebarNav({ currentPage, onNavigate, userData, onNavigateToSett
     onNavigate(page)
   }
 
+  // Filter nav items based on feature flags
+  const visibleNavItems = NAV_ITEMS.filter((item) => {
+    if (item.href === '/follow-ups' && !flags.follow_ups()) return false
+    return true
+  })
+
   return (
     <div className="w-64 bg-card border-r h-full">
       <div className="p-6">
@@ -128,7 +135,7 @@ export function SidebarNav({ currentPage, onNavigate, userData, onNavigateToSett
         </div>
         
         <nav className="space-y-2">
-          {NAV_ITEMS.map((item) => {
+          {visibleNavItems.map((item) => {
             const page = item.href.slice(1) || 'dashboard'
             const isActive = currentPage === page
             const isLocked = userIsOnTrial && item.requiresPro

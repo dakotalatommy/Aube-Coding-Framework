@@ -255,7 +255,12 @@ function DashboardHeaderComponent({ onNotificationClick, onOpenSettings, onNavig
           <Settings className="h-5 w-5 text-black" />
         </Button>
 
-        <Avatar>
+        <Avatar 
+          className="cursor-pointer hover:opacity-80 transition-opacity" 
+          onClick={onOpenSettings}
+          role="button"
+          aria-label="Open account settings"
+        >
           <AvatarImage src="https://images.unsplash.com/photo-1494790108755-2616b612b17c?w=100" alt={userData?.fullName ?? 'Operator avatar'} />
           <AvatarFallback>
             {(userData?.fullName ?? userData?.businessName ?? 'BrandVX')
