@@ -230,13 +230,14 @@ export function SidebarNav({ currentPage, onNavigate, userData, onNavigateToSett
           {BOOKING_URL && (
             <Button
               variant="ghost"
-              className="w-full justify-start space-x-3 text-foreground hover:text-foreground"
+              className="w-full justify-start space-x-3"
               asChild
             >
               <a
                 href={BOOKING_URL}
                 target="_blank"
                 rel="noreferrer"
+                className="text-foreground hover:text-foreground"
               >
                 <Calendar className="h-5 w-5" />
                 <span className="flex-1 text-left">Book Onboarding</span>
