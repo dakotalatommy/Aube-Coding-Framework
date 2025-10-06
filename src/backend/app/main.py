@@ -9294,7 +9294,8 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                             _conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
                             _conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
                         except Exception:
-                            pass
+                            logger.exception("Failed to set RLS GUCs for Square sync (tenant=%s)", req.tenant_id)
+                            raise
                         return work(_conn)
                 except Exception as _e:
                     err_s = str(_e)
@@ -9897,7 +9898,8 @@ def square_backfill_metrics(req: SquareBackfillMetricsRequest, ctx: UserContext 
                     conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
                     conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
                 except Exception:
-                    pass
+                    logger.exception("Failed to set RLS GUCs for Square backfill (tenant=%s)", req.tenant_id)
+                    raise
                 for sqid, m in per.items():
                     try:
                         conn.execute(
@@ -9955,6 +9957,220 @@ def square_backfill_metrics(req: SquareBackfillMetricsRequest, ctx: UserContext 
         return {"updated": updated, "customers": len(per), "partial": partial}
     except Exception as e:
         return {"updated": 0, "error": "internal_error", "detail": str(e)[:200]}
+
+
+class SquareSyncPaymentsRequest(BaseModel):
+    tenant_id: str
+    max_pages: Optional[int] = None
+    since_date: Optional[str] = None  # ISO date YYYY-MM-DD
+
+
+@app.post("/integrations/booking/square/sync-payments", tags=["Integrations"])
+def square_sync_payments(
+    req: SquareSyncPaymentsRequest,
+    ctx: UserContext = Depends(get_user_context_relaxed)
+) -> Dict[str, object]:
+    """
+    Sync Square payments into transactions table for accurate monthly revenue tracking.
+    Fetches from Square Payments API and inserts individual transactions with dates.
+    Uses RLS-compliant connection pattern per backend-db-architecture.md.
+    """
+    try:
+        if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
+            return {"synced": 0, "error": "forbidden"}
+
+        # RLS-compliant connection helper with proper error logging
+        @contextmanager
+        def _with_rls_conn(tenant_id: str, role: str = "owner_admin"):
+            conn_cm = engine.begin()
+            try:
+                conn = conn_cm.__enter__()
+                try:
+                    safe_role = role.replace("'", "''")
+                    conn.execute(_sql_text(f"SET LOCAL app.role = '{safe_role}'"))
+                except Exception:
+                    logger.exception("Failed to set app.role GUC for Square payment sync (tenant=%s)", tenant_id)
+                    raise
+                try:
+                    safe_tenant = tenant_id.replace("'", "''")
+                    conn.execute(_sql_text(f"SET LOCAL app.tenant_id = '{safe_tenant}'"))
+                except Exception:
+                    logger.exception("Failed to set app.tenant_id GUC for Square payment sync (tenant=%s)", tenant_id)
+                    raise
+                yield conn
+            finally:
+                conn_cm.__exit__(None, None, None)
+
+        # Get Square token
+        token = ""
+        with _with_rls_conn(req.tenant_id) as conn:
+            row = conn.execute(
+                _sql_text("SELECT access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider='square' ORDER BY id DESC LIMIT 1"),
+                {"t": req.tenant_id}
+            ).fetchone()
+            if row and row[0]:
+                try:
+                    token = decrypt_text(str(row[0])) or ""
+                except Exception:
+                    token = str(row[0])
+
+        if not token:
+            return {"synced": 0, "error": "missing_access_token"}
+
+        base = os.getenv("SQUARE_API_BASE", "https://connect.squareup.com")
+        if os.getenv("SQUARE_ENV", "prod").lower().startswith("sand"):
+            base = "https://connect.squareupsandbox.com"
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json",
+            "Square-Version": os.getenv("SQUARE_VERSION", "2023-10-18")
+        }
+
+        synced = 0
+        page_count = 0
+        transactions_created = 0
+
+        with httpx.Client(timeout=60, headers=headers) as client:
+            cursor: Optional[str] = None
+            while True:
+                params: Dict[str, str] = {"limit": "100"}
+                if cursor:
+                    params["cursor"] = cursor
+                # Add date filter if provided
+                if req.since_date:
+                    params["begin_time"] = f"{req.since_date}T00:00:00Z"
+
+                r = client.get(f"{base}/v2/payments", params=params)
+                if r.status_code >= 400:
+                    return {"synced": 0, "error": f"square_http_{r.status_code}", "detail": (r.text or "")[:200]}
+
+                body = r.json() or {}
+                payments = body.get("payments") or []
+
+                # Process each payment
+                for payment in payments:
+                    try:
+                        customer_id = str(payment.get("customer_id") or "").strip()
+                        if not customer_id:
+                            continue
+
+                        # Only sync completed payments
+                        status = str(payment.get("status") or "").upper()
+                        if status not in {"COMPLETED", "APPROVED", "CAPTURED"}:
+                            continue
+
+                        # Extract amount
+                        amount_cents = 0
+                        try:
+                            amount_cents = int(((payment.get("amount_money") or {}).get("amount") or 0))
+                        except Exception:
+                            amount_cents = 0
+
+                        # Subtract refunds
+                        refunded_cents = 0
+                        try:
+                            refunded_cents = int(((payment.get("refunded_money") or {}).get("amount") or 0))
+                        except Exception:
+                            refunded_cents = 0
+
+                        net_amount = max(0, amount_cents - refunded_cents)
+                        if net_amount == 0:
+                            continue
+
+                        # Parse payment date
+                        payment_date_str = str(payment.get("created_at") or "")
+                        payment_date = None
+                        if payment_date_str:
+                            try:
+                                from datetime import datetime
+                                payment_date = datetime.fromisoformat(payment_date_str.replace('Z', '+00:00'))
+                            except Exception:
+                                logger.warning("Failed to parse Square payment date: %s", payment_date_str)
+                                continue
+
+                        payment_id = str(payment.get("id") or "")
+                        order_id = str(payment.get("order_id") or "")
+                        external_ref = order_id if order_id else payment_id
+
+                        # Get contact_id from square_customer_id
+                        with _with_rls_conn(req.tenant_id) as conn:
+                            contact_row = conn.execute(
+                                _sql_text("SELECT contact_id FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND square_customer_id = :sqid LIMIT 1"),
+                                {"t": req.tenant_id, "sqid": customer_id}
+                            ).fetchone()
+
+                            if not contact_row:
+                                # Contact doesn't exist yet, skip this payment
+                                continue
+
+                            contact_id = str(contact_row[0])
+
+                            # Insert transaction (idempotent via external_ref check)
+                            existing = conn.execute(
+                                _sql_text("SELECT id FROM transactions WHERE tenant_id = CAST(:t AS uuid) AND source = 'square' AND external_ref = :ref LIMIT 1"),
+                                {"t": req.tenant_id, "ref": external_ref}
+                            ).fetchone()
+
+                            if not existing:
+                                conn.execute(
+                                    _sql_text("""
+                                        INSERT INTO transactions (tenant_id, contact_id, amount_cents, transaction_date, source, external_ref, metadata)
+                                        VALUES (CAST(:t AS uuid), :cid, :amt, :tdate, 'square', :ref, :meta::jsonb)
+                                    """),
+                                    {
+                                        "t": req.tenant_id,
+                                        "cid": contact_id,
+                                        "amt": net_amount,
+                                        "tdate": payment_date,
+                                        "ref": external_ref,
+                                        "meta": json.dumps({"payment_id": payment_id, "order_id": order_id, "status": status})
+                                    }
+                                )
+                                transactions_created += 1
+
+                        synced += 1
+
+                    except Exception as e:
+                        logger.exception("Failed to process Square payment: %s", str(e))
+                        continue
+
+                cursor = body.get("cursor") or body.get("next_cursor")
+                page_count += 1
+
+                if req.max_pages and page_count >= int(req.max_pages or 0):
+                    break
+                if not cursor:
+                    break
+
+        # Update connected account last_sync
+        try:
+            with _with_rls_conn(req.tenant_id) as conn:
+                conn.execute(
+                    _sql_text("UPDATE connected_accounts_v2 SET last_sync = EXTRACT(epoch FROM now())::bigint WHERE tenant_id = CAST(:t AS uuid) AND provider='square'"),
+                    {"t": req.tenant_id}
+                )
+        except Exception:
+            pass
+
+        # Emit success event
+        try:
+            emit_event("SquarePaymentsSynced", {
+                "tenant_id": req.tenant_id,
+                "payments_processed": synced,
+                "transactions_created": transactions_created
+            })
+        except Exception:
+            pass
+
+        return {
+            "synced": synced,
+            "transactions_created": transactions_created,
+            "pages": page_count
+        }
+
+    except Exception as e:
+        logger.exception("Square payment sync failed for tenant %s", req.tenant_id)
+        return {"synced": 0, "error": "internal_error", "detail": str(e)[:200]}
 
 
 @app.post("/integrations/booking/acuity/import", tags=["Integrations"])

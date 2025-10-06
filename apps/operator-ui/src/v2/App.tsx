@@ -428,17 +428,21 @@ export default function App() {
           maximumFractionDigits: 0,
         })
 
-        const revenueCents = Number(kpis?.revenue_uplift ?? 0)
+        // Use current_month_revenue_cents for accurate monthly tracking
+        const currentMonthRevenueCents = Number(kpis?.current_month_revenue_cents ?? 0)
         const activeClients = Number(kpis?.contacts ?? 0)
         const retentionRate = Number(metrics?.rebook_rate_30d ?? 0)
-        const roiPercent = revenueCents > 0 ? Math.round(((revenueCents / 100) / 147) * 100) : 0
+        const roiPercent = currentMonthRevenueCents > 0 ? Math.round(((currentMonthRevenueCents / 100) / 147) * 100) : 0
+
+        // Get current month name for display
+        const currentMonthName = new Date().toLocaleDateString('en-US', { month: 'long' })
 
         const stats: DashboardStat[] = []
 
         stats.push({
-          title: 'Monthly Revenue',
-          value: currencyFormatter.format(revenueCents / 100),
-          description: 'vs last month',
+          title: `${currentMonthName} Revenue`,
+          value: currencyFormatter.format(currentMonthRevenueCents / 100),
+          description: 'This month so far',
         })
 
         stats.push({

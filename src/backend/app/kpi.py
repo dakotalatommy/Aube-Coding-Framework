@@ -94,12 +94,37 @@ def admin_kpis(db: Session, tenant_id: str) -> dict:
         ).fetchone()
         shares = int(result[0]) if result else 0
         
-        # Sum revenue uplift from contacts.lifetime_cents
+        # Calculate current month revenue from transactions table
+        # This gives accurate monthly revenue based on transaction_date
         result = conn.execute(
-            text("SELECT COALESCE(SUM(lifetime_cents), 0) as total FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND deleted = false"),
+            text("""
+                SELECT COALESCE(SUM(amount_cents), 0)
+                FROM transactions
+                WHERE tenant_id = CAST(:t AS uuid)
+                  AND transaction_date >= date_trunc('month', CURRENT_DATE)
+                  AND transaction_date < date_trunc('month', CURRENT_DATE) + interval '1 month'
+            """),
             {"t": tenant_id}
         ).fetchone()
-        revenue_uplift = int(result[0]) if result else 0
+        current_month_revenue_cents = int(result[0]) if result else 0
+        
+        # Calculate lifetime revenue from transactions (this is the true "uplift" since using BrandVX)
+        # If transactions table is empty, fall back to contacts.lifetime_cents
+        result = conn.execute(
+            text("SELECT COALESCE(SUM(amount_cents), 0) FROM transactions WHERE tenant_id = CAST(:t AS uuid)"),
+            {"t": tenant_id}
+        ).fetchone()
+        total_transaction_revenue = int(result[0]) if result else 0
+        
+        # If no transactions exist yet, fall back to contacts.lifetime_cents (for backward compatibility)
+        if total_transaction_revenue == 0:
+            result = conn.execute(
+                text("SELECT COALESCE(SUM(lifetime_cents), 0) FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND deleted = false"),
+                {"t": tenant_id}
+            ).fetchone()
+            lifetime_revenue_cents = int(result[0]) if result else 0
+        else:
+            lifetime_revenue_cents = total_transaction_revenue
     
     # referrals (placeholder: count of SharePrompt)
     referrals_30d = shares
@@ -108,7 +133,9 @@ def admin_kpis(db: Session, tenant_id: str) -> dict:
         "time_saved_minutes": time_saved,
         "usage_index": msgs,
         "ambassador_candidate": amb,
-        "revenue_uplift": revenue_uplift,
+        "current_month_revenue_cents": current_month_revenue_cents,  # NEW: October revenue
+        "lifetime_revenue_cents": lifetime_revenue_cents,  # Total revenue tracked in BrandVX
+        "revenue_uplift": lifetime_revenue_cents,  # Alias for backward compatibility
         "referrals_30d": referrals_30d,
         "contacts": contacts,
         "active_cadences": active_cadences,
