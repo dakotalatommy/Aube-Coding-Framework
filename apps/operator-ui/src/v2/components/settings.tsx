@@ -470,6 +470,35 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
     </Card>
   )
 
+  const formatPlanName = (planName: string | undefined): string => {
+    if (!planName) return 'Trial'
+    
+    const plan = planName.toLowerCase()
+    
+    // Map database plan names to display names
+    const planDisplayNames: Record<string, string> = {
+      'trial': 'Trial',
+      'essentials': 'brandVX lite',
+      'pro': 'Elite Founder',
+      'founding': 'Elite Founder',
+      'founder': 'Elite Founder',
+      'premium': 'Basic Founder',
+      'founder_unlimited': 'Founder Unlimited',
+      'founder unlimited': 'Founder Unlimited',
+    }
+    
+    // Check if we have a direct mapping
+    if (planDisplayNames[plan]) {
+      return planDisplayNames[plan]
+    }
+    
+    // Otherwise, format by removing underscores and capitalizing each word
+    return plan
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ')
+  }
+
   const renderPlanBillingCard = () => {
     const currentPlan = userData?.plan?.toLowerCase() || ''
     const hasPaidPlan = currentPlan && !['trial', 'essentials', ''].includes(currentPlan)
@@ -494,7 +523,7 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-semibold text-foreground">
-                  {userData?.plan ? userData.plan.charAt(0).toUpperCase() + userData.plan.slice(1) : 'Trial'} Plan
+                  {formatPlanName(userData?.plan ?? undefined)} Plan
                 </h3>
                 <Badge variant="outline" className="bg-primary/10">
                   {hasPaidPlan ? 'Active' : 'Trial'}
