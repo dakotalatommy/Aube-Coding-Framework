@@ -175,7 +175,7 @@ const PAGE_ONBOARDING_CONTENT = {
 
 const PRICING_TIERS = [
   {
-    name: 'Essentials',
+    name: 'brandVX lite',
     price: '$47',
     period: '/month',
     description: 'Perfect for solo operators getting started',
@@ -193,14 +193,14 @@ const PRICING_TIERS = [
     highlighted: false,
   },
   {
-    name: 'Pro',
+    name: 'Elite Founder',
     price: '$97',
     period: '/month',
-    badge: 'Founding Member',
+    badge: 'Best Value',
     description: 'For professionals ready to scale their business',
     billingNote: 'Billed monthly, pay today',
     features: [
-      'Everything in Essentials',
+      'Everything in brandVX lite',
       'Unlimited clients',
       'Advanced marketing automation',
       'Premium analytics & insights',
@@ -213,14 +213,14 @@ const PRICING_TIERS = [
     highlighted: true,
   },
   {
-    name: 'Premium',
+    name: 'Basic Founder',
     price: '$147',
     period: '/month',
     badge: 'Most Popular',
     description: 'Complete growth suite for ambitious beauty pros',
     billingNote: '7-day free trial, then billed monthly',
     features: [
-      'Everything in Pro',
+      'Everything in Elite Founder',
       'Fill Your Chair - Lead generation tools',
       'Grow with VX - Advanced automation',
       'Custom branding options',

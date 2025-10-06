@@ -514,12 +514,12 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
               {hasPaidPlan ? 'Upgrade Options' : 'Available Plans'}
             </h3>
             <div className="grid gap-4 md:grid-cols-3">
-              {/* Essentials $47/mo - Hide if already on $47 or higher plan */}
+              {/* brandVX lite $47/mo - Hide if already on $47 or higher plan */}
               {!has97Plan && !has147Plan && (
                 <div className="rounded-xl border border-muted p-4 hover:border-primary/50 transition-colors">
                   <div className="flex items-start justify-between mb-3">
                     <div>
-                      <h4 className="font-semibold text-foreground">Essentials</h4>
+                      <h4 className="font-semibold text-foreground">brandVX lite</h4>
                       <p className="text-2xl font-bold text-primary mt-1">$47<span className="text-sm font-normal text-muted-foreground">/month</span></p>
                     </div>
                   </div>
@@ -551,12 +551,12 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
                 </div>
               )}
 
-              {/* Founding Member $97/mo - Hide if already on $97 or higher plan */}
+              {/* Elite Founder $97/mo - Hide if already on $97 or higher plan */}
               {!has97Plan && !has147Plan && (
                 <div className="rounded-xl border border-muted p-4 hover:border-primary/50 transition-colors">
                   <div className="flex items-start justify-between mb-3">
                     <div>
-                      <h4 className="font-semibold text-foreground">Founding Member</h4>
+                      <h4 className="font-semibold text-foreground">Elite Founder</h4>
                       <p className="text-2xl font-bold text-primary mt-1">$97<span className="text-sm font-normal text-muted-foreground">/month</span></p>
                     </div>
                     <Badge className="bg-gradient-to-r from-amber-500 to-amber-600 text-white text-xs">Best Value</Badge>
@@ -589,11 +589,11 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
                 </div>
               )}
 
-              {/* Pro $147/mo - Always show unless already on $147 */}
+              {/* Basic Founder $147/mo - Always show unless already on $147 */}
               <div className="rounded-xl border border-muted p-4 hover:border-primary/50 transition-colors">
                 <div className="flex items-start justify-between mb-3">
                   <div>
-                    <h4 className="font-semibold text-foreground">Pro</h4>
+                    <h4 className="font-semibold text-foreground">Basic Founder</h4>
                     <p className="text-2xl font-bold text-primary mt-1">$147<span className="text-sm font-normal text-muted-foreground">/month</span></p>
                   </div>
                   <div className="flex flex-col gap-1">
