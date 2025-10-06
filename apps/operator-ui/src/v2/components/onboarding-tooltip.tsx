@@ -21,6 +21,18 @@ import {
   Zap
 } from 'lucide-react'
 
+// Declare Stripe Buy Button custom element
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      'stripe-buy-button': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & {
+        'buy-button-id': string
+        'publishable-key': string
+      }
+    }
+  }
+}
+
 interface OnboardingStep {
   title: string
   description: string
@@ -175,7 +187,7 @@ const PRICING_TIERS = [
       'BrandVZN style recommendations',
       'Up to 50 clients'
     ],
-    buyButtonId: 'VITE_STRIPE_BUY_BUTTON_47',
+    buyButtonId: 'buy_btn_1S8t06KsdVcBvHY1b42SHXi9',
     priceId: 'VITE_STRIPE_PRICE_47',
     trialDays: 0,
     highlighted: false,
@@ -195,7 +207,7 @@ const PRICING_TIERS = [
       'Inventory management',
       'Priority support'
     ],
-    buyButtonId: 'VITE_STRIPE_BUY_BUTTON_97',
+    buyButtonId: 'buy_btn_1S3JACKsdVcBvHY1eEO0g2Mt',
     priceId: 'VITE_STRIPE_PRICE_97',
     trialDays: 0,
     highlighted: true,
@@ -215,7 +227,7 @@ const PRICING_TIERS = [
       'Dedicated account manager',
       'Early access to new features'
     ],
-    buyButtonId: 'VITE_STRIPE_BUY_BUTTON_147',
+    buyButtonId: 'buy_btn_1S3J6sKsdVcBvHY1nllLYX6Q',
     priceId: 'VITE_STRIPE_PRICE_147',
     trialDays: 7,
     highlighted: false,
@@ -289,6 +301,17 @@ export function OnboardingTooltip({
   const [isSubmittingFounderForm, setIsSubmittingFounderForm] = useState(false)
 
   const content = PAGE_ONBOARDING_CONTENT[pageId]
+
+  // Load Stripe Buy Button script
+  useEffect(() => {
+    const existingScript = document.querySelector('script[src*="buy-button.js"]')
+    if (existingScript) return
+
+    const script = document.createElement('script')
+    script.async = true
+    script.src = 'https://js.stripe.com/v3/buy-button.js'
+    document.head.appendChild(script)
+  }, [])
 
   // Check if founder slides have been seen
   const hasSeenFounderSlides = () => {
@@ -516,13 +539,12 @@ export function OnboardingTooltip({
                     {PRICING_TIERS.map((tier) => (
                       <div
                         key={tier.name}
-                      className={`relative rounded-xl border-2 p-4 transition-all hover:shadow-lg cursor-pointer ${
-                        tier.highlighted 
-                          ? 'border-primary bg-primary/5' 
-                          : 'border-muted hover:border-primary/50'
-                      }`}
-                      onClick={() => handlePricingSelection(tier.buyButtonId, tier.priceId, tier.trialDays)}
-                    >
+                        className={`relative rounded-xl border-2 p-4 transition-all hover:shadow-lg ${
+                          tier.highlighted 
+                            ? 'border-primary bg-primary/5' 
+                            : 'border-muted hover:border-primary/50'
+                        }`}
+                      >
                         {tier.badge && (
                           <div className="absolute -top-2 left-1/2 transform -translate-x-1/2">
                             <Badge className="bg-primary text-white text-xs px-3 py-0.5">
@@ -552,26 +574,13 @@ export function OnboardingTooltip({
                           ))}
                         </ul>
                         
-                        <Button 
-                          className={`w-full ${tier.highlighted ? 'bg-primary hover:bg-primary/90' : ''}`}
-                          variant={tier.highlighted ? 'default' : 'outline'}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handlePricingSelection(tier.buyButtonId)
-                          }}
-                        >
-                          {tier.price === '$147' ? (
-                            <>
-                              <Zap className="h-4 w-4 mr-2" />
-                              Start Free Trial
-                            </>
-                          ) : (
-                            <>
-                              <Crown className="h-4 w-4 mr-2" />
-                              Get Started
-                            </>
-                          )}
-                        </Button>
+                        <div className="w-full">
+                          {/* @ts-ignore - Stripe Buy Button custom element */}
+                          <stripe-buy-button
+                            buy-button-id={tier.buyButtonId}
+                            publishable-key="pk_live_51RJwqnKsdVcBvHY1Uf3dyiHqrB3fsE35Qhgs5KfnPSJSsdalZpoJik9HYR4x6OY1ITiNJw6VJnqN9bHymiw9xE3r00WyZkg6kZ"
+                          />
+                        </div>
                       </div>
                     ))}
                   </div>

@@ -23,6 +23,18 @@ import type {
   QuietHoursSettings,
 } from './types/settings.ts'
 
+// Declare Stripe Buy Button custom element
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      'stripe-buy-button': React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & {
+        'buy-button-id': string
+        'publishable-key': string
+      }
+    }
+  }
+}
+
 
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Button } from './ui/button'
@@ -99,6 +111,21 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
   const hasLoadedRef = React.useRef(false)
   const settingsFetchInFlightRef = React.useRef(false)
   const integrationsFetchInFlightRef = React.useRef(false)
+
+  // Load Stripe Buy Button script
+  useEffect(() => {
+    const existingScript = document.querySelector('script[src*="buy-button.js"]')
+    if (existingScript) return
+
+    const script = document.createElement('script')
+    script.async = true
+    script.src = 'https://js.stripe.com/v3/buy-button.js'
+    document.head.appendChild(script)
+
+    return () => {
+      // Don't remove script on unmount as it may be used elsewhere
+    }
+  }, [])
 
   const loadSettings = useCallback(async (): Promise<void> => {
     if (settingsFetchInFlightRef.current) return
@@ -480,13 +507,50 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
           </div>
         </div>
 
-        {/* Plan Options - Show upgrades only */}
+        {/* Plan Options - Show all tiers */}
         {!has147Plan && (
           <div className="space-y-4">
             <h3 className="text-sm font-semibold text-foreground">
               {hasPaidPlan ? 'Upgrade Options' : 'Available Plans'}
             </h3>
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 md:grid-cols-3">
+              {/* Essentials $47/mo - Hide if already on $47 or higher plan */}
+              {!has97Plan && !has147Plan && (
+                <div className="rounded-xl border border-muted p-4 hover:border-primary/50 transition-colors">
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <h4 className="font-semibold text-foreground">Essentials</h4>
+                      <p className="text-2xl font-bold text-primary mt-1">$47<span className="text-sm font-normal text-muted-foreground">/month</span></p>
+                    </div>
+                  </div>
+                  <ul className="space-y-2 text-sm text-muted-foreground mb-4">
+                    <li className="flex items-center gap-2">
+                      <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
+                      Essential scheduling tools
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
+                      Basic analytics
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
+                      Up to 50 clients
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
+                      Billed today
+                    </li>
+                  </ul>
+                  <div className="w-full">
+                    {/* @ts-ignore - Stripe Buy Button custom element */}
+                    <stripe-buy-button
+                      buy-button-id="buy_btn_1S8t06KsdVcBvHY1b42SHXi9"
+                      publishable-key={import.meta.env.VITE_STRIPE_PK || 'pk_live_51RJwqnKsdVcBvHY1Uf3dyiHqrB3fsE35Qhgs5KfnPSJSsdalZpoJik9HYR4x6OY1ITiNJw6VJnqN9bHymiw9xE3r00WyZkg6kZ'}
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Founding Member $97/mo - Hide if already on $97 or higher plan */}
               {!has97Plan && !has147Plan && (
                 <div className="rounded-xl border border-muted p-4 hover:border-primary/50 transition-colors">
@@ -495,56 +559,33 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
                       <h4 className="font-semibold text-foreground">Founding Member</h4>
                       <p className="text-2xl font-bold text-primary mt-1">$97<span className="text-sm font-normal text-muted-foreground">/month</span></p>
                     </div>
-                    <Badge className="bg-gradient-to-r from-amber-500 to-amber-600 text-white">Best Value</Badge>
+                    <Badge className="bg-gradient-to-r from-amber-500 to-amber-600 text-white text-xs">Best Value</Badge>
                   </div>
                   <ul className="space-y-2 text-sm text-muted-foreground mb-4">
                     <li className="flex items-center gap-2">
                       <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
-                      Lock in founding member price
+                      Lock in founding price
                     </li>
                     <li className="flex items-center gap-2">
                       <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
-                      All Pro features included
+                      Unlimited clients
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
+                      Advanced automation
                     </li>
                     <li className="flex items-center gap-2">
                       <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
                       Billed today
                     </li>
                   </ul>
-                  <Button variant="outline" className="w-full" onClick={async () => {
-                    try {
-                      // Try buy button first
-                      const buyButtonId = import.meta.env.VITE_STRIPE_BUY_BUTTON_97
-                      if (buyButtonId) {
-                        window.open(`https://buy.stripe.com/${buyButtonId}`, '_blank')
-                        return
-                      }
-                      
-                      // Fallback: Create checkout session server-side (legacy flow)
-                      const price_id = import.meta.env.VITE_STRIPE_PRICE_97 || ''
-                      if (!price_id) {
-                        toast.error('Payment configuration error. Please contact support.')
-                        return
-                      }
-                      
-                      const response = await api.post('/billing/create-checkout-session', {
-                        price_id,
-                        mode: 'subscription',
-                        trial_days: 0 // Charge today for $97 plan
-                      })
-                      
-                      if (response?.url) {
-                        window.location.href = response.url
-                      } else {
-                        toast.error('Unable to start checkout. Please try again.')
-                      }
-                    } catch (error) {
-                      console.error('Checkout error:', error)
-                      toast.error('Unable to process payment. Please try again.')
-                    }
-                  }}>
-                    Select Plan
-                  </Button>
+                  <div className="w-full">
+                    {/* @ts-ignore - Stripe Buy Button custom element */}
+                    <stripe-buy-button
+                      buy-button-id="buy_btn_1S3JACKsdVcBvHY1eEO0g2Mt"
+                      publishable-key={import.meta.env.VITE_STRIPE_PK || 'pk_live_51RJwqnKsdVcBvHY1Uf3dyiHqrB3fsE35Qhgs5KfnPSJSsdalZpoJik9HYR4x6OY1ITiNJw6VJnqN9bHymiw9xE3r00WyZkg6kZ'}
+                    />
+                  </div>
                 </div>
               )}
 
@@ -555,13 +596,15 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
                     <h4 className="font-semibold text-foreground">Pro</h4>
                     <p className="text-2xl font-bold text-primary mt-1">$147<span className="text-sm font-normal text-muted-foreground">/month</span></p>
                   </div>
-                  {!hasPaidPlan && <Badge variant="secondary">7-Day Trial</Badge>}
-                  {has97Plan && <Badge className="bg-gradient-to-r from-primary to-accent text-white">Upgrade</Badge>}
+                  <div className="flex flex-col gap-1">
+                    {!hasPaidPlan && <Badge variant="secondary" className="text-xs">7-Day Trial</Badge>}
+                    {has97Plan && <Badge className="bg-gradient-to-r from-primary to-accent text-white text-xs">Upgrade</Badge>}
+                  </div>
                 </div>
                 <ul className="space-y-2 text-sm text-muted-foreground mb-4">
                   <li className="flex items-center gap-2">
                     <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
-                    {!hasPaidPlan ? '7-day free trial included' : 'Premium features'}
+                    7-day free trial
                   </li>
                   <li className="flex items-center gap-2">
                     <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
@@ -569,43 +612,20 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
                   </li>
                   <li className="flex items-center gap-2">
                     <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
-                    {!hasPaidPlan ? 'Billed after trial' : 'Advanced automation'}
+                    Lead generation tools
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Badge variant="outline" className="h-4 w-4 rounded-full p-0" />
+                    Priority support
                   </li>
                 </ul>
-                <Button className="w-full" onClick={async () => {
-                  try {
-                    // Try buy button first
-                    const buyButtonId = import.meta.env.VITE_STRIPE_BUY_BUTTON_147
-                    if (buyButtonId) {
-                      window.open(`https://buy.stripe.com/${buyButtonId}`, '_blank')
-                      return
-                    }
-                    
-                    // Fallback: Create checkout session server-side (legacy flow)
-                    const price_id = import.meta.env.VITE_STRIPE_PRICE_147 || ''
-                    if (!price_id) {
-                      toast.error('Payment configuration error. Please contact support.')
-                      return
-                    }
-                    
-                    const response = await api.post('/billing/create-checkout-session', {
-                      price_id,
-                      mode: 'subscription',
-                      trial_days: 7 // 7-day trial for $147 plan
-                    })
-                    
-                    if (response?.url) {
-                      window.location.href = response.url
-                    } else {
-                      toast.error('Unable to start checkout. Please try again.')
-                    }
-                  } catch (error) {
-                    console.error('Checkout error:', error)
-                    toast.error('Unable to process payment. Please try again.')
-                  }
-                }}>
-                  {has97Plan ? 'Upgrade to Pro' : 'Start Trial'}
-                </Button>
+                <div className="w-full">
+                  {/* @ts-ignore - Stripe Buy Button custom element */}
+                  <stripe-buy-button
+                    buy-button-id="buy_btn_1S3J6sKsdVcBvHY1nllLYX6Q"
+                    publishable-key={import.meta.env.VITE_STRIPE_PK || 'pk_live_51RJwqnKsdVcBvHY1Uf3dyiHqrB3fsE35Qhgs5KfnPSJSsdalZpoJik9HYR4x6OY1ITiNJw6VJnqN9bHymiw9xE3r00WyZkg6kZ'}
+                  />
+                </div>
               </div>
             </div>
           </div>
