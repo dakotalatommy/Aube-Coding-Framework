@@ -20,7 +20,7 @@ export const flags = {
   vision_dnd: () => isFeatureEnabled('vision_dnd', true),
   tour_resume_chip: () => isFeatureEnabled('tour_resume_chip', true),
   workflows: () => isFeatureEnabled('workflows', false),
-  follow_ups: () => isFeatureEnabled('follow_ups', false),
+  follow_ups: () => isFeatureEnabled('follow_ups', true),
   recent_activity: () => isFeatureEnabled('recent_activity', false),
 };
 
