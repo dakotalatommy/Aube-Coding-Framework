@@ -4646,6 +4646,31 @@ def ai_chat_save_summary(
         except Exception:
             pass
         return {"status": "error", "detail": str(e)[:200]}
+def _sanitize_final_text(text: str) -> str:
+    try:
+        import re as _re
+        s = (text or "")
+        # Remove fenced code blocks (including ```json)
+        s = _re.sub(r"```[\s\S]*?```", "", s)
+        # Remove explicit internal artifact tags often surfaced by providers
+        s = _re.sub(r"</?(?:tool_call|function_call|think|assistant_tool|tool_result)[^>]*>", "", s, flags=_re.IGNORECASE)
+        # Drop lines that look like JSON tool/function metadata
+        lines = []
+        for ln in s.splitlines():
+            if _re.search(r"\"(?:tool|function|arguments|parameters)\"\s*:\s*", ln, flags=_re.IGNORECASE):
+                continue
+            lines.append(ln)
+        s = "\n".join(lines)
+        t = s.strip()
+        # If remaining text looks like a bare JSON object/array, discard
+        if (t.startswith("{") and t.endswith("}")) or (t.startswith("[") and t.endswith("]")):
+            t = ""
+        # Collapse excessive blank lines
+        t = _re.sub(r"\n{3,}", "\n\n", t).strip()
+        return t
+    except Exception:
+        return (text or "").strip()
+
 @app.post("/ai/chat", tags=["AI"])
 async def ai_chat(
     req: ChatRequest,
@@ -5031,6 +5056,8 @@ async def ai_chat(
             ],
             max_tokens=reply_max_tokens,
         )
+        # Final redaction to avoid exposing internal call artifacts
+        content = _sanitize_final_text(content)
     except Exception as e:
         from fastapi.responses import JSONResponse as _JR
         return _JR({"error": "provider_error", "detail": str(e)[:400]}, status_code=502)
@@ -5138,7 +5165,18 @@ async def ai_chat_raw(
         except Exception:
             pass
     if mode == "support":
-        system_prompt += "\n\n[Mode: Support]\nYou are BrandVX Support. Answer product questions concisely (2–4 sentences), point to exact UI locations, avoid internal jargon."
+        system_prompt += (
+            "\n\n[Mode: Support]\n"
+            "You are AskVX Support for beauty professionals. Be warm, upbeat, and practical.\n"
+            "Answer first in 1–2 sentences, then short \"What’s next\" bullets. Offer to handle the action when safe.\n"
+            "Do not mention internal systems, tools, functions, schemas, or JSON. Never reveal IDs, payloads, or traces.\n"
+            "Only write natural language. Keep replies compact and skimmable. No code blocks.\n"
+            "Formatting:\n"
+            "- Direct answer (1–2 sentences)\n"
+            "- Bulleted What’s next\n"
+            "- Optional: I can do this for you—just say yes.\n"
+            "Domain phrasing: use client/guest; focus on bookings, reminders, payments, messages.\n"
+        )
     elif mode in {"train", "train_vx"}:
         system_prompt += "\n\n[Mode: Train_VX]\nYou are Brand Coach. Help refine tone, brand profile, and goals. Keep edits short, concrete, and save‑ready."
     elif mode == "analysis":
@@ -5149,6 +5187,9 @@ async def ai_chat_raw(
         system_prompt += "\n\n[Mode: Scheduler]\nScheduling mode. Offer concrete times, avoid overbooking, and reconcile external calendars."
     elif mode in {"todo", "notifications"}:
         system_prompt += "\n\n[Mode: To‑Do]\nCreate concise, actionable tasks; avoid duplicates; summarize impact in one line."
+    else:
+        # Global guardrail even outside support: never expose internal implementation details
+        system_prompt += "\n\nNever reveal internal tool names, functions, schemas, JSON, IDs, or payloads. Use plain, natural language only."
     if brand_profile_text:
         system_prompt = system_prompt + "\n\nBrand profile (voice/tone):\n" + brand_profile_text
     try:
@@ -5193,6 +5234,19 @@ async def ai_chat_raw(
     # Lightweight data context: answer top LTV queries concretely when available
     try:
         user_q = (req.messages[-1].content if req.messages else "").lower()
+        def _contact_name_from_obj(obj: Any) -> str:
+            try:
+                display = (getattr(obj, "display_name", "") or "").strip()
+                if display:
+                    return display
+                first = (getattr(obj, "first_name", "") or "").strip()
+                last = (getattr(obj, "last_name", "") or "").strip()
+                name = " ".join(part for part in [first, last] if part)
+                if name:
+                    return name
+            except Exception:
+                pass
+            return "Client"
         data_notes: List[str] = []
         if ("top" in user_q and ("clients" in user_q or "contacts" in user_q) and ("lifetime" in user_q or "spend" in user_q or "value" in user_q)):
             import re as _re, datetime as _dt
@@ -5549,6 +5603,11 @@ async def ai_chat_raw(
         from fastapi.responses import JSONResponse as _JR
         excerpt = json.dumps({k: provider_json.get(k) for k in ("status", "incomplete_details", "usage")})
         return _JR({"error": "provider_error", "detail": "no_text_output", "provider_excerpt": excerpt}, status_code=200)
+    # Redact internal artifacts and ensure plain text output only
+    try:
+        content = _sanitize_final_text(content)
+    except Exception:
+        pass
     # Apply tenant chat exposure for names; always mask emails/phones
     try:
         import re as _re
