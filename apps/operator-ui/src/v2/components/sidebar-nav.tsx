@@ -121,7 +121,7 @@ const isTrialUser = (userData?: SidebarNavProps['userData']) => {
 export function SidebarNav({ currentPage, onNavigate, userData, onNavigateToSettings }: SidebarNavProps) {
   const navigate = useNavigate()
   const userIsOnTrial = isTrialUser(userData)
-  const BOOKING_URL = (import.meta as any).env?.VITE_BOOKING_URL || ''
+  const BOOKING_URL = 'http://aube-creative-labs.square.site/'
 
   const handleNavClick = (page: string) => {
     if (page === 'settings' && onNavigateToSettings) {

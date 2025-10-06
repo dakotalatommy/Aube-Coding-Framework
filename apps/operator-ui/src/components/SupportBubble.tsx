@@ -584,7 +584,7 @@ export default function SupportBubble({ hideTrigger }: SupportBubbleProps){
                 <div className="text-[11px] text-slate-600 mb-2">Pick an option below or keep chatting with our team.</div>
                 <div className="grid grid-cols-1 gap-1.5">
                   <a
-                    href="https://discord.gg/FDGaphZ4"
+                    href="https://discord.gg/dzxjPZbj"
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center justify-between rounded-lg border bg-white px-3 py-2 text-sm text-slate-800 hover:border-slate-400 transition"
