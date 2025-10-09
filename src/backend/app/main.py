@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, Depends, Response, Request, HTTPException, UploadFile
+from fastapi import FastAPI, Depends, Response, Request, HTTPException, UploadFile, Header
 from fastapi.responses import PlainTextResponse, RedirectResponse, FileResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -794,8 +794,6 @@ def onboarding_progress(tenant_id: str, db: Session = Depends(get_db), ctx: User
         return {"steps": [{"step_key": r[0], "completed_at": str(r[1])} for r in rows]}
     except Exception:
         return {"steps": []}
-
-
 @app.get("/onboarding/progress/status", tags=["Plans"])
 def onboarding_progress_status(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
     """
@@ -1209,8 +1207,8 @@ FOLLOWUP_TEMPLATES: Dict[str, Dict[str, Any]] = {
         "variations": [
             "Hey {{name}}! Looking forward to seeing you {{time_phrase}}. Let me know if anything changes.",
             "Hi {{name}}, your appointment {{time_phrase}} is all set. Need to tweak the time? I can shuffle things around.",
-            "Counting down to {{time_phrase}}, {{name}} — send a quick note if you’d like to add anything on.",
-            "Friendly reminder about {{time_phrase}}! If something pops up, just text me and we’ll adjust.",
+            "Counting down to {{time_phrase}}, {{name}} — send a quick note if you'd like to add anything on.",
+            "Friendly reminder about {{time_phrase}}! If something pops up, just text me and we'll adjust.",
             "Excited to see you {{time_phrase}}, {{name}}. Message me if you prefer a different slot.",
         ],
     },
@@ -1220,7 +1218,7 @@ FOLLOWUP_TEMPLATES: Dict[str, Dict[str, Any]] = {
         "cadence_id": "reminder_week",
         "variations": [
             "Hi {{name}}! Your visit on {{day_phrase}} at {{time_of_day}} is reserved. Need a different window? I can swap it.",
-            "{{name}}, excited to see you {{day_phrase}} at {{time_of_day}}. If your schedule tightens up, I’ve got backup options.",
+            "{{name}}, excited to see you {{day_phrase}} at {{time_of_day}}. If your schedule tightens up, I've got backup options.",
             "Quick wave for your {{day_phrase}} {{time_of_day}} appointment. Want to tack on a gloss or treatment? Let me know.",
             "Your spot this week is ready — {{day_phrase}} at {{time_of_day}}. Happy to hold an alternate time if you need it.",
             "Looking forward to your {{day_phrase}} refresher at {{time_of_day}}. Ping me if travel or weather nudges the plan.",
@@ -1231,11 +1229,11 @@ FOLLOWUP_TEMPLATES: Dict[str, Dict[str, Any]] = {
         "prompt": "Warm outreach to guests who haven't visited in about 30 days. Offer to reserve a time and highlight a small benefit.",
         "cadence_id": "reengage_30d",
         "variations": [
-            "Hi {{name}}! It’s been about a month — want me to reserve a chair before the week fills up?",
-            "{{name}}, I’d love to see you soon. How about a midweek touch-up? I can hold something easy for you.",
-            "Dropping a hint that your next glow-up is due. Tell me what day feels best and I’ll lock it in.",
+            "Hi {{name}}! It's been about a month — want me to reserve a chair before the week fills up?",
+            "{{name}}, I'd love to see you soon. How about a midweek touch-up? I can hold something easy for you.",
+            "Dropping a hint that your next glow-up is due. Tell me what day feels best and I'll lock it in.",
             "Ready when you are for another pamper session, {{name}}. I have a couple of afternoon openings next week.",
-            "Missed you in the studio! Send me a day that works and I’ll keep that spot just for you.",
+            "Missed you in the studio! Send me a day that works and I'll keep that spot just for you.",
         ],
     },
     "winback_45d": {
@@ -1243,11 +1241,11 @@ FOLLOWUP_TEMPLATES: Dict[str, Dict[str, Any]] = {
         "prompt": "Encouraging message for guests away 45+ days. Emphasize fresh look and ease of booking.",
         "cadence_id": "winback_45d_plus",
         "variations": [
-            "Hey {{name}}! Let’s bring that color back to life — want me to pencil in a refresh?",
-            "{{name}}, it’s been a while! I’ve got a cozy chair waiting whenever you’re ready for a reset.",
+            "Hey {{name}}! Let's bring that color back to life — want me to pencil in a refresh?",
+            "{{name}}, it's been a while! I've got a cozy chair waiting whenever you're ready for a reset.",
             "Thinking of you and your last visit — shall I block off a morning or evening soon?",
-            "Ready for a new-season look? Tell me what day fits and I’ll keep that appointment just for you.",
-            "I’d love to catch up, {{name}}! Reply with a day that feels good and consider it booked.",
+            "Ready for a new-season look? Tell me what day fits and I'll keep that appointment just for you.",
+            "I'd love to catch up, {{name}}! Reply with a day that feels good and consider it booked.",
         ],
     },
 }
@@ -1573,7 +1571,7 @@ def _generate_followup_markdown(
             middle = middle[0].upper() + middle[1:] + '. '
 
         message_body = (
-            f"{opener}{middle}I’d love to help you get back on the books—want me to send a couple of times?"
+            f"{opener}{middle}I'd love to help you get back on the books—want me to send a couple of times?"
         )
         lines.append(f"## {name}\n{message_body}\n")
 
@@ -2373,7 +2371,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 # Response compression for large JSON/text payloads
 app.add_middleware(GZipMiddleware, minimum_size=1024)
 
@@ -3155,7 +3152,6 @@ def _audit_logs_columns(db: Session) -> set:
         return {str(r[0]) for r in rows}
     except Exception:
         return set()
-
 def _safe_audit_log(db: Session, *, tenant_id: str, actor_id: str, action: str, entity_ref: str, payload: Optional[str] = None) -> None:
     """Insert an audit_log row while tolerating deployments where the 'payload' column is absent.
     Commits on success; on failure rolls back and swallows the error to avoid aborting outer transactions.
@@ -5168,25 +5164,25 @@ async def ai_chat_raw(
         system_prompt += (
             "\n\n[Mode: Support]\n"
             "You are AskVX Support for beauty professionals. Be warm, upbeat, and practical.\n"
-            "Answer first in 1–2 sentences, then short \"What’s next\" bullets. Offer to handle the action when safe.\n"
+            "Answer first in 1–2 sentences, then short \"What's next\" bullets. Offer to handle the action when safe.\n"
             "Do not mention internal systems, tools, functions, schemas, or JSON. Never reveal IDs, payloads, or traces.\n"
             "Only write natural language. Keep replies compact and skimmable. No code blocks.\n"
             "Formatting:\n"
             "- Direct answer (1–2 sentences)\n"
-            "- Bulleted What’s next\n"
+            "- Bulleted What's next\n"
             "- Optional: I can do this for you—just say yes.\n"
             "Domain phrasing: use client/guest; focus on bookings, reminders, payments, messages.\n"
         )
     elif mode in {"train", "train_vx"}:
-        system_prompt += "\n\n[Mode: Train_VX]\nYou are Brand Coach. Help refine tone, brand profile, and goals. Keep edits short, concrete, and save‑ready."
+        system_prompt += "\n\n[Mode: Train_VX]\nYou are Brand Coach. Help refine tone, brand profile, and goals. Keep edits short, concrete, and save-ready."
     elif mode == "analysis":
-        system_prompt += "\n\n[Mode: Analysis]\nAnalysis mode. Use read‑only data and return direct lists or single‑line facts. No assumptions."
+        system_prompt += "\n\n[Mode: Analysis]\nAnalysis mode. Use read-only data and return direct lists or single-line facts. No assumptions."
     elif mode == "messaging":
-        system_prompt += "\n\n[Mode: Messaging]\nMessaging mode. Draft consent‑first, brand‑aligned copy; prefer short, actionable outputs."
+        system_prompt += "\n\n[Mode: Messaging]\nMessaging mode. Draft consent-first, brand-aligned copy; prefer short, actionable outputs."
     elif mode == "scheduler":
         system_prompt += "\n\n[Mode: Scheduler]\nScheduling mode. Offer concrete times, avoid overbooking, and reconcile external calendars."
     elif mode in {"todo", "notifications"}:
-        system_prompt += "\n\n[Mode: To‑Do]\nCreate concise, actionable tasks; avoid duplicates; summarize impact in one line."
+        system_prompt += "\n\n[Mode: To-Do]\nCreate concise, actionable tasks; avoid duplicates; summarize impact in one line."
     else:
         # Global guardrail even outside support: never expose internal implementation details
         system_prompt += "\n\nNever reveal internal tool names, functions, schemas, JSON, IDs, or payloads. Use plain, natural language only."
@@ -6535,7 +6531,7 @@ def list_approvals(
             _p = {}
         t = (tool or "").lower()
         if t == "social.schedule.14days":
-            return "Draft a 14‑day posting plan (no posts published until scheduled)."
+            return "Draft a 14-day posting plan (no posts published until scheduled)."
         if t == "contacts.dedupe":
             return "Deduplicate contacts by email/phone hashes."
         if t == "campaigns.dormant.start":
@@ -6602,7 +6598,7 @@ def consent_policy() -> Dict[str, str]:
 def consent_faq() -> Dict[str, object]:
     return {
         "items": [
-            {"q": "What is consent?", "a": "Explicit permission to message via SMS/Email. We record STOP/HELP and opt‑outs."},
+            {"q": "What is consent?", "a": "Explicit permission to message via SMS/Email. We record STOP/HELP and opt-outs."},
             {"q": "How do I stop messages?", "a": "Reply STOP to SMS or use unsubscribe links; operators can also set consent off."},
             {"q": "What data is stored?", "a": "Hashes or IDs plus message metadata for audit; no raw PII is required for demo."},
         ]
@@ -7438,8 +7434,6 @@ def acuity_debug_token_lens(
         return {"ok": True, "rows": out}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
-
-
 @app.get("/metrics", tags=["Health"])
 def get_metrics(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
@@ -10845,8 +10839,6 @@ def list_appointments(
             "external_ref": r.external_ref,
         })
     return {"items": items}
-
-
 class StopRequest(BaseModel):
     tenant_id: str
     contact_id: str
@@ -10953,7 +10945,7 @@ def ai_workflow_plan(req: WorkflowPlanRequest, ctx: UserContext = Depends(get_us
             {"title": "Schedule reminders", "tool": "appointments.schedule_reminders", "requiresApproval": False},
         ],
         "social_automation": [
-            {"title": "Draft 14‑day schedule", "tool": "social.schedule.14days", "requiresApproval": True},
+            {"title": "Draft 14-day schedule", "tool": "social.schedule.14days", "requiresApproval": True},
         ],
     }
     steps = plans.get(req.name)
@@ -10987,7 +10979,7 @@ def guide_manifest() -> Dict[str, object]:
                 {"panel": "inbox", "selector": "[data-guide=templates]", "title": "Message templates", "desc": "Pick and schedule reminders."},
             ],
             "social_automation": [
-                {"panel": "social", "selector": "[data-guide=plan-14]", "title": "Draft 14‑day plan", "desc": "Review and approve posts."},
+                {"panel": "social", "selector": "[data-guide=plan-14]", "title": "Draft 14-day plan", "desc": "Review and approve posts."},
             ],
         },
     }
