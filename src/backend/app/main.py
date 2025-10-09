@@ -7179,15 +7179,37 @@ class AcuityImportRequest(BaseModel):
 
 
 @app.post("/integrations/booking/acuity/import", tags=["Integrations"])
-def booking_import(req: AcuityImportRequest, ctx: UserContext = Depends(get_user_context)):
-    # Canonicalize to context tenant to mirror Square behavior
+def booking_import(
+    req: AcuityImportRequest,
+    ctx: UserContext = Depends(get_user_context_relaxed),
+    page_limit: Optional[int] = Header(default=None, convert_underscores=False),
+    skip_appt_payments: Optional[bool] = Header(default=None, convert_underscores=False),
+):
+    if ctx is None or not getattr(ctx, "tenant_id", None):
+        raise HTTPException(status_code=401, detail="missing_token")
     try:
         req.tenant_id = ctx.tenant_id
     except Exception:
         pass
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
-    return booking_acuity.import_appointments(req.tenant_id, req.since, req.until, req.cursor)
+    effective_page_limit = page_limit
+    if effective_page_limit is None or effective_page_limit <= 0:
+        try:
+            effective_page_limit = int(os.getenv("ACUITY_PAGE_LIMIT", "100") or "100")
+        except Exception:
+            effective_page_limit = 100
+    effective_skip = skip_appt_payments
+    if effective_skip is None:
+        effective_skip = os.getenv("ACUITY_SKIP_APPOINTMENT_PAYMENTS", "0") == "1"
+    return booking_acuity.import_appointments(
+        req.tenant_id,
+        req.since,
+        req.until,
+        req.cursor,
+        page_limit=effective_page_limit,
+        skip_appt_payments=effective_skip,
+    )
 
 
 @app.get("/integrations/booking/acuity/status", tags=["Integrations"])  # strict-auth status probe

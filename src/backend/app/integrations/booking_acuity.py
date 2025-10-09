@@ -1,5 +1,6 @@
 import hashlib
 import time
+from time import perf_counter
 from typing import Dict, Any, Optional, List, Tuple, Set
 from contextlib import contextmanager
 import base64
@@ -291,7 +292,15 @@ def _collect_orders_payments(
 #  Main import flow
 # -----------------------------------------------------------------------------
 
-def import_appointments(tenant_id: str, since: Optional[str] = None, until: Optional[str] = None, cursor: Optional[str] = None) -> Dict[str, Any]:
+def import_appointments(
+    tenant_id: str,
+    since: Optional[str] = None,
+    until: Optional[str] = None,
+    cursor: Optional[str] = None,
+    *,
+    page_limit: Optional[int] = None,
+    skip_appt_payments: Optional[bool] = None,
+) -> Dict[str, Any]:
     base = (os.getenv("ACUITY_API_BASE", "https://acuityscheduling.com/api/v1").strip().rstrip(" /."))
     headers = _acuity_headers(tenant_id)
     try:
@@ -311,6 +320,11 @@ def import_appointments(tenant_id: str, since: Optional[str] = None, until: Opti
     dbg_appts_error: Optional[str] = None
     payments_map: Dict[str, Dict[str, Any]] = {}
 
+    if skip_appt_payments is None:
+        skip_appt_payments = os.getenv("ACUITY_SKIP_APPOINTMENT_PAYMENTS", "0") == "1"
+    if page_limit is None:
+        page_limit = int(os.getenv("ACUITY_PAGE_LIMIT", "100") or "100")
+
     try:
         with _with_conn(tenant_id) as conn:  # type: ignore
             conn.execute(
@@ -324,10 +338,16 @@ def import_appointments(tenant_id: str, since: Optional[str] = None, until: Opti
     email_map: Dict[str, str] = {}
     try:
         with httpx.Client(timeout=20, headers=headers) as client:
+            clients_started = perf_counter()
+            client_pages = 0
             offset = 0
-            limit = 100
+            limit = page_limit
             while True:
                 params: Dict[str, object] = {"limit": limit, "offset": offset}
+                if since:
+                    params["minDate"] = since
+                if until:
+                    params["maxDate"] = until
                 r = client.get(f"{base}/clients", params=params)
                 dbg_clients_status = r.status_code
                 if r.status_code >= 400:
@@ -337,20 +357,21 @@ def import_appointments(tenant_id: str, since: Optional[str] = None, until: Opti
                 if not isinstance(arr, list) or not arr:
                     break
                 dbg_clients_count += len(arr)
-                for c in arr:
-                    try:
-                        cid_raw = str(c.get("id") or "")
-                        contact_id = f"acuity:{cid_raw}" if cid_raw else (
-                            f"acuity:email/{c.get('email', '')}"
-                            if c.get("email")
-                            else f"acuity:{hashlib.md5(str(c).encode()).hexdigest()[:10]}"
-                        )
-                        client_map[cid_raw] = contact_id
-                        email_val = str(c.get("email") or "").strip().lower()
-                        if email_val:
-                            email_map[email_val] = contact_id
-                        with _with_conn(tenant_id) as conn:  # type: ignore
-                            ts_expr = _timestamp_expr(conn)
+                client_pages += 1
+                with _with_conn(tenant_id) as conn:  # type: ignore
+                    ts_expr = _timestamp_expr(conn)
+                    for c in arr:
+                        try:
+                            cid_raw = str(c.get("id") or "")
+                            contact_id = f"acuity:{cid_raw}" if cid_raw else (
+                                f"acuity:email/{c.get('email', '')}"
+                                if c.get("email")
+                                else f"acuity:{hashlib.md5(str(c).encode()).hexdigest()[:10]}"
+                            )
+                            client_map[cid_raw] = contact_id
+                            email_val = str(c.get("email") or "").strip().lower()
+                            if email_val:
+                                email_map[email_val] = contact_id
                             u = conn.execute(
                                 _sql_text(
                                     "UPDATE contacts SET first_name=:fn,last_name=:ln,display_name=:dn,email_hash=:em,phone_hash=:ph,updated_at="
@@ -390,14 +411,27 @@ def import_appointments(tenant_id: str, since: Optional[str] = None, until: Opti
                                 )
                             else:
                                 updated += 1
-                        imported += 1
-                    except Exception:
-                        skipped += 1
+                            imported += 1
+                        except Exception:
+                            skipped += 1
                 if len(arr) < limit:
                     break
                 offset += limit
 
+            logger.info(
+                "acuity_clients_fetched",
+                extra={
+                    "tenant_id": tenant_id,
+                    "pages": client_pages,
+                    "count": dbg_clients_count,
+                    "seconds": round(perf_counter() - clients_started, 2),
+                },
+            )
+
             offset = 0
+            appt_pages = 0
+            appointments_started = perf_counter()
+            payments_checked = 0
             while True:
                 params: Dict[str, object] = {"limit": limit, "offset": offset}
                 if since:
@@ -413,30 +447,33 @@ def import_appointments(tenant_id: str, since: Optional[str] = None, until: Opti
                 if not isinstance(arr, list) or not arr:
                     break
                 dbg_appts_count += len(arr)
-                for a in arr:
-                    try:
-                        aid = str(a.get("id") or "")
-                        ext = f"acuity:{aid}" if aid else f"acuity:{hashlib.md5(str(a).encode()).hexdigest()[:10]}"
-                        cid = str(a.get("clientID") or a.get("clientId") or a.get("client_id") or "")
-                        contact_id = client_map.get(cid) or (
-                            f"acuity:{cid}" if cid else (f"acuity:email/{a.get('email','')}" if a.get("email") else None)
-                        )
-                        start_ts = _parse_epoch(a.get("datetime") or a.get("startTime") or a.get("start_ts"))
-                        end_ts = _parse_epoch(a.get("endTime") or a.get("end_ts")) or None
-                        status = str(a.get("status") or "booked").lower()
-                        service = str(a.get("type") or a.get("title") or a.get("service") or "")
-                        if contact_id:
-                            entry = _get_entry(payments_map, contact_id)
-                            if start_ts:
-                                _apply_visit(entry, int(start_ts))
-                            try:
-                                _collect_appointment_payments(payments_map, contact_id, client, base, aid)
-                            except Exception as exc:
-                                logger.debug(
-                                    "Acuity appointment payment fetch failed",
-                                    extra={"appointment_id": aid, "error": str(exc)},
-                                )
-                        with _with_conn(tenant_id) as conn:  # type: ignore
+                appt_pages += 1
+                with _with_conn(tenant_id) as conn:  # type: ignore
+                    for a in arr:
+                        try:
+                            aid = str(a.get("id") or "")
+                            ext = f"acuity:{aid}" if aid else f"acuity:{hashlib.md5(str(a).encode()).hexdigest()[:10]}"
+                            cid = str(a.get("clientID") or a.get("clientId") or a.get("client_id") or "")
+                            contact_id = client_map.get(cid) or (
+                                f"acuity:{cid}" if cid else (f"acuity:email/{a.get('email','')}" if a.get("email") else None)
+                            )
+                            start_ts = _parse_epoch(a.get("datetime") or a.get("startTime") or a.get("start_ts"))
+                            end_ts = _parse_epoch(a.get("endTime") or a.get("end_ts")) or None
+                            status = str(a.get("status") or "booked").lower()
+                            service = str(a.get("type") or a.get("title") or a.get("service") or "")
+                            if contact_id:
+                                entry = _get_entry(payments_map, contact_id)
+                                if start_ts:
+                                    _apply_visit(entry, int(start_ts))
+                                if not skip_appt_payments:
+                                    try:
+                                        _collect_appointment_payments(payments_map, contact_id, client, base, aid)
+                                        payments_checked += 1
+                                    except Exception as exc:
+                                        logger.debug(
+                                            "Acuity appointment payment fetch failed",
+                                            extra={"appointment_id": aid, "error": str(exc)},
+                                        )
                             r1 = conn.execute(
                                 _sql_text(
                                     "UPDATE appointments SET contact_id=:c, service=:s, start_ts=:st, end_ts=:et, status=:stt "
@@ -468,15 +505,35 @@ def import_appointments(tenant_id: str, since: Optional[str] = None, until: Opti
                                         "stt": status,
                                     },
                                 )
-                        appt_imported += 1
-                    except Exception:
-                        skipped += 1
+                            appt_imported += 1
+                        except Exception:
+                            skipped += 1
                 if len(arr) < limit:
                     break
                 offset += limit
 
+            logger.info(
+                "acuity_appointments_fetched",
+                extra={
+                    "tenant_id": tenant_id,
+                    "pages": appt_pages,
+                    "count": dbg_appts_count,
+                    "payments_checked": payments_checked,
+                    "seconds": round(perf_counter() - appointments_started, 2),
+                },
+            )
+
             try:
+                payments_started = perf_counter()
                 _collect_orders_payments(payments_map, client, base, email_map)
+                logger.info(
+                    "acuity_orders_processed",
+                    extra={
+                        "tenant_id": tenant_id,
+                        "contacts_with_payments": len(payments_map),
+                        "seconds": round(perf_counter() - payments_started, 2),
+                    },
+                )
             except Exception as exc:
                 logger.debug(
                     "Acuity order payments fetch failed",
@@ -551,6 +608,8 @@ def import_appointments(tenant_id: str, since: Optional[str] = None, until: Opti
         "appointments_status": dbg_appts_status,
         "appointments_count": dbg_appts_count,
         "auth_mode": auth_mode,
+        "page_limit": page_limit,
+        "skip_appt_payments": skip_appt_payments,
         **({"clients_error": dbg_clients_error} if dbg_clients_error else {}),
         **({"appointments_error": dbg_appts_error} if dbg_appts_error else {}),
         "next_cursor": None,
