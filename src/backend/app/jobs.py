@@ -316,30 +316,30 @@ def _worker_loop() -> None:
 
 
 def start_job_worker_if_enabled() -> None:
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info("=== WORKER STARTUP CALLED ===")
-    logger.info(f"ENABLE_WORKER={os.getenv('ENABLE_WORKER', 'NOT_SET')}")
-    logger.info(f"ENABLE_FOLLOWUPS_WORKER={os.getenv('ENABLE_FOLLOWUPS_WORKER', 'NOT_SET')}")
+    print("[worker] === WORKER STARTUP CALLED ===")
+    print(f"[worker] ENABLE_WORKER={os.getenv('ENABLE_WORKER', 'NOT_SET')}")
+    print(f"[worker] ENABLE_FOLLOWUPS_WORKER={os.getenv('ENABLE_FOLLOWUPS_WORKER', 'NOT_SET')}")
     try:
         # Start Redis worker if enabled
         if os.getenv("ENABLE_WORKER", "0") == "1":
-            logger.info("Starting Redis job worker thread...")
+            print("[worker] Starting Redis job worker thread...")
             t = threading.Thread(target=_worker_loop, daemon=True)
             t.start()
-            logger.info("Redis worker thread started")
+            print("[worker] Redis worker thread started")
         else:
-            logger.warning("Redis worker disabled (ENABLE_WORKER != 1)")
+            print(f"[worker] Redis worker DISABLED (ENABLE_WORKER={os.getenv('ENABLE_WORKER', 'NOT_SET')})")
         
         # Start followups worker if enabled (independent of Redis worker)
         if os.getenv("ENABLE_FOLLOWUPS_WORKER", "0") == "1":
-            logger.info("Starting followups worker thread...")
+            print("[worker] Starting followups worker thread...")
             from .workers.followups import run_forever as run_followups_worker
 
             t_followups = threading.Thread(target=run_followups_worker, kwargs={"sleep_seconds": float(os.getenv("FOLLOWUPS_WORKER_SLEEP", "2"))}, daemon=True)
             t_followups.start()
-            logger.info("Followups worker thread started successfully")
+            print("[worker] Followups worker thread started successfully ✓")
         else:
-            logger.warning("Followups worker disabled (ENABLE_FOLLOWUPS_WORKER != 1)")
+            print(f"[worker] Followups worker DISABLED (ENABLE_FOLLOWUPS_WORKER={os.getenv('ENABLE_FOLLOWUPS_WORKER', 'NOT_SET')})")
     except Exception as e:
-        logger.exception("CRITICAL: Worker startup failed: %s", str(e))
+        import traceback
+        print(f"[worker] CRITICAL: Worker startup failed: {e}")
+        print(traceback.format_exc())
