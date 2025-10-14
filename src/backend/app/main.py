@@ -7180,7 +7180,6 @@ def booking_import(
     ctx: UserContext = Depends(get_user_context_relaxed),
     page_limit: Optional[int] = Header(default=None, convert_underscores=False),
     skip_appt_payments: Optional[bool] = Header(default=None, convert_underscores=False),
-    db: Session = Depends(get_db),
 ):
     """Queue Acuity import job to run in background worker."""
     if ctx is None or not getattr(ctx, "tenant_id", None):
@@ -7203,25 +7202,18 @@ def booking_import(
         effective_skip = os.getenv("ACUITY_SKIP_APPOINTMENT_PAYMENTS", "0") == "1"
     
     # Create background job instead of running synchronously
-    job = dbm.Job(
-        tenant_id=req.tenant_id,
-        kind="bookings.acuity.import",
-        status="queued",
-        input={
-            "tenant_id": req.tenant_id,
-            "since": req.since,
-            "until": req.until,
-            "cursor": req.cursor,
-            "page_limit": effective_page_limit,
-            "skip_appt_payments": effective_skip,
-        },
-    )
-    db.add(job)
-    db.commit()
-    db.refresh(job)
+    job_payload = {
+        "tenant_id": req.tenant_id,
+        "since": req.since,
+        "until": req.until,
+        "cursor": req.cursor,
+        "page_limit": effective_page_limit,
+        "skip_appt_payments": effective_skip,
+    }
+    job_id = create_job_record(req.tenant_id, "bookings.acuity.import", job_payload, status="queued")
     
     return {
-        "job_id": str(job.id),
+        "job_id": job_id,
         "status": "queued",
         "message": "Import job queued successfully. Worker will process within seconds."
     }
