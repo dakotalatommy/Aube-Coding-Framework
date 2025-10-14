@@ -428,6 +428,48 @@ def import_appointments(
                 },
             )
 
+            # Rebuild maps from database if empty (e.g., when running appointment-only import in background worker)
+            # This ensures we can match Acuity client IDs to existing contacts even without re-importing contacts
+            if not client_map or not email_map:
+                try:
+                    # First, rebuild email_map from database
+                    with _with_conn(tenant_id) as conn:  # type: ignore
+                        db_contacts = conn.execute(
+                            _sql_text("SELECT contact_id, email FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND email IS NOT NULL"),
+                            {"t": tenant_id},
+                        ).fetchall()
+                        for row in db_contacts:
+                            email_lower = str(row[1] or "").strip().lower()
+                            if email_lower:
+                                email_map[email_lower] = str(row[0])
+                    
+                    # Then fetch Acuity clients to rebuild client_map
+                    with httpx.Client(timeout=20, headers=headers) as rebuild_client:
+                        rebuild_offset = 0
+                        rebuild_limit = 100
+                        for _ in range(20):  # Max 20 pages (2000 clients) to avoid infinite loop
+                            params_rebuild: Dict[str, object] = {"limit": rebuild_limit, "offset": rebuild_offset}
+                            rebuild_resp = rebuild_client.get(f"{base}/clients", params=params_rebuild)
+                            if rebuild_resp.status_code != 200:
+                                break
+                            rebuild_arr = rebuild_resp.json() or []
+                            if not isinstance(rebuild_arr, list) or not rebuild_arr:
+                                break
+                            for c in rebuild_arr:
+                                cid_raw = str(c.get("id") or "")
+                                email_val = str(c.get("email") or "").strip().lower()
+                                if cid_raw:
+                                    # Match by email if available, otherwise use expected format
+                                    if email_val and email_val in email_map:
+                                        client_map[cid_raw] = email_map[email_val]
+                                    else:
+                                        client_map[cid_raw] = f"acuity:{cid_raw}"
+                            if len(rebuild_arr) < rebuild_limit:
+                                break
+                            rebuild_offset += rebuild_limit
+                except Exception:
+                    pass
+
             offset = 0
             appt_pages = 0
             appointments_started = perf_counter()
@@ -519,7 +561,7 @@ def import_appointments(
                                 conn.execute(
                                     _sql_text(
                                         "INSERT INTO appointments(tenant_id,contact_id,service,start_ts,end_ts,status,external_ref,created_at,updated_at) "
-                                        "VALUES (CAST(:t AS uuid),CAST(:c AS uuid),:s,to_timestamp(:st),to_timestamp(:et),:stt,:x,NOW(),NOW())"
+                                        "VALUES (CAST(:t AS uuid),CAST(:c AS uuid),:s,to_timestamp(:st),to_timestamp(:et),:stt,:x,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
                                     ),
                                     {
                                         "t": tenant_id,
