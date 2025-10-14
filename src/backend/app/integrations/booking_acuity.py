@@ -476,15 +476,23 @@ def import_appointments(
             payments_checked = 0
             
             # Build contact_id -> UUID mapping to avoid per-appointment DB lookups
+            # Also build phone-based lookup since Acuity client IDs are often null
             contact_uuid_map: Dict[str, str] = {}
+            phone_to_uuid_map: Dict[str, str] = {}
             try:
                 with _with_conn(tenant_id) as conn:  # type: ignore
                     rows = conn.execute(
-                        _sql_text("SELECT id, contact_id FROM contacts WHERE tenant_id = CAST(:t AS uuid)"),
+                        _sql_text("SELECT id, contact_id, phone FROM contacts WHERE tenant_id = CAST(:t AS uuid)"),
                         {"t": tenant_id},
                     ).fetchall()
                     for row in rows:
                         contact_uuid_map[row[1]] = str(row[0])
+                        # Also map by normalized phone for fallback matching
+                        if row[2]:
+                            # Normalize phone: remove all non-digits
+                            phone_normalized = ''.join(c for c in str(row[2]) if c.isdigit())
+                            if phone_normalized:
+                                phone_to_uuid_map[phone_normalized] = str(row[0])
             except Exception:
                 pass
             
@@ -522,6 +530,12 @@ def import_appointments(
                             contact_uuid = None
                             if external_contact_id:
                                 contact_uuid = contact_uuid_map.get(external_contact_id)
+                            
+                            # Fallback: try matching by phone if email didn't work
+                            if not contact_uuid and a.get("phone"):
+                                phone_normalized = ''.join(c for c in str(a.get("phone")) if c.isdigit())
+                                if phone_normalized:
+                                    contact_uuid = phone_to_uuid_map.get(phone_normalized)
                             
                             if not contact_uuid:
                                 # Skip appointments without valid contact linkage
