@@ -512,50 +512,51 @@ def import_appointments(
                     break
                 dbg_appts_count += len(arr)
                 appt_pages += 1
-                with _with_conn(tenant_id) as conn:  # type: ignore
-                    for a in arr:
-                        try:
-                            aid = str(a.get("id") or "")
-                            ext = f"acuity:{aid}" if aid else f"acuity:{hashlib.md5(str(a).encode()).hexdigest()[:10]}"
-                            cid = str(a.get("clientID") or a.get("clientId") or a.get("client_id") or "")
-                            external_contact_id = client_map.get(cid) or (
-                                f"acuity:{cid}" if cid else (f"acuity:email/{a.get('email','')}" if a.get("email") else None)
-                            )
-                            start_ts = _parse_epoch(a.get("datetime") or a.get("startTime") or a.get("start_ts"))
-                            end_ts = _parse_epoch(a.get("endTime") or a.get("end_ts")) or None
-                            status = str(a.get("status") or "booked").lower()
-                            service = str(a.get("type") or a.get("title") or a.get("service") or "")
-                            
-                            # Look up the actual UUID contact_id from the pre-built mapping
-                            contact_uuid = None
-                            if external_contact_id:
-                                contact_uuid = contact_uuid_map.get(external_contact_id)
-                            
-                            # Fallback: try matching by phone if email didn't work
-                            if not contact_uuid and a.get("phone"):
-                                phone_normalized = ''.join(c for c in str(a.get("phone")) if c.isdigit())
-                                if phone_normalized:
-                                    contact_uuid = phone_to_uuid_map.get(phone_normalized)
-                            
-                            if not contact_uuid:
-                                # Skip appointments without valid contact linkage
-                                skipped += 1
-                                continue
-                            
-                            if external_contact_id:
-                                entry = _get_entry(payments_map, external_contact_id)
-                                if start_ts:
-                                    _apply_visit(entry, int(start_ts))
-                                if not skip_appt_payments:
-                                    try:
-                                        _collect_appointment_payments(payments_map, external_contact_id, client, base, aid)
-                                        payments_checked += 1
-                                    except Exception as exc:
-                                        logger.debug(
-                                            "Acuity appointment payment fetch failed",
-                                            extra={"appointment_id": aid, "error": str(exc)},
-                                        )
-                            
+                for a in arr:
+                    try:
+                        aid = str(a.get("id") or "")
+                        ext = f"acuity:{aid}" if aid else f"acuity:{hashlib.md5(str(a).encode()).hexdigest()[:10]}"
+                        cid = str(a.get("clientID") or a.get("clientId") or a.get("client_id") or "")
+                        external_contact_id = client_map.get(cid) or (
+                            f"acuity:{cid}" if cid else (f"acuity:email/{a.get('email','')}" if a.get("email") else None)
+                        )
+                        start_ts = _parse_epoch(a.get("datetime") or a.get("startTime") or a.get("start_ts"))
+                        end_ts = _parse_epoch(a.get("endTime") or a.get("end_ts")) or None
+                        status = str(a.get("status") or "booked").lower()
+                        service = str(a.get("type") or a.get("title") or a.get("service") or "")
+                        
+                        # Look up the actual UUID contact_id from the pre-built mapping
+                        contact_uuid = None
+                        if external_contact_id:
+                            contact_uuid = contact_uuid_map.get(external_contact_id)
+                        
+                        # Fallback: try matching by phone if email didn't work
+                        if not contact_uuid and a.get("phone"):
+                            phone_normalized = ''.join(c for c in str(a.get("phone")) if c.isdigit())
+                            if phone_normalized:
+                                contact_uuid = phone_to_uuid_map.get(phone_normalized)
+                        
+                        if not contact_uuid:
+                            # Skip appointments without valid contact linkage
+                            skipped += 1
+                            continue
+                        
+                        if external_contact_id:
+                            entry = _get_entry(payments_map, external_contact_id)
+                            if start_ts:
+                                _apply_visit(entry, int(start_ts))
+                            if not skip_appt_payments:
+                                try:
+                                    _collect_appointment_payments(payments_map, external_contact_id, client, base, aid)
+                                    payments_checked += 1
+                                except Exception as exc:
+                                    logger.debug(
+                                        "Acuity appointment payment fetch failed",
+                                        extra={"appointment_id": aid, "error": str(exc)},
+                                    )
+                        
+                        # Each appointment gets its own transaction to avoid lock timeout cascades
+                        with _with_conn(tenant_id) as conn:  # type: ignore
                             r1 = conn.execute(
                                 _sql_text(
                                     "UPDATE appointments SET contact_id=CAST(:c AS uuid), service=:s, start_ts=to_timestamp(:st), end_ts=to_timestamp(:et), status=:stt "
@@ -587,9 +588,9 @@ def import_appointments(
                                         "stt": status,
                                     },
                                 )
-                            appt_imported += 1
-                        except Exception:
-                            skipped += 1
+                        appt_imported += 1
+                    except Exception:
+                        skipped += 1
                 if len(arr) < limit:
                     break
                 offset += limit
