@@ -1,4 +1,5 @@
 import hashlib
+import sys
 import time
 from time import perf_counter
 from typing import Dict, Any, Optional, List, Tuple, Set
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 @contextmanager
 def _with_conn(tenant_id: str, role: str = "owner_admin"):
     conn_cm = engine.begin()
+    exc_info = (None, None, None)
     try:
         conn = conn_cm.__enter__()
         try:
@@ -35,11 +37,16 @@ def _with_conn(tenant_id: str, role: str = "owner_admin"):
             logger.exception("Failed to set app.tenant_id GUC (tenant_id=%s)", tenant_id)
             raise
         yield conn
+    except Exception:
+        exc_info = sys.exc_info()
+        raise
     finally:
+        # Always call __exit__ with proper exception info, suppress any cleanup errors
         try:
-            conn_cm.__exit__(None, None, None)
-        except Exception as e:
-            logger.exception("Failed to close connection context: %s", str(e))
+            conn_cm.__exit__(*exc_info)
+        except Exception:
+            # Suppress cleanup errors to prevent connection leaks
+            pass
 
 
 def _read_one(conn, sql: str, params: Dict[str, object]) -> Optional[Tuple[object, ...]]:
