@@ -2736,7 +2736,9 @@ def _start_scheduler_if_enabled():
             t = _threading.Thread(target=_locked_loop, daemon=True)
             t.start()
         # Start Redis-backed job worker if enabled
+        print("[startup] Calling start_job_worker_if_enabled()...")
         start_job_worker_if_enabled()
+        print("[startup] start_job_worker_if_enabled() completed")
         # Bootstrap v2 table
         _ensure_connected_accounts_v2()
         # Bootstrap AI context tables
@@ -2767,8 +2769,10 @@ def _start_scheduler_if_enabled():
                     print("[warn] TWILIO_FROM_NUMBER not in E.164 format (e.g., +15551234567).")
         except Exception:
             pass
-    except Exception:
-        pass
+    except Exception as e:
+        import traceback
+        print(f"[CRITICAL] Startup function _start_scheduler_if_enabled failed: {e}")
+        print(traceback.format_exc())
 # --------------------------- Plans & Usage Limits (admin) ---------------------------
 class PlanUpsert(BaseModel):
     plan_code: str
