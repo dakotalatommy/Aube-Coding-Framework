@@ -358,20 +358,22 @@ def import_appointments(
                     break
                 dbg_clients_count += len(arr)
                 client_pages += 1
-                with _with_conn(tenant_id) as conn:  # type: ignore
-                    ts_expr = _timestamp_expr(conn)
-                    for c in arr:
-                        try:
-                            cid_raw = str(c.get("id") or "")
-                            contact_id = f"acuity:{cid_raw}" if cid_raw else (
-                                f"acuity:email/{c.get('email', '')}"
-                                if c.get("email")
-                                else f"acuity:{hashlib.md5(str(c).encode()).hexdigest()[:10]}"
-                            )
-                            client_map[cid_raw] = contact_id
-                            email_val = str(c.get("email") or "").strip().lower()
-                            if email_val:
-                                email_map[email_val] = contact_id
+                for c in arr:
+                    try:
+                        cid_raw = str(c.get("id") or "")
+                        contact_id = f"acuity:{cid_raw}" if cid_raw else (
+                            f"acuity:email/{c.get('email', '')}"
+                            if c.get("email")
+                            else f"acuity:{hashlib.md5(str(c).encode()).hexdigest()[:10]}"
+                        )
+                        client_map[cid_raw] = contact_id
+                        email_val = str(c.get("email") or "").strip().lower()
+                        if email_val:
+                            email_map[email_val] = contact_id
+                        
+                        # Each contact gets its own transaction to avoid lock timeout cascades
+                        with _with_conn(tenant_id) as conn:  # type: ignore
+                            ts_expr = _timestamp_expr(conn)
                             u = conn.execute(
                                 _sql_text(
                                     "UPDATE contacts SET first_name=:fn,last_name=:ln,display_name=:dn,email=:em,phone=:ph,updated_at="
@@ -411,9 +413,9 @@ def import_appointments(
                                 )
                             else:
                                 updated += 1
-                            imported += 1
-                        except Exception:
-                            skipped += 1
+                        imported += 1
+                    except Exception:
+                        skipped += 1
                 if len(arr) < limit:
                     break
                 offset += limit
