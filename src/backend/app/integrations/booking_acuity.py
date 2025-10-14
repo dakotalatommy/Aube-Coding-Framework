@@ -374,7 +374,7 @@ def import_appointments(
                                 email_map[email_val] = contact_id
                             u = conn.execute(
                                 _sql_text(
-                                    "UPDATE contacts SET first_name=:fn,last_name=:ln,display_name=:dn,email_hash=:em,phone_hash=:ph,updated_at="
+                                    "UPDATE contacts SET first_name=:fn,last_name=:ln,display_name=:dn,email=:em,phone=:ph,updated_at="
                                     + ts_expr
                                     + " WHERE tenant_id = CAST(:t AS uuid) AND contact_id=:cid"
                                 ),
@@ -392,7 +392,7 @@ def import_appointments(
                             if rc == 0:
                                 conn.execute(
                                     _sql_text(
-                                        "INSERT INTO contacts(tenant_id,contact_id,first_name,last_name,display_name,email_hash,phone_hash,consent_sms,consent_email,first_visit,last_visit,txn_count,lifetime_cents,instant_profile,created_at,updated_at) "
+                                        "INSERT INTO contacts(tenant_id,contact_id,first_name,last_name,display_name,email,phone,consent_sms,consent_email,first_visit,last_visit,txn_count,lifetime_cents,instant_profile,created_at,updated_at) "
                                         "VALUES (CAST(:t AS uuid),:cid,:fn,:ln,:dn,:em,:ph,false,false,0,0,0,0,false,"
                                         + ts_expr
                                         + ","
@@ -454,54 +454,76 @@ def import_appointments(
                             aid = str(a.get("id") or "")
                             ext = f"acuity:{aid}" if aid else f"acuity:{hashlib.md5(str(a).encode()).hexdigest()[:10]}"
                             cid = str(a.get("clientID") or a.get("clientId") or a.get("client_id") or "")
-                            contact_id = client_map.get(cid) or (
+                            external_contact_id = client_map.get(cid) or (
                                 f"acuity:{cid}" if cid else (f"acuity:email/{a.get('email','')}" if a.get("email") else None)
                             )
                             start_ts = _parse_epoch(a.get("datetime") or a.get("startTime") or a.get("start_ts"))
                             end_ts = _parse_epoch(a.get("endTime") or a.get("end_ts")) or None
                             status = str(a.get("status") or "booked").lower()
                             service = str(a.get("type") or a.get("title") or a.get("service") or "")
-                            if contact_id:
-                                entry = _get_entry(payments_map, contact_id)
+                            
+                            # Look up the actual UUID contact_id from the external contact_id
+                            contact_uuid = None
+                            if external_contact_id:
+                                try:
+                                    contact_row = conn.execute(
+                                        _sql_text(
+                                            "SELECT id FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :ext LIMIT 1"
+                                        ),
+                                        {"t": tenant_id, "ext": external_contact_id},
+                                    ).fetchone()
+                                    if contact_row:
+                                        contact_uuid = contact_row[0]
+                                except Exception:
+                                    pass
+                            
+                            if not contact_uuid:
+                                # Skip appointments without valid contact linkage
+                                skipped += 1
+                                continue
+                            
+                            if external_contact_id:
+                                entry = _get_entry(payments_map, external_contact_id)
                                 if start_ts:
                                     _apply_visit(entry, int(start_ts))
                                 if not skip_appt_payments:
                                     try:
-                                        _collect_appointment_payments(payments_map, contact_id, client, base, aid)
+                                        _collect_appointment_payments(payments_map, external_contact_id, client, base, aid)
                                         payments_checked += 1
                                     except Exception as exc:
                                         logger.debug(
                                             "Acuity appointment payment fetch failed",
                                             extra={"appointment_id": aid, "error": str(exc)},
                                         )
+                            
                             r1 = conn.execute(
                                 _sql_text(
-                                    "UPDATE appointments SET contact_id=:c, service=:s, start_ts=:st, end_ts=:et, status=:stt "
+                                    "UPDATE appointments SET contact_id=CAST(:c AS uuid), service=:s, start_ts=to_timestamp(:st), end_ts=to_timestamp(:et), status=:stt "
                                     "WHERE tenant_id = CAST(:t AS uuid) AND external_ref = :x"
                                 ),
                                 {
                                     "t": tenant_id,
                                     "x": ext,
-                                    "c": (contact_id or ""),
+                                    "c": str(contact_uuid),
                                     "s": service,
                                     "st": int(start_ts or 0),
-                                    "et": (int(end_ts) if end_ts else None),
+                                    "et": (int(end_ts) if end_ts else 0),
                                     "stt": status,
                                 },
                             )
                             if int(getattr(r1, "rowcount", 0) or 0) == 0:
                                 conn.execute(
                                     _sql_text(
-                                        "INSERT INTO appointments(tenant_id,contact_id,service,start_ts,end_ts,status,external_ref,created_at) "
-                                        "VALUES (CAST(:t AS uuid),:c,:s,:st,:et,:stt,:x,EXTRACT(EPOCH FROM now())::bigint)"
+                                        "INSERT INTO appointments(tenant_id,contact_id,service,start_ts,end_ts,status,external_ref,created_at,updated_at) "
+                                        "VALUES (CAST(:t AS uuid),CAST(:c AS uuid),:s,to_timestamp(:st),to_timestamp(:et),:stt,:x,NOW(),NOW())"
                                     ),
                                     {
                                         "t": tenant_id,
                                         "x": ext,
-                                        "c": (contact_id or ""),
+                                        "c": str(contact_uuid),
                                         "s": service,
                                         "st": int(start_ts or 0),
-                                        "et": (int(end_ts) if end_ts else None),
+                                        "et": (int(end_ts) if end_ts else 0),
                                         "stt": status,
                                     },
                                 )

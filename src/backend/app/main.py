@@ -10249,19 +10249,6 @@ def square_sync_payments(
         return {"synced": 0, "error": "internal_error", "detail": str(e)[:200]}
 
 
-@app.post("/integrations/booking/acuity/import", tags=["Integrations"])
-def booking_import(
-    tenant_id: str,
-    since: Optional[str] = None,
-    until: Optional[str] = None,
-    cursor: Optional[str] = None,
-    ctx: UserContext = Depends(get_user_context),
-):
-    if ctx.tenant_id != tenant_id:
-        return {"status": "forbidden"}
-    return booking_acuity.import_appointments(tenant_id, since, until, cursor)
-
-
 @app.get("/metrics", tags=["Health"])
 def get_metrics(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)) -> Dict[str, int]:
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
