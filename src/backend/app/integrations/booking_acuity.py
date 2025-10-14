@@ -432,6 +432,20 @@ def import_appointments(
             appt_pages = 0
             appointments_started = perf_counter()
             payments_checked = 0
+            
+            # Build contact_id -> UUID mapping to avoid per-appointment DB lookups
+            contact_uuid_map: Dict[str, str] = {}
+            try:
+                with _with_conn(tenant_id) as conn:  # type: ignore
+                    rows = conn.execute(
+                        _sql_text("SELECT id, contact_id FROM contacts WHERE tenant_id = CAST(:t AS uuid)"),
+                        {"t": tenant_id},
+                    ).fetchall()
+                    for row in rows:
+                        contact_uuid_map[row[1]] = str(row[0])
+            except Exception:
+                pass
+            
             while True:
                 params: Dict[str, object] = {"limit": limit, "offset": offset}
                 if since:
@@ -462,20 +476,10 @@ def import_appointments(
                             status = str(a.get("status") or "booked").lower()
                             service = str(a.get("type") or a.get("title") or a.get("service") or "")
                             
-                            # Look up the actual UUID contact_id from the external contact_id
+                            # Look up the actual UUID contact_id from the pre-built mapping
                             contact_uuid = None
                             if external_contact_id:
-                                try:
-                                    contact_row = conn.execute(
-                                        _sql_text(
-                                            "SELECT id FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :ext LIMIT 1"
-                                        ),
-                                        {"t": tenant_id, "ext": external_contact_id},
-                                    ).fetchone()
-                                    if contact_row:
-                                        contact_uuid = contact_row[0]
-                                except Exception:
-                                    pass
+                                contact_uuid = contact_uuid_map.get(external_contact_id)
                             
                             if not contact_uuid:
                                 # Skip appointments without valid contact linkage
