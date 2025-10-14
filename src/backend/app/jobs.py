@@ -80,7 +80,8 @@ def create_job_record(tenant_id: str, kind: str, input_payload: Dict[str, Any], 
     try:
         with engine.begin() as conn:
             conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
-            conn.execute(_sql_text(f"SET LOCAL app.tenant_id='{tenant_id.replace(\"'\", \"''\")}'"))
+            safe_tenant_id = tenant_id.replace("'", "''")
+            conn.execute(_sql_text(f"SET LOCAL app.tenant_id='{safe_tenant_id}'"))
             row = conn.execute(
                 _sql_text(
                     "INSERT INTO jobs (tenant_id, kind, status, progress, input) "
