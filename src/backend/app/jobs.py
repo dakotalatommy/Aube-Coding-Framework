@@ -90,7 +90,10 @@ def create_job_record(tenant_id: str, kind: str, input_payload: Dict[str, Any], 
                 {"t": tenant_id, "k": kind, "s": status, "p": 0, "input": json.dumps(input_payload)},
             ).fetchone()
             return str(row[0]) if row else None
-    except Exception:
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.exception("create_job_record failed: %s", str(e))
         return None
 
 
