@@ -5,7 +5,8 @@ import time
 from typing import Any, Dict, Optional, Tuple
 
 from sqlalchemy.orm import Session
-from sqlalchemy import text as _sql_text
+from sqlalchemy import text as _sql_text, bindparam
+from sqlalchemy.types import JSON as _SQL_JSON
 
 from .cache import _client as _redis_client
 from . import models as dbm
@@ -79,15 +80,21 @@ def enqueue_ai_job(tenant_id: str, session_id: str, prompt: str, max_attempts: i
 def create_job_record(tenant_id: str, kind: str, input_payload: Dict[str, Any], status: str = "queued") -> Optional[str]:
     try:
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-            safe_tenant_id = tenant_id.replace("'", "''")
-            conn.execute(_sql_text(f"SET LOCAL app.tenant_id = '{safe_tenant_id}'"))
+            try:
+                conn.execute(_sql_text("SELECT set_config('app.role', :role, true)"), {"role": "owner_admin"})
+                conn.execute(
+                    _sql_text("SELECT set_config('app.tenant_id', :tenant_id, true)"),
+                    {"tenant_id": tenant_id},
+                )
+            except Exception:
+                pass
+            stmt = _sql_text(
+                "INSERT INTO jobs (tenant_id, kind, status, progress, input) "
+                "VALUES (CAST(:t AS uuid), :k, :s, :p, :inp) RETURNING id"
+            ).bindparams(bindparam("inp", type_=_SQL_JSON))
             row = conn.execute(
-                _sql_text(
-                    "INSERT INTO jobs (tenant_id, kind, status, progress, input) "
-                    "VALUES (CAST(:t AS uuid), :k, :s, :p, :inp) RETURNING id"
-                ),
-                {"t": tenant_id, "k": kind, "s": status, "p": 0, "inp": json.dumps(input_payload)},
+                stmt,
+                {"t": tenant_id, "k": kind, "s": status, "p": 0, "inp": input_payload},
             ).fetchone()
             return str(row[0]) if row else None
     except Exception as e:
@@ -104,12 +111,14 @@ def update_job_record(
     progress: Optional[int] = None,
     result: Optional[Dict[str, Any]] = None,
     error: Optional[str] = None,
+    tenant_id: Optional[str] = None,
 ) -> None:
     if not job_id:
         return
     try:
         fields = []
         params: Dict[str, Any] = {"id": job_id}
+        result_param_used = False
         if status:
             fields.append("status = :status")
             params["status"] = status
@@ -118,24 +127,55 @@ def update_job_record(
             params["progress"] = progress
         if result is not None:
             fields.append("result = :result")
-            params["result"] = json.dumps(result)
+            params["result"] = result
+            result_param_used = True
         elif error is not None:
             fields.append("result = :result")
-            params["result"] = json.dumps({"error": error})
+            params["result"] = {"error": error}
             if not status:
                 fields.append("status = 'error'")
+            result_param_used = True
         if not fields:
             return
         fields.append("updated_at = CURRENT_TIMESTAMP")
         with engine.begin() as conn:
-            conn.execute(_sql_text(f"UPDATE jobs SET {' , '.join(fields)} WHERE id = :id"), params)
+            effective_tenant = tenant_id
+            try:
+                conn.execute(_sql_text("SELECT set_config('app.role', :role, true)"), {"role": "owner_admin"})
+                if not effective_tenant:
+                    row = conn.execute(
+                        _sql_text("SELECT tenant_id::text FROM jobs WHERE id = :id"),
+                        {"id": job_id},
+                    ).fetchone()
+                    if row and row[0]:
+                        effective_tenant = str(row[0])
+                if effective_tenant:
+                    conn.execute(
+                        _sql_text("SELECT set_config('app.tenant_id', :tenant_id, true)"),
+                        {"tenant_id": effective_tenant},
+                    )
+            except Exception:
+                pass
+            stmt = _sql_text(f"UPDATE jobs SET {' , '.join(fields)} WHERE id = :id")
+            if result_param_used:
+                stmt = stmt.bindparams(bindparam("result", type_=_SQL_JSON))
+            conn.execute(stmt, params)
     except Exception:
         pass
 
 
-def get_job_record(job_id: str) -> Optional[Dict[str, Any]]:
+def get_job_record(job_id: str, tenant_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     try:
         with engine.begin() as conn:
+            try:
+                conn.execute(_sql_text("SELECT set_config('app.role', :role, true)"), {"role": "owner_admin"})
+                if tenant_id:
+                    conn.execute(
+                        _sql_text("SELECT set_config('app.tenant_id', :tenant_id, true)"),
+                        {"tenant_id": tenant_id},
+                    )
+            except Exception:
+                pass
             row = conn.execute(
                 _sql_text(
                     "SELECT id, tenant_id, kind, status, progress, input, result, created_at, updated_at "

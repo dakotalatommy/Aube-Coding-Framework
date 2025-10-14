@@ -39,45 +39,71 @@ def _supported_in_clause() -> str:
     return ", ".join(f"'{k}'" for k in SUPPORTED_KINDS)
 
 
-def _acquire_job_id() -> Optional[str]:
+def _acquire_job_id() -> Optional[Tuple[str, Optional[str]]]:
     kinds_clause = _supported_in_clause()
     with engine.begin() as conn:
+        try:
+            conn.execute(_sql_text("SELECT set_config('app.role', :role, true)"), {"role": "owner_admin"})
+        except Exception:
+            pass
         if engine.dialect.name == "postgresql":
-            sql = f"""
-                WITH pending AS (
-                    SELECT id
-                    FROM jobs
-                    WHERE kind IN ({kinds_clause})
-                      AND status = 'queued'
-                      AND (locked_at IS NULL OR locked_at < NOW() - INTERVAL '2 minutes')
-                    ORDER BY created_at ASC
-                    LIMIT 1
-                    FOR UPDATE SKIP LOCKED
-                )
-                UPDATE jobs
-                SET status = 'running', locked_at = NOW(), updated_at = NOW()
-                WHERE id = (SELECT id FROM pending)
-                RETURNING id::text
-            """
-            row = conn.execute(_sql_text(sql)).fetchone()
-            return str(row[0]) if row else None
+            select_sql = _sql_text(
+                f"""
+                SELECT id::text, tenant_id::text
+                FROM jobs
+                WHERE kind IN ({kinds_clause})
+                  AND status = 'queued'
+                  AND (locked_at IS NULL OR locked_at < NOW() - INTERVAL '2 minutes')
+                ORDER BY created_at ASC
+                LIMIT 1
+                FOR UPDATE SKIP LOCKED
+                """
+            )
+            row = conn.execute(select_sql).fetchone()
+            if not row:
+                return None
+            job_id, tenant_id = str(row[0]), (str(row[1]) if row[1] else None)
+            if tenant_id:
+                try:
+                    conn.execute(
+                        _sql_text("SELECT set_config('app.tenant_id', :tenant_id, true)"),
+                        {"tenant_id": tenant_id},
+                    )
+                except Exception:
+                    pass
+            conn.execute(
+                _sql_text(
+                    "UPDATE jobs SET status = 'running', locked_at = NOW(), updated_at = NOW() WHERE id = :id"
+                ),
+                {"id": job_id},
+            )
+            return job_id, tenant_id
         else:
             # SQLite / other dialect fallback without SKIP LOCKED support
             row = conn.execute(
                 _sql_text(
-                    f"SELECT id FROM jobs WHERE kind IN ({kinds_clause}) AND status = 'queued' ORDER BY created_at ASC LIMIT 1"
+                    f"SELECT id, tenant_id FROM jobs WHERE kind IN ({kinds_clause}) AND status = 'queued' ORDER BY created_at ASC LIMIT 1"
                 )
             ).fetchone()
             if not row:
                 return None
-            job_id = row[0]
+            job_id = str(row[0])
+            tenant_id = str(row[1]) if len(row) > 1 and row[1] else None
+            if tenant_id:
+                try:
+                    conn.execute(
+                        _sql_text("SELECT set_config('app.tenant_id', :tenant_id, true)"),
+                        {"tenant_id": tenant_id},
+                    )
+                except Exception:
+                    pass
             conn.execute(
                 _sql_text(
                     "UPDATE jobs SET status = 'running', locked_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = :id"
                 ),
                 {"id": job_id},
             )
-            return str(job_id)
+            return job_id, tenant_id
 
 
 def _render_time(dt: datetime) -> str:
@@ -905,7 +931,7 @@ def _process_acuity_import_job(job_id: str, record: Dict[str, Any], payload: Dic
     """Process Acuity import job in background."""
     tenant_id = str(payload.get("tenant_id") or record.get("tenant_id") or "")
     if not tenant_id:
-        update_job_record(job_id, status="error", error="missing_tenant_id")
+        update_job_record(job_id, status="error", error="missing_tenant_id", tenant_id=None)
         return
     
     try:
@@ -924,7 +950,7 @@ def _process_acuity_import_job(job_id: str, record: Dict[str, Any], payload: Dic
             skip_appt_payments=skip_appt_payments,
         )
         
-        update_job_record(job_id, status="done", result=result)
+        update_job_record(job_id, status="done", result=result, tenant_id=tenant_id)
         logger.info(
             "acuity_import_completed",
             extra={
@@ -936,13 +962,14 @@ def _process_acuity_import_job(job_id: str, record: Dict[str, Any], payload: Dic
         )
     except Exception as e:
         logger.exception("acuity_import_failed", extra={"job_id": job_id, "tenant_id": tenant_id})
-        update_job_record(job_id, status="error", error=str(e)[:500])
+        update_job_record(job_id, status="error", error=str(e)[:500], tenant_id=tenant_id)
 
 
-def _process_job(job_id: str) -> None:
-    record = get_job_record(job_id)
+def _process_job(job_id: str, tenant_id: Optional[str]) -> None:
+    record = get_job_record(job_id, tenant_id=tenant_id)
     if not record:
         return
+    record_tenant = tenant_id or (str(record.get("tenant_id")) if record.get("tenant_id") else None)
     kind = str(record.get("kind") or "")
     payload_raw = record.get("input")
     if isinstance(payload_raw, str):
@@ -964,18 +991,19 @@ def _process_job(job_id: str) -> None:
     elif kind == "bookings.acuity.import":
         _process_acuity_import_job(job_id, record, payload)
     else:
-        update_job_record(job_id, status="error", error="unsupported_kind")
+        update_job_record(job_id, status="error", error="unsupported_kind", tenant_id=record_tenant)
 
 
 def run_once() -> bool:
-    job_id = _acquire_job_id()
-    if not job_id:
+    acquired = _acquire_job_id()
+    if not acquired:
         return False
+    job_id, tenant_id = acquired
     try:
-        _process_job(job_id)
+        _process_job(job_id, tenant_id)
     except Exception:
         logger.exception("job_worker_failure", extra={"job_id": job_id})
-        update_job_record(job_id, status="error", error="worker_exception")
+        update_job_record(job_id, status="error", error="worker_exception", tenant_id=tenant_id)
     return True
 
 
