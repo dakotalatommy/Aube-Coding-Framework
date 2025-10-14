@@ -85,9 +85,9 @@ def create_job_record(tenant_id: str, kind: str, input_payload: Dict[str, Any], 
             row = conn.execute(
                 _sql_text(
                     "INSERT INTO jobs (tenant_id, kind, status, progress, input) "
-                    "VALUES (CAST(:t AS uuid), :k, :s, :p, :input::jsonb) RETURNING id"
+                    "VALUES (CAST(:t AS uuid), :k, :s, :p, :inp::jsonb) RETURNING id"
                 ),
-                {"t": tenant_id, "k": kind, "s": status, "p": 0, "input": json.dumps(input_payload)},
+                {"t": tenant_id, "k": kind, "s": status, "p": 0, "inp": json.dumps(input_payload)},
             ).fetchone()
             return str(row[0]) if row else None
     except Exception as e:
