@@ -316,15 +316,25 @@ def _worker_loop() -> None:
 
 
 def start_job_worker_if_enabled() -> None:
+    import logging
+    logger = logging.getLogger(__name__)
     try:
         if os.getenv("ENABLE_WORKER", "0") != "1":
+            logger.info("Worker disabled (ENABLE_WORKER != 1)")
             return
+        logger.info("Starting Redis job worker thread...")
         t = threading.Thread(target=_worker_loop, daemon=True)
         t.start()
+        logger.info("Redis worker thread started")
+        
         if os.getenv("ENABLE_FOLLOWUPS_WORKER", "0") == "1":
+            logger.info("Starting followups worker thread...")
             from .workers.followups import run_forever as run_followups_worker
 
             t_followups = threading.Thread(target=run_followups_worker, kwargs={"sleep_seconds": float(os.getenv("FOLLOWUPS_WORKER_SLEEP", "2"))}, daemon=True)
             t_followups.start()
-    except Exception:
-        pass
+            logger.info("Followups worker thread started successfully")
+        else:
+            logger.info("Followups worker disabled (ENABLE_FOLLOWUPS_WORKER != 1)")
+    except Exception as e:
+        logger.exception("CRITICAL: Worker startup failed: %s", str(e))
