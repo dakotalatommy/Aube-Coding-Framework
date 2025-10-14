@@ -54,3 +54,4 @@ venv311/
 env
 env/
 **/env/**
+CREDENTIALS_AND_CONFIG.md

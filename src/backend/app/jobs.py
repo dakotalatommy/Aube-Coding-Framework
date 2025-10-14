@@ -85,7 +85,7 @@ def create_job_record(tenant_id: str, kind: str, input_payload: Dict[str, Any], 
             row = conn.execute(
                 _sql_text(
                     "INSERT INTO jobs (tenant_id, kind, status, progress, input) "
-                    "VALUES (CAST(:t AS uuid), :k, :s, :p, :inp::jsonb) RETURNING id"
+                    "VALUES (CAST(:t AS uuid), :k, :s, :p, :inp) RETURNING id"
                 ),
                 {"t": tenant_id, "k": kind, "s": status, "p": 0, "inp": json.dumps(input_payload)},
             ).fetchone()
@@ -117,16 +117,16 @@ def update_job_record(
             fields.append("progress = :progress")
             params["progress"] = progress
         if result is not None:
-            fields.append("result = :result::jsonb")
+            fields.append("result = :result")
             params["result"] = json.dumps(result)
         elif error is not None:
-            fields.append("result = :result::jsonb")
+            fields.append("result = :result")
             params["result"] = json.dumps({"error": error})
             if not status:
                 fields.append("status = 'error'")
         if not fields:
             return
-        fields.append("updated_at = NOW()")
+        fields.append("updated_at = CURRENT_TIMESTAMP")
         with engine.begin() as conn:
             conn.execute(_sql_text(f"UPDATE jobs SET {' , '.join(fields)} WHERE id = :id"), params)
     except Exception:
