@@ -7180,8 +7180,9 @@ def booking_import(
     ctx: UserContext = Depends(get_user_context_relaxed),
     page_limit: Optional[int] = Header(default=None, convert_underscores=False),
     skip_appt_payments: Optional[bool] = Header(default=None, convert_underscores=False),
+    sync: Optional[bool] = Header(default=None, convert_underscores=False),
 ):
-    """Queue Acuity import job to run in background worker."""
+    """Import Acuity data. Use sync=1 header to run synchronously for testing."""
     if ctx is None or not getattr(ctx, "tenant_id", None):
         raise HTTPException(status_code=401, detail="missing_token")
     try:
@@ -7201,7 +7202,19 @@ def booking_import(
     if effective_skip is None:
         effective_skip = os.getenv("ACUITY_SKIP_APPOINTMENT_PAYMENTS", "0") == "1"
     
-    # Create background job instead of running synchronously
+    # Allow synchronous execution for testing when sync=1 header is sent
+    if sync:
+        result = booking_acuity.import_appointments(
+            tenant_id=req.tenant_id,
+            since=req.since,
+            until=req.until,
+            cursor=req.cursor,
+            page_limit=effective_page_limit,
+            skip_appt_payments=effective_skip,
+        )
+        return result
+    
+    # Otherwise, create background job
     job_payload = {
         "tenant_id": req.tenant_id,
         "since": req.since,
