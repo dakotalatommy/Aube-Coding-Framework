@@ -25,14 +25,12 @@ def _with_conn(tenant_id: str, role: str = "owner_admin"):
     try:
         conn = conn_cm.__enter__()
         try:
-            safe_role = role.replace("'", "''")
-            conn.execute(_sql_text(f"SET LOCAL app.role = '{safe_role}'"))
+            conn.execute(_sql_text("SELECT set_config('app.role', :role, true)"), {"role": role})
         except Exception:
             logger.exception("Failed to set app.role GUC (role=%s)", role)
             raise
         try:
-            safe_tenant = tenant_id.replace("'", "''")
-            conn.execute(_sql_text(f"SET LOCAL app.tenant_id = '{safe_tenant}'"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :tenant_id, true)"), {"tenant_id": tenant_id})
         except Exception:
             logger.exception("Failed to set app.tenant_id GUC (tenant_id=%s)", tenant_id)
             raise
@@ -40,8 +38,8 @@ def _with_conn(tenant_id: str, role: str = "owner_admin"):
     finally:
         try:
             conn_cm.__exit__(None, None, None)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.exception("Failed to close connection context: %s", str(e))
 
 
 def _read_one(conn, sql: str, params: Dict[str, object]) -> Optional[Tuple[object, ...]]:
