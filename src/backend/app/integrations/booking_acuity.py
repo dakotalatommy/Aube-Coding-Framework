@@ -519,24 +519,36 @@ def import_appointments(
                         aid = str(a.get("id") or "")
                         ext = f"acuity:{aid}" if aid else f"acuity:{hashlib.md5(str(a).encode()).hexdigest()[:10]}"
                         cid = str(a.get("clientID") or a.get("clientId") or a.get("client_id") or "")
-                        external_contact_id = client_map.get(cid) or (
-                            f"acuity:{cid}" if cid else (f"acuity:email/{a.get('email','')}" if a.get("email") else None)
-                        )
                         start_ts = _parse_epoch(a.get("datetime") or a.get("startTime") or a.get("start_ts"))
                         end_ts = _parse_epoch(a.get("endTime") or a.get("end_ts")) or None
                         status = str(a.get("status") or "booked").lower()
                         service = str(a.get("type") or a.get("title") or a.get("service") or "")
                         
-                        # Look up the actual UUID contact_id from the pre-built mapping
+                        # Match contact primarily by email and phone from appointment data
+                        # (not via client_map, since most Acuity clients have id=null → MD5 hashes)
                         contact_uuid = None
-                        if external_contact_id:
-                            contact_uuid = contact_uuid_map.get(external_contact_id)
+                        external_contact_id = None
                         
-                        # Fallback: try matching by phone if email didn't work
+                        # Try email first (most reliable)
+                        if a.get("email"):
+                            email_contact_id = f"acuity:email/{a.get('email')}"
+                            contact_uuid = contact_uuid_map.get(email_contact_id)
+                            if contact_uuid:
+                                external_contact_id = email_contact_id
+                        
+                        # Try phone as fallback
                         if not contact_uuid and a.get("phone"):
                             phone_normalized = ''.join(c for c in str(a.get("phone")) if c.isdigit())
                             if phone_normalized:
                                 contact_uuid = phone_to_uuid_map.get(phone_normalized)
+                                # Don't set external_contact_id here, we don't have it
+                        
+                        # Try client ID as last resort (only works if client has actual ID, not null)
+                        if not contact_uuid and cid:
+                            client_contact_id = f"acuity:{cid}"
+                            contact_uuid = contact_uuid_map.get(client_contact_id)
+                            if contact_uuid:
+                                external_contact_id = client_contact_id
                         
                         if not contact_uuid:
                             # Skip appointments without valid contact linkage
