@@ -7180,7 +7180,9 @@ def booking_import(
     ctx: UserContext = Depends(get_user_context_relaxed),
     page_limit: Optional[int] = Header(default=None, convert_underscores=False),
     skip_appt_payments: Optional[bool] = Header(default=None, convert_underscores=False),
+    db: Session = Depends(get_db),
 ):
+    """Queue Acuity import job to run in background worker."""
     if ctx is None or not getattr(ctx, "tenant_id", None):
         raise HTTPException(status_code=401, detail="missing_token")
     try:
@@ -7189,6 +7191,7 @@ def booking_import(
         pass
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
+    
     effective_page_limit = page_limit
     if effective_page_limit is None or effective_page_limit <= 0:
         try:
@@ -7198,14 +7201,30 @@ def booking_import(
     effective_skip = skip_appt_payments
     if effective_skip is None:
         effective_skip = os.getenv("ACUITY_SKIP_APPOINTMENT_PAYMENTS", "0") == "1"
-    return booking_acuity.import_appointments(
-        req.tenant_id,
-        req.since,
-        req.until,
-        req.cursor,
-        page_limit=effective_page_limit,
-        skip_appt_payments=effective_skip,
+    
+    # Create background job instead of running synchronously
+    job = dbm.Job(
+        tenant_id=req.tenant_id,
+        kind="bookings.acuity.import",
+        status="queued",
+        input={
+            "tenant_id": req.tenant_id,
+            "since": req.since,
+            "until": req.until,
+            "cursor": req.cursor,
+            "page_limit": effective_page_limit,
+            "skip_appt_payments": effective_skip,
+        },
     )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    
+    return {
+        "job_id": str(job.id),
+        "status": "queued",
+        "message": "Import job queued successfully. Worker will process within seconds."
+    }
 
 
 @app.get("/integrations/booking/acuity/status", tags=["Integrations"])  # strict-auth status probe

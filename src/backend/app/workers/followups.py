@@ -17,6 +17,7 @@ from ..db import SessionLocal, engine
 from ..events import emit_event
 from ..jobs import get_job_record, update_job_record
 from .. import models as dbm
+from ..integrations import booking_acuity
 
 try:
     from zoneinfo import ZoneInfo  # type: ignore
@@ -30,6 +31,7 @@ SUPPORTED_KINDS: Tuple[str, ...] = (
     "onboarding.insights",
     "inventory.sync",
     "calendar.sync",
+    "bookings.acuity.import",
 )
 
 
@@ -899,6 +901,44 @@ def _process_calendar_sync_job(job_id: str, record: Dict[str, Any], payload: Dic
         pass
 
 
+def _process_acuity_import_job(job_id: str, record: Dict[str, Any], payload: Dict[str, Any]) -> None:
+    """Process Acuity import job in background."""
+    tenant_id = str(payload.get("tenant_id") or record.get("tenant_id") or "")
+    if not tenant_id:
+        update_job_record(job_id, status="error", error="missing_tenant_id")
+        return
+    
+    try:
+        since = payload.get("since")
+        until = payload.get("until")
+        cursor = payload.get("cursor")
+        page_limit = payload.get("page_limit")
+        skip_appt_payments = payload.get("skip_appt_payments", True)
+        
+        result = booking_acuity.import_appointments(
+            tenant_id=tenant_id,
+            since=since,
+            until=until,
+            cursor=cursor,
+            page_limit=page_limit,
+            skip_appt_payments=skip_appt_payments,
+        )
+        
+        update_job_record(job_id, status="done", result=result)
+        logger.info(
+            "acuity_import_completed",
+            extra={
+                "job_id": job_id,
+                "tenant_id": tenant_id,
+                "imported": result.get("imported", 0),
+                "appointments_count": result.get("appointments_count", 0),
+            },
+        )
+    except Exception as e:
+        logger.exception("acuity_import_failed", extra={"job_id": job_id, "tenant_id": tenant_id})
+        update_job_record(job_id, status="error", error=str(e)[:500])
+
+
 def _process_job(job_id: str) -> None:
     record = get_job_record(job_id)
     if not record:
@@ -921,6 +961,8 @@ def _process_job(job_id: str) -> None:
         _process_inventory_sync_job(job_id, record, payload)
     elif kind == "calendar.sync":
         _process_calendar_sync_job(job_id, record, payload)
+    elif kind == "bookings.acuity.import":
+        _process_acuity_import_job(job_id, record, payload)
     else:
         update_job_record(job_id, status="error", error="unsupported_kind")
 
