@@ -724,15 +724,32 @@ def import_appointments(
                         for i in range(0, len(appt_batch), sub_batch_size):
                             sub_batch = appt_batch[i:i+sub_batch_size]
                             sub_batch_num = i//sub_batch_size + 1
+                            
+                            # Manual transaction control to avoid "already initialized" error
+                            trans = db_conn.begin()
                             try:
-                                # Explicit transaction per sub-batch using the shared connection
-                                with db_conn.begin():
-                                    for appt_data in sub_batch:
-                                        try:
-                                            r1 = db_conn.execute(
+                                for appt_data in sub_batch:
+                                    try:
+                                        r1 = db_conn.execute(
+                                            _sql_text(
+                                                "UPDATE appointments SET contact_id=CAST(:c AS uuid), service=:s, start_ts=to_timestamp(:st), end_ts=to_timestamp(:et), status=:stt "
+                                                "WHERE tenant_id = CAST(:t AS uuid) AND external_ref = :x"
+                                            ),
+                                            {
+                                                "t": tenant_id,
+                                                "x": appt_data["ext"],
+                                                "c": appt_data["contact_uuid"],
+                                                "s": appt_data["service"],
+                                                "st": appt_data["start_ts"],
+                                                "et": appt_data["end_ts"],
+                                                "stt": appt_data["status"],
+                                            },
+                                        )
+                                        if int(getattr(r1, "rowcount", 0) or 0) == 0:
+                                            db_conn.execute(
                                                 _sql_text(
-                                                    "UPDATE appointments SET contact_id=CAST(:c AS uuid), service=:s, start_ts=to_timestamp(:st), end_ts=to_timestamp(:et), status=:stt "
-                                                    "WHERE tenant_id = CAST(:t AS uuid) AND external_ref = :x"
+                                                    "INSERT INTO appointments(tenant_id,contact_id,service,start_ts,end_ts,status,external_ref,created_at,updated_at) "
+                                                    "VALUES (CAST(:t AS uuid),CAST(:c AS uuid),:s,to_timestamp(:st),to_timestamp(:et),:stt,:x,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
                                                 ),
                                                 {
                                                     "t": tenant_id,
@@ -744,29 +761,17 @@ def import_appointments(
                                                     "stt": appt_data["status"],
                                                 },
                                             )
-                                            if int(getattr(r1, "rowcount", 0) or 0) == 0:
-                                                db_conn.execute(
-                                                    _sql_text(
-                                                        "INSERT INTO appointments(tenant_id,contact_id,service,start_ts,end_ts,status,external_ref,created_at,updated_at) "
-                                                        "VALUES (CAST(:t AS uuid),CAST(:c AS uuid),:s,to_timestamp(:st),to_timestamp(:et),:stt,:x,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
-                                                    ),
-                                                    {
-                                                        "t": tenant_id,
-                                                        "x": appt_data["ext"],
-                                                        "c": appt_data["contact_uuid"],
-                                                        "s": appt_data["service"],
-                                                        "st": appt_data["start_ts"],
-                                                        "et": appt_data["end_ts"],
-                                                        "stt": appt_data["status"],
-                                                    },
-                                                )
-                                            appt_imported += 1
-                                            appointments_processed += 1
-                                        except Exception:
-                                            skipped += 1
-                                # Transaction committed here on successful exit from with block
+                                        appt_imported += 1
+                                        appointments_processed += 1
+                                    except Exception:
+                                        skipped += 1
+                                
+                                # Explicit commit after all appointments in sub-batch succeed
+                                trans.commit()
                                 print(f"[acuity] appointments_batch_committed: tenant={tenant_id}, sub_batch={sub_batch_num}, count={len(sub_batch)}, total_processed={appointments_processed}")
                             except Exception as exc:
+                                # Explicit rollback on any error
+                                trans.rollback()
                                 print(f"[acuity] appointments_sub_batch_error: tenant={tenant_id}, page={appt_pages}, sub_batch={sub_batch_num}, rolling_back")
                                 print(f"[acuity] appointments_sub_batch_exception: {type(exc).__name__}: {exc}")
                                 skipped += len(sub_batch)
