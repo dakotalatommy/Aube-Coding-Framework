@@ -853,6 +853,11 @@ def import_appointments(
 
     if payments_map:
         try:
+            print(f"[acuity] revenue_update_starting: tenant={tenant_id}, payments_map_size={len(payments_map)}")
+            update_success = 0
+            update_failed = 0
+            failed_samples = []
+            
             with _with_conn(tenant_id) as conn:
                 ts_expr = _timestamp_expr(conn)
                 for cid, meta in payments_map.items():
@@ -864,7 +869,8 @@ def import_appointments(
                     meta.setdefault("lifetime_cents", 0)
                     meta.pop("_txn_ids", None)
                     meta.pop("_order_ids", None)
-                    conn.execute(
+                    
+                    result = conn.execute(
                         _sql_text(
                             "UPDATE contacts SET first_visit = CASE WHEN first_visit=0 OR first_visit IS NULL THEN :first ELSE LEAST(first_visit, :first) END, "
                             "last_visit = GREATEST(COALESCE(last_visit,0), :last), "
@@ -881,6 +887,14 @@ def import_appointments(
                             "cents": int(meta.get("lifetime_cents", 0) or 0),
                         },
                     )
+                    
+                    # Track success/failure
+                    if int(getattr(result, "rowcount", 0) or 0) > 0:
+                        update_success += 1
+                    else:
+                        update_failed += 1
+                        if len(failed_samples) < 5:
+                            failed_samples.append({"cid": cid, "cents": meta.get("lifetime_cents", 0)})
                     logger.debug(
                         "Acuity payments applied",
                         extra={
@@ -892,6 +906,11 @@ def import_appointments(
                             "last_visit": int(meta.get("last", 0) or 0),
                         },
                     )
+                
+                # Summary logging
+                print(f"[acuity] revenue_update_complete: tenant={tenant_id}, total_payments={len(payments_map)}, successful_updates={update_success}, failed_updates={update_failed}")
+                if failed_samples:
+                    print(f"[acuity] revenue_update_failures: failed_sample={failed_samples[:3]}")
         except Exception as exc:
             logger.exception("Failed to apply Acuity payment rollups", extra={"tenant_id": tenant_id, "error": str(exc)})
 
