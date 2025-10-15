@@ -369,48 +369,30 @@ def import_appointments(
                 dbg_clients_count += len(arr)
                 client_pages += 1
                 print(f"[acuity] clients_page: tenant={tenant_id}, page={client_pages}, fetched={len(arr)}, offset={offset}, elapsed_ms={fetch_ms}")
-                for c in arr:
-                    try:
-                        cid_raw = str(c.get("id") or "")
-                        contact_id = f"acuity:{cid_raw}" if cid_raw else (
-                            f"acuity:email/{c.get('email', '')}"
-                            if c.get("email")
-                            else f"acuity:{hashlib.md5(str(c).encode()).hexdigest()[:10]}"
-                        )
-                        client_map[cid_raw] = contact_id
-                        email_val = str(c.get("email") or "").strip().lower()
-                        if email_val:
-                            email_map[email_val] = contact_id
-                        
-                        # Each contact gets its own transaction to avoid lock timeout cascades
-                        with _with_conn(tenant_id) as conn:  # type: ignore
-                            ts_expr = _timestamp_expr(conn)
-                            u = conn.execute(
-                                _sql_text(
-                                    "UPDATE contacts SET first_name=:fn,last_name=:ln,display_name=:dn,email=:em,phone=:ph,updated_at="
-                                    + ts_expr
-                                    + " WHERE tenant_id = CAST(:t AS uuid) AND contact_id=:cid"
-                                ),
-                                {
-                                    "t": tenant_id,
-                                    "cid": contact_id,
-                                    "fn": (c.get("firstName") or c.get("first_name") or ""),
-                                    "ln": (c.get("lastName") or c.get("last_name") or ""),
-                                    "dn": (c.get("name") or ""),
-                                    "em": (c.get("email") or None),
-                                    "ph": (c.get("phone") or None),
-                                },
-                            )
-                            rc = int(getattr(u, "rowcount", 0) or 0)
-                            if rc == 0:
-                                conn.execute(
+                
+                # Batch contacts to avoid 1000+ separate transactions
+                # Process all contacts from this page in a single transaction
+                try:
+                    with _with_conn(tenant_id) as conn:  # type: ignore
+                        ts_expr = _timestamp_expr(conn)
+                        for c in arr:
+                            try:
+                                cid_raw = str(c.get("id") or "")
+                                contact_id = f"acuity:{cid_raw}" if cid_raw else (
+                                    f"acuity:email/{c.get('email', '')}"
+                                    if c.get("email")
+                                    else f"acuity:{hashlib.md5(str(c).encode()).hexdigest()[:10]}"
+                                )
+                                client_map[cid_raw] = contact_id
+                                email_val = str(c.get("email") or "").strip().lower()
+                                if email_val:
+                                    email_map[email_val] = contact_id
+                                
+                                u = conn.execute(
                                     _sql_text(
-                                        "INSERT INTO contacts(tenant_id,contact_id,first_name,last_name,display_name,email,phone,consent_sms,consent_email,first_visit,last_visit,txn_count,lifetime_cents,instant_profile,created_at,updated_at) "
-                                        "VALUES (CAST(:t AS uuid),:cid,:fn,:ln,:dn,:em,:ph,false,false,0,0,0,0,false,"
+                                        "UPDATE contacts SET first_name=:fn,last_name=:ln,display_name=:dn,email=:em,phone=:ph,updated_at="
                                         + ts_expr
-                                        + ","
-                                        + ts_expr
-                                        + ")"
+                                        + " WHERE tenant_id = CAST(:t AS uuid) AND contact_id=:cid"
                                     ),
                                     {
                                         "t": tenant_id,
@@ -422,14 +404,39 @@ def import_appointments(
                                         "ph": (c.get("phone") or None),
                                     },
                                 )
-                            else:
-                                updated += 1
-                        contacts_processed += 1
-                        if contacts_processed % 50 == 0:
-                            print(f"[acuity] contacts_progress: tenant={tenant_id}, processed={contacts_processed}, pages={client_pages}")
-                        imported += 1
-                    except Exception:
-                        skipped += 1
+                                rc = int(getattr(u, "rowcount", 0) or 0)
+                                if rc == 0:
+                                    conn.execute(
+                                        _sql_text(
+                                            "INSERT INTO contacts(tenant_id,contact_id,first_name,last_name,display_name,email,phone,consent_sms,consent_email,first_visit,last_visit,txn_count,lifetime_cents,instant_profile,created_at,updated_at) "
+                                            "VALUES (CAST(:t AS uuid),:cid,:fn,:ln,:dn,:em,:ph,false,false,0,0,0,0,false,"
+                                            + ts_expr
+                                            + ","
+                                            + ts_expr
+                                            + ")"
+                                        ),
+                                        {
+                                            "t": tenant_id,
+                                            "cid": contact_id,
+                                            "fn": (c.get("firstName") or c.get("first_name") or ""),
+                                            "ln": (c.get("lastName") or c.get("last_name") or ""),
+                                            "dn": (c.get("name") or ""),
+                                            "em": (c.get("email") or None),
+                                            "ph": (c.get("phone") or None),
+                                        },
+                                    )
+                                else:
+                                    updated += 1
+                                contacts_processed += 1
+                                if contacts_processed % 50 == 0:
+                                    print(f"[acuity] contacts_progress: tenant={tenant_id}, processed={contacts_processed}, pages={client_pages}")
+                                imported += 1
+                            except Exception:
+                                skipped += 1
+                except Exception:
+                    # If batch fails, skip this entire page
+                    print(f"[acuity] contacts_batch_error: tenant={tenant_id}, page={client_pages}, skipping batch")
+                    skipped += len(arr)
                 if len(arr) < limit:
                     break
                 offset += limit
@@ -524,6 +531,9 @@ def import_appointments(
                 dbg_appts_count += len(arr)
                 appt_pages += 1
                 print(f"[acuity] appointments_page: tenant={tenant_id}, page={appt_pages}, fetched={len(arr)}, offset={offset}, elapsed_ms={fetch_ms}")
+                
+                # Pre-process appointments and collect payments in memory, then batch database writes
+                appt_batch = []
                 for a in arr:
                     try:
                         aid = str(a.get("id") or "")
@@ -535,7 +545,6 @@ def import_appointments(
                         service = str(a.get("type") or a.get("title") or a.get("service") or "")
                         
                         # Match contact primarily by email and phone from appointment data
-                        # (not via client_map, since most Acuity clients have id=null → MD5 hashes)
                         contact_uuid = None
                         external_contact_id = None
                         
@@ -551,9 +560,8 @@ def import_appointments(
                             phone_normalized = ''.join(c for c in str(a.get("phone")) if c.isdigit())
                             if phone_normalized:
                                 contact_uuid = phone_to_uuid_map.get(phone_normalized)
-                                # Don't set external_contact_id here, we don't have it
                         
-                        # Try client ID as last resort (only works if client has actual ID, not null)
+                        # Try client ID as last resort
                         if not contact_uuid and cid:
                             client_contact_id = f"acuity:{cid}"
                             contact_uuid = contact_uuid_map.get(client_contact_id)
@@ -561,7 +569,6 @@ def import_appointments(
                                 external_contact_id = client_contact_id
                         
                         if not contact_uuid:
-                            # Skip appointments without valid contact linkage
                             skipped += 1
                             continue
                         
@@ -579,45 +586,63 @@ def import_appointments(
                                         extra={"appointment_id": aid, "error": str(exc)},
                                     )
                         
-                        # Each appointment gets its own transaction to avoid lock timeout cascades
-                        with _with_conn(tenant_id) as conn:  # type: ignore
-                            r1 = conn.execute(
-                                _sql_text(
-                                    "UPDATE appointments SET contact_id=CAST(:c AS uuid), service=:s, start_ts=to_timestamp(:st), end_ts=to_timestamp(:et), status=:stt "
-                                    "WHERE tenant_id = CAST(:t AS uuid) AND external_ref = :x"
-                                ),
-                                {
-                                    "t": tenant_id,
-                                    "x": ext,
-                                    "c": str(contact_uuid),
-                                    "s": service,
-                                    "st": int(start_ts or 0),
-                                    "et": (int(end_ts) if end_ts else 0),
-                                    "stt": status,
-                                },
-                            )
-                            if int(getattr(r1, "rowcount", 0) or 0) == 0:
-                                conn.execute(
-                                    _sql_text(
-                                        "INSERT INTO appointments(tenant_id,contact_id,service,start_ts,end_ts,status,external_ref,created_at,updated_at) "
-                                        "VALUES (CAST(:t AS uuid),CAST(:c AS uuid),:s,to_timestamp(:st),to_timestamp(:et),:stt,:x,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
-                                    ),
-                                    {
-                                        "t": tenant_id,
-                                        "x": ext,
-                                        "c": str(contact_uuid),
-                                        "s": service,
-                                        "st": int(start_ts or 0),
-                                        "et": (int(end_ts) if end_ts else 0),
-                                        "stt": status,
-                                    },
-                                )
-                        appt_imported += 1
-                        appointments_processed += 1
-                        if appointments_processed % 25 == 0:
-                            print(f"[acuity] appointments_progress: tenant={tenant_id}, processed={appointments_processed}, pages={appt_pages}")
+                        appt_batch.append({
+                            "ext": ext,
+                            "contact_uuid": str(contact_uuid),
+                            "service": service,
+                            "start_ts": int(start_ts or 0),
+                            "end_ts": (int(end_ts) if end_ts else 0),
+                            "status": status,
+                        })
                     except Exception:
                         skipped += 1
+                
+                # Batch write all appointments from this page in one transaction
+                if appt_batch:
+                    try:
+                        with _with_conn(tenant_id) as conn:  # type: ignore
+                            for appt_data in appt_batch:
+                                try:
+                                    r1 = conn.execute(
+                                        _sql_text(
+                                            "UPDATE appointments SET contact_id=CAST(:c AS uuid), service=:s, start_ts=to_timestamp(:st), end_ts=to_timestamp(:et), status=:stt "
+                                            "WHERE tenant_id = CAST(:t AS uuid) AND external_ref = :x"
+                                        ),
+                                        {
+                                            "t": tenant_id,
+                                            "x": appt_data["ext"],
+                                            "c": appt_data["contact_uuid"],
+                                            "s": appt_data["service"],
+                                            "st": appt_data["start_ts"],
+                                            "et": appt_data["end_ts"],
+                                            "stt": appt_data["status"],
+                                        },
+                                    )
+                                    if int(getattr(r1, "rowcount", 0) or 0) == 0:
+                                        conn.execute(
+                                            _sql_text(
+                                                "INSERT INTO appointments(tenant_id,contact_id,service,start_ts,end_ts,status,external_ref,created_at,updated_at) "
+                                                "VALUES (CAST(:t AS uuid),CAST(:c AS uuid),:s,to_timestamp(:st),to_timestamp(:et),:stt,:x,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
+                                            ),
+                                            {
+                                                "t": tenant_id,
+                                                "x": appt_data["ext"],
+                                                "c": appt_data["contact_uuid"],
+                                                "s": appt_data["service"],
+                                                "st": appt_data["start_ts"],
+                                                "et": appt_data["end_ts"],
+                                                "stt": appt_data["status"],
+                                            },
+                                        )
+                                    appt_imported += 1
+                                    appointments_processed += 1
+                                    if appointments_processed % 25 == 0:
+                                        print(f"[acuity] appointments_progress: tenant={tenant_id}, processed={appointments_processed}, pages={appt_pages}")
+                                except Exception:
+                                    skipped += 1
+                    except Exception:
+                        print(f"[acuity] appointments_batch_error: tenant={tenant_id}, page={appt_pages}, skipping batch")
+                        skipped += len(appt_batch)
                 if len(arr) < limit:
                     break
                 offset += limit
