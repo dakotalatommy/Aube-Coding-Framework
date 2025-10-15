@@ -9721,7 +9721,12 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                         pass
                     return {"body": body}
 
+                page_num = 0
                 while True:
+                    page_num += 1
+                    created_before = created_total
+                    updated_before = updated_total
+                    
                     # First try ListCustomers
                     params: Dict[str, str] = {"limit": "100"}
                     if cursor:
@@ -9759,6 +9764,12 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                                 sample_ids.append(str(c.get("id") or ""))
                             except Exception:
                                 pass
+
+                    # Early exit: if this page had no creates/updates, remaining contacts are up-to-date
+                    created_this_page = created_total - created_before
+                    updated_this_page = updated_total - updated_before
+                    if created_this_page == 0 and updated_this_page == 0 and page_num > 1:
+                        break
 
                     # Advance cursor depending on which API we used
                     cursor = body.get("cursor") or body.get("next_cursor")
