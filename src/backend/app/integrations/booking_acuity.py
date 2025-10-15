@@ -615,32 +615,20 @@ def import_appointments(
                     except Exception:
                         skipped += 1
                 
-                # Batch write all appointments from this page in one transaction
+                # Write appointments in small sub-batches to avoid transaction timeouts
+                # Process 10 appointments per transaction instead of 100
                 if appt_batch:
-                    try:
-                        with _with_conn(tenant_id) as conn:  # type: ignore
-                            for appt_data in appt_batch:
-                                try:
-                                    r1 = conn.execute(
-                                        _sql_text(
-                                            "UPDATE appointments SET contact_id=CAST(:c AS uuid), service=:s, start_ts=to_timestamp(:st), end_ts=to_timestamp(:et), status=:stt "
-                                            "WHERE tenant_id = CAST(:t AS uuid) AND external_ref = :x"
-                                        ),
-                                        {
-                                            "t": tenant_id,
-                                            "x": appt_data["ext"],
-                                            "c": appt_data["contact_uuid"],
-                                            "s": appt_data["service"],
-                                            "st": appt_data["start_ts"],
-                                            "et": appt_data["end_ts"],
-                                            "stt": appt_data["status"],
-                                        },
-                                    )
-                                    if int(getattr(r1, "rowcount", 0) or 0) == 0:
-                                        conn.execute(
+                    sub_batch_size = 10
+                    for i in range(0, len(appt_batch), sub_batch_size):
+                        sub_batch = appt_batch[i:i+sub_batch_size]
+                        try:
+                            with _with_conn(tenant_id) as conn:  # type: ignore
+                                for appt_data in sub_batch:
+                                    try:
+                                        r1 = conn.execute(
                                             _sql_text(
-                                                "INSERT INTO appointments(tenant_id,contact_id,service,start_ts,end_ts,status,external_ref,created_at,updated_at) "
-                                                "VALUES (CAST(:t AS uuid),CAST(:c AS uuid),:s,to_timestamp(:st),to_timestamp(:et),:stt,:x,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
+                                                "UPDATE appointments SET contact_id=CAST(:c AS uuid), service=:s, start_ts=to_timestamp(:st), end_ts=to_timestamp(:et), status=:stt "
+                                                "WHERE tenant_id = CAST(:t AS uuid) AND external_ref = :x"
                                             ),
                                             {
                                                 "t": tenant_id,
@@ -652,15 +640,31 @@ def import_appointments(
                                                 "stt": appt_data["status"],
                                             },
                                         )
-                                    appt_imported += 1
-                                    appointments_processed += 1
-                                    if appointments_processed % 25 == 0:
-                                        print(f"[acuity] appointments_progress: tenant={tenant_id}, processed={appointments_processed}, pages={appt_pages}")
-                                except Exception:
-                                    skipped += 1
-                    except Exception:
-                        print(f"[acuity] appointments_batch_error: tenant={tenant_id}, page={appt_pages}, skipping batch")
-                        skipped += len(appt_batch)
+                                        if int(getattr(r1, "rowcount", 0) or 0) == 0:
+                                            conn.execute(
+                                                _sql_text(
+                                                    "INSERT INTO appointments(tenant_id,contact_id,service,start_ts,end_ts,status,external_ref,created_at,updated_at) "
+                                                    "VALUES (CAST(:t AS uuid),CAST(:c AS uuid),:s,to_timestamp(:st),to_timestamp(:et),:stt,:x,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
+                                                ),
+                                                {
+                                                    "t": tenant_id,
+                                                    "x": appt_data["ext"],
+                                                    "c": appt_data["contact_uuid"],
+                                                    "s": appt_data["service"],
+                                                    "st": appt_data["start_ts"],
+                                                    "et": appt_data["end_ts"],
+                                                    "stt": appt_data["status"],
+                                                },
+                                            )
+                                        appt_imported += 1
+                                        appointments_processed += 1
+                                        if appointments_processed % 25 == 0:
+                                            print(f"[acuity] appointments_progress: tenant={tenant_id}, processed={appointments_processed}, pages={appt_pages}")
+                                    except Exception:
+                                        skipped += 1
+                        except Exception:
+                            print(f"[acuity] appointments_sub_batch_error: tenant={tenant_id}, page={appt_pages}, sub_batch={i//sub_batch_size+1}")
+                            skipped += len(sub_batch)
                 if len(arr) < limit:
                     break
                 offset += limit
