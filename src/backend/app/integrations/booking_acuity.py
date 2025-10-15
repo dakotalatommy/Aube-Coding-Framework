@@ -564,7 +564,9 @@ def import_appointments(
             # Also build email and phone-based lookups with normalization for robust matching
             contact_uuid_map: Dict[str, str] = {}
             email_to_uuid_map: Dict[str, str] = {}
+            email_to_contact_id_map: Dict[str, str] = {}
             phone_to_uuid_map: Dict[str, str] = {}
+            uuid_to_contact_id: Dict[str, str] = {}
             try:
                 with _with_conn(tenant_id) as conn:  # type: ignore
                     rows = conn.execute(
@@ -573,20 +575,34 @@ def import_appointments(
                     ).fetchall()
                     for row in rows:
                         uuid = str(row[0])
-                        contact_uuid_map[row[1]] = uuid
+                        contact_id_value = str(row[1])
+                        contact_uuid_map[contact_id_value] = uuid
+                        uuid_to_contact_id[uuid] = contact_id_value
                         
                         # Build email lookup with NORMALIZED (lowercase) keys for case-insensitive matching
                         if row[2]:
                             email_normalized = str(row[2]).strip().lower()
                             if email_normalized:
                                 email_to_uuid_map[email_normalized] = uuid
+                                email_to_contact_id_map[email_normalized] = contact_id_value
                         
                         # Build phone lookup with digits-only for flexible matching
                         if row[3]:
                             phone_normalized = ''.join(c for c in str(row[3]) if c.isdigit())
                             if phone_normalized:
                                 phone_to_uuid_map[phone_normalized] = uuid
-                print(f"[acuity] contact_maps_built: tenant={tenant_id}, contact_ids={len(contact_uuid_map)}, emails={len(email_to_uuid_map)}, phones={len(phone_to_uuid_map)}")
+                print(
+                    "[acuity] contact_maps_built: "
+                    f"tenant={tenant_id}, contact_ids={len(contact_uuid_map)}, "
+                    f"emails={len(email_to_uuid_map)}, phones={len(phone_to_uuid_map)}"
+                )
+                if email_to_uuid_map:
+                    sample_email = next(iter(email_to_uuid_map))
+                    print(
+                        f"[acuity] contact_map_sample: email={sample_email}, "
+                        f"uuid={email_to_uuid_map[sample_email]}, "
+                        f"contact_id={email_to_contact_id_map.get(sample_email)}"
+                    )
             except Exception:
                 pass
             
@@ -640,7 +656,9 @@ def import_appointments(
                                 email_normalized = str(a.get("email")).strip().lower()
                                 contact_uuid = email_to_uuid_map.get(email_normalized)
                                 if contact_uuid:
-                                    external_contact_id = f"acuity:email/{email_normalized}"
+                                    external_contact_id = email_to_contact_id_map.get(email_normalized)
+                                    if not external_contact_id:
+                                        external_contact_id = uuid_to_contact_id.get(contact_uuid)
                                     matched_by = "email"
                             
                             # Try phone as fallback - digits-only for flexible matching
@@ -649,6 +667,7 @@ def import_appointments(
                                 if phone_normalized:
                                     contact_uuid = phone_to_uuid_map.get(phone_normalized)
                                     if contact_uuid:
+                                        external_contact_id = uuid_to_contact_id.get(contact_uuid)
                                         matched_by = "phone"
                             
                             # Try client ID as last resort - exact match on contact_id
