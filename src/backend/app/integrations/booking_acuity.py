@@ -61,7 +61,9 @@ def tenant_connection(tenant_id: str, role: str = "owner_admin"):
         # Set session-level GUCs (false = lasts for connection lifetime)
         conn.execute(_sql_text("SELECT set_config('app.role', :role, false)"), {"role": role})
         conn.execute(_sql_text("SELECT set_config('app.tenant_id', :tenant_id, false)"), {"tenant_id": tenant_id})
-        print(f"[acuity] tenant_connection opened: tenant={tenant_id}, role={role}")
+        # Commit to close autobegin transaction; GUCs persist (session-level)
+        conn.commit()
+        print(f"[acuity] tenant_connection opened: tenant={tenant_id}, role={role}, autobegin_committed=True")
         yield conn
     except Exception:
         logger.exception("Error in tenant_connection for tenant=%s", tenant_id)
