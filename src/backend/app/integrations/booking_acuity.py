@@ -339,17 +339,7 @@ def import_appointments(
     except Exception:
         pass
 
-    logger.info(
-        "acuity_import_started",
-        extra={
-            "tenant_id": tenant_id,
-            "since": since,
-            "until": until,
-            "cursor": cursor,
-            "page_limit": page_limit,
-            "skip_appt_payments": skip_appt_payments,
-        },
-    )
+    print(f"[acuity] import_started: tenant={tenant_id}, since={since}, until={until}, cursor={cursor}, page_limit={page_limit}, skip_appt_payments={skip_appt_payments}")
 
     client_map: Dict[str, str] = {}
     email_map: Dict[str, str] = {}
@@ -378,16 +368,7 @@ def import_appointments(
                     break
                 dbg_clients_count += len(arr)
                 client_pages += 1
-                logger.info(
-                    "acuity_clients_page",
-                    extra={
-                        "tenant_id": tenant_id,
-                        "page": client_pages,
-                        "fetched": len(arr),
-                        "offset": offset,
-                        "elapsed_ms": fetch_ms,
-                    },
-                )
+                print(f"[acuity] clients_page: tenant={tenant_id}, page={client_pages}, fetched={len(arr)}, offset={offset}, elapsed_ms={fetch_ms}")
                 for c in arr:
                     try:
                         cid_raw = str(c.get("id") or "")
@@ -445,14 +426,7 @@ def import_appointments(
                                 updated += 1
                         contacts_processed += 1
                         if contacts_processed % 50 == 0:
-                            logger.info(
-                                "acuity_contacts_progress",
-                                extra={
-                                    "tenant_id": tenant_id,
-                                    "processed": contacts_processed,
-                                    "pages": client_pages,
-                                },
-                            )
+                            print(f"[acuity] contacts_progress: tenant={tenant_id}, processed={contacts_processed}, pages={client_pages}")
                         imported += 1
                     except Exception:
                         skipped += 1
@@ -460,15 +434,7 @@ def import_appointments(
                     break
                 offset += limit
 
-            logger.info(
-                "acuity_clients_fetched",
-                extra={
-                    "tenant_id": tenant_id,
-                    "pages": client_pages,
-                    "count": dbg_clients_count,
-                    "seconds": round(perf_counter() - clients_started, 2),
-                },
-            )
+            print(f"[acuity] clients_fetched: tenant={tenant_id}, pages={client_pages}, count={dbg_clients_count}, seconds={round(perf_counter() - clients_started, 2)}")
 
             # Rebuild maps from database if empty (e.g., when running appointment-only import in background worker)
             # This ensures we can match Acuity client IDs to existing contacts even without re-importing contacts
@@ -557,16 +523,7 @@ def import_appointments(
                     break
                 dbg_appts_count += len(arr)
                 appt_pages += 1
-                logger.info(
-                    "acuity_appointments_page",
-                    extra={
-                        "tenant_id": tenant_id,
-                        "page": appt_pages,
-                        "fetched": len(arr),
-                        "offset": offset,
-                        "elapsed_ms": fetch_ms,
-                    },
-                )
+                print(f"[acuity] appointments_page: tenant={tenant_id}, page={appt_pages}, fetched={len(arr)}, offset={offset}, elapsed_ms={fetch_ms}")
                 for a in arr:
                     try:
                         aid = str(a.get("id") or "")
@@ -658,42 +615,19 @@ def import_appointments(
                         appt_imported += 1
                         appointments_processed += 1
                         if appointments_processed % 25 == 0:
-                            logger.info(
-                                "acuity_appointments_progress",
-                                extra={
-                                    "tenant_id": tenant_id,
-                                    "processed": appointments_processed,
-                                    "pages": appt_pages,
-                                },
-                            )
+                            print(f"[acuity] appointments_progress: tenant={tenant_id}, processed={appointments_processed}, pages={appt_pages}")
                     except Exception:
                         skipped += 1
                 if len(arr) < limit:
                     break
                 offset += limit
 
-            logger.info(
-                "acuity_appointments_fetched",
-                extra={
-                    "tenant_id": tenant_id,
-                    "pages": appt_pages,
-                    "count": dbg_appts_count,
-                    "payments_checked": payments_checked,
-                    "seconds": round(perf_counter() - appointments_started, 2),
-                },
-            )
+            print(f"[acuity] appointments_fetched: tenant={tenant_id}, pages={appt_pages}, count={dbg_appts_count}, payments_checked={payments_checked}, seconds={round(perf_counter() - appointments_started, 2)}")
 
             try:
                 payments_started = perf_counter()
                 _collect_orders_payments(payments_map, client, base, email_map)
-                logger.info(
-                    "acuity_orders_processed",
-                    extra={
-                        "tenant_id": tenant_id,
-                        "contacts_with_payments": len(payments_map),
-                        "seconds": round(perf_counter() - payments_started, 2),
-                    },
-                )
+                print(f"[acuity] orders_processed: tenant={tenant_id}, contacts_with_payments={len(payments_map)}, seconds={round(perf_counter() - payments_started, 2)}")
             except Exception as exc:
                 logger.debug(
                     "Acuity order payments fetch failed",
@@ -759,20 +693,7 @@ def import_appointments(
         emit_event("AcuityImportCompleted", {"tenant_id": tenant_id, "contacts": int(imported), "appointments": int(appt_imported)})
     except Exception:
         pass
-    logger.info(
-        "acuity_import_summary",
-        extra={
-            "tenant_id": tenant_id,
-            "contacts_processed": imported,
-            "contacts_updated": updated,
-            "appointments_imported": appt_imported,
-            "appointments_fetched": dbg_appts_count,
-            "payments_contacts": len(payments_map),
-            "clients_status": dbg_clients_status,
-            "appointments_status": dbg_appts_status,
-            "skipped": skipped,
-        },
-    )
+    print(f"[acuity] import_summary: tenant={tenant_id}, contacts_processed={imported}, contacts_updated={updated}, appointments_imported={appt_imported}, appointments_fetched={dbg_appts_count}, payments_contacts={len(payments_map)}, clients_status={dbg_clients_status}, appointments_status={dbg_appts_status}, skipped={skipped}")
     return {
         "imported": appt_imported,
         "updated": int(updated),
