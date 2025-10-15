@@ -326,7 +326,7 @@ def import_appointments(
     payments_map: Dict[str, Dict[str, Any]] = {}
 
     if skip_appt_payments is None:
-        skip_appt_payments = os.getenv("ACUITY_SKIP_APPOINTMENT_PAYMENTS", "0") == "1"
+        skip_appt_payments = os.getenv("ACUITY_SKIP_APPOINTMENT_PAYMENTS", "1") == "1"  # Default to True
     if page_limit is None:
         page_limit = int(os.getenv("ACUITY_PAGE_LIMIT", "100") or "100")
 
@@ -340,6 +340,8 @@ def import_appointments(
         pass
 
     print(f"[acuity] import_started: tenant={tenant_id}, since={since}, until={until}, cursor={cursor}, page_limit={page_limit}, skip_appt_payments={skip_appt_payments}")
+    if skip_appt_payments:
+        print(f"[acuity] payment_collection_disabled: skipping per-appointment payment API calls for faster import")
 
     client_map: Dict[str, str] = {}
     email_map: Dict[str, str] = {}
