@@ -9477,8 +9477,29 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
         sample_ids: list[str] = []
         used_search_any = False
 
+        # Decide timestamp expression per schema ONCE (not per contact)
+        ts_insert_expr = "EXTRACT(epoch FROM now())::bigint"
+        ts_update_expr = "EXTRACT(epoch FROM now())::bigint"
+        try:
+            with engine.begin() as _probe:
+                _probe.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+                _probe.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                row_type = _probe.execute(
+                    _sql_text(
+                        """
+                        SELECT data_type FROM information_schema.columns
+                        WHERE table_name='contacts' AND table_schema='public' AND column_name='created_at'
+                        """
+                    )
+                ).fetchone()
+                if row_type and isinstance(row_type[0], str) and 'timestamp' in row_type[0].lower():
+                    ts_insert_expr = "NOW()"
+                    ts_update_expr = "NOW()"
+        except Exception:
+            pass
+
         def _upsert_contact(square_obj: Dict[str, object]):
-            nonlocal created_total, updated_total, existing_total
+            nonlocal created_total, updated_total, existing_total, ts_insert_expr, ts_update_expr
             try:
                 sq_id = str(square_obj.get("id") or "").strip()
                 if not sq_id or sq_id in seen_ids:
@@ -9571,26 +9592,7 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                 except Exception:
                     display_name = None
 
-                # Decide timestamp expression per schema (timestamptz vs bigint)
-                ts_insert_expr = "EXTRACT(epoch FROM now())::bigint"
-                ts_update_expr = "EXTRACT(epoch FROM now())::bigint"
-                try:
-                    with engine.begin() as _probe:
-                        _probe.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
-                        _probe.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-                        row_type = _probe.execute(
-                            _sql_text(
-                                """
-                                SELECT data_type FROM information_schema.columns
-                                WHERE table_name='contacts' AND table_schema='public' AND column_name='created_at'
-                                """
-                            )
-                        ).fetchone()
-                        if row_type and isinstance(row_type[0], str) and 'timestamp' in row_type[0].lower():
-                            ts_insert_expr = "NOW()"
-                            ts_update_expr = "NOW()"
-                except Exception:
-                    pass
+                # ts_insert_expr and ts_update_expr already determined outside loop
 
                 # Raw SQL upsert using a connection-bound transaction with retry via helper
                 def _write(_conn):
@@ -9765,10 +9767,11 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                             except Exception:
                                 pass
 
-                    # Early exit: if this page had no creates/updates, remaining contacts are up-to-date
+                    # Early exit: if this page had no creates/updates, all contacts are up-to-date
                     created_this_page = created_total - created_before
                     updated_this_page = updated_total - updated_before
-                    if created_this_page == 0 and updated_this_page == 0 and page_num > 1:
+                    if created_this_page == 0 and updated_this_page == 0 and len(customers) > 0:
+                        # All contacts on this page were "existing" - safe to stop
                         break
 
                     # Advance cursor depending on which API we used
