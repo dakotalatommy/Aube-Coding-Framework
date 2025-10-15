@@ -343,6 +343,7 @@ def import_appointments(
 
     client_map: Dict[str, str] = {}
     email_map: Dict[str, str] = {}
+    seen_client_ids: Set[str] = set()  # Track seen contacts to detect API pagination issues
     try:
         with httpx.Client(timeout=20, headers=headers) as client:
             clients_started = perf_counter()
@@ -372,6 +373,7 @@ def import_appointments(
                 
                 # Batch contacts to avoid 1000+ separate transactions
                 # Process all contacts from this page in a single transaction
+                new_contacts_this_page = 0
                 try:
                     with _with_conn(tenant_id) as conn:  # type: ignore
                         ts_expr = _timestamp_expr(conn)
@@ -383,6 +385,13 @@ def import_appointments(
                                     if c.get("email")
                                     else f"acuity:{hashlib.md5(str(c).encode()).hexdigest()[:10]}"
                                 )
+                                
+                                # Skip if we've already processed this contact in this import run
+                                if contact_id in seen_client_ids:
+                                    continue
+                                seen_client_ids.add(contact_id)
+                                new_contacts_this_page += 1
+                                
                                 client_map[cid_raw] = contact_id
                                 email_val = str(c.get("email") or "").strip().lower()
                                 if email_val:
@@ -437,9 +446,18 @@ def import_appointments(
                     # If batch fails, skip this entire page
                     print(f"[acuity] contacts_batch_error: tenant={tenant_id}, page={client_pages}, skipping batch")
                     skipped += len(arr)
-                if len(arr) < limit:
+                
+                # Break if API returned fewer records than requested OR if we've seen all these contacts before
+                if len(arr) < limit or new_contacts_this_page == 0:
+                    print(f"[acuity] contacts_pagination_complete: tenant={tenant_id}, new_this_page={new_contacts_this_page}, fetched={len(arr)}, limit={limit}")
                     break
-                offset += limit
+                
+                # Acuity API may return all records regardless of offset - break after reasonable pages
+                if client_pages >= 20:
+                    print(f"[acuity] contacts_max_pages_reached: tenant={tenant_id}, pages={client_pages}, unique_contacts={len(seen_client_ids)}")
+                    break
+                
+                offset += len(arr)  # Use actual records returned, not limit
 
             print(f"[acuity] clients_fetched: tenant={tenant_id}, pages={client_pages}, count={dbg_clients_count}, seconds={round(perf_counter() - clients_started, 2)}")
 
