@@ -614,7 +614,9 @@ def import_appointments(
             
             # Use long-lived connection for appointment writes with explicit transaction boundaries
             # Appointments fetching and writing loop
+            print(f"[acuity] DEBUG: Starting appointments loop, page_limit={page_limit}, max_pages=20")
             while True:
+                print(f"[acuity] DEBUG: Loop iteration start, appt_pages={appt_pages}, offset={offset}")
                 # Safety guard: prevent infinite pagination
                 if appt_pages >= 20:
                     print(f"[acuity] appointments_max_pages_reached: tenant={tenant_id}, pages={appt_pages}, processed={appointments_processed}")
@@ -625,19 +627,24 @@ def import_appointments(
                     params["minDate"] = since
                 if until:
                     params["maxDate"] = until
+                print(f"[acuity] DEBUG: Fetching appointments from API, params={params}")
                 fetch_started = perf_counter()
                 r = client.get(f"{base}/appointments", params=params)
                 fetch_ms = int((perf_counter() - fetch_started) * 1000)
                 dbg_appts_status = r.status_code
+                print(f"[acuity] DEBUG: API response received, status={r.status_code}, fetch_ms={fetch_ms}")
                 if r.status_code >= 400:
                     dbg_appts_error = (r.text or "")[:300]
+                    print(f"[acuity] DEBUG: API error, breaking loop")
                     break
                 arr = r.json() or []
                 if not isinstance(arr, list) or not arr:
+                    print(f"[acuity] DEBUG: No more appointments (empty array), breaking loop")
                     break
                 dbg_appts_count += len(arr)
                 appt_pages += 1
                 print(f"[acuity] appointments_page: tenant={tenant_id}, page={appt_pages}, fetched={len(arr)}, offset={offset}, elapsed_ms={fetch_ms}")
+                print(f"[acuity] DEBUG: Starting appointment processing, array_length={len(arr)}")
                 
                 # Pre-process appointments and collect payments in memory, then batch database writes
                 appt_batch = []
@@ -737,9 +744,11 @@ def import_appointments(
                 if appt_pages == 1 or appt_pages % 5 == 0:
                     print(f"[acuity] match_stats: page={appt_pages}, by_email={match_stats['by_email']}, by_phone={match_stats['by_phone']}, by_client_id={match_stats['by_client_id']}, no_match={match_stats['no_match']}")
             
+                print(f"[acuity] DEBUG: Finished processing appointments, appt_batch_size={len(appt_batch)}")
                 # Write appointments in small sub-batches with explicit transaction boundaries
                 # Reuse the same connection but commit after every 10 appointments
                 if appt_batch:
+                    print(f"[acuity] DEBUG: Starting database writes, total_to_write={len(appt_batch)}")
                     sub_batch_size = 10
                     for i in range(0, len(appt_batch), sub_batch_size):
                         sub_batch = appt_batch[i:i+sub_batch_size]
@@ -802,20 +811,28 @@ def import_appointments(
                             
                             print(f"[acuity] appointments_batch_committed: tenant={tenant_id}, sub_batch={sub_batch_num}, count={len(sub_batch)}, total_processed={appointments_processed}")
                 
+                print(f"[acuity] DEBUG: Finished database writes for page {appt_pages}")
+                print(f"[acuity] DEBUG: Checking loop condition, len(arr)={len(arr)}, limit={limit}")
                 if len(arr) < limit:
+                    print(f"[acuity] DEBUG: Last page reached (arr < limit), breaking loop")
                     break
+                print(f"[acuity] DEBUG: More pages available, incrementing offset from {offset} to {offset + limit}")
                 offset += limit
 
+            print(f"[acuity] DEBUG: Exited appointments loop, appt_pages={appt_pages}, total_processed={appointments_processed}")
             print(f"[acuity] appointments_fetched: tenant={tenant_id}, pages={appt_pages}, count={dbg_appts_count}, payments_checked={payments_checked}, seconds={round(perf_counter() - appointments_started, 2)}")
 
             # Collect ALL historical revenue data via orders API (not date-filtered)
             # This gives complete financial history even though appointments are future-only
+            print(f"[acuity] DEBUG: About to start revenue collection")
             try:
                 payments_started = perf_counter()
                 print(f"[acuity] revenue_collection_started: fetching ALL historical payment data from orders API")
                 _collect_orders_payments(payments_map, client, base, email_map)
+                print(f"[acuity] DEBUG: Revenue collection completed")
                 print(f"[acuity] orders_processed: tenant={tenant_id}, contacts_with_payments={len(payments_map)}, seconds={round(perf_counter() - payments_started, 2)}")
             except Exception as exc:
+                print(f"[acuity] DEBUG: Revenue collection failed with exception: {exc}")
                 logger.debug(
                     "Acuity order payments fetch failed",
                     extra={"error": str(exc)},
@@ -896,6 +913,7 @@ def import_appointments(
         f"appointments_fetched={dbg_appts_count}, payments_contacts={len(payments_map)}, "
         f"clients_status={dbg_clients_status}, appointments_status={dbg_appts_status}, skipped_total={total_skipped}"
     )
+    print(f"[acuity] DEBUG: About to return result dictionary")
     return {
         "imported": appointments_persisted,
         "appointments_attempted": appointments_attempted,
