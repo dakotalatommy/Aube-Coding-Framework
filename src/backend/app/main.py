@@ -792,6 +792,8 @@ def onboarding_progress(tenant_id: str, db: Session = Depends(get_db), ctx: User
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"steps": []}
     try:
+        db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+        db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
         rows = db.execute(_sql_text("SELECT step_key, completed_at FROM onboarding_progress WHERE tenant_id = CAST(:t AS uuid) ORDER BY completed_at ASC"), {"t": tenant_id}).fetchall()
         return {"steps": [{"step_key": r[0], "completed_at": str(r[1])} for r in rows]}
     except Exception:
@@ -1180,6 +1182,8 @@ def ai_chat_history(tenant_id: str, session_id: str, limit: int = 200, db: Sessi
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"items": []}
     try:
+        db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+        db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
         rows = db.execute(_sql_text("SELECT role, content, created_at FROM chat_logs WHERE tenant_id = CAST(:t AS uuid) AND session_id = :sid ORDER BY id ASC LIMIT :lim"), {"t": tenant_id, "sid": session_id, "lim": max(1, min(int(limit or 200), 500))}).fetchall()
         return {"items": [{"role": r[0], "content": r[1], "created_at": int(r[2] or 0)} for r in rows]}
     except Exception:
@@ -1192,6 +1196,8 @@ def contacts_search(tenant_id: str, q: str = "", limit: int = 12, db: Session = 
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"items": []}
     try:
+        db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+        db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
         like = f"%{q.strip()}%" if q else "%"
         rows = db.execute(
             _sql_text("SELECT contact_id::text, COALESCE(display_name, CONCAT(COALESCE(first_name,''),' ',COALESCE(last_name,''))) AS name, email_hash, phone_hash FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND (display_name ILIKE :q OR first_name ILIKE :q OR last_name ILIKE :q) ORDER BY name ASC LIMIT :lim"),
@@ -1260,6 +1266,8 @@ def followups_candidates(tenant_id: str, scope: str = "this_week", db: Session =
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"items": []}
     try:
+        db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+        db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
         # Heuristic scopes based on appointments/last_visit
         if scope == "tomorrow":
             q = _sql_text("SELECT contact_id::text FROM appointments WHERE tenant_id = CAST(:t AS uuid) AND start_ts >= EXTRACT(EPOCH FROM now() + interval '1 day')::bigint AND start_ts < EXTRACT(EPOCH FROM now() + interval '2 day')::bigint")
@@ -1963,6 +1971,8 @@ def todo_list(tenant_id: str, status: str = "pending", type: Optional[str] = Non
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"items": []}
     try:
+        db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+        db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
         params: Dict[str, Any] = {"t": tenant_id, "s": status}
         sql = "SELECT id, type, status, title, details_json, created_at FROM todo_items WHERE tenant_id = CAST(:t AS uuid)"
         if status and status != "all":
@@ -2072,18 +2082,23 @@ def dashboard_agenda(
 
     if not _todo_disabled():
         try:
-            task_rows = db.execute(
-                _sql_text(
-                    """
-                    SELECT id, title, details_json, status, created_at, resolved_at
-                    FROM todo_items
-                    WHERE tenant_id = CAST(:t AS uuid)
-                    ORDER BY CASE WHEN status = 'resolved' THEN 1 ELSE 0 END, created_at DESC
-                    LIMIT :lim
-                    """
-                ),
-                {"t": tenant_id, "lim": limit},
-            ).fetchall()
+            # Set GUCs for RLS enforcement (per backend-db-architecture.md)
+            with engine.begin() as conn:
+                conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+                conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": tenant_id})
+                
+                task_rows = conn.execute(
+                    _sql_text(
+                        """
+                        SELECT id, title, details_json, status, created_at, resolved_at
+                        FROM todo_items
+                        WHERE tenant_id = CAST(:t AS uuid)
+                        ORDER BY CASE WHEN status = 'resolved' THEN 1 ELSE 0 END, created_at DESC
+                        LIMIT :lim
+                        """
+                    ),
+                    {"t": tenant_id, "lim": limit},
+                ).fetchall()
             for row in task_rows:
                 details: Dict[str, Any]
                 raw_details = row[2]
@@ -3109,6 +3124,8 @@ def _new_cid() -> str:
 
 def _connected_accounts_v2_rows(db: Session, tenant_id: str) -> List[Dict[str, Any]]:
     try:
+        db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+        db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
         rows = db.execute(
             _sql_text(
                 """
@@ -3200,6 +3217,8 @@ def create_customer(ctx: UserContext = Depends(get_user_context)):
     # Store stripe customer id in settings table per tenant; fallback if DB unavailable
     try:
         with next(get_db()) as db:  # type: ignore
+            db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+            db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": ctx.tenant_id})
             row = db.execute(
                 _sql_text("SELECT id, data_json FROM settings WHERE tenant_id = CAST(:tid AS uuid) ORDER BY id DESC LIMIT 1"),
                 {"tid": ctx.tenant_id},
@@ -3364,6 +3383,8 @@ async def stripe_webhook(request: Request):
             resolved_tenant = ""
         with next(get_db()) as db:  # type: ignore
             if resolved_tenant:
+                db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": resolved_tenant})
                 # Update latest row for this tenant directly
                 row = db.execute(_sql_text("SELECT id, data_json FROM settings WHERE tenant_id = CAST(:tid AS uuid) ORDER BY id DESC LIMIT 1"), {"tid": resolved_tenant}).fetchone()
                 if row:
@@ -3684,6 +3705,8 @@ def _http_request_with_retry(method: str, url: str, *, headers: Optional[Dict[st
 # ---- AskVX context loaders (tenant memories, global insights/faq, providers status) ----
 def _load_tenant_memories(db: Session, tenant_id: str, limit: int = 20) -> List[Dict[str, object]]:
     try:
+        db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+        db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
         rows = db.execute(
             _sql_text(
                 """
@@ -7480,6 +7503,8 @@ def get_metrics(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext 
         return {"messages_sent": 0, "time_saved_minutes": 0}
     
     try:
+        db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+        db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
         m = db.query(dbm.Metrics).filter(dbm.Metrics.tenant_id == tenant_id).first()
         if not m:
             base = {"messages_sent": 0, "time_saved_minutes": 0, "ambassador_candidate": False}
