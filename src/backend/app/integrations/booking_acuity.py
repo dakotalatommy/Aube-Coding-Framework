@@ -544,24 +544,32 @@ def import_appointments(
             appointments_processed = 0
             
             # Build contact_id -> UUID mapping to avoid per-appointment DB lookups
-            # Also build phone-based lookup since Acuity client IDs are often null
+            # Also build email and phone-based lookups with normalization for robust matching
             contact_uuid_map: Dict[str, str] = {}
+            email_to_uuid_map: Dict[str, str] = {}
             phone_to_uuid_map: Dict[str, str] = {}
             try:
                 with _with_conn(tenant_id) as conn:  # type: ignore
                     rows = conn.execute(
-                        _sql_text("SELECT id, contact_id, phone FROM contacts WHERE tenant_id = CAST(:t AS uuid)"),
+                        _sql_text("SELECT id, contact_id, email, phone FROM contacts WHERE tenant_id = CAST(:t AS uuid)"),
                         {"t": tenant_id},
                     ).fetchall()
                     for row in rows:
-                        contact_uuid_map[row[1]] = str(row[0])
-                        # Also map by normalized phone for fallback matching
+                        uuid = str(row[0])
+                        contact_uuid_map[row[1]] = uuid
+                        
+                        # Build email lookup with NORMALIZED (lowercase) keys for case-insensitive matching
                         if row[2]:
-                            # Normalize phone: remove all non-digits
-                            phone_normalized = ''.join(c for c in str(row[2]) if c.isdigit())
+                            email_normalized = str(row[2]).strip().lower()
+                            if email_normalized:
+                                email_to_uuid_map[email_normalized] = uuid
+                        
+                        # Build phone lookup with digits-only for flexible matching
+                        if row[3]:
+                            phone_normalized = ''.join(c for c in str(row[3]) if c.isdigit())
                             if phone_normalized:
-                                phone_to_uuid_map[phone_normalized] = str(row[0])
-                print(f"[acuity] contact_maps_built: tenant={tenant_id}, contact_ids={len(contact_uuid_map)}, phones={len(phone_to_uuid_map)}")
+                                phone_to_uuid_map[phone_normalized] = uuid
+                print(f"[acuity] contact_maps_built: tenant={tenant_id}, contact_ids={len(contact_uuid_map)}, emails={len(email_to_uuid_map)}, phones={len(phone_to_uuid_map)}")
             except Exception:
                 pass
             
@@ -605,20 +613,20 @@ def import_appointments(
                             status = str(a.get("status") or "booked").lower()
                             service = str(a.get("type") or a.get("title") or a.get("service") or "")
                             
-                            # Match contact primarily by email and phone from appointment data
+                            # Match contact by email (case-insensitive), phone, or client ID
                             contact_uuid = None
                             external_contact_id = None
                             matched_by = None
                             
-                            # Try email first (most reliable)
+                            # Try email first (most reliable) - normalize for case-insensitive match
                             if a.get("email"):
-                                email_contact_id = f"acuity:email/{a.get('email')}"
-                                contact_uuid = contact_uuid_map.get(email_contact_id)
+                                email_normalized = str(a.get("email")).strip().lower()
+                                contact_uuid = email_to_uuid_map.get(email_normalized)
                                 if contact_uuid:
-                                    external_contact_id = email_contact_id
+                                    external_contact_id = f"acuity:email/{email_normalized}"
                                     matched_by = "email"
                             
-                            # Try phone as fallback
+                            # Try phone as fallback - digits-only for flexible matching
                             if not contact_uuid and a.get("phone"):
                                 phone_normalized = ''.join(c for c in str(a.get("phone")) if c.isdigit())
                                 if phone_normalized:
@@ -626,7 +634,7 @@ def import_appointments(
                                     if contact_uuid:
                                         matched_by = "phone"
                             
-                            # Try client ID as last resort
+                            # Try client ID as last resort - exact match on contact_id
                             if not contact_uuid and cid:
                                 client_contact_id = f"acuity:{cid}"
                                 contact_uuid = contact_uuid_map.get(client_contact_id)
