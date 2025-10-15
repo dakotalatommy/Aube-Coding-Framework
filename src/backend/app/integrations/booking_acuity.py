@@ -769,7 +769,9 @@ def import_appointments(
                                         skipped += 1
                                 
                                 # Explicit commit after all appointments in sub-batch succeed
+                                print(f"[acuity] pre_commit: tenant={tenant_id}, sub_batch={sub_batch_num}, trans_active={trans.is_active if hasattr(trans, 'is_active') else 'unknown'}")
                                 trans.commit()
+                                print(f"[acuity] post_commit: tenant={tenant_id}, sub_batch={sub_batch_num}, trans_active={trans.is_active if hasattr(trans, 'is_active') else 'unknown'}")
                                 print(f"[acuity] appointments_batch_committed: tenant={tenant_id}, sub_batch={sub_batch_num}, count={len(sub_batch)}, total_processed={appointments_processed}")
                             except Exception as exc:
                                 # Explicit rollback on any error
