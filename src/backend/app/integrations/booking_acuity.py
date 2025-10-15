@@ -766,8 +766,9 @@ def import_appointments(
                                             skipped += 1
                                 # Transaction committed here on successful exit from with block
                                 print(f"[acuity] appointments_batch_committed: tenant={tenant_id}, sub_batch={sub_batch_num}, count={len(sub_batch)}, total_processed={appointments_processed}")
-                            except Exception:
+                            except Exception as exc:
                                 print(f"[acuity] appointments_sub_batch_error: tenant={tenant_id}, page={appt_pages}, sub_batch={sub_batch_num}, rolling_back")
+                                print(f"[acuity] appointments_sub_batch_exception: {type(exc).__name__}: {exc}")
                                 skipped += len(sub_batch)
                     
                     if len(arr) < limit:
