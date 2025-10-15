@@ -854,6 +854,9 @@ def import_appointments(
     if payments_map:
         try:
             print(f"[acuity] revenue_update_starting: tenant={tenant_id}, payments_map_size={len(payments_map)}")
+            # Sample first 3 contact_ids from payments_map
+            sample_cids = list(payments_map.keys())[:3]
+            print(f"[acuity] revenue_update_sample_cids: {sample_cids}")
             update_success = 0
             update_failed = 0
             failed_samples = []
