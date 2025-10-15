@@ -378,6 +378,23 @@ def import_appointments(
     client_map: Dict[str, str] = {}
     email_map: Dict[str, str] = {}
     seen_client_ids: Set[str] = set()  # Track seen contacts to detect API pagination issues
+    
+    # Pre-populate email_map from database to ensure ALL contacts available for revenue matching
+    # This fixes issue where only API-fetched contacts got revenue data (17 vs 650 contacts)
+    try:
+        with _with_conn(tenant_id) as conn:  # type: ignore
+            rows = conn.execute(
+                _sql_text("SELECT contact_id, email FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND email IS NOT NULL"),
+                {"t": tenant_id},
+            ).fetchall()
+            for row in rows:
+                email_normalized = str(row[1]).strip().lower()
+                if email_normalized:
+                    email_map[email_normalized] = str(row[0])  # Map email -> contact_id for revenue matching
+            print(f"[acuity] email_map_preloaded: tenant={tenant_id}, emails={len(email_map)} (ensures all contacts can receive revenue data)")
+    except Exception:
+        pass
+    
     try:
         with httpx.Client(timeout=20, headers=headers) as client:
             clients_started = perf_counter()
