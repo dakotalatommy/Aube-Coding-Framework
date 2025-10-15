@@ -747,6 +747,7 @@ def import_appointments(
                 print(f"[acuity] DEBUG: Finished processing appointments, appt_batch_size={len(appt_batch)}")
                 # Write appointments in small sub-batches with explicit transaction boundaries
                 # Reuse the same connection but commit after every 10 appointments
+                inserts_this_page = 0  # Track actual new appointments
                 if appt_batch:
                     print(f"[acuity] DEBUG: Starting database writes, total_to_write={len(appt_batch)}")
                     sub_batch_size = 10
@@ -758,6 +759,7 @@ def import_appointments(
                         with _with_conn(tenant_id) as conn:
                             for appt_data in sub_batch:
                                 persisted = False
+                                was_insert = False
                                 try:
                                     r1 = conn.execute(
                                         _sql_text(
@@ -775,7 +777,7 @@ def import_appointments(
                                         },
                                     )
                                     if int(getattr(r1, "rowcount", 0) or 0) > 0:
-                                        persisted = True
+                                        persisted = True  # Was an UPDATE
                                     else:
                                         conn.execute(
                                             _sql_text(
@@ -793,6 +795,8 @@ def import_appointments(
                                             },
                                         )
                                         persisted = True
+                                        was_insert = True
+                                        inserts_this_page += 1
                                 except Exception as exc:
                                     print(f"[acuity] appointment_write_error: tenant={tenant_id}, external_ref={appt_data['ext']}, error={exc}")
                                     appointments_skipped_write_failures += 1
@@ -812,7 +816,13 @@ def import_appointments(
                             print(f"[acuity] appointments_batch_committed: tenant={tenant_id}, sub_batch={sub_batch_num}, count={len(sub_batch)}, total_processed={appointments_processed}")
                 
                 print(f"[acuity] DEBUG: Finished database writes for page {appt_pages}")
-                print(f"[acuity] DEBUG: Checking loop condition, len(arr)={len(arr)}, limit={limit}")
+                
+                # Early exit: If we had zero inserts, all future appointments are up-to-date
+                if inserts_this_page == 0 and appt_pages > 0:
+                    print(f"[acuity] appointments_up_to_date: All future appointments exist, stopping import after page {appt_pages}")
+                    break
+                
+                print(f"[acuity] DEBUG: Checking loop condition, len(arr)={len(arr)}, limit={limit}, inserts_this_page={inserts_this_page}")
                 if len(arr) < limit:
                     print(f"[acuity] DEBUG: Last page reached (arr < limit), breaking loop")
                     break
