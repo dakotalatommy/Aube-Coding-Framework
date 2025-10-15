@@ -609,133 +609,148 @@ def import_appointments(
                 pass
             
             # Use long-lived connection for appointment writes with explicit transaction boundaries
-            with tenant_connection(tenant_id) as db_conn:
-                while True:
-                    # Safety guard: prevent infinite pagination
-                    if appt_pages >= 20:
-                        print(f"[acuity] appointments_max_pages_reached: tenant={tenant_id}, pages={appt_pages}, processed={appointments_processed}")
-                        break
-                    
-                    params: Dict[str, object] = {"limit": limit, "offset": offset}
-                    if since:
-                        params["minDate"] = since
-                    if until:
-                        params["maxDate"] = until
-                    fetch_started = perf_counter()
-                    r = client.get(f"{base}/appointments", params=params)
-                    fetch_ms = int((perf_counter() - fetch_started) * 1000)
-                    dbg_appts_status = r.status_code
-                    if r.status_code >= 400:
-                        dbg_appts_error = (r.text or "")[:300]
-                        break
-                    arr = r.json() or []
-                    if not isinstance(arr, list) or not arr:
-                        break
-                    dbg_appts_count += len(arr)
-                    appt_pages += 1
-                    print(f"[acuity] appointments_page: tenant={tenant_id}, page={appt_pages}, fetched={len(arr)}, offset={offset}, elapsed_ms={fetch_ms}")
-                    
-                    # Pre-process appointments and collect payments in memory, then batch database writes
-                    appt_batch = []
-                    match_stats = {"by_email": 0, "by_phone": 0, "by_client_id": 0, "no_match": 0}
-                    for a in arr:
-                        try:
-                            aid = str(a.get("id") or "")
-                            ext = f"acuity:{aid}" if aid else f"acuity:{hashlib.md5(str(a).encode()).hexdigest()[:10]}"
-                            cid = str(a.get("clientID") or a.get("clientId") or a.get("client_id") or "")
-                            start_ts = _parse_epoch(a.get("datetime") or a.get("startTime") or a.get("start_ts"))
-                            end_ts = _parse_epoch(a.get("endTime") or a.get("end_ts")) or None
-                            status = str(a.get("status") or "booked").lower()
-                            service = str(a.get("type") or a.get("title") or a.get("service") or "")
-                            
-                            # Match contact by email (case-insensitive), phone, or client ID
-                            contact_uuid = None
-                            external_contact_id = None
-                            matched_by = None
-                            
-                            # Try email first (most reliable) - normalize for case-insensitive match
-                            if a.get("email"):
-                                email_normalized = str(a.get("email")).strip().lower()
-                                contact_uuid = email_to_uuid_map.get(email_normalized)
-                                if contact_uuid:
-                                    external_contact_id = email_to_contact_id_map.get(email_normalized)
-                                    if not external_contact_id:
-                                        external_contact_id = uuid_to_contact_id.get(contact_uuid)
-                                    matched_by = "email"
-                            
-                            # Try phone as fallback - digits-only for flexible matching
-                            if not contact_uuid and a.get("phone"):
-                                phone_normalized = ''.join(c for c in str(a.get("phone")) if c.isdigit())
-                                if phone_normalized:
-                                    contact_uuid = phone_to_uuid_map.get(phone_normalized)
-                                    if contact_uuid:
-                                        external_contact_id = uuid_to_contact_id.get(contact_uuid)
-                                        matched_by = "phone"
-                            
-                            # Try client ID as last resort - exact match on contact_id
-                            if not contact_uuid and cid:
-                                client_contact_id = f"acuity:{cid}"
-                                contact_uuid = contact_uuid_map.get(client_contact_id)
-                                if contact_uuid:
-                                    external_contact_id = client_contact_id
-                                    matched_by = "client_id"
-                            
-                            if not contact_uuid:
-                                skipped += 1
-                                match_stats["no_match"] += 1
-                                if appt_pages == 1 and match_stats["no_match"] <= 3:
-                                    print(f"[acuity] no_match_example: aid={aid}, email={a.get('email')}, phone={a.get('phone')}, clientID={cid}")
-                                continue
-                            
-                            if matched_by:
-                                match_stats[f"by_{matched_by}"] += 1
-                            
-                            if external_contact_id:
-                                entry = _get_entry(payments_map, external_contact_id)
-                                if start_ts:
-                                    _apply_visit(entry, int(start_ts))
-                                if not skip_appt_payments:
-                                    try:
-                                        _collect_appointment_payments(payments_map, external_contact_id, client, base, aid)
-                                        payments_checked += 1
-                                    except Exception as exc:
-                                        logger.debug(
-                                            "Acuity appointment payment fetch failed",
-                                            extra={"appointment_id": aid, "error": str(exc)},
-                                        )
-                            
-                            appt_batch.append({
-                                "ext": ext,
-                                "contact_uuid": str(contact_uuid),
-                                "service": service,
-                                "start_ts": int(start_ts or 0),
-                                "end_ts": (int(end_ts) if end_ts else 0),
-                                "status": status,
-                            })
-                        except Exception:
-                            skipped += 1
-                    
-                    # Log matching results for this page
-                    if appt_pages == 1 or appt_pages % 5 == 0:
-                        print(f"[acuity] match_stats: page={appt_pages}, by_email={match_stats['by_email']}, by_phone={match_stats['by_phone']}, by_client_id={match_stats['by_client_id']}, no_match={match_stats['no_match']}")
+            # Appointments fetching and writing loop
+            while True:
+                # Safety guard: prevent infinite pagination
+                if appt_pages >= 20:
+                    print(f"[acuity] appointments_max_pages_reached: tenant={tenant_id}, pages={appt_pages}, processed={appointments_processed}")
+                    break
                 
-                    # Write appointments in small sub-batches with explicit transaction boundaries
-                    # Reuse the same connection but commit after every 10 appointments
-                    if appt_batch:
-                        sub_batch_size = 10
-                        for i in range(0, len(appt_batch), sub_batch_size):
-                            sub_batch = appt_batch[i:i+sub_batch_size]
-                            sub_batch_num = i//sub_batch_size + 1
-                            
-                            # Manual transaction control to avoid "already initialized" error
-                            trans = db_conn.begin()
-                            try:
-                                for appt_data in sub_batch:
-                                    try:
-                                        r1 = db_conn.execute(
+                params: Dict[str, object] = {"limit": limit, "offset": offset}
+                if since:
+                    params["minDate"] = since
+                if until:
+                    params["maxDate"] = until
+                fetch_started = perf_counter()
+                r = client.get(f"{base}/appointments", params=params)
+                fetch_ms = int((perf_counter() - fetch_started) * 1000)
+                dbg_appts_status = r.status_code
+                if r.status_code >= 400:
+                    dbg_appts_error = (r.text or "")[:300]
+                    break
+                arr = r.json() or []
+                if not isinstance(arr, list) or not arr:
+                    break
+                dbg_appts_count += len(arr)
+                appt_pages += 1
+                print(f"[acuity] appointments_page: tenant={tenant_id}, page={appt_pages}, fetched={len(arr)}, offset={offset}, elapsed_ms={fetch_ms}")
+                
+                # Pre-process appointments and collect payments in memory, then batch database writes
+                appt_batch = []
+                match_stats = {"by_email": 0, "by_phone": 0, "by_client_id": 0, "no_match": 0}
+                for a in arr:
+                    try:
+                        aid = str(a.get("id") or "")
+                        ext = f"acuity:{aid}" if aid else f"acuity:{hashlib.md5(str(a).encode()).hexdigest()[:10]}"
+                        cid = str(a.get("clientID") or a.get("clientId") or a.get("client_id") or "")
+                        start_ts = _parse_epoch(a.get("datetime") or a.get("startTime") or a.get("start_ts"))
+                        end_ts = _parse_epoch(a.get("endTime") or a.get("end_ts")) or None
+                        status = str(a.get("status") or "booked").lower()
+                        service = str(a.get("type") or a.get("title") or a.get("service") or "")
+                        
+                        # Match contact by email (case-insensitive), phone, or client ID
+                        contact_uuid = None
+                        external_contact_id = None
+                        matched_by = None
+                        
+                        # Try email first (most reliable) - normalize for case-insensitive match
+                        if a.get("email"):
+                            email_normalized = str(a.get("email")).strip().lower()
+                            contact_uuid = email_to_uuid_map.get(email_normalized)
+                            if contact_uuid:
+                                external_contact_id = email_to_contact_id_map.get(email_normalized)
+                                if not external_contact_id:
+                                    external_contact_id = uuid_to_contact_id.get(contact_uuid)
+                                matched_by = "email"
+                        
+                        # Try phone as fallback - digits-only for flexible matching
+                        if not contact_uuid and a.get("phone"):
+                            phone_normalized = ''.join(c for c in str(a.get("phone")) if c.isdigit())
+                            if phone_normalized:
+                                contact_uuid = phone_to_uuid_map.get(phone_normalized)
+                                if contact_uuid:
+                                    external_contact_id = uuid_to_contact_id.get(contact_uuid)
+                                    matched_by = "phone"
+                        
+                        # Try client ID as last resort - exact match on contact_id
+                        if not contact_uuid and cid:
+                            client_contact_id = f"acuity:{cid}"
+                            contact_uuid = contact_uuid_map.get(client_contact_id)
+                            if contact_uuid:
+                                external_contact_id = client_contact_id
+                                matched_by = "client_id"
+                        
+                        if not contact_uuid:
+                            skipped += 1
+                            match_stats["no_match"] += 1
+                            if appt_pages == 1 and match_stats["no_match"] <= 3:
+                                print(f"[acuity] no_match_example: aid={aid}, email={a.get('email')}, phone={a.get('phone')}, clientID={cid}")
+                            continue
+                        
+                        if matched_by:
+                            match_stats[f"by_{matched_by}"] += 1
+                        
+                        if external_contact_id:
+                            entry = _get_entry(payments_map, external_contact_id)
+                            if start_ts:
+                                _apply_visit(entry, int(start_ts))
+                            if not skip_appt_payments:
+                                try:
+                                    _collect_appointment_payments(payments_map, external_contact_id, client, base, aid)
+                                    payments_checked += 1
+                                except Exception as exc:
+                                    logger.debug(
+                                        "Acuity appointment payment fetch failed",
+                                        extra={"appointment_id": aid, "error": str(exc)},
+                                    )
+                        
+                        appt_batch.append({
+                            "ext": ext,
+                            "contact_uuid": str(contact_uuid),
+                            "service": service,
+                            "start_ts": int(start_ts or 0),
+                            "end_ts": (int(end_ts) if end_ts else 0),
+                            "status": status,
+                        })
+                    except Exception:
+                        skipped += 1
+                
+                # Log matching results for this page
+                if appt_pages == 1 or appt_pages % 5 == 0:
+                    print(f"[acuity] match_stats: page={appt_pages}, by_email={match_stats['by_email']}, by_phone={match_stats['by_phone']}, by_client_id={match_stats['by_client_id']}, no_match={match_stats['no_match']}")
+            
+                # Write appointments in small sub-batches with explicit transaction boundaries
+                # Reuse the same connection but commit after every 10 appointments
+                if appt_batch:
+                    sub_batch_size = 10
+                    for i in range(0, len(appt_batch), sub_batch_size):
+                        sub_batch = appt_batch[i:i+sub_batch_size]
+                        sub_batch_num = i//sub_batch_size + 1
+                        
+                        # Use proven _with_conn() pattern (same as contacts) - auto-commits on success
+                        with _with_conn(tenant_id) as conn:
+                            for appt_data in sub_batch:
+                                try:
+                                    r1 = conn.execute(
+                                        _sql_text(
+                                            "UPDATE appointments SET contact_id=CAST(:c AS uuid), service=:s, start_ts=to_timestamp(:st), end_ts=to_timestamp(:et), status=:stt "
+                                            "WHERE tenant_id = CAST(:t AS uuid) AND external_ref = :x"
+                                        ),
+                                        {
+                                            "t": tenant_id,
+                                            "x": appt_data["ext"],
+                                            "c": appt_data["contact_uuid"],
+                                            "s": appt_data["service"],
+                                            "st": appt_data["start_ts"],
+                                            "et": appt_data["end_ts"],
+                                            "stt": appt_data["status"],
+                                        },
+                                    )
+                                    if int(getattr(r1, "rowcount", 0) or 0) == 0:
+                                        conn.execute(
                                             _sql_text(
-                                                "UPDATE appointments SET contact_id=CAST(:c AS uuid), service=:s, start_ts=to_timestamp(:st), end_ts=to_timestamp(:et), status=:stt "
-                                                "WHERE tenant_id = CAST(:t AS uuid) AND external_ref = :x"
+                                                "INSERT INTO appointments(tenant_id,contact_id,service,start_ts,end_ts,status,external_ref,created_at,updated_at) "
+                                                "VALUES (CAST(:t AS uuid),CAST(:c AS uuid),:s,to_timestamp(:st),to_timestamp(:et),:stt,:x,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
                                             ),
                                             {
                                                 "t": tenant_id,
@@ -747,42 +762,16 @@ def import_appointments(
                                                 "stt": appt_data["status"],
                                             },
                                         )
-                                        if int(getattr(r1, "rowcount", 0) or 0) == 0:
-                                            db_conn.execute(
-                                                _sql_text(
-                                                    "INSERT INTO appointments(tenant_id,contact_id,service,start_ts,end_ts,status,external_ref,created_at,updated_at) "
-                                                    "VALUES (CAST(:t AS uuid),CAST(:c AS uuid),:s,to_timestamp(:st),to_timestamp(:et),:stt,:x,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)"
-                                                ),
-                                                {
-                                                    "t": tenant_id,
-                                                    "x": appt_data["ext"],
-                                                    "c": appt_data["contact_uuid"],
-                                                    "s": appt_data["service"],
-                                                    "st": appt_data["start_ts"],
-                                                    "et": appt_data["end_ts"],
-                                                    "stt": appt_data["status"],
-                                                },
-                                            )
-                                        appt_imported += 1
-                                        appointments_processed += 1
-                                    except Exception:
-                                        skipped += 1
-                                
-                                # Explicit commit after all appointments in sub-batch succeed
-                                print(f"[acuity] pre_commit: tenant={tenant_id}, sub_batch={sub_batch_num}, trans_active={trans.is_active if hasattr(trans, 'is_active') else 'unknown'}")
-                                trans.commit()
-                                print(f"[acuity] post_commit: tenant={tenant_id}, sub_batch={sub_batch_num}, trans_active={trans.is_active if hasattr(trans, 'is_active') else 'unknown'}")
-                                print(f"[acuity] appointments_batch_committed: tenant={tenant_id}, sub_batch={sub_batch_num}, count={len(sub_batch)}, total_processed={appointments_processed}")
-                            except Exception as exc:
-                                # Explicit rollback on any error
-                                trans.rollback()
-                                print(f"[acuity] appointments_sub_batch_error: tenant={tenant_id}, page={appt_pages}, sub_batch={sub_batch_num}, rolling_back")
-                                print(f"[acuity] appointments_sub_batch_exception: {type(exc).__name__}: {exc}")
-                                skipped += len(sub_batch)
-                    
-                    if len(arr) < limit:
-                        break
-                    offset += limit
+                                    appt_imported += 1
+                                    appointments_processed += 1
+                                except Exception:
+                                    skipped += 1
+                            
+                            print(f"[acuity] appointments_batch_committed: tenant={tenant_id}, sub_batch={sub_batch_num}, count={len(sub_batch)}, total_processed={appointments_processed}")
+                
+                if len(arr) < limit:
+                    break
+                offset += limit
 
             print(f"[acuity] appointments_fetched: tenant={tenant_id}, pages={appt_pages}, count={dbg_appts_count}, payments_checked={payments_checked}, seconds={round(perf_counter() - appointments_started, 2)}")
 
