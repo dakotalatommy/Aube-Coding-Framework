@@ -10147,6 +10147,17 @@ def square_sync_payments(
         synced = 0
         page_count = 0
         transactions_created = 0
+        
+        # DEBUG: Counters for filtering
+        skipped_no_customer = 0
+        skipped_status = 0
+        skipped_zero_amount = 0
+        skipped_date_parse = 0
+        skipped_no_contact = 0
+        duplicates = 0
+        sample_skipped_status = []
+        sample_skipped_no_customer = []
+        sample_skipped_no_contact = []
 
         with httpx.Client(timeout=60, headers=headers) as client:
             cursor: Optional[str] = None
@@ -10168,6 +10179,8 @@ def square_sync_payments(
 
                 body = r.json() or {}
                 payments = body.get("payments") or []
+                
+                print(f"[square_payments] page={page_num}, api_returned={len(payments)} payments")
 
                 # Process ALL payments on this page with SINGLE connection (batched)
                 with _with_rls_conn(req.tenant_id) as conn:
@@ -10175,11 +10188,17 @@ def square_sync_payments(
                         try:
                             customer_id = str(payment.get("customer_id") or "").strip()
                             if not customer_id:
+                                skipped_no_customer += 1
+                                if len(sample_skipped_no_customer) < 3:
+                                    sample_skipped_no_customer.append(payment.get("id", "unknown"))
                                 continue
 
                             # Only sync completed payments
                             status = str(payment.get("status") or "").upper()
                             if status not in {"COMPLETED", "APPROVED", "CAPTURED"}:
+                                skipped_status += 1
+                                if len(sample_skipped_status) < 3:
+                                    sample_skipped_status.append(f"{payment.get('id', 'unknown')}={status}")
                                 continue
 
                             # Extract amount
@@ -10198,6 +10217,7 @@ def square_sync_payments(
 
                             net_amount = max(0, amount_cents - refunded_cents)
                             if net_amount == 0:
+                                skipped_zero_amount += 1
                                 continue
 
                             # Parse payment date
@@ -10209,6 +10229,7 @@ def square_sync_payments(
                                     payment_date = datetime.fromisoformat(payment_date_str.replace('Z', '+00:00'))
                                 except Exception:
                                     logger.warning("Failed to parse Square payment date: %s", payment_date_str)
+                                    skipped_date_parse += 1
                                     continue
 
                             payment_id = str(payment.get("id") or "")
@@ -10223,6 +10244,9 @@ def square_sync_payments(
 
                             if not contact_row:
                                 # Contact doesn't exist yet, skip this payment
+                                skipped_no_contact += 1
+                                if len(sample_skipped_no_contact) < 3:
+                                    sample_skipped_no_contact.append(f"{payment.get('id', 'unknown')}={customer_id}")
                                 continue
 
                             contact_id = str(contact_row[0])
@@ -10249,6 +10273,8 @@ def square_sync_payments(
                                     }
                                 )
                                 transactions_created += 1
+                            else:
+                                duplicates += 1
 
                             synced += 1
 
@@ -10258,6 +10284,8 @@ def square_sync_payments(
 
                 # Early exit: if this page had 0 new transactions, all remaining payments already exist
                 transactions_this_page = transactions_created - transactions_before
+                print(f"[square_payments] page={page_num}, new_txns={transactions_this_page}, duplicates_so_far={duplicates}")
+                
                 if transactions_this_page == 0 and page_num > 1:
                     # All payments on this page were duplicates, safe to stop
                     break
@@ -10269,6 +10297,16 @@ def square_sync_payments(
                     break
                 if not cursor:
                     break
+        
+        # DEBUG: Final summary
+        print(f"[square_payments] SUMMARY: total_pages={page_num}, synced={synced}, created={transactions_created}, duplicates={duplicates}")
+        print(f"[square_payments] FILTERED: no_customer={skipped_no_customer}, wrong_status={skipped_status}, zero_amount={skipped_zero_amount}, date_parse={skipped_date_parse}, no_contact={skipped_no_contact}")
+        if sample_skipped_status:
+            print(f"[square_payments] SAMPLE_STATUS: {sample_skipped_status}")
+        if sample_skipped_no_customer:
+            print(f"[square_payments] SAMPLE_NO_CUSTOMER: {sample_skipped_no_customer}")
+        if sample_skipped_no_contact:
+            print(f"[square_payments] SAMPLE_NO_CONTACT: {sample_skipped_no_contact}")
 
         # Update connected account last_sync
         try:
