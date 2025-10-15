@@ -340,10 +340,15 @@ def import_appointments(
         auth_mode = "basic" if auth_hdr.startswith("Basic ") else ("bearer" if auth_hdr.startswith("Bearer ") else "none")
     except Exception:
         auth_mode = "none"
-    imported = 0
     updated = 0
     skipped = 0
     appt_imported = 0
+    appointments_attempted = 0
+    appointments_persisted = 0
+    appointments_skipped_historical = 0
+    appointments_skipped_unmatched = 0
+    appointments_skipped_write_failures = 0
+    appointments_skipped_missing_time = 0
     dbg_clients_status: Optional[int] = None
     dbg_clients_count = 0
     dbg_clients_error: Optional[str] = None
@@ -492,7 +497,6 @@ def import_appointments(
                                 contacts_processed += 1
                                 if contacts_processed % 50 == 0:
                                     print(f"[acuity] contacts_progress: tenant={tenant_id}, processed={contacts_processed}, pages={client_pages}")
-                                imported += 1
                             except Exception:
                                 skipped += 1
                 except Exception:
@@ -638,6 +642,7 @@ def import_appointments(
                 # Pre-process appointments and collect payments in memory, then batch database writes
                 appt_batch = []
                 match_stats = {"by_email": 0, "by_phone": 0, "by_client_id": 0, "no_match": 0}
+                now_ts = int(time.time())
                 for a in arr:
                     try:
                         aid = str(a.get("id") or "")
@@ -647,12 +652,21 @@ def import_appointments(
                         end_ts = _parse_epoch(a.get("endTime") or a.get("end_ts")) or None
                         status = str(a.get("status") or "booked").lower()
                         service = str(a.get("type") or a.get("title") or a.get("service") or "")
+
+                        if not start_ts:
+                            appointments_skipped_missing_time += 1
+                            skipped += 1
+                            continue
+                        if start_ts < now_ts:
+                            appointments_skipped_historical += 1
+                            skipped += 1
+                            continue
                         
                         # Match contact by email (case-insensitive), phone, or client ID
                         contact_uuid = None
                         external_contact_id = None
                         matched_by = None
-                        
+
                         # Try email first (most reliable) - normalize for case-insensitive match
                         if a.get("email"):
                             email_normalized = str(a.get("email")).strip().lower()
@@ -662,7 +676,7 @@ def import_appointments(
                                 if not external_contact_id:
                                     external_contact_id = uuid_to_contact_id.get(contact_uuid)
                                 matched_by = "email"
-                        
+
                         # Try phone as fallback - digits-only for flexible matching
                         if not contact_uuid and a.get("phone"):
                             phone_normalized = ''.join(c for c in str(a.get("phone")) if c.isdigit())
@@ -671,7 +685,7 @@ def import_appointments(
                                 if contact_uuid:
                                     external_contact_id = uuid_to_contact_id.get(contact_uuid)
                                     matched_by = "phone"
-                        
+
                         # Try client ID as last resort - exact match on contact_id
                         if not contact_uuid and cid:
                             client_contact_id = f"acuity:{cid}"
@@ -679,16 +693,18 @@ def import_appointments(
                             if contact_uuid:
                                 external_contact_id = client_contact_id
                                 matched_by = "client_id"
-                        
+
                         if not contact_uuid:
                             skipped += 1
                             match_stats["no_match"] += 1
+                            appointments_skipped_unmatched += 1
                             if appt_pages == 1 and match_stats["no_match"] <= 3:
                                 print(f"[acuity] no_match_example: aid={aid}, email={a.get('email')}, phone={a.get('phone')}, clientID={cid}")
                             continue
                         
                         if matched_by:
                             match_stats[f"by_{matched_by}"] += 1
+                        appointments_attempted += 1
                         
                         if external_contact_id:
                             entry = _get_entry(payments_map, external_contact_id)
@@ -704,14 +720,16 @@ def import_appointments(
                                         extra={"appointment_id": aid, "error": str(exc)},
                                     )
                         
-                        appt_batch.append({
-                            "ext": ext,
-                            "contact_uuid": str(contact_uuid),
-                            "service": service,
-                            "start_ts": int(start_ts or 0),
-                            "end_ts": (int(end_ts) if end_ts else 0),
-                            "status": status,
-                        })
+                        appt_batch.append(
+                            {
+                                "ext": ext,
+                                "contact_uuid": str(contact_uuid),
+                                "service": service,
+                                "start_ts": int(start_ts or 0),
+                                "end_ts": (int(end_ts) if end_ts else 0),
+                                "status": status,
+                            }
+                        )
                     except Exception:
                         skipped += 1
                 
@@ -730,6 +748,7 @@ def import_appointments(
                         # Use proven _with_conn() pattern (same as contacts) - auto-commits on success
                         with _with_conn(tenant_id) as conn:
                             for appt_data in sub_batch:
+                                persisted = False
                                 try:
                                     r1 = conn.execute(
                                         _sql_text(
@@ -746,7 +765,9 @@ def import_appointments(
                                             "stt": appt_data["status"],
                                         },
                                     )
-                                    if int(getattr(r1, "rowcount", 0) or 0) == 0:
+                                    if int(getattr(r1, "rowcount", 0) or 0) > 0:
+                                        persisted = True
+                                    else:
                                         conn.execute(
                                             _sql_text(
                                                 "INSERT INTO appointments(tenant_id,contact_id,service,start_ts,end_ts,status,external_ref,created_at,updated_at) "
@@ -762,10 +783,22 @@ def import_appointments(
                                                 "stt": appt_data["status"],
                                             },
                                         )
-                                    appt_imported += 1
-                                    appointments_processed += 1
-                                except Exception:
+                                        persisted = True
+                                except Exception as exc:
+                                    print(f"[acuity] appointment_write_error: tenant={tenant_id}, external_ref={appt_data['ext']}, error={exc}")
+                                    appointments_skipped_write_failures += 1
                                     skipped += 1
+                                    continue
+
+                                if persisted:
+                                    appt_imported += 1
+                                    appointments_persisted += 1
+                                    appointments_processed += 1
+                                else:
+                                    appointments_skipped_write_failures += 1
+                                    skipped += 1
+                            # end for appt_data
+                        # end with _with_conn
                             
                             print(f"[acuity] appointments_batch_committed: tenant={tenant_id}, sub_batch={sub_batch_num}, count={len(sub_batch)}, total_processed={appointments_processed}")
                 
@@ -843,15 +876,37 @@ def import_appointments(
             )
     except Exception:
         pass
+    total_skipped = (
+        appointments_skipped_historical
+        + appointments_skipped_unmatched
+        + appointments_skipped_write_failures
+        + appointments_skipped_missing_time
+    )
+
     try:
-        emit_event("AcuityImportCompleted", {"tenant_id": tenant_id, "contacts": int(imported), "appointments": int(appt_imported)})
+        emit_event("AcuityImportCompleted", {"tenant_id": tenant_id, "contacts": int(contacts_processed), "appointments": int(appointments_persisted)})
     except Exception:
         pass
-    print(f"[acuity] import_summary: tenant={tenant_id}, contacts_processed={imported}, contacts_updated={updated}, appointments_imported={appt_imported}, appointments_fetched={dbg_appts_count}, payments_contacts={len(payments_map)}, clients_status={dbg_clients_status}, appointments_status={dbg_appts_status}, skipped={skipped}")
+    print(
+        "[acuity] import_summary: "
+        f"tenant={tenant_id}, contacts_processed={contacts_processed}, contacts_updated={updated}, "
+        f"appointments_attempted={appointments_attempted}, appointments_persisted={appointments_persisted}, "
+        f"skipped_historical={appointments_skipped_historical}, skipped_unmatched={appointments_skipped_unmatched}, "
+        f"skipped_write_failures={appointments_skipped_write_failures}, skipped_missing_time={appointments_skipped_missing_time}, "
+        f"appointments_fetched={dbg_appts_count}, payments_contacts={len(payments_map)}, "
+        f"clients_status={dbg_clients_status}, appointments_status={dbg_appts_status}, skipped_total={total_skipped}"
+    )
     return {
-        "imported": appt_imported,
+        "imported": appointments_persisted,
+        "appointments_attempted": appointments_attempted,
+        "appointments_persisted": appointments_persisted,
+        "appointments_skipped_historical": appointments_skipped_historical,
+        "appointments_skipped_unmatched": appointments_skipped_unmatched,
+        "appointments_skipped_missing_time": appointments_skipped_missing_time,
+        "appointments_skipped_write_failures": appointments_skipped_write_failures,
+        "appointments_skipped_total": total_skipped,
         "updated": int(updated),
-        "skipped_duplicates": int(skipped),
+        "skipped_duplicates": int(total_skipped),
         "clients_status": dbg_clients_status,
         "clients_count": dbg_clients_count,
         "appointments_status": dbg_appts_status,
