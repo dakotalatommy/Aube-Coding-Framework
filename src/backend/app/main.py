@@ -695,7 +695,7 @@ async def support_send(request: Request, ctx: Optional[UserContext] = Depends(ge
             inserted = conn.execute(
                 _sql_text(
                     "INSERT INTO support_tickets (tenant_id, submitted_by, name, email, phone, description, files, context, status, created_by_ip) "
-                    "VALUES (CAST(:tenant_id AS uuid), :submitted_by, :name, :email, :phone, :description, :files::jsonb, :context::jsonb, 'new', :ip) "
+                    "VALUES (CAST(:tenant_id AS uuid), :submitted_by, :name, :email, :phone, :description, CAST(:files AS jsonb), CAST(:context AS jsonb), 'new', :ip) "
                     "RETURNING id"
                 ),
                 {
@@ -721,7 +721,7 @@ async def support_send(request: Request, ctx: Optional[UserContext] = Depends(ge
                 )
                 conn.execute(
                     _sql_text(
-                        "INSERT INTO activity_log (tenant_id, actor, action, payload) VALUES (CAST(:t AS uuid), 'user', 'support.ticket.submitted', :payload::jsonb)"
+                        "INSERT INTO activity_log (tenant_id, actor, action, payload) VALUES (CAST(:t AS uuid), 'user', 'support.ticket.submitted', CAST(:payload AS jsonb))"
                     ),
                     {'t': tenant_id, 'payload': activity_payload},
                 )
@@ -869,7 +869,7 @@ def onboarding_askvx_insights(
                 inserted = conn.execute(
                     _sql_text(
                         "INSERT INTO todo_items (tenant_id, type, title, details_json, status) "
-                        "VALUES (CAST(:t AS uuid), 'onboarding.insights', :title, :details::jsonb, 'pending') RETURNING id"
+                        "VALUES (CAST(:t AS uuid), 'onboarding.insights', :title, CAST(:details AS jsonb), 'pending') RETURNING id"
                     ),
                     {"t": tenant_id, "title": title, "details": json.dumps(details)},
                 )
@@ -1750,7 +1750,7 @@ def followups_draft_batch(
         inserted = conn.execute(
             _sql_text(
                 "INSERT INTO todo_items (tenant_id, type, title, details_json, status) "
-                "VALUES (CAST(:t AS uuid), 'followups.draft', :title, :details::jsonb, 'pending') "
+                "VALUES (CAST(:t AS uuid), 'followups.draft', :title, CAST(:details AS jsonb), 'pending') "
                 "RETURNING id"
             ),
             {"t": req.tenant_id, "title": title, "details": json.dumps(base_details)},
@@ -2020,7 +2020,7 @@ def todo_create(req: TodoCreate, db: Session = Depends(get_db), ctx: UserContext
                 _sql_text(
                     """
                     INSERT INTO todo_items (tenant_id, type, title, details_json, status)
-                    VALUES (CAST(:t AS uuid), 'manual', :title, :details::jsonb, 'pending')
+                    VALUES (CAST(:t AS uuid), 'manual', :title, CAST(:details AS jsonb), 'pending')
                     RETURNING id
                     """
                 ),
@@ -10271,7 +10271,7 @@ def square_sync_payments(
                                 conn.execute(
                                     _sql_text("""
                                         INSERT INTO transactions (tenant_id, contact_id, amount_cents, transaction_date, source, external_ref, metadata)
-                                        VALUES (CAST(:t AS uuid), :cid, :amt, :tdate, 'square', :ref, :meta::jsonb)
+                                        VALUES (CAST(:t AS uuid), :cid, :amt, :tdate, 'square', :ref, CAST(:meta AS jsonb))
                                     """),
                                     {
                                         "t": req.tenant_id,
@@ -12727,7 +12727,7 @@ def calendar_sync(
                 inserted = conn.execute(
                     _sql_text(
                         "INSERT INTO todo_items (tenant_id, type, title, details_json, status) "
-                        "VALUES (CAST(:t AS uuid), 'calendar.sync', :title, :details::jsonb, 'pending') RETURNING id"
+                        "VALUES (CAST(:t AS uuid), 'calendar.sync', :title, CAST(:details AS jsonb), 'pending') RETURNING id"
                     ),
                     {"t": tenant_id, "title": title, "details": json.dumps(details)},
                 )
@@ -12879,7 +12879,7 @@ def inventory_sync(
                 inserted = conn.execute(
                     _sql_text(
                         "INSERT INTO todo_items (tenant_id, type, title, details_json, status) "
-                        "VALUES (CAST(:t AS uuid), 'inventory.sync', :title, :details::jsonb, 'pending') RETURNING id"
+                        "VALUES (CAST(:t AS uuid), 'inventory.sync', :title, CAST(:details AS jsonb), 'pending') RETURNING id"
                     ),
                     {"t": tenant_id, "title": "Inventory sync", "details": json.dumps(details)},
                 )
