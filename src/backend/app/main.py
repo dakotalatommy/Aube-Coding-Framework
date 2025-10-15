@@ -10150,7 +10150,11 @@ def square_sync_payments(
 
         with httpx.Client(timeout=60, headers=headers) as client:
             cursor: Optional[str] = None
+            page_num = 0
             while True:
+                page_num += 1
+                transactions_before = transactions_created
+                
                 params: Dict[str, str] = {"limit": "100"}
                 if cursor:
                     params["cursor"] = cursor
@@ -10165,53 +10169,53 @@ def square_sync_payments(
                 body = r.json() or {}
                 payments = body.get("payments") or []
 
-                # Process each payment
-                for payment in payments:
-                    try:
-                        customer_id = str(payment.get("customer_id") or "").strip()
-                        if not customer_id:
-                            continue
-
-                        # Only sync completed payments
-                        status = str(payment.get("status") or "").upper()
-                        if status not in {"COMPLETED", "APPROVED", "CAPTURED"}:
-                            continue
-
-                        # Extract amount
-                        amount_cents = 0
+                # Process ALL payments on this page with SINGLE connection (batched)
+                with _with_rls_conn(req.tenant_id) as conn:
+                    for payment in payments:
                         try:
-                            amount_cents = int(((payment.get("amount_money") or {}).get("amount") or 0))
-                        except Exception:
-                            amount_cents = 0
-
-                        # Subtract refunds
-                        refunded_cents = 0
-                        try:
-                            refunded_cents = int(((payment.get("refunded_money") or {}).get("amount") or 0))
-                        except Exception:
-                            refunded_cents = 0
-
-                        net_amount = max(0, amount_cents - refunded_cents)
-                        if net_amount == 0:
-                            continue
-
-                        # Parse payment date
-                        payment_date_str = str(payment.get("created_at") or "")
-                        payment_date = None
-                        if payment_date_str:
-                            try:
-                                from datetime import datetime
-                                payment_date = datetime.fromisoformat(payment_date_str.replace('Z', '+00:00'))
-                            except Exception:
-                                logger.warning("Failed to parse Square payment date: %s", payment_date_str)
+                            customer_id = str(payment.get("customer_id") or "").strip()
+                            if not customer_id:
                                 continue
 
-                        payment_id = str(payment.get("id") or "")
-                        order_id = str(payment.get("order_id") or "")
-                        external_ref = order_id if order_id else payment_id
+                            # Only sync completed payments
+                            status = str(payment.get("status") or "").upper()
+                            if status not in {"COMPLETED", "APPROVED", "CAPTURED"}:
+                                continue
 
-                        # Get contact_id from square_customer_id
-                        with _with_rls_conn(req.tenant_id) as conn:
+                            # Extract amount
+                            amount_cents = 0
+                            try:
+                                amount_cents = int(((payment.get("amount_money") or {}).get("amount") or 0))
+                            except Exception:
+                                amount_cents = 0
+
+                            # Subtract refunds
+                            refunded_cents = 0
+                            try:
+                                refunded_cents = int(((payment.get("refunded_money") or {}).get("amount") or 0))
+                            except Exception:
+                                refunded_cents = 0
+
+                            net_amount = max(0, amount_cents - refunded_cents)
+                            if net_amount == 0:
+                                continue
+
+                            # Parse payment date
+                            payment_date_str = str(payment.get("created_at") or "")
+                            payment_date = None
+                            if payment_date_str:
+                                try:
+                                    from datetime import datetime
+                                    payment_date = datetime.fromisoformat(payment_date_str.replace('Z', '+00:00'))
+                                except Exception:
+                                    logger.warning("Failed to parse Square payment date: %s", payment_date_str)
+                                    continue
+
+                            payment_id = str(payment.get("id") or "")
+                            order_id = str(payment.get("order_id") or "")
+                            external_ref = order_id if order_id else payment_id
+
+                            # Get contact_id from square_customer_id (reusing same connection)
                             contact_row = conn.execute(
                                 _sql_text("SELECT contact_id FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND square_customer_id = :sqid LIMIT 1"),
                                 {"t": req.tenant_id, "sqid": customer_id}
@@ -10246,11 +10250,17 @@ def square_sync_payments(
                                 )
                                 transactions_created += 1
 
-                        synced += 1
+                            synced += 1
 
-                    except Exception as e:
-                        logger.exception("Failed to process Square payment: %s", str(e))
-                        continue
+                        except Exception as e:
+                            logger.exception("Failed to process Square payment: %s", str(e))
+                            continue
+
+                # Early exit: if this page had 0 new transactions, all remaining payments already exist
+                transactions_this_page = transactions_created - transactions_before
+                if transactions_this_page == 0 and page_num > 1:
+                    # All payments on this page were duplicates, safe to stop
+                    break
 
                 cursor = body.get("cursor") or body.get("next_cursor")
                 page_count += 1
