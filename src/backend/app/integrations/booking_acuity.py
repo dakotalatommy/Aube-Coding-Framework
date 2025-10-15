@@ -364,6 +364,13 @@ def import_appointments(
     except Exception:
         pass
 
+    # Default to importing only future appointments (from today onward) for CRM relevance
+    # Revenue data will still be collected for all historical transactions via orders API
+    from datetime import datetime, timezone
+    if not since:
+        since = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        print(f"[acuity] appointments_filter: importing future appointments only (from {since} onward)")
+    
     print(f"[acuity] import_started: tenant={tenant_id}, since={since}, until={until}, cursor={cursor}, page_limit={page_limit}, skip_appt_payments={skip_appt_payments}")
     if skip_appt_payments:
         print(f"[acuity] payment_collection_disabled: skipping per-appointment payment API calls for faster import")
@@ -725,8 +732,11 @@ def import_appointments(
 
             print(f"[acuity] appointments_fetched: tenant={tenant_id}, pages={appt_pages}, count={dbg_appts_count}, payments_checked={payments_checked}, seconds={round(perf_counter() - appointments_started, 2)}")
 
+            # Collect ALL historical revenue data via orders API (not date-filtered)
+            # This gives complete financial history even though appointments are future-only
             try:
                 payments_started = perf_counter()
+                print(f"[acuity] revenue_collection_started: fetching ALL historical payment data from orders API")
                 _collect_orders_payments(payments_map, client, base, email_map)
                 print(f"[acuity] orders_processed: tenant={tenant_id}, contacts_with_payments={len(payments_map)}, seconds={round(perf_counter() - payments_started, 2)}")
             except Exception as exc:
