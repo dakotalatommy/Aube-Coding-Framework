@@ -1746,6 +1746,8 @@ async def tool_todo_enqueue(
     if idempotency_key:
         try:
             with engine.begin() as conn:
+                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
                 conn.execute(
                     _sql_text(
                         """
@@ -1774,6 +1776,8 @@ async def tool_todo_enqueue(
     }
     try:
         with engine.begin() as conn:
+            conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
             conn.execute(
                 _sql_text(
                     """

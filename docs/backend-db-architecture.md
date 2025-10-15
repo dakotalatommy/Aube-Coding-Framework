@@ -51,6 +51,56 @@ RLS GUC implementation pattern (must-follow)
   ```
 - Tests/diagnostics should call helpers that use this pattern (e.g., `/integrations/booking/acuity/debug-fetch`). If the helper raises, check Render logs for `Failed to set app.role GUC` or similar and fix the GUC logic before chasing secrets/keys.
 
+Verified GUC Patterns (Production-Tested)
+
+Pattern 1: Short-Lived Transaction Write (RECOMMENDED)
+Used by: Square/Acuity imports, AI memory writes, tool operations
+
+```python
+with engine.begin() as conn:
+    conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+    conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+    # Perform writes
+    conn.execute(_sql_text("INSERT INTO ..."), {...})
+# Transaction auto-commits on context exit
+```
+
+When to use: Single-operation writes, API endpoints, tool functions
+
+Pattern 2: Background Worker Job Processing
+Used by: Batch message generation, import jobs, AI insights
+
+```python
+def _acquire_job_id():
+    with engine.begin() as conn:
+        conn.execute(_sql_text("SELECT set_config('app.role', :role, true)"), {"role": "owner_admin"})
+        # Acquire job with FOR UPDATE SKIP LOCKED
+        row = conn.execute(_sql_text("SELECT id, tenant_id FROM jobs WHERE ...")).fetchone()
+        if row:
+            tenant_id = str(row[1])
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
+        # Process job within tenant context
+```
+
+When to use: Long-running async jobs, worker processes
+
+Pattern 3: SQLAlchemy Parameter Binding (CRITICAL)
+NEVER use `::type` syntax with named parameters
+
+❌ WRONG:
+```python
+conn.execute(_sql_text("INSERT ... VALUES (:param::jsonb)"), {"param": value})
+# Error: psycopg2.errors.SyntaxError at ":"
+```
+
+✅ CORRECT:
+```python
+conn.execute(_sql_text("INSERT ... VALUES (CAST(:param AS jsonb))"), {"param": value})
+# Works: CAST() syntax doesn't interfere with parameter substitution
+```
+
+All JSONB writes must use `CAST(:param AS jsonb)` instead of `:param::jsonb`
+
 Provider guides
 - Square: endpoints, headers, events (OauthTokenSaved, ContactsSynced, ImportWriteError), diagnostics (selfcheck, probe insert/delete, import trigger)
 - Acuity: same pattern and diagnostics; seed test plan to validate end‑to‑end

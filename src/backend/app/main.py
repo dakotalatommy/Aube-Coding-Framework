@@ -515,6 +515,7 @@ def _upsert_trainvx_memory(tenant_id: str, key: str, value: str) -> None:
     try:
         with engine.begin() as conn:
             conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
             conn.execute(
                 _sql_text(
                     "INSERT INTO trainvx_memories (tenant_id, key, value, updated_at) "
@@ -533,6 +534,7 @@ def _insert_onboarding_artifact(tenant_id: str, kind: str, content: str) -> None
     try:
         with engine.begin() as conn:
             conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
             conn.execute(
                 _sql_text(
                     "INSERT INTO onboarding_artifacts (tenant_id, kind, content) VALUES (CAST(:t AS uuid), :k, to_jsonb(:c::text))"
@@ -929,6 +931,8 @@ def onboarding_strategy_document(
     tags = ','.join(req.tags or ['strategy', 'onboarding'])
     try:
         with engine.begin() as conn:
+            conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
             conn.execute(
                 _sql_text("UPDATE ai_memories SET value=to_jsonb(:v::text), tags=to_jsonb(:tg::text), updated_at=NOW() WHERE tenant_id = CAST(:t AS uuid) AND key='plan.14day.onboarding.document'"),
                 {"t": req.tenant_id, "v": req.markdown, "tg": tags},
@@ -1514,6 +1518,8 @@ def followups_enqueue(req: FollowupsEnqueue, db: Session = Depends(get_db), ctx:
         return {"status": "forbidden"}
     try:
         with engine.begin() as conn:
+            conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
             for cid in req.contact_ids:
                 conn.execute(_sql_text("INSERT INTO cadence_states (tenant_id, contact_id, cadence_id, step_index, next_action_epoch, created_at) VALUES (CAST(:t AS uuid), :c, :cid, 0, extract(epoch from now())::int, now()) ON CONFLICT DO NOTHING"), {"t": req.tenant_id, "c": cid, "cid": req.cadence_id})
         return {"status": "ok", "enqueued": len(req.contact_ids)}
@@ -1983,6 +1989,8 @@ def todo_add(req: TodoAdd, db: Session = Depends(get_db), ctx: UserContext = Dep
         return {"status": "forbidden"}
     try:
         with engine.begin() as conn:
+            conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
             conn.execute(_sql_text("INSERT INTO todo_items (tenant_id, type, title, details_json) VALUES (CAST(:t AS uuid), :ty, :ti, :dj)"), {"t": req.tenant_id, "ty": req.type, "ti": req.title, "dj": _json.dumps(req.details or {})})
         return {"status": "ok"}
     except Exception as e:
@@ -2040,6 +2048,8 @@ def todo_ack(req: TodoAck, db: Session = Depends(get_db), ctx: UserContext = Dep
         return {"status": "forbidden"}
     try:
         with engine.begin() as conn:
+            conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
             conn.execute(_sql_text("UPDATE todo_items SET status='resolved', resolved_at=now() WHERE tenant_id = CAST(:t AS uuid) AND id=:id"), {"t": req.tenant_id, "id": int(req.id)})
         return {"status": "ok"}
     except Exception as e:
@@ -4619,6 +4629,8 @@ def ai_chat_save_summary(
         # Upsert into ai_memories for Train VX boot context
         try:
             with engine.begin() as conn:
+                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
                 # Per-session summary key
                 conn.execute(
                     _sql_text("UPDATE ai_memories SET value=to_jsonb(:v::text), tags=to_jsonb(:tg::text), updated_at=NOW() WHERE tenant_id = CAST(:t AS uuid) AND key=:k"),
