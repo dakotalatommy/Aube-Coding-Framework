@@ -554,6 +554,7 @@ def import_appointments(
                             phone_normalized = ''.join(c for c in str(row[2]) if c.isdigit())
                             if phone_normalized:
                                 phone_to_uuid_map[phone_normalized] = str(row[0])
+                print(f"[acuity] contact_maps_built: tenant={tenant_id}, contact_ids={len(contact_uuid_map)}, phones={len(phone_to_uuid_map)}")
             except Exception:
                 pass
             
@@ -586,6 +587,7 @@ def import_appointments(
                     
                     # Pre-process appointments and collect payments in memory, then batch database writes
                     appt_batch = []
+                    match_stats = {"by_email": 0, "by_phone": 0, "by_client_id": 0, "no_match": 0}
                     for a in arr:
                         try:
                             aid = str(a.get("id") or "")
@@ -599,6 +601,7 @@ def import_appointments(
                             # Match contact primarily by email and phone from appointment data
                             contact_uuid = None
                             external_contact_id = None
+                            matched_by = None
                             
                             # Try email first (most reliable)
                             if a.get("email"):
@@ -606,12 +609,15 @@ def import_appointments(
                                 contact_uuid = contact_uuid_map.get(email_contact_id)
                                 if contact_uuid:
                                     external_contact_id = email_contact_id
+                                    matched_by = "email"
                             
                             # Try phone as fallback
                             if not contact_uuid and a.get("phone"):
                                 phone_normalized = ''.join(c for c in str(a.get("phone")) if c.isdigit())
                                 if phone_normalized:
                                     contact_uuid = phone_to_uuid_map.get(phone_normalized)
+                                    if contact_uuid:
+                                        matched_by = "phone"
                             
                             # Try client ID as last resort
                             if not contact_uuid and cid:
@@ -619,10 +625,17 @@ def import_appointments(
                                 contact_uuid = contact_uuid_map.get(client_contact_id)
                                 if contact_uuid:
                                     external_contact_id = client_contact_id
+                                    matched_by = "client_id"
                             
                             if not contact_uuid:
                                 skipped += 1
+                                match_stats["no_match"] += 1
+                                if appt_pages == 1 and match_stats["no_match"] <= 3:
+                                    print(f"[acuity] no_match_example: aid={aid}, email={a.get('email')}, phone={a.get('phone')}, clientID={cid}")
                                 continue
+                            
+                            if matched_by:
+                                match_stats[f"by_{matched_by}"] += 1
                             
                             if external_contact_id:
                                 entry = _get_entry(payments_map, external_contact_id)
@@ -648,6 +661,10 @@ def import_appointments(
                             })
                         except Exception:
                             skipped += 1
+                    
+                    # Log matching results for this page
+                    if appt_pages == 1 or appt_pages % 5 == 0:
+                        print(f"[acuity] match_stats: page={appt_pages}, by_email={match_stats['by_email']}, by_phone={match_stats['by_phone']}, by_client_id={match_stats['by_client_id']}, no_match={match_stats['no_match']}")
                 
                     # Write appointments in small sub-batches with explicit transaction boundaries
                     # Reuse the same connection but commit after every 10 appointments
