@@ -10185,12 +10185,18 @@ def square_sync_payments(
                 # Process ALL payments on this page with SINGLE connection (batched)
                 with _with_rls_conn(req.tenant_id) as conn:
                     for payment in payments:
+                        # Use SAVEPOINT to isolate errors - prevents one bad payment from aborting entire batch
+                        savepoint_name = f"payment_{page_num}_{synced}"
                         try:
+                            # Create savepoint before processing this payment
+                            conn.execute(_sql_text(f"SAVEPOINT {savepoint_name}"))
+                            
                             customer_id = str(payment.get("customer_id") or "").strip()
                             if not customer_id:
                                 skipped_no_customer += 1
                                 if len(sample_skipped_no_customer) < 3:
                                     sample_skipped_no_customer.append(payment.get("id", "unknown"))
+                                conn.execute(_sql_text(f"RELEASE SAVEPOINT {savepoint_name}"))
                                 continue
 
                             # Only sync completed payments
@@ -10199,6 +10205,7 @@ def square_sync_payments(
                                 skipped_status += 1
                                 if len(sample_skipped_status) < 3:
                                     sample_skipped_status.append(f"{payment.get('id', 'unknown')}={status}")
+                                conn.execute(_sql_text(f"RELEASE SAVEPOINT {savepoint_name}"))
                                 continue
 
                             # Extract amount
@@ -10218,6 +10225,7 @@ def square_sync_payments(
                             net_amount = max(0, amount_cents - refunded_cents)
                             if net_amount == 0:
                                 skipped_zero_amount += 1
+                                conn.execute(_sql_text(f"RELEASE SAVEPOINT {savepoint_name}"))
                                 continue
 
                             # Parse payment date
@@ -10230,6 +10238,7 @@ def square_sync_payments(
                                 except Exception:
                                     logger.warning("Failed to parse Square payment date: %s", payment_date_str)
                                     skipped_date_parse += 1
+                                    conn.execute(_sql_text(f"RELEASE SAVEPOINT {savepoint_name}"))
                                     continue
 
                             payment_id = str(payment.get("id") or "")
@@ -10247,6 +10256,7 @@ def square_sync_payments(
                                 skipped_no_contact += 1
                                 if len(sample_skipped_no_contact) < 3:
                                     sample_skipped_no_contact.append(f"{payment.get('id', 'unknown')}={customer_id}")
+                                conn.execute(_sql_text(f"RELEASE SAVEPOINT {savepoint_name}"))
                                 continue
 
                             contact_id = str(contact_row[0])
@@ -10276,9 +10286,17 @@ def square_sync_payments(
                             else:
                                 duplicates += 1
 
+                            # Release savepoint on success
+                            conn.execute(_sql_text(f"RELEASE SAVEPOINT {savepoint_name}"))
                             synced += 1
 
                         except Exception as e:
+                            # Rollback to savepoint on error - isolates this payment's failure
+                            try:
+                                conn.execute(_sql_text(f"ROLLBACK TO SAVEPOINT {savepoint_name}"))
+                                conn.execute(_sql_text(f"RELEASE SAVEPOINT {savepoint_name}"))
+                            except Exception:
+                                pass
                             logger.exception("Failed to process Square payment: %s", str(e))
                             continue
 
