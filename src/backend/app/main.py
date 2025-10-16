@@ -1391,6 +1391,10 @@ def get_workflows(tenant_id: str, db: Session = Depends(get_db), ctx: UserContex
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"workflows": []}
     
+    # Set GUCs for RLS enforcement across all workflow queries
+    db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+    db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+    
     workflows = []
     for wf_id, config in WORKFLOW_CONFIGS.items():
         try:
