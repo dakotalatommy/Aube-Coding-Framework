@@ -464,6 +464,7 @@ def _mutate_settings_json(tenant_id: str, mutator: Any) -> None:
     try:
         with engine.begin() as conn:
             conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
             row = conn.execute(
                 _sql_text("SELECT data_json FROM settings WHERE tenant_id = CAST(:t AS uuid)"),
                 {"t": tenant_id},
@@ -1407,7 +1408,7 @@ def get_workflows(tenant_id: str, db: Session = Depends(get_db), ctx: UserContex
                 "template_id": config["template_id"],
                 "cadence_id": config["cadence_id"],
             })
-        except Exception:
+        except Exception as e:
             # If scope fails, still include workflow with 0 count
             workflows.append({
                 "id": wf_id,
@@ -1418,6 +1419,7 @@ def get_workflows(tenant_id: str, db: Session = Depends(get_db), ctx: UserContex
                 "scope": config["scope"],
                 "template_id": config["template_id"],
                 "cadence_id": config["cadence_id"],
+                "error": str(e)[:200],  # Include error for debugging
             })
     
     return {"workflows": workflows}
@@ -2292,6 +2294,10 @@ def dashboard_agenda(
             )
 
     try:
+        # Set GUCs for RLS enforcement on cadence_state and contacts
+        db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+        db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+        
         queue_rows = db.execute(
             _sql_text(
                 """
@@ -12945,6 +12951,11 @@ def calendar_list(
 ):
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"events": [], "last_sync": {}}
+    
+    # Set GUCs for RLS enforcement
+    db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+    db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+    
     # Unified calendar response + last sync from events_ledger
     cal_sync: Dict[str, object] = {}
     try:
