@@ -13683,7 +13683,7 @@ def backfill_last_visit(tenant_id: str, db: Session = Depends(get_db), ctx: User
         UPDATE contacts c
         SET last_visit = t.max_txn_date
         FROM (
-            SELECT contact_id, MAX(transaction_date) as max_txn_date
+            SELECT contact_id, EXTRACT(EPOCH FROM MAX(transaction_date))::bigint as max_txn_date
             FROM transactions
             WHERE tenant_id = CAST(:t AS uuid)
             GROUP BY contact_id
