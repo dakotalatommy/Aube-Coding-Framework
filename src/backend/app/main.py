@@ -1391,40 +1391,46 @@ def get_workflows(tenant_id: str, db: Session = Depends(get_db), ctx: UserContex
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"workflows": []}
     
-    # Set GUCs for RLS enforcement across all workflow queries
+    # Set GUCs for RLS enforcement
     db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
     db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
     
+    # Helper function to get count for each scope (avoids calling endpoint functions directly)
+    def get_scope_count(scope: str) -> int:
+        try:
+            if scope == "new_clients":
+                row = db.execute(_sql_text("SELECT COUNT(*) FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND (last_visit IS NULL OR last_visit = 0)"), {"t": tenant_id}).fetchone()
+            elif scope == "reengage_30d":
+                row = db.execute(_sql_text("SELECT COUNT(*) FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND last_visit IS NOT NULL AND last_visit >= (EXTRACT(EPOCH FROM now())::bigint - 45*86400) AND last_visit < (EXTRACT(EPOCH FROM now())::bigint - 30*86400)"), {"t": tenant_id}).fetchone()
+            elif scope == "winback_45d":
+                row = db.execute(_sql_text("SELECT COUNT(*) FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND last_visit IS NOT NULL AND last_visit < (EXTRACT(EPOCH FROM now())::bigint - 45*86400)"), {"t": tenant_id}).fetchone()
+            elif scope == "birthday_month":
+                current_month = datetime.now().month
+                row = db.execute(_sql_text("SELECT COUNT(*) FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND birthday IS NOT NULL AND EXTRACT(MONTH FROM birthday) = :month"), {"t": tenant_id, "month": current_month}).fetchone()
+            elif scope == "check_in_24h":
+                cutoff = int(_time.time()) - 86400
+                row = db.execute(_sql_text("SELECT COUNT(DISTINCT contact_id) FROM appointments WHERE tenant_id = CAST(:t AS uuid) AND start_ts >= :cutoff AND (status = 'completed' OR status = 'confirmed')"), {"t": tenant_id, "cutoff": cutoff}).fetchone()
+            elif scope == "this_week":
+                row = db.execute(_sql_text("SELECT COUNT(DISTINCT contact_id) FROM appointments WHERE tenant_id = CAST(:t AS uuid) AND start_ts >= EXTRACT(EPOCH FROM date_trunc('week', now()))::bigint AND start_ts < EXTRACT(EPOCH FROM date_trunc('week', now()) + interval '7 day')::bigint"), {"t": tenant_id}).fetchone()
+            else:
+                return 0
+            return int(row[0]) if row else 0
+        except Exception:
+            return 0
+    
     workflows = []
     for wf_id, config in WORKFLOW_CONFIGS.items():
-        try:
-            # Get contact count for this scope
-            candidates = followups_candidates(tenant_id, config["scope"], db=db, ctx=ctx)
-            count = len(candidates.get("items", []))
-            
-            workflows.append({
-                "id": wf_id,
-                "label": config["label"],
-                "description": config["description"],
-                "type": config["type"],
-                "contact_count": count,
-                "scope": config["scope"],
-                "template_id": config["template_id"],
-                "cadence_id": config["cadence_id"],
-            })
-        except Exception as e:
-            # If scope fails, still include workflow with 0 count
-            workflows.append({
-                "id": wf_id,
-                "label": config["label"],
-                "description": config["description"],
-                "type": config["type"],
-                "contact_count": 0,
-                "scope": config["scope"],
-                "template_id": config["template_id"],
-                "cadence_id": config["cadence_id"],
-                "error": str(e)[:200],  # Include error for debugging
-            })
+        count = get_scope_count(config["scope"])
+        workflows.append({
+            "id": wf_id,
+            "label": config["label"],
+            "description": config["description"],
+            "type": config["type"],
+            "contact_count": count,
+            "scope": config["scope"],
+            "template_id": config["template_id"],
+            "cadence_id": config["cadence_id"],
+        })
     
     return {"workflows": workflows}
 
