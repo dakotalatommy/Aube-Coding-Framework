@@ -510,6 +510,45 @@ def _process_followups_job(job_id: str, record: Dict[str, Any], payload: Dict[st
             )
         except Exception:
             pass
+        
+        # Auto-enroll contacts in cadence if configured (for "both" type workflows)
+        # Only enroll on last chunk to avoid duplicates
+        if chunk_index + 1 >= chunk_total:
+            template_id = payload.get("template_id", "")
+            cadence_id = None
+            
+            # Map template_id to cadence_id (matches WORKFLOW_CONFIGS in main.py)
+            if template_id == "check_in_24h":
+                cadence_id = "engaged_default"
+            elif template_id == "winback_45d":
+                cadence_id = "retargeting_no_answer"
+            elif template_id == "reminder_week":
+                cadence_id = "reminder_schedule"
+            
+            if cadence_id:
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                        conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+                        
+                        for contact in contacts:
+                            cid = contact.get("contact_id")
+                            if cid:
+                                # Enroll contact in cadence (3 days from now)
+                                next_epoch = int(time.time()) + 3 * 86400
+                                conn.execute(_sql_text("""
+                                    INSERT INTO cadence_state (tenant_id, contact_id, cadence_id, step_index, next_action_epoch, created_at)
+                                    VALUES (CAST(:t AS uuid), :cid, :cadence, 0, :next_epoch, NOW())
+                                    ON CONFLICT (tenant_id, contact_id, cadence_id) DO NOTHING
+                                """), {
+                                    "t": tenant_id, 
+                                    "cid": cid, 
+                                    "cadence": cadence_id,
+                                    "next_epoch": next_epoch
+                                })
+                except Exception as e:
+                    logger.warning(f"Failed to enroll contacts in cadence {cadence_id}: {e}")
+                    pass
     else:
         update_job_record(job_id, status="error", error=error_detail or "draft_failed")
         _sync_followups_chunk(

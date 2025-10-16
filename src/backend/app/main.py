@@ -1260,6 +1260,58 @@ FOLLOWUP_TEMPLATES: Dict[str, Dict[str, Any]] = {
     },
 }
 
+# Workflow configurations mapping UI workflows to backend scopes/templates/cadences
+WORKFLOW_CONFIGS = {
+    "welcome_new": {
+        "label": "Welcome New Clients",
+        "description": "Send warm welcome messages and aftercare tips",
+        "type": "draft",  # "draft", "cadence", or "both"
+        "scope": "new_clients",
+        "template_id": "welcome_new",
+        "cadence_id": None,  # Not automated yet
+    },
+    "check_in_service": {
+        "label": "Check-in After Service",
+        "description": "Follow up 24 hours after appointments to ensure satisfaction",
+        "type": "both",  # Generate draft AND enroll in cadence
+        "scope": "check_in_24h",
+        "template_id": "check_in_24h",
+        "cadence_id": "engaged_default",  # Auto-enroll after draft
+    },
+    "birthday_surprise": {
+        "label": "Birthday Surprises",
+        "description": "Send special birthday offers to celebrate your clients",
+        "type": "draft",
+        "scope": "birthday_month",
+        "template_id": "birthday_surprise",
+        "cadence_id": None,
+    },
+    "reengage_30d": {
+        "label": "Re-engage 30-45 Day Guests",
+        "description": "Win back clients who haven't visited in 30-45 days",
+        "type": "draft",
+        "scope": "reengage_30d",
+        "template_id": "reengage_30d",
+        "cadence_id": None,
+    },
+    "winback_45d": {
+        "label": "Win-back 45+ Day Guests",
+        "description": "Reconnect with clients who haven't visited in 45+ days",
+        "type": "both",
+        "scope": "winback_45d",
+        "template_id": "winback_45d",
+        "cadence_id": "retargeting_no_answer",  # Auto-enroll if no response
+    },
+    "appointment_reminders": {
+        "label": "Appointment Reminders",
+        "description": "Service-specific reminders based on maintenance cycles",
+        "type": "draft",
+        "scope": "this_week",
+        "template_id": "reminder_week",
+        "cadence_id": "reminder_schedule",
+    },
+}
+
 
 @app.get("/followups/candidates", tags=["Cadences"])
 def followups_candidates(tenant_id: str, scope: str = "this_week", db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
@@ -1280,18 +1332,95 @@ def followups_candidates(tenant_id: str, scope: str = "this_week", db: Session =
             items = [{"contact_id": r[0], "reason": "appt_this_week"} for r in rows]
             return {"items": items}
         if scope == "reengage_30d":
-            q = _sql_text("SELECT contact_id::text FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND (last_visit IS NULL OR last_visit < (EXTRACT(EPOCH FROM now())::bigint - 30*86400)) ORDER BY last_visit NULLS FIRST")
+            # 30-45 day range (exclude NULL)
+            q = _sql_text("""
+                SELECT contact_id::text FROM contacts 
+                WHERE tenant_id = CAST(:t AS uuid) 
+                AND last_visit IS NOT NULL
+                AND last_visit >= (EXTRACT(EPOCH FROM now())::bigint - 45*86400)
+                AND last_visit < (EXTRACT(EPOCH FROM now())::bigint - 30*86400)
+                ORDER BY last_visit DESC
+            """)
             rows = db.execute(q, {"t": tenant_id}).fetchall()
-            items = [{"contact_id": r[0], "reason": "no_visit_30d"} for r in rows]
+            items = [{"contact_id": r[0], "reason": "lapsed_30_45d"} for r in rows]
             return {"items": items}
         if scope == "winback_45d":
-            q = _sql_text("SELECT contact_id::text FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND (last_visit IS NULL OR last_visit < (EXTRACT(EPOCH FROM now())::bigint - 45*86400)) ORDER BY last_visit NULLS FIRST")
+            # 45+ days (exclude NULL)
+            q = _sql_text("""
+                SELECT contact_id::text FROM contacts 
+                WHERE tenant_id = CAST(:t AS uuid) 
+                AND last_visit IS NOT NULL
+                AND last_visit < (EXTRACT(EPOCH FROM now())::bigint - 45*86400)
+                ORDER BY last_visit DESC
+            """)
             rows = db.execute(q, {"t": tenant_id}).fetchall()
-            items = [{"contact_id": r[0], "reason": "no_visit_45d"} for r in rows]
+            items = [{"contact_id": r[0], "reason": "lapsed_45plus"} for r in rows]
+            return {"items": items}
+        if scope == "new_clients":
+            # Never visited (brand new)
+            q = _sql_text("SELECT contact_id::text FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND (last_visit IS NULL OR last_visit = 0) ORDER BY created_at DESC")
+            rows = db.execute(q, {"t": tenant_id}).fetchall()
+            items = [{"contact_id": r[0], "reason": "new_client"} for r in rows]
+            return {"items": items}
+        if scope == "check_in_24h":
+            # Appointments completed in last 24 hours
+            cutoff = int(_time.time()) - 86400
+            q = _sql_text("SELECT DISTINCT contact_id::text FROM appointments WHERE tenant_id = CAST(:t AS uuid) AND start_ts >= :cutoff AND (status = 'completed' OR status = 'confirmed') ORDER BY start_ts DESC")
+            rows = db.execute(q, {"t": tenant_id, "cutoff": cutoff}).fetchall()
+            items = [{"contact_id": r[0], "reason": "check_in_24h"} for r in rows]
+            return {"items": items}
+        if scope == "birthday_month":
+            # Birthdays this month
+            current_month = datetime.now().month
+            q = _sql_text("SELECT contact_id::text FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND birthday IS NOT NULL AND EXTRACT(MONTH FROM birthday) = :month ORDER BY EXTRACT(DAY FROM birthday)")
+            rows = db.execute(q, {"t": tenant_id, "month": current_month}).fetchall()
+            items = [{"contact_id": r[0], "reason": "birthday_month"} for r in rows]
             return {"items": items}
         return {"items": []}
     except Exception:
         return {"items": []}
+
+
+@app.get("/followups/workflows", tags=["Cadences"])
+def get_workflows(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    """
+    Returns available workflows with contact counts.
+    Replaces hard-coded UI mock data with real backend data.
+    """
+    if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
+        return {"workflows": []}
+    
+    workflows = []
+    for wf_id, config in WORKFLOW_CONFIGS.items():
+        try:
+            # Get contact count for this scope
+            candidates = followups_candidates(tenant_id, config["scope"], db=db, ctx=ctx)
+            count = len(candidates.get("items", []))
+            
+            workflows.append({
+                "id": wf_id,
+                "label": config["label"],
+                "description": config["description"],
+                "type": config["type"],
+                "contact_count": count,
+                "scope": config["scope"],
+                "template_id": config["template_id"],
+                "cadence_id": config["cadence_id"],
+            })
+        except Exception:
+            # If scope fails, still include workflow with 0 count
+            workflows.append({
+                "id": wf_id,
+                "label": config["label"],
+                "description": config["description"],
+                "type": config["type"],
+                "contact_count": 0,
+                "scope": config["scope"],
+                "template_id": config["template_id"],
+                "cadence_id": config["cadence_id"],
+            })
+    
+    return {"workflows": workflows}
 
 
 @app.get("/notifications", tags=["Cadences"])
@@ -1645,8 +1774,25 @@ def followups_draft_batch(
             seen.add(cid)
             contact_ids.append(cid)
         reasons[cid] = str(items[idx].get("reason") or "") if idx < len(items) else ""
+    
+    # Filter out contacts already enrolled in cadences (prevent duplicate outreach)
+    if contact_ids:
+        try:
+            enrolled_rows = db.execute(_sql_text("""
+                SELECT DISTINCT contact_id 
+                FROM cadence_state 
+                WHERE tenant_id = CAST(:t AS uuid) 
+                AND contact_id = ANY(:cids::text[])
+            """), {"t": req.tenant_id, "cids": contact_ids}).fetchall()
+            
+            enrolled_ids = {str(r[0]) for r in enrolled_rows}
+            contact_ids = [cid for cid in contact_ids if cid not in enrolled_ids]
+        except Exception:
+            # If cadence check fails, proceed with all contacts (don't block draft generation)
+            pass
+    
     if not contact_ids:
-        return {"status": "empty", "count": 0}
+        return {"status": "empty", "count": 0, "reason": "no_eligible_contacts"}
 
     try:
         tenant_uuid = _uuid.UUID(str(req.tenant_id))
@@ -1959,6 +2105,9 @@ def followups_draft_status(tenant_id: str, db: Session = Depends(get_db), ctx: U
         "todo_status": row[1],
         "todo_id": row[0],
         "details": details,
+        "draft_markdown": details.get("draft_markdown"),  # For modal display
+        "chunk_done": details.get("chunk_done", 0),
+        "chunk_total": details.get("chunk_total", 0),
         "job_id": job_id,
         "job_ids": job_ids,
         "job_status": job_status,
@@ -10319,6 +10468,14 @@ def square_sync_payments(
                                         "meta": json.dumps({"payment_id": payment_id, "order_id": order_id, "status": status})
                                     }
                                 )
+                                
+                                # Update contact's last_visit from transaction date
+                                conn.execute(_sql_text("""
+                                    UPDATE contacts
+                                    SET last_visit = GREATEST(COALESCE(last_visit, 0), :tdate)
+                                    WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid
+                                """), {"t": req.tenant_id, "cid": contact_id, "tdate": payment_date})
+                                
                                 transactions_created += 1
                             else:
                                 duplicates += 1
@@ -13507,3 +13664,35 @@ def instagram_status(ctx: UserContext = Depends(get_user_context)):
             return {"status": "connected" if ok else "not_connected"}
     except Exception:
         return {"status": "unknown"}
+
+
+# ----------------------- Admin: Backfill last_visit -----------------------
+@app.post("/admin/backfill-last-visit", tags=["Admin"])
+def backfill_last_visit(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
+    """
+    Backfill last_visit from max(transaction_date) per contact.
+    For Square users who don't have last_visit from appointment sync.
+    """
+    if ctx.role != "owner_admin" and ctx.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="forbidden")
+    
+    db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+    db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+    
+    result = db.execute(_sql_text("""
+        UPDATE contacts c
+        SET last_visit = t.max_txn_date
+        FROM (
+            SELECT contact_id, MAX(transaction_date) as max_txn_date
+            FROM transactions
+            WHERE tenant_id = CAST(:t AS uuid)
+            GROUP BY contact_id
+        ) t
+        WHERE c.tenant_id = CAST(:t AS uuid) 
+        AND c.contact_id = t.contact_id
+        AND (c.last_visit IS NULL OR c.last_visit < t.max_txn_date)
+    """), {"t": tenant_id})
+    db.commit()
+    
+    rows_updated = result.rowcount if hasattr(result, 'rowcount') else 0
+    return {"status": "ok", "message": f"last_visit backfilled from transactions", "rows_updated": rows_updated}
