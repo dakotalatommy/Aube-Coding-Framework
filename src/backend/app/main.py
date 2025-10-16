@@ -1398,6 +1398,10 @@ def get_workflows(tenant_id: str, db: Session = Depends(get_db), ctx: UserContex
     # Helper function to get count for each scope (avoids calling endpoint functions directly)
     def get_scope_count(scope: str) -> int:
         try:
+            # Ensure GUCs are set for this query (defensive)
+            db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+            db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            
             if scope == "new_clients":
                 row = db.execute(_sql_text("SELECT COUNT(*) FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND (last_visit IS NULL OR last_visit = 0)"), {"t": tenant_id}).fetchone()
             elif scope == "reengage_30d":
@@ -1415,7 +1419,10 @@ def get_workflows(tenant_id: str, db: Session = Depends(get_db), ctx: UserContex
             else:
                 return 0
             return int(row[0]) if row else 0
-        except Exception:
+        except Exception as e:
+            # Log exception for debugging
+            import logging
+            logging.error(f"Error in get_scope_count for scope {scope}: {e}")
             return 0
     
     workflows = []
