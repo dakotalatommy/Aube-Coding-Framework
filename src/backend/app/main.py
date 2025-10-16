@@ -546,6 +546,29 @@ def _insert_onboarding_artifact(tenant_id: str, kind: str, content: str) -> None
         pass
 
 
+def require_full_plan(db: Session, tenant_id: str) -> None:
+    """
+    Raise 403 if tenant is on 'lite' plan.
+    Used to gate premium endpoints (Inventory, Follow-ups, Grow with VX).
+    """
+    try:
+        limit = db.query(dbm.UsageLimit).filter(
+            dbm.UsageLimit.tenant_id == tenant_id
+        ).first()
+        
+        if limit and limit.plan_code == "lite":
+            raise HTTPException(
+                status_code=403, 
+                detail="upgrade_required",
+                headers={"X-Required-Plan": "starter"}  # Minimum full tier
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        # If usage_limits doesn't exist, allow access (graceful degradation)
+        pass
+
+
 @app.post("/onboarding/complete_step", tags=["Plans"])
 def onboarding_complete_step(req: ProgressStep, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
@@ -1318,6 +1341,7 @@ WORKFLOW_CONFIGS = {
 def followups_candidates(tenant_id: str, scope: str = "this_week", db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"items": []}
+    require_full_plan(db, tenant_id)  # Gate for Lite plans
     try:
         db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
         db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
@@ -1390,6 +1414,7 @@ def get_workflows(tenant_id: str, db: Session = Depends(get_db), ctx: UserContex
     """
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"workflows": []}
+    require_full_plan(db, tenant_id)  # Gate for Lite plans
     
     # Set GUCs for RLS enforcement
     db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
@@ -1672,6 +1697,7 @@ class FollowupsEnqueue(BaseModel):
 def followups_enqueue(req: FollowupsEnqueue, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
+    require_full_plan(db, req.tenant_id)  # Gate for Lite plans
     try:
         with engine.begin() as conn:
             conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
@@ -1748,6 +1774,7 @@ def followups_draft_batch(
 ):
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
+    require_full_plan(db, req.tenant_id)  # Gate for Lite plans
     template = FOLLOWUP_TEMPLATES.get(req.template_id)
     if not template:
         return {"status": "invalid_template"}
@@ -2077,6 +2104,7 @@ def followups_draft_batch(
 def followups_draft_status(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext = Depends(get_user_context)):
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
+    require_full_plan(db, tenant_id)  # Gate for Lite plans
     row = db.execute(
         _sql_text(
             "SELECT id, status, details_json FROM todo_items WHERE tenant_id = CAST(:t AS uuid) AND type = 'followups.draft' ORDER BY id DESC LIMIT 1"
@@ -3383,6 +3411,17 @@ def _stripe_client():
         raise HTTPException(status_code=500, detail="stripe_not_configured")
     _stripe.api_key = secret
     return _stripe
+
+def _map_price_to_plan(price_id: str) -> str:
+    """Map Stripe Price ID to internal plan_code."""
+    price_map = {
+        _env("STRIPE_PRICE_47", ""): "lite",
+        _env("STRIPE_PRICE_97", ""): "starter",
+        _env("STRIPE_PRICE_127", ""): "growth",
+        _env("STRIPE_PRICE_147", ""): "pro",
+    }
+    return price_map.get(price_id, "lite")  # Default to lite if unknown
+
 @app.post("/billing/create-customer", tags=["Integrations"])
 def create_customer(ctx: UserContext = Depends(get_user_context)):
     s = _stripe_client()
@@ -3499,6 +3538,58 @@ def billing_config() -> Dict[str, object]:
             _env("STRIPE_PUBLISHABLE", _env("VITE_STRIPE_PUBLISHABLE_KEY", "")),
         ),
     }
+
+@app.post("/billing/upgrade-plan", tags=["Billing"])
+def upgrade_plan(
+    req: dict, 
+    ctx: UserContext = Depends(get_user_context_relaxed),
+    db: Session = Depends(get_db)
+):
+    """
+    Upgrade existing subscription to new price tier.
+    Updates subscription without creating a new one (seamless).
+    """
+    s = _stripe_client()
+    new_price_id = req.get("new_price_id", "")
+    
+    if not new_price_id:
+        raise HTTPException(status_code=400, detail="missing_price_id")
+    
+    # Get Stripe customer ID from settings
+    db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+    db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": ctx.tenant_id})
+    row = db.execute(
+        _sql_text("SELECT data_json FROM settings WHERE tenant_id = CAST(:t AS uuid) ORDER BY id DESC LIMIT 1"),
+        {"t": ctx.tenant_id}
+    ).fetchone()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="customer_not_found")
+    
+    data = _json.loads(row[0] or "{}")
+    cust_id = data.get("stripe_customer_id")
+    
+    if not cust_id:
+        raise HTTPException(status_code=404, detail="no_stripe_customer")
+    
+    # Get active subscription
+    subscriptions = s.Subscription.list(customer=cust_id, status="active")
+    
+    if not subscriptions.data:
+        raise HTTPException(status_code=404, detail="no_active_subscription")
+    
+    sub = subscriptions.data[0]
+    sub_item_id = sub["items"]["data"][0]["id"]
+    
+    # Update subscription item to new price (proration automatic)
+    s.SubscriptionItem.modify(
+        sub_item_id,
+        price=new_price_id,
+        proration_behavior="create_prorations",  # Credit/charge difference
+    )
+    
+    return {"status": "ok", "message": "subscription_upgraded"}
+
 @app.post("/billing/webhook", tags=["Integrations"])
 async def stripe_webhook(request: Request):
     payload = await request.body()
@@ -3524,9 +3615,16 @@ async def stripe_webhook(request: Request):
             pass
     elif typ == "customer.subscription.updated" or typ == "customer.subscription.created":
         cust_id = data.get("customer")
+        # Extract price ID from subscription items
+        items = data.get("items", {}).get("data", [])
+        price_id = items[0].get("price", {}).get("id", "") if items else ""
+        # Map Stripe Price ID to plan_code
+        plan_code = _map_price_to_plan(price_id)
         t_update = {
             "subscription_status": data.get("status"),
             "current_period_end": int(data.get("current_period_end", 0)),
+            "plan_code": plan_code,
+            "stripe_price_id": price_id,
         }
     elif typ == "customer.subscription.deleted":
         cust_id = data.get("customer")
@@ -3568,6 +3666,31 @@ async def stripe_webhook(request: Request):
                     d.update(t_update)
                     db.execute(_sql_text("UPDATE settings SET data_json = :dj WHERE id = :sid"), {"dj": _json.dumps(d), "sid": sid})
                     db.commit()
+                    
+                    # Sync plan_code to usage_limits for fast access
+                    try:
+                        plan_code = d.get("plan_code", "lite")
+                        existing_limit = db.query(dbm.UsageLimit).filter(
+                            dbm.UsageLimit.tenant_id == resolved_tenant
+                        ).first()
+                        
+                        if existing_limit:
+                            existing_limit.plan_code = plan_code
+                            existing_limit.active = (d.get("subscription_status") == "active")
+                        else:
+                            new_limit = dbm.UsageLimit(
+                                tenant_id=resolved_tenant,
+                                plan_code=plan_code,
+                                active=(d.get("subscription_status") == "active"),
+                                ai_daily_cents_cap=2000,  # Default caps
+                                ai_monthly_cents_cap=30000,
+                                messages_daily_cap=500,
+                            )
+                            db.add(new_limit)
+                        db.commit()
+                    except Exception:
+                        pass
+                    
                     try:
                         emit_event("BillingUpdated", {"tenant_id": resolved_tenant, "status": d.get("subscription_status", "unknown")})
                     except Exception:
