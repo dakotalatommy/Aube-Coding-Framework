@@ -247,8 +247,8 @@ def _build_followups_prompt(payload: Dict[str, Any], contacts: List[Dict[str, An
 def _update_todo_details(todo_id: int, tenant_id: str, updater: Dict[str, Any], todo_status: Optional[str] = None) -> None:
     with engine.begin() as conn:
         try:
-            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :tenant_id, true)"), {"tenant_id": tenant_id})
         except Exception:
             pass
         row = conn.execute(
@@ -295,8 +295,8 @@ def _sync_followups_chunk(
     ready = False
     with engine.begin() as conn:
         try:
-            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :tenant_id, true)"), {"tenant_id": tenant_id})
         except Exception:
             pass
 
@@ -529,8 +529,8 @@ def _process_followups_job(job_id: str, record: Dict[str, Any], payload: Dict[st
             if cadence_id:
                 try:
                     with engine.begin() as conn:
-                        conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-                        conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+                        conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+                        conn.execute(_sql_text("SELECT set_config('app.tenant_id', :tenant_id, true)"), {"tenant_id": tenant_id})
                         
                         for contact in contacts:
                             cid = contact.get("contact_id")
@@ -1034,8 +1034,8 @@ def _process_acuity_backfill_job(job_id: str, record: Dict[str, Any], payload: D
         email_map = {}
         contact_id_map = {}
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :tenant_id, true)"), {"tenant_id": tenant_id})
             rows = conn.execute(
                 _sql_text("SELECT contact_id, email FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND email IS NOT NULL"),
                 {"t": tenant_id}
@@ -1159,8 +1159,8 @@ def _process_acuity_backfill_job(job_id: str, record: Dict[str, Any], payload: D
                         # Each insert gets its own transaction to prevent cascade failures
                         try:
                             with engine.begin() as conn:
-                                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-                                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+                                conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+                                conn.execute(_sql_text("SELECT set_config('app.tenant_id', :tenant_id, true)"), {"tenant_id": tenant_id})
                                 conn.execute(_sql_text("""
                                     INSERT INTO transactions 
                                     (tenant_id, contact_id, amount_cents, transaction_date, source, external_ref, metadata)
