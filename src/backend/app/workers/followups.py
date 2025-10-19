@@ -1097,69 +1097,70 @@ def _process_acuity_backfill_job(job_id: str, record: Dict[str, Any], payload: D
             print(f"[acuity-backfill] Total appointments fetched: {len(all_appointments)}")
             
             # Process each appointment and fetch its payments
-            with engine.begin() as conn:
-                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            # Use individual transaction per insert to avoid transaction abort cascade
+            for idx, appt in enumerate(all_appointments, 1):
+                appointments_processed += 1
                 
-                for idx, appt in enumerate(all_appointments, 1):
-                    appointments_processed += 1
-                    
-                    if idx % 20 == 0 or idx == 1:
-                        print(f"[acuity-backfill] Processing appointment {idx}/{len(all_appointments)}")
-                    
-                    appt_id = str(appt.get('id', ''))
-                    if not appt_id:
+                if idx % 20 == 0 or idx == 1:
+                    print(f"[acuity-backfill] Processing appointment {idx}/{len(all_appointments)}")
+                
+                appt_id = str(appt.get('id', ''))
+                if not appt_id:
+                    transactions_skipped += 1
+                    continue
+                
+                # Match contact by email or client ID
+                contact_id = None
+                if appt.get('email'):
+                    email_lower = str(appt['email']).strip().lower()
+                    contact_id = email_map.get(email_lower)
+                
+                if not contact_id and appt.get('clientID'):
+                    client_id = str(appt['clientID'])
+                    contact_id = contact_id_map.get(client_id)
+                
+                if not contact_id:
+                    transactions_skipped += 1
+                    continue
+                
+                # Fetch payments for this appointment
+                try:
+                    payments_r = client.get(f"{base}/appointments/{appt_id}/payments")
+                    if payments_r.status_code != 200:
                         transactions_skipped += 1
                         continue
                     
-                    # Match contact by email or client ID
-                    contact_id = None
-                    if appt.get('email'):
-                        email_lower = str(appt['email']).strip().lower()
-                        contact_id = email_map.get(email_lower)
-                    
-                    if not contact_id and appt.get('clientID'):
-                        client_id = str(appt['clientID'])
-                        contact_id = contact_id_map.get(client_id)
-                    
-                    if not contact_id:
+                    payments = payments_r.json()
+                    if not payments or not isinstance(payments, list):
                         transactions_skipped += 1
                         continue
                     
-                    # Fetch payments for this appointment
-                    try:
-                        payments_r = client.get(f"{base}/appointments/{appt_id}/payments")
-                        if payments_r.status_code != 200:
-                            transactions_skipped += 1
+                    for payment in payments:
+                        amount_raw = payment.get('amount', 0)
+                        try:
+                            amount_cents = int(float(amount_raw) * 100)
+                        except (ValueError, TypeError):
                             continue
                         
-                        payments = payments_r.json()
-                        if not payments or not isinstance(payments, list):
-                            transactions_skipped += 1
+                        if amount_cents <= 0:
                             continue
                         
-                        for payment in payments:
-                            amount_raw = payment.get('amount', 0)
-                            try:
-                                amount_cents = int(float(amount_raw) * 100)
-                            except (ValueError, TypeError):
-                                continue
-                            
-                            if amount_cents <= 0:
-                                continue
-                            
-                            payment_id = str(payment.get('transactionID') or payment.get('id') or '')
-                            if not payment_id:
-                                continue
-                            
-                            external_ref = f"acuity_payment_{payment_id}"
-                            payment_method = payment.get('processor', 'unknown')
-                            payment_date = payment.get('created') or appt.get('datetime')
-                            
-                            if not payment_date:
-                                continue
-                            
-                            try:
+                        payment_id = str(payment.get('transactionID') or payment.get('id') or '')
+                        if not payment_id:
+                            continue
+                        
+                        external_ref = f"acuity_payment_{payment_id}"
+                        payment_method = payment.get('processor', 'unknown')
+                        payment_date = payment.get('created') or appt.get('datetime')
+                        
+                        if not payment_date:
+                            continue
+                        
+                        # Each insert gets its own transaction to prevent cascade failures
+                        try:
+                            with engine.begin() as conn:
+                                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
                                 conn.execute(_sql_text("""
                                     INSERT INTO transactions 
                                     (tenant_id, contact_id, amount_cents, transaction_date, source, external_ref, metadata)
@@ -1180,17 +1181,17 @@ def _process_acuity_backfill_job(job_id: str, record: Dict[str, Any], payload: D
                                         "appointment_id": appt_id
                                     })
                                 })
-                                transactions_created += 1
-                                
-                                if transactions_created % 50 == 0:
-                                    print(f"[acuity-backfill] Progress: {transactions_created} transactions created")
-                            except Exception as e:
-                                logger.error(f"Failed to insert transaction: {e}")
-                                transactions_skipped += 1
-                    
-                    except Exception as e:
-                        logger.warning(f"Failed to fetch payments for appointment {appt_id}: {e}")
-                        transactions_skipped += 1
+                            transactions_created += 1
+                            
+                            if transactions_created % 50 == 0:
+                                print(f"[acuity-backfill] Progress: {transactions_created} transactions created")
+                        except Exception as e:
+                            logger.error(f"Failed to insert transaction: {e}")
+                            transactions_skipped += 1
+                
+                except Exception as e:
+                    logger.warning(f"Failed to fetch payments for appointment {appt_id}: {e}")
+                    transactions_skipped += 1
         
         result = {
             "status": "ok",
