@@ -13847,3 +13847,115 @@ def backfill_last_visit(tenant_id: str, db: Session = Depends(get_db), ctx: User
     
     rows_updated = result.rowcount if hasattr(result, 'rowcount') else 0
     return {"status": "ok", "message": f"last_visit backfilled from transactions", "rows_updated": rows_updated}
+
+
+# ----------------------- Admin: Backfill Acuity Transactions -----------------------
+@app.post("/admin/acuity/backfill-transactions", tags=["Admin"])
+def acuity_backfill_transactions(
+    tenant_id: str,
+    since: Optional[str] = "2025-10-01",  # Default to October
+    until: Optional[str] = None,
+    db: Session = Depends(get_db),
+    ctx: UserContext = Depends(get_user_context)
+):
+    """
+    Backfill historical Acuity transactions into transactions table.
+    Uses Acuity Orders API to fetch all orders and create individual transaction records.
+    This fixes the dashboard showing $0 revenue for Acuity tenants by populating
+    the transactions table with historical payment data.
+    """
+    if ctx.role != "owner_admin" and ctx.tenant_id != tenant_id:
+        raise HTTPException(status_code=403, detail="forbidden")
+    
+    # Fetch Acuity credentials
+    from .integrations.booking_acuity import _acuity_headers
+    headers = _acuity_headers(tenant_id)
+    base = "https://acuityscheduling.com/api/v1"
+    
+    # Build email map from database
+    email_map = {}
+    with engine.begin() as conn:
+        conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+        conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+        rows = conn.execute(
+            _sql_text("SELECT contact_id, email FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND email IS NOT NULL"),
+            {"t": tenant_id}
+        ).fetchall()
+        for row in rows:
+            email_map[str(row[1]).strip().lower()] = str(row[0])
+    
+    # Fetch orders from Acuity
+    transactions_created = 0
+    transactions_skipped = 0
+    
+    with httpx.Client(timeout=30, headers=headers) as client:
+        params = {}
+        if since:
+            params['minDate'] = since
+        if until:
+            params['maxDate'] = until
+        
+        try:
+            r = client.get(f"{base}/orders", params=params)
+            r.raise_for_status()
+            orders = r.json()
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to fetch Acuity orders: {str(e)}")
+        
+        # Insert transactions
+        with engine.begin() as conn:
+            conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            
+            for order in orders:
+                email = str(order.get('email', '')).strip().lower()
+                contact_id = email_map.get(email)
+                
+                if not contact_id:
+                    transactions_skipped += 1
+                    continue
+                
+                paid_amount = float(order.get('paid', 0))
+                if paid_amount <= 0:
+                    transactions_skipped += 1
+                    continue
+                
+                amount_cents = int(paid_amount * 100)
+                paid_date = order.get('paidDate') or order.get('time')
+                if not paid_date:
+                    transactions_skipped += 1
+                    continue
+                    
+                order_id = str(order.get('id', ''))
+                external_ref = f"acuity_order_{order_id}"
+                payment_method = order.get('paymentType', 'unknown')
+                
+                try:
+                    conn.execute(_sql_text("""
+                        INSERT INTO transactions 
+                        (tenant_id, contact_id, amount_cents, transaction_date, source, external_ref, metadata)
+                        VALUES (
+                            CAST(:t AS uuid), :cid, :amt, :tdate::timestamp, 'acuity', :ref, 
+                            CAST(:meta AS jsonb)
+                        )
+                        ON CONFLICT (tenant_id, external_ref) DO NOTHING
+                    """), {
+                        "t": tenant_id,
+                        "cid": contact_id,
+                        "amt": amount_cents,
+                        "tdate": paid_date,
+                        "ref": external_ref,
+                        "meta": _json.dumps({"payment_method": payment_method, "order_id": order_id})
+                    })
+                    transactions_created += 1
+                except Exception as e:
+                    logger.error(f"Failed to insert transaction: {e}")
+                    transactions_skipped += 1
+    
+    return {
+        "status": "ok",
+        "transactions_created": transactions_created,
+        "transactions_skipped": transactions_skipped,
+        "orders_processed": len(orders),
+        "date_range": f"{since} to {until or 'now'}"
+    }

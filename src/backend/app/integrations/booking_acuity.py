@@ -272,7 +272,14 @@ def _collect_orders_payments(
     client: httpx.Client,
     base: str,
     email_to_contact: Dict[str, str],
+    conn = None,
+    tenant_id: Optional[str] = None,
 ) -> None:
+    """
+    Collect payment data from Acuity Orders API.
+    If conn and tenant_id are provided, also creates transaction records in database.
+    Otherwise, only aggregates into ledger (backward compatible).
+    """
     offset = 0
     page_size = 100
     while True:
@@ -315,6 +322,38 @@ def _collect_orders_payments(
             entry["txn_count"] = int(entry.get("txn_count", 0)) + 1
             created_ts = _parse_epoch(order.get("time"))
             _apply_visit(entry, created_ts)
+            
+            # NEW: Create transaction record if database connection provided
+            if conn is not None and tenant_id is not None and cents > 0:
+                try:
+                    paid_date = order.get("paidDate") or order.get("time")
+                    external_ref = f"acuity_order_{order_id}"
+                    payment_method = order.get("paymentType", "unknown")
+                    
+                    # Insert transaction record with idempotency (ON CONFLICT DO NOTHING)
+                    import json
+                    conn.execute(_sql_text("""
+                        INSERT INTO transactions 
+                        (tenant_id, contact_id, amount_cents, transaction_date, source, external_ref, metadata)
+                        VALUES (
+                            CAST(:t AS uuid), :cid, :amt, :tdate::timestamp, 'acuity', :ref, 
+                            CAST(:meta AS jsonb)
+                        )
+                        ON CONFLICT (tenant_id, external_ref) DO NOTHING
+                    """), {
+                        "t": tenant_id,
+                        "cid": contact_id,
+                        "amt": cents,
+                        "tdate": paid_date,
+                        "ref": external_ref,
+                        "meta": json.dumps({"payment_method": payment_method, "order_id": order_id})
+                    })
+                except Exception as exc:
+                    # Log error but continue processing other orders
+                    logger.warning(
+                        "Failed to insert Acuity transaction",
+                        extra={"order_id": order_id, "error": str(exc)},
+                    )
         if len(orders) < page_size:
             break
         offset += page_size
@@ -837,8 +876,10 @@ def import_appointments(
             print(f"[acuity] DEBUG: About to start revenue collection")
             try:
                 payments_started = perf_counter()
-                print(f"[acuity] revenue_collection_started: fetching ALL historical payment data from orders API")
-                _collect_orders_payments(payments_map, client, base, email_map)
+                print(f"[acuity] revenue_collection_started: fetching ALL historical payment data from orders API, creating transaction records")
+                # Create transaction records by passing database connection
+                with _with_conn(tenant_id) as conn:
+                    _collect_orders_payments(payments_map, client, base, email_map, conn, tenant_id)
                 print(f"[acuity] DEBUG: Revenue collection completed")
                 print(f"[acuity] orders_processed: tenant={tenant_id}, contacts_with_payments={len(payments_map)}, seconds={round(perf_counter() - payments_started, 2)}")
             except Exception as exc:
