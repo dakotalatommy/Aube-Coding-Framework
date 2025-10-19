@@ -1164,7 +1164,7 @@ def _process_acuity_backfill_job(job_id: str, record: Dict[str, Any], payload: D
                                     INSERT INTO transactions 
                                     (tenant_id, contact_id, amount_cents, transaction_date, source, external_ref, metadata)
                                     VALUES (
-                                        CAST(:t AS uuid), :cid, :amt, :tdate::timestamp, 'acuity', :ref, 
+                                        CAST(:t AS uuid), :cid, :amt, CAST(:tdate AS timestamp), 'acuity', :ref, 
                                         CAST(:meta AS jsonb)
                                     )
                                     ON CONFLICT (tenant_id, external_ref) DO NOTHING
