@@ -13860,9 +13860,9 @@ def acuity_backfill_transactions(
 ):
     """
     Backfill historical Acuity transactions into transactions table.
-    Uses Acuity Orders API to fetch all orders and create individual transaction records.
+    Uses Acuity Appointments API to fetch historical appointments and their payments.
     This fixes the dashboard showing $0 revenue for Acuity tenants by populating
-    the transactions table with historical payment data.
+    the transactions table with historical payment data from completed appointments.
     """
     if ctx.role != "owner_admin" and ctx.tenant_id != tenant_id:
         raise HTTPException(status_code=403, detail="forbidden")
@@ -13874,6 +13874,7 @@ def acuity_backfill_transactions(
     
     # Build email map from database
     email_map = {}
+    contact_id_map = {}  # Also map by Acuity client ID
     with engine.begin() as conn:
         conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
         conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
@@ -13882,80 +13883,147 @@ def acuity_backfill_transactions(
             {"t": tenant_id}
         ).fetchall()
         for row in rows:
-            email_map[str(row[1]).strip().lower()] = str(row[0])
+            email_lower = str(row[1]).strip().lower()
+            contact_id = str(row[0])
+            if email_lower:
+                email_map[email_lower] = contact_id
+            # Extract Acuity ID from contact_id (format: acuity:12345)
+            if contact_id.startswith('acuity:'):
+                acuity_id = contact_id.split(':', 1)[1]
+                if not acuity_id.startswith('email/'):
+                    contact_id_map[acuity_id] = contact_id
     
-    # Fetch orders from Acuity
     transactions_created = 0
     transactions_skipped = 0
+    appointments_processed = 0
     
-    with httpx.Client(timeout=30, headers=headers) as client:
-        params = {}
+    with httpx.Client(timeout=60, headers=headers) as client:
+        # Fetch historical appointments (completed only)
+        params = {
+            'max': 100,
+            'offset': 0,
+        }
         if since:
             params['minDate'] = since
         if until:
             params['maxDate'] = until
         
-        try:
-            r = client.get(f"{base}/orders", params=params)
-            r.raise_for_status()
-            orders = r.json()
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to fetch Acuity orders: {str(e)}")
+        all_appointments = []
+        while True:
+            try:
+                r = client.get(f"{base}/appointments", params=params)
+                r.raise_for_status()
+                appointments = r.json()
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Failed to fetch Acuity appointments: {str(e)}")
+            
+            if not appointments or not isinstance(appointments, list):
+                break
+            
+            all_appointments.extend(appointments)
+            
+            if len(appointments) < 100:
+                break
+            
+            params['offset'] += 100
+            
+            # Safety limit
+            if params['offset'] >= 5000:
+                break
         
-        # Insert transactions
+        # Process each appointment and fetch its payments
         with engine.begin() as conn:
             conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
             conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
             
-            for order in orders:
-                email = str(order.get('email', '')).strip().lower()
-                contact_id = email_map.get(email)
+            for appt in all_appointments:
+                appointments_processed += 1
+                appt_id = str(appt.get('id', ''))
+                if not appt_id:
+                    transactions_skipped += 1
+                    continue
+                
+                # Match contact by email or client ID
+                contact_id = None
+                if appt.get('email'):
+                    email_lower = str(appt['email']).strip().lower()
+                    contact_id = email_map.get(email_lower)
+                
+                if not contact_id and appt.get('clientID'):
+                    client_id = str(appt['clientID'])
+                    contact_id = contact_id_map.get(client_id)
                 
                 if not contact_id:
                     transactions_skipped += 1
                     continue
                 
-                paid_amount = float(order.get('paid', 0))
-                if paid_amount <= 0:
-                    transactions_skipped += 1
-                    continue
-                
-                amount_cents = int(paid_amount * 100)
-                paid_date = order.get('paidDate') or order.get('time')
-                if not paid_date:
-                    transactions_skipped += 1
-                    continue
-                    
-                order_id = str(order.get('id', ''))
-                external_ref = f"acuity_order_{order_id}"
-                payment_method = order.get('paymentType', 'unknown')
-                
+                # Fetch payments for this appointment
                 try:
-                    conn.execute(_sql_text("""
-                        INSERT INTO transactions 
-                        (tenant_id, contact_id, amount_cents, transaction_date, source, external_ref, metadata)
-                        VALUES (
-                            CAST(:t AS uuid), :cid, :amt, :tdate::timestamp, 'acuity', :ref, 
-                            CAST(:meta AS jsonb)
-                        )
-                        ON CONFLICT (tenant_id, external_ref) DO NOTHING
-                    """), {
-                        "t": tenant_id,
-                        "cid": contact_id,
-                        "amt": amount_cents,
-                        "tdate": paid_date,
-                        "ref": external_ref,
-                        "meta": _json.dumps({"payment_method": payment_method, "order_id": order_id})
-                    })
-                    transactions_created += 1
+                    payments_r = client.get(f"{base}/appointments/{appt_id}/payments")
+                    if payments_r.status_code != 200:
+                        transactions_skipped += 1
+                        continue
+                    
+                    payments = payments_r.json()
+                    if not payments or not isinstance(payments, list):
+                        transactions_skipped += 1
+                        continue
+                    
+                    for payment in payments:
+                        amount_raw = payment.get('amount', 0)
+                        try:
+                            amount_cents = int(float(amount_raw) * 100)
+                        except (ValueError, TypeError):
+                            continue
+                        
+                        if amount_cents <= 0:
+                            continue
+                        
+                        payment_id = str(payment.get('transactionID') or payment.get('id') or '')
+                        if not payment_id:
+                            continue
+                        
+                        external_ref = f"acuity_payment_{payment_id}"
+                        payment_method = payment.get('processor', 'unknown')
+                        payment_date = payment.get('created') or appt.get('datetime')
+                        
+                        if not payment_date:
+                            continue
+                        
+                        try:
+                            conn.execute(_sql_text("""
+                                INSERT INTO transactions 
+                                (tenant_id, contact_id, amount_cents, transaction_date, source, external_ref, metadata)
+                                VALUES (
+                                    CAST(:t AS uuid), :cid, :amt, :tdate::timestamp, 'acuity', :ref, 
+                                    CAST(:meta AS jsonb)
+                                )
+                                ON CONFLICT (tenant_id, external_ref) DO NOTHING
+                            """), {
+                                "t": tenant_id,
+                                "cid": contact_id,
+                                "amt": amount_cents,
+                                "tdate": payment_date,
+                                "ref": external_ref,
+                                "meta": _json.dumps({
+                                    "payment_method": payment_method,
+                                    "payment_id": payment_id,
+                                    "appointment_id": appt_id
+                                })
+                            })
+                            transactions_created += 1
+                        except Exception as e:
+                            logger.error(f"Failed to insert transaction: {e}")
+                            transactions_skipped += 1
+                
                 except Exception as e:
-                    logger.error(f"Failed to insert transaction: {e}")
+                    logger.warning(f"Failed to fetch payments for appointment {appt_id}: {e}")
                     transactions_skipped += 1
     
     return {
         "status": "ok",
         "transactions_created": transactions_created,
         "transactions_skipped": transactions_skipped,
-        "orders_processed": len(orders),
+        "appointments_processed": appointments_processed,
         "date_range": f"{since} to {until or 'now'}"
     }
