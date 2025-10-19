@@ -13855,175 +13855,31 @@ def acuity_backfill_transactions(
     tenant_id: str,
     since: Optional[str] = "2025-10-01",  # Default to October
     until: Optional[str] = None,
-    db: Session = Depends(get_db),
     ctx: UserContext = Depends(get_user_context)
 ):
     """
-    Backfill historical Acuity transactions into transactions table.
+    Backfill historical Acuity transactions into transactions table (async job).
     Uses Acuity Appointments API to fetch historical appointments and their payments.
     This fixes the dashboard showing $0 revenue for Acuity tenants by populating
     the transactions table with historical payment data from completed appointments.
+    
+    Returns immediately with job_id - worker processes in background with full logging.
     """
     if ctx.role != "owner_admin" and ctx.tenant_id != tenant_id:
         raise HTTPException(status_code=403, detail="forbidden")
     
-    # Fetch Acuity credentials
-    from .integrations.booking_acuity import _acuity_headers
-    headers = _acuity_headers(tenant_id)
-    base = "https://acuityscheduling.com/api/v1"
+    # Create background job (processed by worker)
+    job_payload = {
+        "tenant_id": tenant_id,
+        "since": since,
+        "until": until,
+    }
     
-    # Build email map from database
-    email_map = {}
-    contact_id_map = {}  # Also map by Acuity client ID
-    with engine.begin() as conn:
-        conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-        conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
-        rows = conn.execute(
-            _sql_text("SELECT contact_id, email FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND email IS NOT NULL"),
-            {"t": tenant_id}
-        ).fetchall()
-        for row in rows:
-            email_lower = str(row[1]).strip().lower()
-            contact_id = str(row[0])
-            if email_lower:
-                email_map[email_lower] = contact_id
-            # Extract Acuity ID from contact_id (format: acuity:12345)
-            if contact_id.startswith('acuity:'):
-                acuity_id = contact_id.split(':', 1)[1]
-                if not acuity_id.startswith('email/'):
-                    contact_id_map[acuity_id] = contact_id
-    
-    transactions_created = 0
-    transactions_skipped = 0
-    appointments_processed = 0
-    
-    with httpx.Client(timeout=60, headers=headers) as client:
-        # Fetch historical appointments (completed only)
-        params = {
-            'max': 100,
-            'offset': 0,
-        }
-        if since:
-            params['minDate'] = since
-        if until:
-            params['maxDate'] = until
-        
-        all_appointments = []
-        while True:
-            try:
-                r = client.get(f"{base}/appointments", params=params)
-                r.raise_for_status()
-                appointments = r.json()
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=f"Failed to fetch Acuity appointments: {str(e)}")
-            
-            if not appointments or not isinstance(appointments, list):
-                break
-            
-            all_appointments.extend(appointments)
-            
-            if len(appointments) < 100:
-                break
-            
-            params['offset'] += 100
-            
-            # Safety limit
-            if params['offset'] >= 5000:
-                break
-        
-        # Process each appointment and fetch its payments
-        with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
-            
-            for appt in all_appointments:
-                appointments_processed += 1
-                appt_id = str(appt.get('id', ''))
-                if not appt_id:
-                    transactions_skipped += 1
-                    continue
-                
-                # Match contact by email or client ID
-                contact_id = None
-                if appt.get('email'):
-                    email_lower = str(appt['email']).strip().lower()
-                    contact_id = email_map.get(email_lower)
-                
-                if not contact_id and appt.get('clientID'):
-                    client_id = str(appt['clientID'])
-                    contact_id = contact_id_map.get(client_id)
-                
-                if not contact_id:
-                    transactions_skipped += 1
-                    continue
-                
-                # Fetch payments for this appointment
-                try:
-                    payments_r = client.get(f"{base}/appointments/{appt_id}/payments")
-                    if payments_r.status_code != 200:
-                        transactions_skipped += 1
-                        continue
-                    
-                    payments = payments_r.json()
-                    if not payments or not isinstance(payments, list):
-                        transactions_skipped += 1
-                        continue
-                    
-                    for payment in payments:
-                        amount_raw = payment.get('amount', 0)
-                        try:
-                            amount_cents = int(float(amount_raw) * 100)
-                        except (ValueError, TypeError):
-                            continue
-                        
-                        if amount_cents <= 0:
-                            continue
-                        
-                        payment_id = str(payment.get('transactionID') or payment.get('id') or '')
-                        if not payment_id:
-                            continue
-                        
-                        external_ref = f"acuity_payment_{payment_id}"
-                        payment_method = payment.get('processor', 'unknown')
-                        payment_date = payment.get('created') or appt.get('datetime')
-                        
-                        if not payment_date:
-                            continue
-                        
-                        try:
-                            conn.execute(_sql_text("""
-                                INSERT INTO transactions 
-                                (tenant_id, contact_id, amount_cents, transaction_date, source, external_ref, metadata)
-                                VALUES (
-                                    CAST(:t AS uuid), :cid, :amt, :tdate::timestamp, 'acuity', :ref, 
-                                    CAST(:meta AS jsonb)
-                                )
-                                ON CONFLICT (tenant_id, external_ref) DO NOTHING
-                            """), {
-                                "t": tenant_id,
-                                "cid": contact_id,
-                                "amt": amount_cents,
-                                "tdate": payment_date,
-                                "ref": external_ref,
-                                "meta": _json.dumps({
-                                    "payment_method": payment_method,
-                                    "payment_id": payment_id,
-                                    "appointment_id": appt_id
-                                })
-                            })
-                            transactions_created += 1
-                        except Exception as e:
-                            logger.error(f"Failed to insert transaction: {e}")
-                            transactions_skipped += 1
-                
-                except Exception as e:
-                    logger.warning(f"Failed to fetch payments for appointment {appt_id}: {e}")
-                    transactions_skipped += 1
+    job_id = create_job_record(tenant_id, "acuity.backfill_transactions", job_payload, status="queued")
     
     return {
-        "status": "ok",
-        "transactions_created": transactions_created,
-        "transactions_skipped": transactions_skipped,
-        "appointments_processed": appointments_processed,
+        "job_id": job_id,
+        "status": "queued",
+        "message": "Backfill job queued. Check Render logs for progress: [acuity-backfill]",
         "date_range": f"{since} to {until or 'now'}"
     }
