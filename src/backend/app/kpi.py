@@ -21,13 +21,13 @@ def _with_rls_conn(tenant_id: str, role: str = "owner_admin"):
         conn = conn_cm.__enter__()
         try:
             safe_role = role.replace("'", "''")
-            conn.execute(text(f"SET LOCAL app.role = '{safe_role}'"))
+            conn.execute(text(f"SELECT set_config('app.role', '{safe_role}', true)"))
         except Exception:
             logger.exception("Failed to set app.role GUC (role=%s)", role)
             raise
         try:
             safe_tenant = tenant_id.replace("'", "''")
-            conn.execute(text(f"SET LOCAL app.tenant_id = '{safe_tenant}'"))
+            conn.execute(text(f"SELECT set_config('app.tenant_id', '{safe_tenant}', true)"))
         except Exception:
             logger.exception("Failed to set app.tenant_id GUC (tenant_id=%s)", tenant_id)
             raise

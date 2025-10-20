@@ -243,12 +243,13 @@ function DashboardContent({
         )}
       </div>
       <ReferralBanner referral={referral ?? undefined} loading={referralLoading} />
-      <QuickstartAgenda items={agendaItems ?? undefined} loading={agendaLoading} onViewFullAgenda={onViewAgenda} />
-
+      
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <ClientsPreview clients={clientsPreview ?? undefined} loading={clientsLoading} onViewAll={onViewAgenda} />
         <ClientReminders reminders={reminders ?? undefined} loading={remindersLoading} onViewAll={onViewAgenda} />
       </div>
+      
+      <QuickstartAgenda items={agendaItems ?? undefined} loading={agendaLoading} onViewFullAgenda={onViewAgenda} />
     </div>
   )
 }
@@ -432,7 +433,8 @@ export default function App() {
         const currentMonthRevenueCents = Number(kpis?.current_month_revenue_cents ?? 0)
         const activeClients = Number(kpis?.contacts ?? 0)
         const retentionRate = Number(metrics?.rebook_rate_30d ?? 0)
-        const roiPercent = currentMonthRevenueCents > 0 ? Math.round(((currentMonthRevenueCents / 100) / 147) * 100) : 0
+        // ROI requires baseline revenue before BVX - show "—" until we have historical data
+        const roiPercent = 0  // TODO: Calculate from baseline_revenue_before_bvx vs current_month_revenue_cents
 
         // Get current month name for display
         const currentMonthName = new Date().toLocaleDateString('en-US', { month: 'long' })
@@ -449,8 +451,6 @@ export default function App() {
           title: 'Active Clients',
           value: activeClients.toLocaleString(),
           description: 'Connected contacts',
-          celebrationMessage:
-            activeClients >= 200 ? 'Client goal achieved! 🎉' : undefined,
         })
 
         stats.push({

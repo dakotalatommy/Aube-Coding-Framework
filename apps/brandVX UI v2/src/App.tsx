@@ -169,9 +169,45 @@ export default function App() {
   })
   const [settingsInitialTab, setSettingsInitialTab] = useState('onboarding')
   
+  // Plan/tier management (fetched from backend)
+  const [tenantPlan, setTenantPlan] = useState<'lite' | 'starter' | 'growth' | 'pro'>('pro') // Default to 'pro' for demo
+  const [isPlanLoading, setIsPlanLoading] = useState(false)
+  
   // Trial management
   const [currentTrialDay] = useState(getCurrentTrialDay())
   const userIsOnTrial = isTrialUser(userData)
+  
+  // Fetch tenant plan from backend (when real auth is enabled)
+  /*
+  useEffect(() => {
+    const fetchPlan = async () => {
+      if (!userData?.tenantId) return
+      
+      setIsPlanLoading(true)
+      try {
+        const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/admin/usage_limits/${userData.tenantId}`, {
+          headers: {
+            'Authorization': `Bearer ${userData.token}` // Add auth token from Supabase
+          }
+        })
+        if (response.ok) {
+          const data = await response.json()
+          setTenantPlan(data.plan_code || 'lite')
+        }
+      } catch (error) {
+        console.error('Failed to fetch plan:', error)
+        setTenantPlan('lite') // Safe default on error
+      } finally {
+        setIsPlanLoading(false)
+      }
+    }
+    fetchPlan()
+  }, [userData?.tenantId])
+  */
+  
+  // Plan access helpers
+  const isLitePlan = tenantPlan === 'lite'
+  const hasFullAccess = ['starter', 'growth', 'pro'].includes(tenantPlan)
 
   const handleConsultationGenerated = (data: ConsultationData) => {
     setConsultationData(data)
@@ -398,8 +434,11 @@ export default function App() {
             <SidebarNav 
               currentPage={currentPage} 
               setCurrentPage={setCurrentPage} 
-              userData={userData} 
+              userData={userData}
+              tenantPlan={tenantPlan}
+              hasFullAccess={hasFullAccess}
               onNavigateToSettings={handleNavigateToSettings}
+              onUpgrade={handleUpgrade}
             />
             
             <div className="flex-1 flex flex-col">

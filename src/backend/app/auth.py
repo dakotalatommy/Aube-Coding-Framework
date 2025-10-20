@@ -125,7 +125,7 @@ async def get_user_context(
                 try:
                     with engine.begin() as _conn:
                         try:
-                            _conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                            _conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
                         except Exception:
                             pass
                         # Prefer direct user_id mapping
@@ -187,7 +187,7 @@ async def get_user_context(
                         try:
                             with engine.begin() as _conn:
                                 try:
-                                    _conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                                    _conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
                                 except Exception:
                                     pass
                                 _row = _conn.execute(

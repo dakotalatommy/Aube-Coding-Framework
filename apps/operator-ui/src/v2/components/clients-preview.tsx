@@ -1,5 +1,6 @@
-import { useMemo } from 'react'
+import { useMemo, useCallback } from 'react'
 import { Calendar, Mail, Phone, Sparkles } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card'
 import { Avatar, AvatarFallback } from './ui/avatar'
@@ -32,6 +33,27 @@ const relativeFromEpoch = (epoch?: number | null) => {
 
 export function ClientsPreview({ clients, loading = false, onViewAll }: ClientsPreviewProps) {
   const items = useMemo(() => clients?.slice(0, 4) ?? [], [clients])
+
+  const copyToClipboard = useCallback(async (text: string, type: 'phone' | 'email') => {
+    if (!text) {
+      toast.error('No contact info', {
+        description: `This client has no ${type} on file.`,
+      })
+      return
+    }
+    
+    try {
+      await navigator.clipboard.writeText(text)
+      toast.success('Copied!', {
+        description: `${type === 'phone' ? 'Phone number' : 'Email'} copied to clipboard.`,
+        duration: 2000,
+      })
+    } catch (error) {
+      toast.error('Copy failed', {
+        description: 'Unable to copy to clipboard.',
+      })
+    }
+  }, [])
 
   return (
     <Card>
@@ -87,13 +109,25 @@ export function ClientsPreview({ clients, loading = false, onViewAll }: ClientsP
                     </div>
                   </div>
                   <div className="flex space-x-1">
-                    <Button variant="ghost" size="icon">
+                    <Button 
+                      variant="ghost" 
+                      size="icon"
+                      onClick={() => copyToClipboard(client.phoneHash || '', 'phone')}
+                      disabled={!client.phoneHash}
+                      title={client.phoneHash ? 'Copy phone number' : 'No phone number'}
+                    >
                       <Phone className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon">
+                    <Button 
+                      variant="ghost" 
+                      size="icon"
+                      onClick={() => copyToClipboard(client.emailHash || '', 'email')}
+                      disabled={!client.emailHash}
+                      title={client.emailHash ? 'Copy email' : 'No email'}
+                    >
                       <Mail className="h-4 w-4" />
                     </Button>
-                    <Button variant="ghost" size="icon">
+                    <Button variant="ghost" size="icon" title="View calendar">
                       <Calendar className="h-4 w-4" />
                     </Button>
                   </div>

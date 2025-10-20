@@ -103,10 +103,10 @@ def _apply_rls_settings(session, transaction, connection):
             return
         tenant_id = CURRENT_TENANT_ID.get()
         if tenant_id:
-            connection.execute(_sa_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            connection.execute(_sa_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
         role = CURRENT_ROLE.get()
         if role:
-            connection.execute(_sa_text("SET LOCAL app.role = :r"), {"r": role})
+            connection.execute(_sa_text("SELECT set_config('app.role', :r, true)"), {"r": role})
     except Exception:
         # Non-fatal; skip GUCs entirely to avoid leaving transaction in failed state
         try:

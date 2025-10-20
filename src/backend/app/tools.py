@@ -645,8 +645,8 @@ def tool_memories_upsert(
         with engine.begin() as conn:
             # Set RLS GUCs for policies
             try:
-                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+                conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+                conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
             except Exception:
                 pass
             # Write as JSONB universally; works when column is json/jsonb. If column is TEXT in a dev env,
@@ -1274,8 +1274,8 @@ def tool_campaigns_dormant_start(
     try:
         with engine.begin() as conn:
             # Set RLS GUCs
-            conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
 
             # Build last_seen per contact
             last_seen_rows = conn.execute(
@@ -1348,8 +1348,8 @@ def tool_segment_dormant_preview(
     _require_tenant(ctx, tenant_id)
     try:
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
             # Compute last_seen per contact (appointments.start_ts is epoch seconds)
             last_seen_rows = conn.execute(
                 _sql_text(
@@ -1411,8 +1411,8 @@ def tool_appointments_schedule_reminders(
         # Use Supabase-native schema: lead_status next_action_at is timestamptz
         # For upcoming booked appointments, set next_action_at triggers
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
             appts = conn.execute(
                 _sql_text(
                     """
@@ -1746,8 +1746,8 @@ async def tool_todo_enqueue(
     if idempotency_key:
         try:
             with engine.begin() as conn:
-                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+                conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+                conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
                 conn.execute(
                     _sql_text(
                         """
@@ -1776,8 +1776,8 @@ async def tool_todo_enqueue(
     }
     try:
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
             conn.execute(
                 _sql_text(
                     """
@@ -1900,8 +1900,8 @@ async def tool_db_query_sql(
     hard_limit = max(1, min(int(limit or 100), 500))
     try:
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
             q = sql
             if " limit " not in sql.lower():
                 q = f"{sql} LIMIT {hard_limit}"
@@ -1931,8 +1931,8 @@ async def tool_db_query_named(
     p = params or {}
     try:
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
             if n == "contacts.top_ltv":
                 q = _sql_text(
                     """

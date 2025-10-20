@@ -126,7 +126,7 @@ def ensure_tenant_exists(tenant_id: str) -> None:
     try:
         with engine.begin() as conn:
             try:
-                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
             except Exception:
                 pass
             conn.execute(
@@ -173,8 +173,8 @@ def _todo_disabled() -> bool:
 def _complete_step(tenant_id: str, step_key: str, context: Optional[Dict[str, Any]] = None) -> None:
     try:
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
             # Insert once; allow duplicates but they will simply show multiple rows; minimal overhead.
             conn.execute(
                 _sql_text(
@@ -381,7 +381,7 @@ def _generate_referral_code(length: int = 6) -> str:
 def _ensure_referral_code(tenant_id: str, user_id: Optional[str] = None) -> str:
     try:
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
             row = conn.execute(
                 _sql_text("SELECT code FROM referral_codes WHERE tenant_id = CAST(:t AS uuid) LIMIT 1"),
                 {"t": tenant_id},
@@ -393,7 +393,7 @@ def _ensure_referral_code(tenant_id: str, user_id: Optional[str] = None) -> str:
             code = _generate_referral_code()
             try:
                 with engine.begin() as conn:
-                    conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+                    conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
                     # Include user_id in insert if provided
                     if user_id:
                         conn.execute(
@@ -463,8 +463,8 @@ def _compose_referral_image(code: str, share_url: str) -> bytes:
 def _mutate_settings_json(tenant_id: str, mutator: Any) -> None:
     try:
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
             row = conn.execute(
                 _sql_text("SELECT data_json FROM settings WHERE tenant_id = CAST(:t AS uuid)"),
                 {"t": tenant_id},
@@ -499,7 +499,7 @@ def _append_askvx_message(tenant_id: str, session_id: str, role: str, content: s
         return
     try:
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
             conn.execute(
                 _sql_text(
                     "INSERT INTO askvx_messages (tenant_id, session_id, role, content) VALUES (CAST(:t AS uuid), :sid, :role, :content)"
@@ -515,8 +515,8 @@ def _upsert_trainvx_memory(tenant_id: str, key: str, value: str) -> None:
         return
     try:
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
             conn.execute(
                 _sql_text(
                     "INSERT INTO trainvx_memories (tenant_id, key, value, updated_at) "
@@ -534,8 +534,8 @@ def _insert_onboarding_artifact(tenant_id: str, kind: str, content: str) -> None
         return
     try:
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
             conn.execute(
                 _sql_text(
                     "INSERT INTO onboarding_artifacts (tenant_id, kind, content) VALUES (CAST(:t AS uuid), :k, to_jsonb(:c::text))"
@@ -575,8 +575,8 @@ def onboarding_complete_step(req: ProgressStep, db: Session = Depends(get_db), c
         return {"status": "forbidden"}
     try:
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": req.tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": req.tenant_id})
             conn.execute(_sql_text("INSERT INTO onboarding_progress(tenant_id, step_key, context_json) VALUES (CAST(:t AS uuid), :k, :c)"), {"t": req.tenant_id, "k": req.step_key, "c": _json.dumps(req.context or {})})
         return {"status": "ok", "step_key": req.step_key}
     except Exception as e:
@@ -715,9 +715,9 @@ async def support_send(request: Request, ctx: Optional[UserContext] = Depends(ge
     ticket_id: Optional[int] = None
     try:
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
             if tenant_id:
-                conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": tenant_id})
+                conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
             inserted = conn.execute(
                 _sql_text(
                     "INSERT INTO support_tickets (tenant_id, submitted_by, name, email, phone, description, files, context, status, created_by_ip) "
@@ -816,8 +816,8 @@ def onboarding_progress(tenant_id: str, db: Session = Depends(get_db), ctx: User
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"steps": []}
     try:
-        db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-        db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+        db.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+        db.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
         rows = db.execute(_sql_text("SELECT step_key, completed_at FROM onboarding_progress WHERE tenant_id = CAST(:t AS uuid) ORDER BY completed_at ASC"), {"t": tenant_id}).fetchall()
         return {"steps": [{"step_key": r[0], "completed_at": str(r[1])} for r in rows]}
     except Exception:
@@ -890,8 +890,8 @@ def onboarding_askvx_insights(
         try:
             with engine.begin() as conn:
                 try:
-                    conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
-                    conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": tenant_id})
+                    conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+                    conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
                 except Exception:
                     pass
                 inserted = conn.execute(
@@ -957,8 +957,8 @@ def onboarding_strategy_document(
     tags = ','.join(req.tags or ['strategy', 'onboarding'])
     try:
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": req.tenant_id})
             conn.execute(
                 _sql_text("UPDATE ai_memories SET value=to_jsonb(:v::text), tags=to_jsonb(:tg::text), updated_at=NOW() WHERE tenant_id = CAST(:t AS uuid) AND key='plan.14day.onboarding.document'"),
                 {"t": req.tenant_id, "v": req.markdown, "tg": tags},
@@ -1019,8 +1019,8 @@ def plan_complete_day(req: PlanDayComplete, db: Session = Depends(get_db), ctx: 
         return {"status": "forbidden"}
     try:
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": req.tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": req.tenant_id})
             conn.execute(_sql_text("UPDATE plan_14day SET completed_at = now() WHERE tenant_id = CAST(:t AS uuid) AND day_index = :d"), {"t": req.tenant_id, "d": int(req.day_index)})
         return {"status": "ok"}
     except Exception as e:
@@ -1121,8 +1121,8 @@ async def plan_generate(req: ProgressStep, db: Session = Depends(get_db), ctx: U
         while len(chunks) < 14:
             chunks.append(["Reach out to 3 dormant clients with a warm check‑in.", "Post one BrandVZN edit before/after."])
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": req.tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": req.tenant_id})
             conn.execute(_sql_text("DELETE FROM plan_14day WHERE tenant_id = CAST(:t AS uuid)"), {"t": req.tenant_id})
             for i, arr in enumerate(chunks[:14], start=1):
                 conn.execute(
@@ -1132,8 +1132,8 @@ async def plan_generate(req: ProgressStep, db: Session = Depends(get_db), ctx: U
         # Also write last_session_summary memory
         try:
             with engine.begin() as conn:
-                conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
-                conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": req.tenant_id})
+                conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+                conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": req.tenant_id})
                 summary = "14‑day plan generated. Day 1: " + "; ".join(chunks[0][:2])
                 conn.execute(_sql_text("UPDATE ai_memories SET value=:v, tags='rolling,summary', updated_at=now() WHERE tenant_id = CAST(:t AS uuid) AND key='last_session_summary'"), {"t": req.tenant_id, "v": summary})
                 conn.execute(_sql_text("INSERT INTO ai_memories (tenant_id, key, value, tags) SELECT CAST(:t AS uuid), 'last_session_summary', :v, 'rolling,summary' WHERE NOT EXISTS (SELECT 1 FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key='last_session_summary')"), {"t": req.tenant_id, "v": summary})
@@ -1161,8 +1161,8 @@ def billing_referral_upload(req: ReferralPayload, db: Session = Depends(get_db),
         return {"status": "forbidden"}
     try:
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": req.tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": req.tenant_id})
             conn.execute(_sql_text("INSERT INTO referrals(tenant_id, referral_link, uploaded_proof_url, plan_before, plan_after, processed_at) VALUES (CAST(:t AS uuid), :rl, :u, '147', '127', now())"), {"t": req.tenant_id, "rl": (req.referral_link or ''), "u": (req.file_url or '')})
         # TODO: switch Stripe subscription price (requires price IDs and customer id mapping)
         return {"status": "ok"}
@@ -1182,8 +1182,8 @@ def ai_chat_new_session(req: NewSessionRequest, db: Session = Depends(get_db), c
     sid = "s_" + _secrets.token_urlsafe(8)
     try:
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": req.tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": req.tenant_id})
             conn.execute(_sql_text("INSERT INTO chat_sessions(tenant_id, session_id) VALUES (CAST(:t AS uuid), :sid)"), {"t": req.tenant_id, "sid": sid})
         return {"status": "ok", "session_id": sid}
     except Exception as e:
@@ -1206,8 +1206,8 @@ def ai_chat_history(tenant_id: str, session_id: str, limit: int = 200, db: Sessi
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"items": []}
     try:
-        db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-        db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+        db.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+        db.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
         rows = db.execute(_sql_text("SELECT role, content, created_at FROM chat_logs WHERE tenant_id = CAST(:t AS uuid) AND session_id = :sid ORDER BY id ASC LIMIT :lim"), {"t": tenant_id, "sid": session_id, "lim": max(1, min(int(limit or 200), 500))}).fetchall()
         return {"items": [{"role": r[0], "content": r[1], "created_at": int(r[2] or 0)} for r in rows]}
     except Exception:
@@ -1220,8 +1220,8 @@ def contacts_search(tenant_id: str, q: str = "", limit: int = 12, db: Session = 
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"items": []}
     try:
-        db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-        db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+        db.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+        db.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
         like = f"%{q.strip()}%" if q else "%"
         rows = db.execute(
             _sql_text("SELECT contact_id::text, COALESCE(display_name, CONCAT(COALESCE(first_name,''),' ',COALESCE(last_name,''))) AS name, email_hash, phone_hash FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND (display_name ILIKE :q OR first_name ILIKE :q OR last_name ILIKE :q) ORDER BY name ASC LIMIT :lim"),
@@ -1343,8 +1343,8 @@ def followups_candidates(tenant_id: str, scope: str = "this_week", db: Session =
         return {"items": []}
     require_full_plan(db, tenant_id)  # Gate for Lite plans
     try:
-        db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-        db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+        db.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+        db.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
         # Heuristic scopes based on appointments/last_visit
         if scope == "tomorrow":
             q = _sql_text("SELECT contact_id::text FROM appointments WHERE tenant_id = CAST(:t AS uuid) AND start_ts >= EXTRACT(EPOCH FROM now() + interval '1 day')::bigint AND start_ts < EXTRACT(EPOCH FROM now() + interval '2 day')::bigint")
@@ -1417,15 +1417,15 @@ def get_workflows(tenant_id: str, db: Session = Depends(get_db), ctx: UserContex
     require_full_plan(db, tenant_id)  # Gate for Lite plans
     
     # Set GUCs for RLS enforcement
-    db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-    db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+    db.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+    db.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
     
     # Helper function to get count for each scope (avoids calling endpoint functions directly)
     def get_scope_count(scope: str) -> int:
         try:
             # Ensure GUCs are set for this query (defensive)
-            db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-            db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+            db.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            db.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
             
             if scope == "new_clients":
                 row = db.execute(_sql_text("SELECT COUNT(*) FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND (last_visit IS NULL OR last_visit = 0)"), {"t": tenant_id}).fetchone()
@@ -1700,8 +1700,8 @@ def followups_enqueue(req: FollowupsEnqueue, db: Session = Depends(get_db), ctx:
     require_full_plan(db, req.tenant_id)  # Gate for Lite plans
     try:
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": req.tenant_id})
             for cid in req.contact_ids:
                 conn.execute(_sql_text("INSERT INTO cadence_states (tenant_id, contact_id, cadence_id, step_index, next_action_epoch, created_at) VALUES (CAST(:t AS uuid), :c, :cid, 0, extract(epoch from now())::int, now()) ON CONFLICT DO NOTHING"), {"t": req.tenant_id, "c": cid, "cid": req.cadence_id})
         return {"status": "ok", "enqueued": len(req.contact_ids)}
@@ -1949,8 +1949,8 @@ def followups_draft_batch(
     todo_id = None
     with engine.begin() as conn:
         try:
-            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": req.tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": req.tenant_id})
         except Exception:
             pass
         inserted = conn.execute(
@@ -2167,8 +2167,8 @@ def todo_list(tenant_id: str, status: str = "pending", type: Optional[str] = Non
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"items": []}
     try:
-        db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-        db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+        db.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+        db.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
         params: Dict[str, Any] = {"t": tenant_id, "s": status}
         sql = "SELECT id, type, status, title, details_json, created_at FROM todo_items WHERE tenant_id = CAST(:t AS uuid)"
         if status and status != "all":
@@ -2195,8 +2195,8 @@ def todo_add(req: TodoAdd, db: Session = Depends(get_db), ctx: UserContext = Dep
         return {"status": "forbidden"}
     try:
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": req.tenant_id})
             conn.execute(_sql_text("INSERT INTO todo_items (tenant_id, type, title, details_json) VALUES (CAST(:t AS uuid), :ty, :ti, :dj)"), {"t": req.tenant_id, "ty": req.type, "ti": req.title, "dj": _json.dumps(req.details or {})})
         return {"status": "ok"}
     except Exception as e:
@@ -2254,8 +2254,8 @@ def todo_ack(req: TodoAck, db: Session = Depends(get_db), ctx: UserContext = Dep
         return {"status": "forbidden"}
     try:
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-            conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": req.tenant_id})
             conn.execute(_sql_text("UPDATE todo_items SET status='resolved', resolved_at=now() WHERE tenant_id = CAST(:t AS uuid) AND id=:id"), {"t": req.tenant_id, "id": int(req.id)})
         return {"status": "ok"}
     except Exception as e:
@@ -2280,8 +2280,8 @@ def dashboard_agenda(
         try:
             # Set GUCs for RLS enforcement (per backend-db-architecture.md)
             with engine.begin() as conn:
-                conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
-                conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": tenant_id})
+                conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+                conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
                 
                 task_rows = conn.execute(
                     _sql_text(
@@ -2340,8 +2340,8 @@ def dashboard_agenda(
 
     try:
         # Set GUCs for RLS enforcement on cadence_state and contacts
-        db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-        db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+        db.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+        db.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
         
         queue_rows = db.execute(
             _sql_text(
@@ -3324,8 +3324,8 @@ def _new_cid() -> str:
 
 def _connected_accounts_v2_rows(db: Session, tenant_id: str) -> List[Dict[str, Any]]:
     try:
-        db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-        db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+        db.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+        db.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
         rows = db.execute(
             _sql_text(
                 """
@@ -3428,8 +3428,8 @@ def create_customer(ctx: UserContext = Depends(get_user_context)):
     # Store stripe customer id in settings table per tenant; fallback if DB unavailable
     try:
         with next(get_db()) as db:  # type: ignore
-            db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-            db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": ctx.tenant_id})
+            db.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            db.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": ctx.tenant_id})
             row = db.execute(
                 _sql_text("SELECT id, data_json FROM settings WHERE tenant_id = CAST(:tid AS uuid) ORDER BY id DESC LIMIT 1"),
                 {"tid": ctx.tenant_id},
@@ -3556,8 +3556,8 @@ def upgrade_plan(
         raise HTTPException(status_code=400, detail="missing_price_id")
     
     # Get Stripe customer ID from settings
-    db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-    db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": ctx.tenant_id})
+    db.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+    db.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": ctx.tenant_id})
     row = db.execute(
         _sql_text("SELECT data_json FROM settings WHERE tenant_id = CAST(:t AS uuid) ORDER BY id DESC LIMIT 1"),
         {"t": ctx.tenant_id}
@@ -3653,8 +3653,8 @@ async def stripe_webhook(request: Request):
             resolved_tenant = ""
         with next(get_db()) as db:  # type: ignore
             if resolved_tenant:
-                db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-                db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": resolved_tenant})
+                db.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+                db.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": resolved_tenant})
                 # Update latest row for this tenant directly
                 row = db.execute(_sql_text("SELECT id, data_json FROM settings WHERE tenant_id = CAST(:tid AS uuid) ORDER BY id DESC LIMIT 1"), {"tid": resolved_tenant}).fetchone()
                 if row:
@@ -4000,8 +4000,8 @@ def _http_request_with_retry(method: str, url: str, *, headers: Optional[Dict[st
 # ---- AskVX context loaders (tenant memories, global insights/faq, providers status) ----
 def _load_tenant_memories(db: Session, tenant_id: str, limit: int = 20) -> List[Dict[str, object]]:
     try:
-        db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-        db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+        db.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+        db.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
         rows = db.execute(
             _sql_text(
                 """
@@ -4593,8 +4593,8 @@ def import_contacts(
             except Exception:
                 pass
             try:
-                db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": str(req.tenant_id)})
-                db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                db.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(req.tenant_id)})
+                db.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
             except Exception:
                 pass
     except Exception:
@@ -4947,8 +4947,8 @@ def ai_chat_save_summary(
         # Upsert into ai_memories for Train VX boot context
         try:
             with engine.begin() as conn:
-                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+                conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+                conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": req.tenant_id})
                 # Per-session summary key
                 conn.execute(
                     _sql_text("UPDATE ai_memories SET value=to_jsonb(:v::text), tags=to_jsonb(:tg::text), updated_at=NOW() WHERE tenant_id = CAST(:t AS uuid) AND key=:k"),
@@ -6024,8 +6024,8 @@ def ai_memories_upsert(req: MemoryUpsertRequest, db: Session = Depends(get_db), 
         with engine.begin() as conn:
             # Respect RLS policies via per-transaction GUCs
             try:
-                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+                conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+                conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": req.tenant_id})
             except Exception:
                 pass
 
@@ -6105,8 +6105,8 @@ def ai_memories_list(tenant_id: str, limit: int = 20, db: Session = Depends(get_
         from sqlalchemy import text as __t
         with engine.begin() as conn:
             try:
-                conn.execute(__t("SET LOCAL app.role = 'owner_admin'"))
-                conn.execute(__t("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+                conn.execute(__t("SELECT set_config('app.role', 'owner_admin', true)"))
+                conn.execute(__t("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
             except Exception:
                 pass
             rows = conn.execute(
@@ -6128,8 +6128,8 @@ def ai_memories_delete(key: str, tenant_id: str, db: Session = Depends(get_db), 
         from sqlalchemy import text as __t
         with engine.begin() as conn:
             try:
-                conn.execute(__t("SET LOCAL app.role = 'owner_admin'"))
-                conn.execute(__t("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+                conn.execute(__t("SELECT set_config('app.role', 'owner_admin', true)"))
+                conn.execute(__t("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
             except Exception:
                 pass
             n = conn.execute(__t("DELETE FROM ai_memories WHERE tenant_id = CAST(:t AS uuid) AND key = :k"), {"t": tenant_id, "k": key}).rowcount
@@ -6162,7 +6162,7 @@ def admin_db_sweep(ctx: UserContext = Depends(get_user_context)) -> Dict[str, ob
         skipped = 0
         with engine.begin() as conn:
             try:
-                conn.execute(__t("SET LOCAL app.role = 'owner_admin'"))
+                conn.execute(__t("SELECT set_config('app.role', 'owner_admin', true)"))
             except Exception:
                 pass
             for raw in stmts:
@@ -6183,6 +6183,53 @@ def admin_db_sweep(ctx: UserContext = Depends(get_user_context)) -> Dict[str, ob
         return {"status": "ok", "applied": applied, "skipped": skipped}
     except Exception as e:
         return {"status": "error", "detail": str(e)[:200]}
+
+@app.post("/admin/db/add-transactions-constraint", tags=["Admin"])
+def admin_add_transactions_constraint(ctx: UserContext = Depends(get_user_context)) -> Dict[str, object]:
+    """
+    Add unique constraint on (tenant_id, external_ref) to transactions table.
+    This enables ON CONFLICT DO NOTHING for idempotent transaction inserts.
+    Safely handles existing duplicates by keeping the oldest record.
+    """
+    if ctx.role != "owner_admin":
+        return {"status": "forbidden"}
+    try:
+        from sqlalchemy import text as __t
+        with engine.begin() as conn:
+            # Set role for RLS
+            conn.execute(__t("SELECT set_config('app.role', 'owner_admin', true)"))
+            
+            # Check if constraint already exists
+            result = conn.execute(__t("""
+                SELECT constraint_name 
+                FROM information_schema.table_constraints 
+                WHERE table_name = 'transactions' 
+                  AND constraint_name = 'transactions_tenant_external_ref_unique'
+                  AND table_schema = 'public'
+            """))
+            if result.fetchone():
+                return {"status": "already_exists", "message": "Constraint already exists"}
+            
+            # Remove duplicates (keep oldest record for each duplicate)
+            conn.execute(__t("""
+                DELETE FROM public.transactions a
+                USING public.transactions b
+                WHERE a.id > b.id 
+                  AND a.tenant_id = b.tenant_id 
+                  AND a.external_ref = b.external_ref
+                  AND a.external_ref IS NOT NULL
+            """))
+            
+            # Add the unique constraint
+            conn.execute(__t("""
+                ALTER TABLE public.transactions 
+                ADD CONSTRAINT transactions_tenant_external_ref_unique 
+                UNIQUE (tenant_id, external_ref)
+            """))
+            
+        return {"status": "ok", "message": "Constraint added successfully"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)[:500]}
 
 @app.get("/ai/diag", tags=["AI"])
 def ai_diag():
@@ -7014,8 +7061,8 @@ def contacts_list(
         try:
             if getattr(db.bind, "dialect", None) and db.bind.dialect.name == "postgresql" and os.getenv("ENABLE_PG_RLS", "0") == "1":
                 try:
-                    db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": str(tenant_id)})
-                    db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                    db.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": str(tenant_id)})
+                    db.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
                 except Exception:
                     pass
         except Exception:
@@ -7580,8 +7627,8 @@ def acuity_status(
         # RLS-safe short-lived read
         with engine.begin() as conn:
             try:
-                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+                conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+                conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
             except Exception:
                 pass
             row = conn.execute(
@@ -7623,8 +7670,8 @@ def acuity_debug_token(
             return {"ok": False, "error": "forbidden"}
         with engine.begin() as conn:
             try:
-                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+                conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+                conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
             except Exception:
                 pass
             # Build dynamic SELECT to avoid undefined-column errors under schema drift
@@ -7732,8 +7779,8 @@ def acuity_debug_rls(
             return {"ok": False, "error": "forbidden"}
         with engine.begin() as conn:
             try:
-                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+                conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+                conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
             except Exception:
                 pass
             try:
@@ -7766,8 +7813,8 @@ def acuity_debug_token_lens(
             return {"ok": False, "error": "forbidden"}
         with engine.begin() as conn:
             try:
-                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+                conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+                conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
             except Exception:
                 pass
             rows = conn.execute(
@@ -7798,8 +7845,8 @@ def get_metrics(tenant_id: str, db: Session = Depends(get_db), ctx: UserContext 
         return {"messages_sent": 0, "time_saved_minutes": 0}
     
     try:
-        db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-        db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+        db.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+        db.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
         m = db.query(dbm.Metrics).filter(dbm.Metrics.tenant_id == tenant_id).first()
         if not m:
             base = {"messages_sent": 0, "time_saved_minutes": 0, "ambassador_candidate": False}
@@ -8112,8 +8159,8 @@ def get_settings(
         from sqlalchemy import text as __t
         with engine.begin() as conn:
             try:
-                conn.execute(__t("SET LOCAL app.role = 'owner_admin'"))
-                conn.execute(__t("SET LOCAL app.tenant_id = :t"), {"t": tid})
+                conn.execute(__t("SELECT set_config('app.role', 'owner_admin', true)"))
+                conn.execute(__t("SELECT set_config('app.tenant_id', :t, true)"), {"t": tid})
             except Exception:
                 pass
             r = conn.execute(__t("SELECT id, data_json FROM settings WHERE tenant_id = CAST(:t AS uuid) ORDER BY id DESC LIMIT 1"), {"t": tid}).fetchone()
@@ -8187,8 +8234,8 @@ def update_settings(
     wrote_train = False
     with engine.begin() as conn:
         try:
-            conn.execute(__t("SET LOCAL app.role = 'owner_admin'"))
-            conn.execute(__t("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+            conn.execute(__t("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(__t("SELECT set_config('app.tenant_id', :t, true)"), {"t": req.tenant_id})
         except Exception:
             pass
         row = conn.execute(__t("SELECT id, data_json FROM settings WHERE tenant_id = CAST(:t AS uuid) ORDER BY id DESC LIMIT 1"), {"t": req.tenant_id}).fetchone()
@@ -9364,8 +9411,8 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
         try:
             CURRENT_TENANT_ID.set(t_id)
             CURRENT_ROLE.set("owner_admin")
-            db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": t_id})
-            db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+            db.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": t_id})
+            db.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
         except Exception:
             try:
                 db.rollback()
@@ -9470,8 +9517,8 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 saved_token_write = False
             post_rows = 0
             try:
-                db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": t_id})
-                db.execute(_sql_text("SET LOCAL app.role = :r"), {"r": "owner_admin"})
+                db.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": t_id})
+                db.execute(_sql_text("SELECT set_config('app.role', :r, true)"), {"r": "owner_admin"})
                 chk = db.execute(
                     _sql_text("SELECT COUNT(1) FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider = :p"),
                     {"t": t_id, "p": provider},
@@ -9727,8 +9774,8 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                 try:
                     with engine.begin() as _conn:
                         try:
-                            _conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
-                            _conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                            _conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": req.tenant_id})
+                            _conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
                         except Exception:
                             logger.exception("Failed to set RLS GUCs for Square sync (tenant=%s)", req.tenant_id)
                             raise
@@ -9814,8 +9861,8 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
         ts_update_expr = "EXTRACT(epoch FROM now())::bigint"
         try:
             with engine.begin() as _probe:
-                _probe.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
-                _probe.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                _probe.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": req.tenant_id})
+                _probe.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
                 row_type = _probe.execute(
                     _sql_text(
                         """
@@ -10345,8 +10392,8 @@ def square_backfill_metrics(req: SquareBackfillMetricsRequest, ctx: UserContext 
             with engine.begin() as conn:
                 # Set RLS GUCs
                 try:
-                    conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-                    conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
+                    conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+                    conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": req.tenant_id})
                 except Exception:
                     logger.exception("Failed to set RLS GUCs for Square backfill (tenant=%s)", req.tenant_id)
                     raise
@@ -10437,13 +10484,13 @@ def square_sync_payments(
                 conn = conn_cm.__enter__()
                 try:
                     safe_role = role.replace("'", "''")
-                    conn.execute(_sql_text(f"SET LOCAL app.role = '{safe_role}'"))
+                    conn.execute(_sql_text(f"SELECT set_config('app.role', '{safe_role}', true)"))
                 except Exception:
                     logger.exception("Failed to set app.role GUC for Square payment sync (tenant=%s)", tenant_id)
                     raise
                 try:
                     safe_tenant = tenant_id.replace("'", "''")
-                    conn.execute(_sql_text(f"SET LOCAL app.tenant_id = '{safe_tenant}'"))
+                    conn.execute(_sql_text(f"SELECT set_config('app.tenant_id', '{safe_tenant}', true)"))
                 except Exception:
                     logger.exception("Failed to set app.tenant_id GUC for Square payment sync (tenant=%s)", tenant_id)
                     raise
@@ -12147,7 +12194,7 @@ def beta_modal_seen_update(
         raise HTTPException(status_code=400, detail="invalid_date")
     try:
         with engine.begin() as conn:
-            conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
             conn.execute(
                 _sql_text("UPDATE tenants SET beta_modal_last_seen = :seen WHERE id = CAST(:t AS uuid)"),
                 {"seen": parsed, "t": tenant_id},
@@ -13060,8 +13107,8 @@ def calendar_sync(
         try:
             with engine.begin() as conn:
                 try:
-                    conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
-                    conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": tenant_id})
+                    conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+                    conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
                 except Exception:
                     pass
                 inserted = conn.execute(
@@ -13093,8 +13140,8 @@ def calendar_list(
         return {"events": [], "last_sync": {}}
     
     # Set GUCs for RLS enforcement
-    db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-    db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+    db.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+    db.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
     
     # Unified calendar response + last sync from events_ledger
     cal_sync: Dict[str, object] = {}
@@ -13217,8 +13264,8 @@ def inventory_sync(
         try:
             with engine.begin() as conn:
                 try:
-                    conn.execute(_sql_text("SET LOCAL app.role='owner_admin'"))
-                    conn.execute(_sql_text("SET LOCAL app.tenant_id=:t"), {"t": tenant_id})
+                    conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+                    conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
                 except Exception:
                     pass
                 inserted = conn.execute(
@@ -13495,8 +13542,8 @@ def rls_probe_insert_contact(
         contact_id = req.contact_id or f"probe:{int(_time.time())}"
         with engine.begin() as conn:
             try:
-                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
-                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": req.tenant_id})
+                conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
             except Exception as e:
                 return {"status": "guc_error", "detail": str(e)[:200]}
             try:
@@ -13548,8 +13595,8 @@ def rls_probe_delete_contact(
     try:
         with engine.begin() as conn:
             try:
-                conn.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": req.tenant_id})
-                conn.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
+                conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": req.tenant_id})
+                conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
             except Exception:
                 pass
             res = conn.execute(
@@ -13827,8 +13874,8 @@ def backfill_last_visit(tenant_id: str, db: Session = Depends(get_db), ctx: User
     if ctx.role != "owner_admin" and ctx.tenant_id != tenant_id:
         raise HTTPException(status_code=403, detail="forbidden")
     
-    db.execute(_sql_text("SET LOCAL app.role = 'owner_admin'"))
-    db.execute(_sql_text("SET LOCAL app.tenant_id = :t"), {"t": tenant_id})
+    db.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+    db.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
     
     result = db.execute(_sql_text("""
         UPDATE contacts c
