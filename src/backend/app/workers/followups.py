@@ -1048,6 +1048,24 @@ def _process_acuity_backfill_job(job_id: str, record: Dict[str, Any], payload: D
         
         print(f"[acuity-backfill] Email map built: {len(email_map)} contacts")
         
+        # DIAGNOSTIC: Fetch sample appointments to see what payment fields they have
+        print(f"[acuity-backfill] DIAGNOSTIC - Fetching sample appointments to check for payment fields...")
+        with httpx.Client(timeout=120, headers=headers) as test_client:
+            try:
+                test_r = test_client.get(f"{base}/appointments", params={"max": 5, "minDate": "2025-10-01", "maxDate": "2025-10-31"})
+                test_appts = test_r.json() if test_r.status_code == 200 else []
+                if test_appts and isinstance(test_appts, list) and len(test_appts) > 0:
+                    sample_appt = test_appts[0]
+                    print(f"[acuity-backfill] DIAGNOSTIC - Appointment fields: {list(sample_appt.keys())}")
+                    print(f"[acuity-backfill] DIAGNOSTIC - Sample appointment payment fields:")
+                    for key in ['paid', 'amountPaid', 'price', 'priceSold', 'paymentMethod', 'paymentType', 'paidDate', 'datePaid']:
+                        if key in sample_appt:
+                            print(f"[acuity-backfill] DIAGNOSTIC -   {key}: {sample_appt.get(key)}")
+                else:
+                    print(f"[acuity-backfill] DIAGNOSTIC - No appointments found in October")
+            except Exception as e:
+                print(f"[acuity-backfill] DIAGNOSTIC - Error fetching sample appointments: {e}")
+        
         # Fetch orders from Orders API (includes Cash, Stripe, PayPal)
         transactions_created = 0
         transactions_skipped = 0
@@ -1077,6 +1095,11 @@ def _process_acuity_backfill_job(job_id: str, record: Dict[str, Any], payload: D
                     
                     for order in orders:
                         orders_processed += 1
+                        
+                        # DIAGNOSTIC: Log first order to see fields
+                        if orders_processed == 1:
+                            print(f"[acuity-backfill] DIAGNOSTIC - First order fields: {list(order.keys())}")
+                            print(f"[acuity-backfill] DIAGNOSTIC - Sample order: {order}")
                         
                         # Filter by date range (Orders API doesn't support minDate/maxDate params)
                         paid_date = order.get("paidDate") or order.get("time")
