@@ -12365,80 +12365,80 @@ def billing_apply_referral(
     coupon_id = None
     coupon_amount_cents = None
     
-        try:
-            cust_id = (data.get("stripe_customer_id") or "").strip()
-            print(f"[referral-billing] tenant={req.tenant_id}, cust_id={cust_id}, new_count={new_count}")
+    try:
+        cust_id = (data.get("stripe_customer_id") or "").strip()
+        print(f"[referral-billing] tenant={req.tenant_id}, cust_id={cust_id}, new_count={new_count}")
+        
+        if cust_id:
+            s = _stripe_client()
+            subs = s.Subscription.list(customer=cust_id, limit=1)  # type: ignore
+            sub = (subs.get("data") or [None])[0]
+            print(f"[referral-billing] subscription found: {sub.get('id') if sub else None}")
             
-            if cust_id:
-                s = _stripe_client()
-                subs = s.Subscription.list(customer=cust_id, limit=1)  # type: ignore
-                sub = (subs.get("data") or [None])[0]
-                print(f"[referral-billing] subscription found: {sub.get('id') if sub else None}")
+            if sub:
+                sub_id = sub.get("id")
+                item = (sub.get("items", {}).get("data") or [None])[0]
+                item_id = item.get("id") if item else None
+                current_price = (item.get("price") or {}).get("id") if item else None
                 
-                if sub:
-                    sub_id = sub.get("id")
-                    item = (sub.get("items", {}).get("data") or [None])[0]
-                    item_id = item.get("id") if item else None
-                    current_price = (item.get("price") or {}).get("id") if item else None
-                    
-                    # Update price if different
-                    if target_price and item_id and current_price != target_price:
-                        print(f"[referral-billing] updating price: {current_price} -> {target_price}")
-                        s.Subscription.modify(  # type: ignore
-                            sub_id,
-                            cancel_at_period_end=False,
-                            proration_behavior="none",
-                            items=[{"id": item_id, "price": target_price}],
-                        )
-                    
-                # Handle coupons for 3+ referrals
-                if new_count >= 3:
-                    print(f"[referral-billing] entering coupon creation logic (count={new_count})")
-                    # Calculate coupon amount: $30 per referral beyond 2
-                    coupon_amount_cents = (new_count - 2) * 3000
-                    
-                    # Check if tenant already has a referral coupon
-                    existing_coupon_id = data.get("referral_coupon_id")
-                    
-                    if existing_coupon_id:
-                        # Try to retrieve and update existing coupon
-                        try:
-                            existing_coupon = s.Coupon.retrieve(existing_coupon_id)  # type: ignore
-                            # Coupons can't be modified, need to create new one
-                            # Delete old coupon from subscription
-                            s.Subscription.modify(sub_id, coupon="")  # type: ignore
-                        except Exception:
-                            pass
-                    
-                    # Create new "forever" coupon
-                    coupon_name = f"referral_{req.tenant_id}_{new_count}"
-                    print(f"[referral-billing] creating coupon: name={coupon_name}, amount=${coupon_amount_cents/100}")
-                    
-                    try:
-                        coupon = s.Coupon.create(  # type: ignore
-                            amount_off=coupon_amount_cents,
-                            currency="usd",
-                            duration="forever",
-                            name=coupon_name,
-                            metadata={"tenant_id": req.tenant_id, "referral_count": new_count}
-                        )
-                        coupon_id = coupon.get("id")
-                        print(f"[referral-billing] coupon created: id={coupon_id}")
-                        
-                        # Attach coupon to subscription
-                        s.Subscription.modify(sub_id, coupon=coupon_id)  # type: ignore
-                        print(f"[referral-billing] coupon attached to subscription {sub_id}")
-                    except Exception as e:
-                        print(f"[referral-billing] ERROR creating/attaching coupon: {e}")
-                        logger.error(f"Failed to create/attach referral coupon: {e}")
-                        # Don't fail the whole request
+                # Update price if different
+                if target_price and item_id and current_price != target_price:
+                    print(f"[referral-billing] updating price: {current_price} -> {target_price}")
+                    s.Subscription.modify(  # type: ignore
+                        sub_id,
+                        cancel_at_period_end=False,
+                        proration_behavior="none",
+                        items=[{"id": item_id, "price": target_price}],
+                    )
                 
-                elif new_count < 3 and old_count >= 3:
-                    # Dropping below 3 referrals, remove coupon
+            # Handle coupons for 3+ referrals
+            if new_count >= 3:
+                print(f"[referral-billing] entering coupon creation logic (count={new_count})")
+                # Calculate coupon amount: $30 per referral beyond 2
+                coupon_amount_cents = (new_count - 2) * 3000
+                
+                # Check if tenant already has a referral coupon
+                existing_coupon_id = data.get("referral_coupon_id")
+                
+                if existing_coupon_id:
+                    # Try to retrieve and update existing coupon
                     try:
+                        existing_coupon = s.Coupon.retrieve(existing_coupon_id)  # type: ignore
+                        # Coupons can't be modified, need to create new one
+                        # Delete old coupon from subscription
                         s.Subscription.modify(sub_id, coupon="")  # type: ignore
-                    except Exception as e:
-                        logger.error(f"Failed to remove referral coupon: {e}")
+                    except Exception:
+                        pass
+                
+                # Create new "forever" coupon
+                coupon_name = f"referral_{req.tenant_id}_{new_count}"
+                print(f"[referral-billing] creating coupon: name={coupon_name}, amount=${coupon_amount_cents/100}")
+                
+                try:
+                    coupon = s.Coupon.create(  # type: ignore
+                        amount_off=coupon_amount_cents,
+                        currency="usd",
+                        duration="forever",
+                        name=coupon_name,
+                        metadata={"tenant_id": req.tenant_id, "referral_count": new_count}
+                    )
+                    coupon_id = coupon.get("id")
+                    print(f"[referral-billing] coupon created: id={coupon_id}")
+                    
+                    # Attach coupon to subscription
+                    s.Subscription.modify(sub_id, coupon=coupon_id)  # type: ignore
+                    print(f"[referral-billing] coupon attached to subscription {sub_id}")
+                except Exception as e:
+                    print(f"[referral-billing] ERROR creating/attaching coupon: {e}")
+                    logger.error(f"Failed to create/attach referral coupon: {e}")
+                    # Don't fail the whole request
+            
+            elif new_count < 3 and old_count >= 3:
+                # Dropping below 3 referrals, remove coupon
+                try:
+                    s.Subscription.modify(sub_id, coupon="")  # type: ignore
+                except Exception as e:
+                    logger.error(f"Failed to remove referral coupon: {e}")
     
     except Exception as e:
         print(f"[referral-billing] ERROR in Stripe operations block: {e}")
