@@ -12410,8 +12410,8 @@ def billing_apply_referral(
                     except Exception:
                         pass
                 
-                # Create new "forever" coupon
-                coupon_name = f"referral_{req.tenant_id}_{new_count}"
+                # Create new "forever" coupon (Stripe name limit: 40 chars)
+                coupon_name = f"ref_{req.tenant_id[:8]}_{new_count}"
                 print(f"[referral-billing] creating coupon: name={coupon_name}, amount=${coupon_amount_cents/100}")
                 
                 try:
