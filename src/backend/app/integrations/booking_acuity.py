@@ -296,7 +296,7 @@ def _collect_appointment_payments(
             try:
                 paid_date = payment.get("created") or payment.get("paidDate") or payment.get("datePaid")
                 external_ref = transaction_id or f"acuity_appt_payment_{appointment_id}_{created_ts or int(time.time())}"
-                payment_method = payment.get("paymentType") or payment.get("paymentMethod") or "appointment"
+                payment_method = payment.get("processor") or payment.get("paymentType") or payment.get("paymentMethod") or "appointment"
 
                 result = conn.execute(
                     _sql_text(
@@ -903,8 +903,13 @@ def import_appointments(
                             skipped += 1
                             match_stats["no_match"] += 1
                             appointments_skipped_unmatched += 1
-                            if appt_pages == 1 and match_stats["no_match"] <= 3:
-                                print(f"[acuity] no_match_example: aid={aid}, email={a.get('email')}, phone={a.get('phone')}, clientID={cid}")
+                            # Enhanced logging for unmatched appointments
+                            if appointments_skipped_unmatched <= 10:
+                                print(
+                                    f"[acuity] SKIP_UNMATCHED: aid={aid}, service={service[:30]}, "
+                                    f"email={a.get('email')}, phone={a.get('phone')}, clientID={cid}, "
+                                    f"datetime={a.get('datetime')}"
+                                )
                             continue
                         
                         if matched_by:
@@ -937,7 +942,12 @@ def import_appointments(
                 
                 # Log matching results for this page
                 if appt_pages == 1 or appt_pages % 5 == 0:
-                    print(f"[acuity] match_stats: page={appt_pages}, by_email={match_stats['by_email']}, by_phone={match_stats['by_phone']}, by_client_id={match_stats['by_client_id']}, no_match={match_stats['no_match']}")
+                    print(
+                        f"[acuity] match_stats: page={appt_pages}, by_email={match_stats['by_email']}, "
+                        f"by_phone={match_stats['by_phone']}, by_client_id={match_stats['by_client_id']}, "
+                        f"no_match={match_stats['no_match']}, batch_size={len(appt_batch)}, "
+                        f"fetched={len(arr)}, total_processed={appointments_processed}"
+                    )
             
                 print(f"[acuity] DEBUG: Finished processing appointments, appt_batch_size={len(appt_batch)}")
                 # Write appointments in small sub-batches with explicit transaction boundaries
@@ -1019,6 +1029,22 @@ def import_appointments(
                                             payment_records=payment_records,
                                         )
                                         payments_checked += 1
+                                        
+                                        # Log payment collection results
+                                        if appt_metrics.get("payments_processed", 0) > 0:
+                                            print(
+                                                f"[acuity] PAYMENT_COLLECTED: aid={appt_data['appointment_id']}, "
+                                                f"payments={appt_metrics.get('payments_processed', 0)}, "
+                                                f"txns_created={appt_metrics.get('transactions_created', 0)}, "
+                                                f"txns_skipped={appt_metrics.get('transactions_skipped', 0)}"
+                                            )
+                                        elif payments_checked <= 5:
+                                            # Log first few appointments with no payments for diagnosis
+                                            print(
+                                                f"[acuity] NO_PAYMENTS: aid={appt_data['appointment_id']}, "
+                                                f"service={appt_data.get('service', '')[:30]}"
+                                            )
+                                        
                                         for k, v in appt_metrics.items():
                                             appointment_payment_metrics[k] = appointment_payment_metrics.get(k, 0) + (v or 0)
                                     except Exception as exc:
@@ -1038,11 +1064,18 @@ def import_appointments(
                     print(f"[acuity] appointments_up_to_date: All future appointments exist, stopping import after page {appt_pages}")
                     break
                 
-                print(f"[acuity] DEBUG: Checking loop condition, len(arr)={len(arr)}, limit={limit}, inserts_this_page={inserts_this_page}")
+                print(
+                    f"[acuity] pagination_check: len(arr)={len(arr)}, limit={limit}, "
+                    f"inserts_this_page={inserts_this_page}, appt_pages={appt_pages}, "
+                    f"total_processed={appointments_processed}, total_skipped={skipped}"
+                )
                 if len(arr) < limit:
-                    print(f"[acuity] DEBUG: Last page reached (arr < limit), breaking loop")
+                    print(
+                        f"[acuity] PAGINATION_END: Last page reached (fetched {len(arr)} < limit {limit}), "
+                        f"total_pages={appt_pages}, total_appointments={appointments_processed}"
+                    )
                     break
-                print(f"[acuity] DEBUG: More pages available, incrementing offset from {offset} to {offset + limit}")
+                print(f"[acuity] pagination_continue: offset {offset} -> {offset + limit}")
                 offset += limit
 
             print(f"[acuity] DEBUG: Exited appointments loop, appt_pages={appt_pages}, total_processed={appointments_processed}")
@@ -1108,54 +1141,58 @@ def import_appointments(
             update_failed = 0
             failed_samples = []
             
-            with _with_conn(tenant_id) as conn:
-                ts_expr = _timestamp_expr(conn)
-                for cid, meta in payments_map.items():
-                    if not cid:
-                        continue
-                    meta.setdefault("first", 0)
-                    meta.setdefault("last", 0)
-                    meta.setdefault("txn_count", 0)
-                    meta.setdefault("lifetime_cents", 0)
-                    meta.pop("_txn_ids", None)
-                    meta.pop("_order_ids", None)
+            # Process contacts in batches of 100 to avoid hanging
+            contact_items = list(payments_map.items())
+            batch_size = 100
+            total_batches = (len(contact_items) + batch_size - 1) // batch_size
+            
+            for batch_num in range(total_batches):
+                start_idx = batch_num * batch_size
+                end_idx = min(start_idx + batch_size, len(contact_items))
+                batch = contact_items[start_idx:end_idx]
+                
+                print(f"[acuity] revenue_update_batch: {batch_num + 1}/{total_batches}, contacts={len(batch)}")
+                
+                with _with_conn(tenant_id) as conn:
+                    ts_expr = _timestamp_expr(conn)
+                    for cid, meta in batch:
+                        if not cid:
+                            continue
+                        meta.setdefault("first", 0)
+                        meta.setdefault("last", 0)
+                        meta.setdefault("txn_count", 0)
+                        meta.setdefault("lifetime_cents", 0)
+                        meta.pop("_txn_ids", None)
+                        meta.pop("_order_ids", None)
+                        
+                        result = conn.execute(
+                            _sql_text(
+                                "UPDATE contacts SET first_visit = CASE WHEN first_visit=0 OR first_visit IS NULL THEN :first ELSE LEAST(first_visit, :first) END, "
+                                "last_visit = GREATEST(COALESCE(last_visit,0), :last), "
+                                "txn_count = COALESCE(txn_count,0) + :cnt, "
+                                "lifetime_cents = COALESCE(lifetime_cents,0) + :cents, "
+                                "updated_at = " + ts_expr + " WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid"
+                            ),
+                            {
+                                "t": tenant_id,
+                                "cid": cid,
+                                "first": int(meta.get("first", 0) or 0),
+                                "last": int(meta.get("last", 0) or 0),
+                                "cnt": int(meta.get("txn_count", 0) or 0),
+                                "cents": int(meta.get("lifetime_cents", 0) or 0),
+                            },
+                        )
+                        
+                        # Track success/failure
+                        if int(getattr(result, "rowcount", 0) or 0) > 0:
+                            update_success += 1
+                        else:
+                            update_failed += 1
+                            if len(failed_samples) < 5:
+                                failed_samples.append({"cid": cid, "cents": meta.get("lifetime_cents", 0)})
                     
-                    result = conn.execute(
-                        _sql_text(
-                            "UPDATE contacts SET first_visit = CASE WHEN first_visit=0 OR first_visit IS NULL THEN :first ELSE LEAST(first_visit, :first) END, "
-                            "last_visit = GREATEST(COALESCE(last_visit,0), :last), "
-                            "txn_count = COALESCE(txn_count,0) + :cnt, "
-                            "lifetime_cents = COALESCE(lifetime_cents,0) + :cents, "
-                            "updated_at = " + ts_expr + " WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid"
-                        ),
-                        {
-                            "t": tenant_id,
-                            "cid": cid,
-                            "first": int(meta.get("first", 0) or 0),
-                            "last": int(meta.get("last", 0) or 0),
-                            "cnt": int(meta.get("txn_count", 0) or 0),
-                            "cents": int(meta.get("lifetime_cents", 0) or 0),
-                        },
-                    )
-                    
-                    # Track success/failure
-                    if int(getattr(result, "rowcount", 0) or 0) > 0:
-                        update_success += 1
-                    else:
-                        update_failed += 1
-                        if len(failed_samples) < 5:
-                            failed_samples.append({"cid": cid, "cents": meta.get("lifetime_cents", 0)})
-                    logger.debug(
-                        "Acuity payments applied",
-                        extra={
-                            "tenant_id": tenant_id,
-                            "contact_id": cid,
-                            "txn_count": int(meta.get("txn_count", 0) or 0),
-                            "lifetime_cents": int(meta.get("lifetime_cents", 0) or 0),
-                            "first_visit": int(meta.get("first", 0) or 0),
-                            "last_visit": int(meta.get("last", 0) or 0),
-                        },
-                    )
+                    # Commit this batch before moving to next
+                    print(f"[acuity] revenue_update_batch_committed: batch={batch_num + 1}, success={update_success}, failed={update_failed}")
                 
                 # Summary logging
                 print(
