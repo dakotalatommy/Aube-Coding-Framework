@@ -228,6 +228,7 @@ def _collect_appointment_payments(
     base: str,
     appointment_id: str,
     *,
+    appointment_date: Optional[int] = None,  # NEW: epoch timestamp of appointment
     tenant_id: Optional[str] = None,
     conn = None,
     payment_records: Optional[List[Dict[str, Any]]] = None,
@@ -294,9 +295,27 @@ def _collect_appointment_payments(
 
         if conn is not None and tenant_id and cents > 0:
             try:
-                paid_date = payment.get("created") or payment.get("paidDate") or payment.get("datePaid")
+                # Use appointment date as transaction date (when service occurs)
+                # Store payment date in metadata for cash flow tracking
+                payment_created = payment.get("created") or payment.get("paidDate") or payment.get("datePaid")
+                transaction_date = None
+                if appointment_date:
+                    # Convert epoch to ISO timestamp for Postgres
+                    from datetime import datetime
+                    transaction_date = datetime.utcfromtimestamp(appointment_date).isoformat()
+                else:
+                    # Fallback to payment date if appointment date not available
+                    transaction_date = payment_created
+
                 external_ref = transaction_id or f"acuity_appt_payment_{appointment_id}_{created_ts or int(time.time())}"
                 payment_method = payment.get("processor") or payment.get("paymentType") or payment.get("paymentMethod") or "appointment"
+                
+                # Log date attribution for first few transactions
+                if metrics["payments_processed"] < 3:
+                    print(
+                        f"[acuity] DATE_ATTRIBUTION: aid={appointment_id}, "
+                        f"appointment_date={transaction_date}, payment_date={payment_created}"
+                    )
 
                 result = conn.execute(
                     _sql_text(
@@ -314,13 +333,15 @@ def _collect_appointment_payments(
                         "t": tenant_id,
                         "cid": contact_id,
                         "amt": cents,
-                        "tdate": paid_date or None,
+                        "tdate": transaction_date or payment_created or None,
                         "ref": external_ref,
                         "meta": json.dumps(
                             {
                                 "appointment_id": appointment_id,
                                 "payment_method": payment_method,
                                 "transaction_id": transaction_id,
+                                "payment_date": payment_created,  # NEW: original payment date
+                                "appointment_date": transaction_date,  # NEW: for reference
                             }
                         ),
                     },
@@ -1024,6 +1045,7 @@ def import_appointments(
                                             client,
                                             base,
                                             appt_data["appointment_id"],
+                                            appointment_date=appt_data.get("start_ts"),  # NEW: pass appointment date
                                             tenant_id=tenant_id,
                                             conn=conn,
                                             payment_records=payment_records,
