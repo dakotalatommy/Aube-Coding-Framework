@@ -416,34 +416,58 @@ def _ensure_referral_code(tenant_id: str, user_id: Optional[str] = None) -> str:
 def _compose_referral_image(code: str, share_url: str) -> bytes:
     if qrcode is None:
         raise RuntimeError("qrcode library not installed")
-    size = 1080
-    qr_size = 520
-    qr = qrcode.QRCode(border=2, box_size=10)
+    
+    # Load the branded template (1080 x 1920 Instagram Story format)
+    template_path = os.path.join(os.path.dirname(__file__), "assets", "story-template.png")
+    try:
+        canvas = Image.open(template_path)
+    except Exception as e:
+        raise RuntimeError(f"Failed to load story template: {e}")
+    
+    # Generate QR code with high error correction
+    qr = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_H,
+        box_size=10,
+        border=2,
+    )
     qr.add_data(share_url)
     qr.make(fit=True)
-    qr_img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
-    qr_img = qr_img.resize((qr_size, qr_size))
-
-    canvas = Image.new('RGB', (size, size), color='#ffffff')
-    draw = ImageDraw.Draw(canvas)
-
-    # Background accent circle
-    accent_color = '#f7cbdc'
-    draw.ellipse((40, 40, size-40, size-40), fill=accent_color)
-
-    # Place QR centered
-    offset = ((size - qr_size) // 2, (size - qr_size) // 2)
-    canvas.paste(qr_img, offset)
-
-    font_large = ImageFont.load_default()
-    font_small = ImageFont.load_default()
-    text_color = '#0f172a'
-    draw.text((size/2, 120), 'brandVX Referral', fill=text_color, font=font_large, anchor='mm')
-    draw.text((size/2, size - 180), f'code: {code}', fill=text_color, font=font_large, anchor='mm')
-    draw.text((size/2, size - 140), 'Scan to join with early access perks', fill=text_color, font=font_small, anchor='mm')
-
+    
+    # Create QR with transparent background
+    qr_img = qr.make_image(fill_color="black", back_color="transparent")
+    qr_img = qr_img.convert('RGBA')
+    
+    # Resize QR to fit in phone frame (500x500 with padding)
+    # Frame specs from Dashboard.tsx: x=263, y=693, w=554, h=592
+    qr_size = 500
+    qr_img = qr_img.resize((qr_size, qr_size), Image.LANCZOS)
+    
+    # Calculate centered position in phone frame
+    frame_x = 263
+    frame_y = 693
+    frame_w = 554
+    frame_h = 592
+    
+    qr_x = frame_x + (frame_w - qr_size) // 2
+    qr_y = frame_y + (frame_h - qr_size) // 2
+    
+    # Adjust down 20px for equal pink borders on all sides
+    qr_y += 20
+    
+    # Convert canvas to RGBA to support transparency
+    if canvas.mode != 'RGBA':
+        canvas = canvas.convert('RGBA')
+    
+    # Overlay QR code on template
+    canvas.paste(qr_img, (qr_x, qr_y), qr_img)
+    
+    # Convert back to RGB for PNG saving
+    final = Image.new('RGB', canvas.size, (255, 255, 255))
+    final.paste(canvas, (0, 0), canvas)
+    
     buffer = io.BytesIO()
-    canvas.save(buffer, format='PNG')
+    final.save(buffer, format='PNG', quality=95)
     buffer.seek(0)
     return buffer.read()
 
