@@ -221,6 +221,26 @@ def _parse_amount_to_cents(amount: Any) -> int:
         return 0
 
 
+def _normalize_phone(phone: Optional[str]) -> Optional[str]:
+    """
+    Normalize phone number to 10-digit US format.
+    Handles formats like: 2707765409, +12707765409, (270) 776-5409, etc.
+    Returns None if phone is empty or invalid.
+    """
+    if not phone:
+        return None
+    
+    # Strip to digits only
+    digits = ''.join(c for c in str(phone) if c.isdigit())
+    
+    # If 11 digits starting with 1 (US country code), remove it
+    if len(digits) == 11 and digits.startswith('1'):
+        digits = digits[1:]
+    
+    # Return normalized 10-digit number, or None if invalid
+    return digits if len(digits) == 10 else None
+
+
 def _collect_appointment_payments(
     ledger: Dict[str, Dict[str, Any]],
     contact_id: str,
@@ -527,6 +547,7 @@ def import_appointments(
     page_limit: Optional[int] = None,
     skip_appt_payments: Optional[bool] = None,
     allow_historical: bool = False,
+    skip_contact_rollups: bool = False,
 ) -> Dict[str, Any]:
     base = (os.getenv("ACUITY_API_BASE", "https://acuityscheduling.com/api/v1").strip().rstrip(" /."))
     headers = _acuity_headers(tenant_id)
@@ -811,9 +832,9 @@ def import_appointments(
                                 email_to_uuid_map[email_normalized] = uuid
                                 email_to_contact_id_map[email_normalized] = contact_id_value
                         
-                        # Build phone lookup with digits-only for flexible matching
+                        # Build phone lookup with enhanced normalization (handles +1 country codes)
                         if row[3]:
-                            phone_normalized = ''.join(c for c in str(row[3]) if c.isdigit())
+                            phone_normalized = _normalize_phone(row[3])
                             if phone_normalized:
                                 phone_to_uuid_map[phone_normalized] = uuid
                                 phone_to_contact_id_map[phone_normalized] = contact_id_value
@@ -905,9 +926,9 @@ def import_appointments(
                                     external_contact_id = uuid_to_contact_id.get(contact_uuid)
                                 matched_by = "email"
 
-                        # Try phone as fallback - digits-only for flexible matching
+                        # Try phone as fallback - enhanced normalization (handles +1 country codes)
                         if not contact_uuid and a.get("phone"):
-                            phone_normalized = ''.join(c for c in str(a.get("phone")) if c.isdigit())
+                            phone_normalized = _normalize_phone(a.get("phone"))
                             if phone_normalized:
                                 contact_uuid = phone_to_uuid_map.get(phone_normalized)
                                 if contact_uuid:
@@ -922,17 +943,60 @@ def import_appointments(
                                 external_contact_id = client_contact_id
                                 matched_by = "client_id"
 
+                        # Auto-create contact if no match found
                         if not contact_uuid:
+                            # Generate unique contact ID based on available identifiers
+                            if a.get("email"):
+                                auto_contact_id = f"acuity:email/{a.get('email').lower()}"
+                            elif phone_normalized:
+                                auto_contact_id = f"acuity:phone/{phone_normalized}"
+                            else:
+                                auto_contact_id = f"acuity:auto/{aid}"
+                            
+                            # Try to create contact in database
+                            try:
+                                with _with_conn(tenant_id) as auto_conn:
+                                    # Insert new contact
+                                    result = auto_conn.execute(
+                                        _sql_text("""
+                                            INSERT INTO contacts (tenant_id, contact_id, email, phone, first_name, last_name, source, created_at, updated_at)
+                                            VALUES (CAST(:t AS uuid), :cid, :email, :phone, :fname, :lname, 'acuity_auto', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                            ON CONFLICT (tenant_id, contact_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+                                            RETURNING id, contact_id
+                                        """),
+                                        {
+                                            "t": tenant_id,
+                                            "cid": auto_contact_id,
+                                            "email": a.get("email") or None,
+                                            "phone": a.get("phone") or None,
+                                            "fname": a.get("firstName") or None,
+                                            "lname": a.get("lastName") or None,
+                                        }
+                                    )
+                                    row = result.fetchone()
+                                    if row:
+                                        contact_uuid = str(row[0])
+                                        external_contact_id = auto_contact_id
+                                        matched_by = "auto_created"
+                                        match_stats["no_match"] += 1  # Track these for reporting
+                                        
+                                        # Log auto-creation (first 10 only)
+                                        if match_stats["no_match"] <= 10:
+                                            print(
+                                                f"[acuity] AUTO_CREATED_CONTACT: aid={aid}, contact_id={auto_contact_id}, "
+                                                f"email={a.get('email')}, phone={a.get('phone')}"
+                                            )
+                            except Exception as exc:
+                                # If auto-create fails, skip this appointment
+                                print(f"[acuity] AUTO_CREATE_FAILED: aid={aid}, error={str(exc)[:100]}")
+                                skipped += 1
+                                appointments_skipped_unmatched += 1
+                                continue
+                        
+                        # If still no contact (auto-create failed), skip
+                        if not contact_uuid or not external_contact_id:
                             skipped += 1
-                            match_stats["no_match"] += 1
                             appointments_skipped_unmatched += 1
-                            # Enhanced logging for unmatched appointments
-                            if appointments_skipped_unmatched <= 10:
-                                print(
-                                    f"[acuity] SKIP_UNMATCHED: aid={aid}, service={service[:30]}, "
-                                    f"email={a.get('email')}, phone={a.get('phone')}, clientID={cid}, "
-                                    f"datetime={a.get('datetime')}"
-                                )
                             continue
                         
                         if matched_by:
@@ -1155,9 +1219,9 @@ def import_appointments(
     except httpx.HTTPError:
         pass
 
-    if payments_map:
+    if payments_map and not skip_contact_rollups:
         try:
-            print(f"[acuity] revenue_update_starting: tenant={tenant_id}, payments_map_size={len(payments_map)}")
+            print(f"[acuity] revenue_update_starting: tenant={tenant_id}, payments_map_size={len(payments_map)}, skip_contact_rollups={skip_contact_rollups}")
             # Sample first 3 contact_ids from payments_map
             sample_cids = list(payments_map.keys())[:3]
             print(f"[acuity] revenue_update_sample_cids: {sample_cids}")
@@ -1230,6 +1294,8 @@ def import_appointments(
                     print(f"[acuity] revenue_update_failures: failed_sample={failed_samples[:3]}")
         except Exception as exc:
             logger.exception("Failed to apply Acuity payment rollups", extra={"tenant_id": tenant_id, "error": str(exc)})
+    elif payments_map and skip_contact_rollups:
+        print(f"[acuity] SKIPPING contact rollups (skip_contact_rollups=True), contacts_with_payments={len(payments_map)}")
 
     try:
         with _with_conn(tenant_id) as conn:  # type: ignore

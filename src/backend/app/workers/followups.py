@@ -1030,6 +1030,7 @@ def _process_acuity_backfill_job(job_id: str, record: Dict[str, Any], payload: D
             until=until,
             skip_appt_payments=False,
             allow_historical=True,
+            skip_contact_rollups=True,  # Skip rollups during backfill - run separately after
             page_limit=payload.get("page_limit"),
         )
 
