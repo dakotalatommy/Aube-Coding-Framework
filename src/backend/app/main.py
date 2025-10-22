@@ -315,25 +315,13 @@ async def _upload_supabase_object(
                     extra={'bucket': bucket, 'path': object_path, 'status': upload_res.status_code, 'body': upload_res.text[:200]},
                 )
                 return None
-            sign_res = await client.post(
-                f"{supabase_url}/storage/v1/object/sign/{bucket}/{object_path}",
-                headers=headers,
-                json={"expiresIn": expires_seconds},
-            )
-            if sign_res.status_code not in (200, 201):
-                logger.warning(
-                    'supabase_sign_failed',
-                    extra={'bucket': bucket, 'path': object_path, 'status': sign_res.status_code, 'body': sign_res.text[:200]},
-                )
-                return None
-            signed_payload = sign_res.json()
-            signed_url = signed_payload.get('signedURL') or ''
-            if signed_url.startswith('http'):
-                url = signed_url
-            else:
-                url = f"{supabase_url}{signed_url}" if signed_url else ''
+            
+            # For public buckets (like referral-assets), use public URL instead of signed URL
+            # Public URL format: {supabase_url}/storage/v1/object/public/{bucket}/{path}
+            public_url = f"{supabase_url}/storage/v1/object/public/{bucket}/{object_path}"
+            
             return {
-                'url': url,
+                'url': public_url,
                 'path': object_path,
                 'content_type': content_type,
                 'size': len(data),
@@ -2777,6 +2765,7 @@ def _ensure_connected_accounts_v2() -> None:
                   expires_at BIGINT,
                   last_sync BIGINT,
                   last_error TEXT,
+                  extra_json TEXT,
                   connected_at TIMESTAMPTZ DEFAULT NOW(),
                   created_at TIMESTAMPTZ DEFAULT NOW()
                 );
@@ -2790,6 +2779,7 @@ def _ensure_connected_accounts_v2() -> None:
             conn.exec_driver_sql("ALTER TABLE connected_accounts_v2 ADD COLUMN IF NOT EXISTS scopes TEXT;")
             conn.exec_driver_sql("ALTER TABLE connected_accounts_v2 ADD COLUMN IF NOT EXISTS last_sync BIGINT;")
             conn.exec_driver_sql("ALTER TABLE connected_accounts_v2 ADD COLUMN IF NOT EXISTS last_error TEXT;")
+            conn.exec_driver_sql("ALTER TABLE connected_accounts_v2 ADD COLUMN IF NOT EXISTS extra_json TEXT;")
     except Exception:
         pass
 
@@ -3313,6 +3303,18 @@ def _square_env_mode() -> str:
     return "sandbox"
 def _env(name: str, default: str = "") -> str:
     return os.getenv(name, default)
+def _meta_app_id() -> str:
+    return (
+        _env("META_APP_ID", "").strip()
+        or _env("FACEBOOK_CLIENT_ID", "").strip()
+        or _env("INSTAGRAM_CLIENT_ID", "").strip()
+    )
+def _meta_app_secret() -> str:
+    return (
+        _env("META_APP_SECRET", "").strip()
+        or _env("FACEBOOK_CLIENT_SECRET", "").strip()
+        or _env("INSTAGRAM_CLIENT_SECRET", "").strip()
+    )
 def _new_cid() -> str:
     try:
         return _secrets.token_hex(8)
@@ -4193,9 +4195,12 @@ def _oauth_authorize_url(provider: str, tenant_id: Optional[str] = None, return_
             f"&redirect_uri={_url.quote(_redirect_uri('facebook'))}&state={_state}"
         )
     if provider == "instagram":
-        auth = _env("INSTAGRAM_AUTH_URL", "https://api.instagram.com/oauth/authorize")
-        client_id = _env("INSTAGRAM_CLIENT_ID", "")
-        scope = _env("INSTAGRAM_SCOPES", "user_profile,user_media")
+        auth = _env("INSTAGRAM_AUTH_URL", _env("FACEBOOK_AUTH_URL", "https://www.facebook.com/v18.0/dialog/oauth"))
+        client_id = _meta_app_id()
+        scope = _env(
+            "INSTAGRAM_SCOPES",
+            "pages_manage_metadata,pages_read_engagement,pages_show_list,pages_messaging,instagram_basic,instagram_manage_messages,instagram_content_publish",
+        )
         return (
             f"{auth}?client_id={client_id}&response_type=code&scope={_url.quote(scope)}"
             f"&redirect_uri={_url.quote(_redirect_uri('instagram'))}&state={_state}"
@@ -4285,16 +4290,50 @@ def _oauth_exchange_token(provider: str, code: str, redirect_uri: str, code_veri
             r = _http_request_with_retry("GET", url, params=params, timeout=20)
             return r.json() if r.status_code < 400 else {}
         if provider == "instagram":
-            url = _env("INSTAGRAM_TOKEN_URL", "https://api.instagram.com/oauth/access_token")
-            data = {
-                "client_id": _env("INSTAGRAM_CLIENT_ID", ""),
-                "client_secret": _env("INSTAGRAM_CLIENT_SECRET", ""),
-                "grant_type": "authorization_code",
-                "redirect_uri": redirect_uri,
-                "code": code,
+            app_id = _meta_app_id()
+            app_secret = _meta_app_secret()
+            preferred_page = _env("META_DEFAULT_PAGE_ID", "").strip() or None
+            exchange = ig_basic.exchange_for_business_account(
+                app_id,
+                app_secret,
+                redirect_uri,
+                code,
+                preferred_page_id=preferred_page,
+            )
+            if not exchange or exchange.get("status") != "ok":
+                detail = exchange if isinstance(exchange, dict) else {"status": "error", "detail": "unknown_exchange_failure"}
+                return {"error": detail}
+            scopes = exchange.get("scopes") or []
+            expires_in = int(exchange.get("page_access_token_expires_in") or 0)
+            extra = {
+                "page_id": exchange.get("page_id"),
+                "page_name": exchange.get("page_name"),
+                "instagram_business_account_id": exchange.get("instagram_business_account_id"),
+                "instagram_username": exchange.get("instagram_username"),
+                "user_access_token": exchange.get("user_access_token"),
+                "user_access_token_expires_in": exchange.get("user_access_token_expires_in"),
+                "page_access_token_expires_in": expires_in,
+                "profile_snapshot": exchange.get("profile"),
+                "granted_scopes": scopes,
             }
-            r = _http_request_with_retry("POST", url, data=data, timeout=20)
-            return r.json() if r.status_code < 400 else {}
+            now = int(_time.time())
+            try:
+                if extra.get("user_access_token_expires_in"):
+                    extra["user_access_token_expires_at"] = now + int(extra["user_access_token_expires_in"])
+            except Exception:
+                pass
+            try:
+                if expires_in:
+                    extra["page_access_token_expires_at"] = now + int(expires_in)
+            except Exception:
+                pass
+            return {
+                "access_token": exchange.get("page_access_token"),
+                "refresh_token": exchange.get("user_access_token"),
+                "expires_in": expires_in,
+                "scope": " ".join(scopes),
+                "__extra__": extra,
+            }
         if provider == "shopify":
             shop = _env("SHOPIFY_SHOP_DOMAIN", "").strip()
             if not shop:
@@ -4380,13 +4419,13 @@ def oauth_refresh(req: OAuthRefreshRequest, db: Session = Depends(get_db), ctx: 
         with engine.begin() as conn:
             row = conn.execute(
                 _sql_text(
-                    "SELECT id, refresh_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider = :p ORDER BY id DESC LIMIT 1"
+                    "SELECT id, refresh_token_enc, extra_json FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider = :p ORDER BY id DESC LIMIT 1"
                 ),
                 {"t": req.tenant_id, "p": req.provider},
             ).fetchone()
         if not row:
             return {"status": "not_found"}
-        row_id, refresh_token_enc = row
+        row_id, refresh_token_enc, extra_json_existing = row
         try:
             refresh_token = decrypt_text(str(refresh_token_enc or "")) or ""
         except Exception:
@@ -4394,7 +4433,61 @@ def oauth_refresh(req: OAuthRefreshRequest, db: Session = Depends(get_db), ctx: 
         if not refresh_token:
             return {"status": "no_refresh_token"}
 
-        token = _oauth_refresh_token(req.provider, refresh_token, _redirect_uri(req.provider)) or {}
+        extra_existing: Dict[str, Any] = {}
+        try:
+            if extra_json_existing:
+                extra_existing = json.loads(str(extra_json_existing))
+        except Exception:
+            extra_existing = {}
+
+        if req.provider == "instagram":
+            app_id = _meta_app_id()
+            app_secret = _meta_app_secret()
+            page_id = str(extra_existing.get("page_id") or "")
+            refresh_res = ig_basic.refresh_page_access_token(app_id, app_secret, refresh_token, page_id)
+            if not refresh_res or refresh_res.get("status") != "ok":
+                try:
+                    with engine.begin() as conn:
+                        conn.execute(
+                            _sql_text(
+                                "UPDATE connected_accounts_v2 SET status='error', last_error=:err WHERE id=:id"
+                            ),
+                            {"err": str((refresh_res or {}).get("detail") or "refresh_failed"), "id": row_id},
+                        )
+                except Exception:
+                    pass
+                return {"status": "error", "detail": refresh_res}
+            now = int(_time.time())
+            expires_in = int(refresh_res.get("page_access_token_expires_in") or 0)
+            extra_payload = dict(extra_existing or {})
+            extra_payload.update(
+                {
+                    "page_id": refresh_res.get("page_id") or extra_existing.get("page_id"),
+                    "instagram_business_account_id": refresh_res.get("instagram_business_account_id") or extra_existing.get("instagram_business_account_id"),
+                    "user_access_token": refresh_res.get("user_access_token") or refresh_token,
+                    "user_access_token_expires_in": refresh_res.get("user_access_token_expires_in"),
+                    "page_access_token_expires_in": expires_in,
+                }
+            )
+            try:
+                if refresh_res.get("user_access_token_expires_in"):
+                    extra_payload["user_access_token_expires_at"] = now + int(refresh_res["user_access_token_expires_in"])
+            except Exception:
+                pass
+            try:
+                if expires_in:
+                    extra_payload["page_access_token_expires_at"] = now + int(expires_in)
+            except Exception:
+                pass
+            token = {
+                "access_token": refresh_res.get("page_access_token"),
+                "refresh_token": refresh_res.get("user_access_token") or refresh_token,
+                "expires_in": expires_in or refresh_res.get("user_access_token_expires_in"),
+                "__extra__": extra_payload,
+                "scope": extra_existing.get("granted_scopes"),
+            }
+        else:
+            token = _oauth_refresh_token(req.provider, refresh_token, _redirect_uri(req.provider)) or {}
         if not token:
             try:
                 with engine.begin() as conn:
@@ -4427,6 +4520,21 @@ def oauth_refresh(req: OAuthRefreshRequest, db: Session = Depends(get_db), ctx: 
         if scopes:
             params["scopes"] = " ".join(scopes) if isinstance(scopes, list) else str(scopes)
             update_parts.append("scopes=:scopes")
+        extra_update_json = None
+        try:
+            extra_raw = token.get("__extra__")
+            if isinstance(extra_raw, dict):
+                try:
+                    extra_update_json = json.dumps(extra_raw)
+                except Exception:
+                    extra_update_json = str(extra_raw)
+            elif extra_raw:
+                extra_update_json = str(extra_raw)
+        except Exception:
+            extra_update_json = None
+        if extra_update_json is not None:
+            params["extra_json"] = extra_update_json
+            update_parts.append("extra_json=:extra_json")
 
         sql = f"UPDATE connected_accounts_v2 SET {', '.join(update_parts)} WHERE id=:id"
         with engine.begin() as conn:
@@ -9423,6 +9531,7 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
         refresh_token_enc = None
         expires_at = None
         scopes_str = None
+        extra_json = None
         exchange_ok = False
         exchange_detail: Dict[str, Any] = {}
         if code:
@@ -9446,6 +9555,17 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 rt = token.get("refresh_token")
                 exp = token.get("expires_in")
                 sc = token.get("scope") or token.get("scopes")
+                try:
+                    extra_raw = token.get("__extra__")
+                    if isinstance(extra_raw, dict):
+                        try:
+                            extra_json = json.dumps(extra_raw)
+                        except Exception:
+                            extra_json = str(extra_raw)
+                    elif extra_raw:
+                        extra_json = str(extra_raw)
+                except Exception:
+                    extra_json = None
                 if at:
                     access_token_enc = encrypt_text(at)
                     exchange_ok = True
@@ -9478,12 +9598,14 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 "rt": (refresh_token_enc if refresh_token_enc is not None else None),
                 "exp": (int(expires_at) if isinstance(expires_at, (int, float)) else None),
                 "sc": scopes_str,
+                "ex": extra_json,
             }
             set_parts = ["status=:st", "connected_at=NOW()"]
             if params["at"]: set_parts.append("access_token_enc=:at")
             if params["rt"]: set_parts.append("refresh_token_enc=:rt")
             if params["exp"] is not None: set_parts.append("expires_at=:exp")
             if scopes_str: set_parts.append("scopes=:sc")
+            if params["ex"] is not None: set_parts.append("extra_json=:ex")
             upd = f"UPDATE connected_accounts_v2 SET {', '.join(set_parts)} WHERE tenant_id = CAST(:t AS uuid) AND provider = :prov"
             res = db.execute(_sql_text(upd), params)
             try:
@@ -9497,6 +9619,7 @@ def oauth_callback(provider: str, request: Request, code: Optional[str] = None, 
                 if params["rt"]: cols.append("refresh_token_enc"); vals.append(":rt")
                 if params["exp"] is not None: cols.append("expires_at"); vals.append(":exp")
                 if scopes_str: cols.append("scopes"); vals.append(":sc")
+                if params["ex"] is not None: cols.append("extra_json"); vals.append(":ex")
                 ins = f"INSERT INTO connected_accounts_v2 ({', '.join(cols)}) VALUES ({', '.join(vals)}) RETURNING id"
                 try:
                     inserted_id = db.execute(_sql_text(ins), params).scalar()
