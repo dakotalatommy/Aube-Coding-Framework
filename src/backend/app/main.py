@@ -4,7 +4,7 @@ from fastapi import FastAPI, Depends, Response, Request, HTTPException, UploadFi
 from fastapi.responses import PlainTextResponse, RedirectResponse, FileResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Any, Tuple
+from typing import List, Dict, Optional, Any, Tuple, Sequence
 from datetime import datetime, date, timedelta, timezone
 from zoneinfo import ZoneInfo
 from contextlib import contextmanager
@@ -771,6 +771,49 @@ async def support_send(request: Request, ctx: Optional[UserContext] = Depends(ge
     }
 
 
+def _calculate_monthly_savings(referral_count: int) -> int:
+    """
+    Calculate monthly savings based on referral count.
+    
+    Pricing structure:
+    - 0 referrals: $147/mo (base price)
+    - 1 referral: $127/mo (save $20)
+    - 2 referrals: $97/mo (save $50)
+    - 3+ referrals: $127/mo + $30 coupon per extra referral
+    
+    Returns: Savings in cents
+    """
+    if referral_count == 0:
+        return 0
+    elif referral_count == 1:
+        return 2000  # $147 - $127 = $20
+    elif referral_count == 2:
+        return 5000  # $147 - $97 = $50
+    else:
+        # 2 referrals = $50 savings from price change
+        # Additional $30 per referral beyond 2 from coupon
+        base_savings = 5000
+        extra_savings = (referral_count - 2) * 3000
+        return base_savings + extra_savings
+
+
+def _get_target_price_for_count(count: int) -> str:
+    """Map referral count to Stripe price ID."""
+    PRICE_147 = _env("STRIPE_PRICE_147", "price_1S33llKsdVcBvHY1yrEZWop0")
+    PRICE_127 = _env("STRIPE_PRICE_127", "price_1S33lQKsdVcBvHY10JQsdlAt")
+    PRICE_97 = _env("STRIPE_PRICE_97", "price_1S33l3KsdVcBvHY15cvhXFE5")
+    
+    if count == 0:
+        return PRICE_147
+    elif count == 1:
+        return PRICE_127
+    elif count == 2:
+        return PRICE_97
+    else:  # 3+
+        # Revert to $127 price, use coupon for extras
+        return PRICE_127
+
+
 @app.get("/referrals/qr", tags=["Billing"])
 async def referrals_qr(tenant_id: str, ctx: UserContext = Depends(get_user_context)) -> Dict[str, Any]:
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
@@ -785,14 +828,31 @@ async def referrals_qr(tenant_id: str, ctx: UserContext = Depends(get_user_conte
     bucket = os.getenv('REFERRAL_ASSETS_BUCKET') or 'referral-assets'
     object_path = f"{tenant_id}/{code}-qr-{int(_time.time())}.png"
     uploaded = await _upload_supabase_object(bucket, object_path, image_bytes, 'image/png', expires_seconds=60 * 60 * 24 * 30)
-    # Monthly savings: 1 referral = $147 -> $127 (save $20/mo), 2 referrals = $147 -> $97 (save $50/mo)
-    monthly_savings_cents = 5000  # Default to $50 (2 referrals max discount)
+    
+    # Read actual referral count from settings to calculate savings
+    referral_count = 0
+    try:
+        with engine.begin() as conn:
+            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
+            row = conn.execute(
+                _sql_text("SELECT data_json::jsonb->'referral_count' FROM settings WHERE tenant_id = CAST(:t AS uuid)"),
+                {"t": tenant_id}
+            ).fetchone()
+            if row and row[0]:
+                referral_count = int(row[0])
+    except Exception:
+        referral_count = 0
+    
+    monthly_savings_cents = _calculate_monthly_savings(referral_count)
+    
     info = {
         'code': code,
         'share_url': share_url,
         'qr_url': (uploaded or {}).get('url', ''),
         'generated_at': datetime.utcnow().isoformat() + 'Z',
         'monthly_savings_cents': monthly_savings_cents,
+        'referral_count': referral_count,
     }
     _mutate_settings_json(tenant_id, lambda data: data.setdefault('referral', {}).update(info))
     cache_set(f"referral:qr:{tenant_id}", info, ttl=3600)
@@ -5037,6 +5097,152 @@ class ChatRawRequest(BaseModel):
     session_id: Optional[str] = None
     mode: Optional[str] = None
 
+
+def _estimate_chat_tokens(messages: Sequence[Any]) -> int:
+    try:
+        est = sum(len(str(getattr(m, "content", "") or "").split()) for m in (messages or []))
+    except Exception:
+        est = 0
+    try:
+        base = int(os.getenv("AI_EST_REPLY_TOKENS", "600"))
+    except Exception:
+        base = 600
+    return int(est) + max(base, 0)
+
+
+def _ai_today_key(prefix: str, tenant_id: str = "global") -> str:
+    import datetime as _dt
+    try:
+        tid = str(tenant_id or "global")
+    except Exception:
+        tid = "global"
+    return f"{prefix}:{tid}:{_dt.datetime.utcnow().strftime('%Y%m%d')}"
+
+
+def _check_ai_usage_caps(tenant_id: str, est_tokens: int) -> Optional[str]:
+    try:
+        tenant_id_str = str(tenant_id)
+        AI_TENANT_DAILY_CAP = int(os.getenv("AI_TENANT_DAILY_CAP_TOKENS", "150000"))
+        AI_GLOBAL_DAILY_CAP = int(os.getenv("AI_GLOBAL_DAILY_CAP_TOKENS", "2000000"))
+        TENANT_USD_CAP = float(os.getenv("AI_TENANT_DAILY_CAP_USD", "0") or 0)
+        GLOBAL_USD_CAP = float(os.getenv("AI_GLOBAL_DAILY_CAP_USD", "0") or 0)
+        PRICE_IN = float(os.getenv("AI_PRICE_PER_1K_IN", "0.0005"))
+        PRICE_OUT = float(os.getenv("AI_PRICE_PER_1K_OUT", "0.0015"))
+        t_used = int(cache_get(_ai_today_key("ai_tokens", tenant_id_str)) or 0)
+        g_used = int(cache_get(_ai_today_key("ai_tokens", "global")) or 0)
+        if t_used + est_tokens > AI_TENANT_DAILY_CAP:
+            return "You've hit today's AI limit. Add payment or try again tomorrow."
+        if g_used + est_tokens > AI_GLOBAL_DAILY_CAP:
+            return "AI is busy right now. Please try again shortly."
+        in_tokens = int(est_tokens * 0.4)
+        out_tokens = est_tokens - in_tokens
+        est_cost = (in_tokens / 1000.0) * PRICE_IN + (out_tokens / 1000.0) * PRICE_OUT
+        t_cost_used = float(cache_get(_ai_today_key("ai_cost_usd", tenant_id_str)) or 0)
+        g_cost_used = float(cache_get(_ai_today_key("ai_cost_usd", "global")) or 0)
+        if TENANT_USD_CAP > 0 and (t_cost_used + est_cost) > TENANT_USD_CAP:
+            return "You've hit today's AI budget. Add payment or try again tomorrow."
+        if GLOBAL_USD_CAP > 0 and (g_cost_used + est_cost) > GLOBAL_USD_CAP:
+            return "AI is busy right now. Please try again shortly."
+    except Exception:
+        return None
+    return None
+
+
+def _record_ai_usage(tenant_id: str, est_tokens: int) -> None:
+    try:
+        tenant_id_str = str(tenant_id)
+        cache_incr(_ai_today_key("ai_tokens", tenant_id_str), est_tokens, expire_seconds=26 * 60 * 60)
+        cache_incr(_ai_today_key("ai_tokens", "global"), est_tokens, expire_seconds=26 * 60 * 60)
+        in_tokens = int(est_tokens * 0.4)
+        out_tokens = est_tokens - in_tokens
+        PRICE_IN = float(os.getenv("AI_PRICE_PER_1K_IN", "0.0005"))
+        PRICE_OUT = float(os.getenv("AI_PRICE_PER_1K_OUT", "0.0015"))
+        est_cost = (in_tokens / 1000.0) * PRICE_IN + (out_tokens / 1000.0) * PRICE_OUT
+        prev_t = float(cache_get(_ai_today_key("ai_cost_usd", tenant_id_str)) or 0)
+        prev_g = float(cache_get(_ai_today_key("ai_cost_usd", "global")) or 0)
+        cache_set(_ai_today_key("ai_cost_usd", tenant_id_str), round(prev_t + est_cost, 4), ttl=26 * 60 * 60)
+        cache_set(_ai_today_key("ai_cost_usd", "global"), round(prev_g + est_cost, 4), ttl=26 * 60 * 60)
+    except Exception:
+        pass
+
+
+def _ai_rate_limited(tenant_id: str, max_per_minute: int = 30) -> bool:
+    try:
+        ok_rl, _ = check_and_increment(tenant_id, "ai:chat", max_per_minute=max_per_minute)
+        return not bool(ok_rl)
+    except Exception:
+        return False
+
+
+def _resolve_modes_and_capabilities(req_mode: Optional[str], messages: Sequence[Any], tenant_id: str) -> Tuple[str, str, str, List[Dict[str, Any]]]:
+    try:
+        mode_value = (req_mode or "").strip().lower() if req_mode else ""
+    except Exception:
+        mode_value = ""
+    __chosen_mode = mode_value
+    if not __chosen_mode:
+        try:
+            _last = messages[-1].content if messages else ""
+            _det = detect_mode(_last)
+            if _det.get("mode") and float(_det.get("confidence", 0)) >= 0.7:
+                __chosen_mode = str(_det.get("mode"))
+                try:
+                    ph_capture("context.detected", distinct_id=str(tenant_id), properties={
+                        "mode": __chosen_mode,
+                        "confidence": float(_det.get("confidence", 0.0)),
+                        "reasons": ",".join(_det.get("reasons", [])) if isinstance(_det.get("reasons", []), list) else "",
+                    })
+                except Exception:
+                    pass
+        except Exception:
+            __chosen_mode = ""
+    try:
+        __tools = tools_schema(__chosen_mode).get("tools", []) if __chosen_mode else tools_schema().get("tools", [])
+        _ = __tools  # satisfy lint (unused)
+    except Exception:
+        pass
+    try:
+        _human_tools = tools_schema_human().get("tools", [])
+    except Exception:
+        _human_tools = []
+    tool_palette: List[Dict[str, Any]] = []
+    for t in _human_tools:
+        try:
+            tool_palette.append(
+                {
+                    "label": (t.get("label") or "").strip(),
+                    "category": (t.get("category") or "General").strip(),
+                    "summary": (t.get("summary") or "").strip(),
+                    "requires_approval": bool(t.get("requires_approval")),
+                }
+            )
+        except Exception:
+            continue
+    cap = {
+        "features": app.openapi().get("tags", []),
+        "tool_palette": tool_palette,
+        "guidance": "Discuss capabilities using human-friendly labels only. Never mention internal tool identifiers or codes.",
+    }
+    try:
+        capabilities_text = json.dumps(cap, ensure_ascii=False)
+    except Exception:
+        capabilities_text = ""
+    chosen_mode = mode_value or ""
+    if not chosen_mode:
+        try:
+            last_msg = (messages[-1].content or "").lower() if messages else ""
+            confusion_markers = [
+                "i'm confused", "im confused", "i am confused",
+                "i don't understand", "i dont understand", "do not understand",
+                "this is confusing", "help me understand", "not sure what to do",
+                "where do i start", "what do i do", "how do i start",
+            ]
+            if any(k in last_msg for k in confusion_markers):
+                chosen_mode = "support"
+        except Exception:
+            pass
+    return __chosen_mode, chosen_mode, capabilities_text, tool_palette
+
 class ChatSessionSummaryRequest(BaseModel):
     tenant_id: str
     session_id: str
@@ -5115,93 +5321,16 @@ async def ai_chat(
     ctx: UserContext = Depends(get_user_context),
     db: Session = Depends(get_db),
 ) -> Dict[str, str]:
-    # Soft cost guardrails: enforce per-tenant and global daily token and USD budgets
-    try:
-        AI_TENANT_DAILY_CAP = int(os.getenv("AI_TENANT_DAILY_CAP_TOKENS", "150000"))
-        AI_GLOBAL_DAILY_CAP = int(os.getenv("AI_GLOBAL_DAILY_CAP_TOKENS", "2000000"))
-        # Optional USD caps
-        TENANT_USD_CAP = float(os.getenv("AI_TENANT_DAILY_CAP_USD", "0") or 0)
-        GLOBAL_USD_CAP = float(os.getenv("AI_GLOBAL_DAILY_CAP_USD", "0") or 0)
-        PRICE_IN = float(os.getenv("AI_PRICE_PER_1K_IN", "0.0005"))  # $/1K input tokens
-        PRICE_OUT = float(os.getenv("AI_PRICE_PER_1K_OUT", "0.0015"))  # $/1K output tokens
-        def _today_key(prefix: str, tid: str = "global") -> str:
-            import datetime as _dt
-            return f"{prefix}:{tid}:{_dt.datetime.utcnow().strftime('%Y%m%d')}"
-        est_tokens = sum(len((m.content or "").split()) for m in req.messages) + int(os.getenv("AI_EST_REPLY_TOKENS", "600"))
-        t_used = int(cache_get(_today_key("ai_tokens", ctx.tenant_id)) or 0)
-        g_used = int(cache_get(_today_key("ai_tokens", "global")) or 0)
-        if t_used + est_tokens > AI_TENANT_DAILY_CAP:
-            return {"text": "You've hit today's AI limit. Add payment or try again tomorrow."}
-        if g_used + est_tokens > AI_GLOBAL_DAILY_CAP:
-            return {"text": "AI is busy right now. Please try again shortly."}
-        # USD caps (estimate in/out split 40/60)
-        in_tokens = int(est_tokens * 0.4)
-        out_tokens = est_tokens - in_tokens
-        est_cost = (in_tokens / 1000.0) * PRICE_IN + (out_tokens / 1000.0) * PRICE_OUT
-        t_cost_used = float(cache_get(_today_key("ai_cost_usd", ctx.tenant_id)) or 0)
-        g_cost_used = float(cache_get(_today_key("ai_cost_usd", "global")) or 0)
-        if TENANT_USD_CAP > 0 and (t_cost_used + est_cost) > TENANT_USD_CAP:
-            return {"text": "You've hit today's AI budget. Add payment or try again tomorrow."}
-        if GLOBAL_USD_CAP > 0 and (g_cost_used + est_cost) > GLOBAL_USD_CAP:
-            return {"text": "AI is busy right now. Please try again shortly."}
-    except Exception:
-        pass
-    try:
-        ok_rl, _ = check_and_increment(req.tenant_id, "ai:chat", max_per_minute=30)
-        if not ok_rl:
-            return {"text": "rate_limited"}
-    except Exception:
-        pass
+    est_tokens = _estimate_chat_tokens(req.messages)
+    limit_msg = _check_ai_usage_caps(ctx.tenant_id, est_tokens)
+    if limit_msg:
+        return {"text": limit_msg}
+    if _ai_rate_limited(req.tenant_id):
+        return {"text": "rate_limited"}
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"text": "forbidden"}
     # Dynamic capability injection: reflect current enabled surfaces/tools (per context when known)
-    try:
-        __chosen_mode = (req.mode or "").strip().lower()
-    except Exception:
-        __chosen_mode = ""
-    if not __chosen_mode:
-        try:
-            _last = req.messages[-1].content if req.messages else ""
-            _det = detect_mode(_last)
-            if _det.get("mode") and float(_det.get("confidence", 0)) >= 0.7:
-                __chosen_mode = str(_det.get("mode"))
-                try:
-                    ph_capture("context.detected", distinct_id=str(ctx.tenant_id), properties={
-                        "mode": __chosen_mode, "confidence": float(_det.get("confidence", 0.0)),
-                        "reasons": ",".join(_det.get("reasons", [])) if isinstance(_det.get("reasons", []), list) else ""
-                    })
-                except Exception:
-                    pass
-        except Exception:
-            __chosen_mode = ""
-    try:
-        __tools = tools_schema(__chosen_mode).get("tools", []) if __chosen_mode else tools_schema().get("tools", [])
-    except Exception:
-        __tools = tools_schema().get("tools", [])
-    try:
-        _human_tools = tools_schema_human().get("tools", [])
-    except Exception:
-        _human_tools = []
-    tool_palette = []
-    for t in _human_tools:
-        tool_palette.append(
-            {
-                "label": (t.get("label") or "").strip(),
-                "category": (t.get("category") or "General").strip(),
-                "summary": (t.get("summary") or "").strip(),
-                "requires_approval": bool(t.get("requires_approval")),
-            }
-        )
-    cap = {
-        "features": app.openapi().get("tags", []),
-        "tool_palette": tool_palette,
-        "guidance": "Discuss capabilities using human-friendly labels only. Never mention internal tool identifiers or codes.",
-    }
-    try:
-        import json as _json
-        capabilities_text = _json.dumps(cap, ensure_ascii=False)
-    except Exception:
-        capabilities_text = ""
+    __chosen_mode, chosen_mode, capabilities_text, tool_palette = _resolve_modes_and_capabilities(req.mode, req.messages, ctx.tenant_id)
     # Inject brand profile if present
     brand_profile_text = ""
     try:
@@ -5247,26 +5376,6 @@ async def ai_chat(
         "Features → 3 bullets → exact next step → CTA.\n"
         "Getting started → connect calendar, Re‑analyze, send 15/10/5 with scripts → CTA."
     )
-    # Determine context mode (switch to support if user expresses confusion)
-    chosen_mode = ""
-    try:
-        chosen_mode = (req.mode or "").strip().lower()
-    except Exception:
-        chosen_mode = ""
-    if not chosen_mode:
-        try:
-            last_msg = (req.messages[-1].content or "").lower() if req.messages else ""
-            confusion_markers = [
-                "i'm confused", "im confused", "i am confused",
-                "i don't understand", "i dont understand", "do not understand",
-                "this is confusing", "help me understand", "not sure what to do",
-                "where do i start", "what do i do", "how do i start",
-            ]
-            if any(k in last_msg for k in confusion_markers):
-                chosen_mode = "support"
-        except Exception:
-            pass
-
     system_prompt = chat_system_prompt(
         capabilities_text,
         mode=(chosen_mode or "sales_onboarding"),
@@ -5509,22 +5618,7 @@ async def ai_chat(
                 db.add(dbm.ChatLog(tenant_id=ctx.tenant_id, session_id=sid, role=str(last.role), content=str(last.content)))
             db.add(dbm.ChatLog(tenant_id=ctx.tenant_id, session_id=sid, role="assistant", content=content))
             db.commit()
-        try:
-            cache_incr(_today_key("ai_tokens", ctx.tenant_id), est_tokens, expire_seconds=26*60*60)
-            cache_incr(_today_key("ai_tokens", "global"), est_tokens, expire_seconds=26*60*60)
-            # Track cost using same estimate
-            in_tokens = int(est_tokens * 0.4)
-            out_tokens = est_tokens - in_tokens
-            PRICE_IN = float(os.getenv("AI_PRICE_PER_1K_IN", "0.0005"))
-            PRICE_OUT = float(os.getenv("AI_PRICE_PER_1K_OUT", "0.0015"))
-            est_cost = (in_tokens / 1000.0) * PRICE_IN + (out_tokens / 1000.0) * PRICE_OUT
-            # store cost to 4 decimals as cents-ish
-            prev_t = float(cache_get(_today_key("ai_cost_usd", ctx.tenant_id)) or 0)
-            prev_g = float(cache_get(_today_key("ai_cost_usd", "global")) or 0)
-            cache_set(_today_key("ai_cost_usd", ctx.tenant_id), round(prev_t + est_cost, 4), ttl=26*60*60)
-            cache_set(_today_key("ai_cost_usd", "global"), round(prev_g + est_cost, 4), ttl=26*60*60)
-        except Exception:
-            pass
+        _record_ai_usage(ctx.tenant_id, est_tokens)
     except Exception:
         pass
     # Append to dev JSONL
@@ -5554,7 +5648,12 @@ async def ai_chat_raw(
     ctx: UserContext = Depends(get_user_context),
     db: Session = Depends(get_db),
 ) -> Dict[str, str]:
-    # Minimal pass-through: BrandVX voice only; no modes, no local caps/limits/fallbacks
+    est_tokens = _estimate_chat_tokens(req.messages)
+    limit_msg = _check_ai_usage_caps(ctx.tenant_id, est_tokens)
+    if limit_msg:
+        return {"text": limit_msg}
+    if _ai_rate_limited(req.tenant_id):
+        return {"text": "rate_limited"}
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"text": "forbidden"}
     # Pull brand profile
@@ -5569,39 +5668,49 @@ async def ai_chat_raw(
                 brand_profile_text = _json.dumps(bp, ensure_ascii=False)
     except Exception:
         brand_profile_text = ""
-    # Compose BrandVX voice system prompt with enriched context
-    system_prompt = BRAND_SYSTEM + "\nYou have direct access to the current tenant's workspace data via backend queries. Answer using provided context; do not claim you lack access. Keep responses concise and plain text."
-    # Mode preambles (support/train/analysis/messaging/scheduler/todo)
-    try:
-        mode = (req.mode or "").strip().lower()
-    except Exception:
-        mode = ""
-    # Heuristic + detector: set mode when user expresses confusion or when detector is confident
-    if not mode:
-        try:
-            last = (req.messages[-1].content or "").lower() if req.messages else ""
-            # detector
-            det = detect_mode(last)
-            if det.get("mode") and float(det.get("confidence", 0)) >= 0.7:
-                mode = str(det.get("mode"))
-                try:
-                    ph_capture("context.detected", distinct_id=str(ctx.tenant_id), properties={
-                        "mode": mode, "confidence": float(det.get("confidence", 0.0)),
-                        "reasons": ",".join(det.get("reasons", [])) if isinstance(det.get("reasons", []), list) else ""
-                    })
-                except Exception:
-                    pass
-            else:
-                confusion_markers = [
-                    "i'm confused", "im confused", "i am confused",
-                    "i don't understand", "i dont understand", "do not understand",
-                    "this is confusing", "help me understand", "not sure what to do",
-                    "where do i start", "what do i do", "how do i start",
-                ]
-                if any(k in last for k in confusion_markers):
-                    mode = "support"
-        except Exception:
-            pass
+    __chosen_mode, chosen_mode, capabilities_text, tool_palette = _resolve_modes_and_capabilities(req.mode, req.messages, ctx.tenant_id)
+    mode = chosen_mode or __chosen_mode
+    def _envf(k: str, default: str = "") -> str:
+        return os.getenv(k, default)
+    pricing = []
+    if _envf("PRICING_STANDARD"):
+        pricing.append(f"Standard: ${_envf('PRICING_STANDARD')}/mo with {_envf('PRICING_TRIAL_DAYS','7')}-day free trial.")
+    if _envf("PRICING_REF_1"):
+        pricing.append(f"Referral: 1 referral → ${_envf('PRICING_REF_1')}/mo.")
+    if _envf("PRICING_REF_2"):
+        pricing.append(f"Referral: 2 referrals → ${_envf('PRICING_REF_2')}/mo.")
+    if _envf("PRICING_FOUNDING_UPFRONT"):
+        nm = _envf("PRICING_PLAN_NAME","Founding Member")
+        pricing.append(f"Founding option: ${_envf('PRICING_FOUNDING_UPFRONT')} today locks {nm} — full feature access for the lifetime of an active account.")
+    policy_text = "\n".join(pricing) if pricing else "Founding and trial options available; avoid quoting amounts when unknown."
+
+    benefits_text = (
+        "- Fewer no‑shows via quick confirmations (quiet hours).\n"
+        "- Revive dormant and warm leads with short, human nudges.\n"
+        "- 7‑day reach‑out plan eliminates guesswork; do the next five now."
+    )
+    integrations_text = (
+        "Calendar (Google/Apple), Booking (Square/Acuity), CRM (HubSpot), Inventory (Shopify), Email (SendGrid), SMS (Twilio), Social Inbox (Instagram)."
+    )
+    rules_text = (
+        "Recommend‑only: produce drafts; user copies/sends; use Mark as sent; Approvals stores recommendations.\n"
+        "Never promise automated sending if not enabled. Respect quiet hours; STOP/HELP when live."
+    )
+    scaffolds_text = (
+        "Cost → state options (trial or founding) → single CTA.\n"
+        "Features → 3 bullets → exact next step → CTA.\n"
+        "Getting started → connect calendar, Re‑analyze, send 15/10/5 with scripts → CTA."
+    )
+    system_prompt = chat_system_prompt(
+        capabilities_text,
+        mode=(mode or "sales_onboarding"),
+        policy_text=policy_text,
+        benefits_text=benefits_text,
+        integrations_text=integrations_text,
+        rules_text=rules_text,
+        scaffolds_text=scaffolds_text,
+        brand_profile_text=brand_profile_text,
+    )
     if mode == "support":
         system_prompt += (
             "\n\n[Mode: Support]\n"
@@ -5628,8 +5737,6 @@ async def ai_chat_raw(
     else:
         # Global guardrail even outside support: never expose internal implementation details
         system_prompt += "\n\nNever reveal internal tool names, functions, schemas, JSON, IDs, or payloads. Use plain, natural language only."
-    if brand_profile_text:
-        system_prompt = system_prompt + "\n\nBrand profile (voice/tone):\n" + brand_profile_text
     try:
         if mode:
             ph_capture("llm.context", distinct_id=str(ctx.tenant_id), properties={"mode": mode})
@@ -5918,134 +6025,25 @@ async def ai_chat_raw(
     except Exception:
         pass
 
-    # Call provider directly via Responses API only (no local fallbacks)
+    # Generate response via shared AI client
     reply_max_tokens = int(os.getenv("AI_CHAT_MAX_TOKENS", "1600"))
-    base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-    model = os.getenv("OPENAI_MODEL", "gpt-5")
-    api_key = (os.getenv("OPENAI_API_KEY", "") or "").strip()
-    if not api_key:
-        from fastapi.responses import JSONResponse as _JR
-        return _JR({"error": "provider_error", "detail": "missing_openai_key"}, status_code=200)
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    project_id = os.getenv("OPENAI_PROJECT", "").strip()
-    if project_id:
-        headers["OpenAI-Project"] = project_id
-    content_blocks: List[Dict[str, Any]] = [
-        {"role": "system", "content": [{"type": "input_text", "text": system_prompt}]}
-    ]
-    for m in req.messages:
-        role = m.role
-        text_val = m.content
-        block = {
-            "role": role,
-            "content": ([{"type": "output_text", "text": text_val}] if role == "assistant" else [{"type": "input_text", "text": text_val}])
-        }
-        content_blocks.append(block)
-    payload: Dict[str, Any] = {
-        "model": model,
-        "input": content_blocks,
-        "max_output_tokens": reply_max_tokens,
-    }
-    provider_json: Dict[str, Any] = {}
+    client = AIClient(model=os.getenv("OPENAI_MODEL", "gpt-5"))
     try:
-        async with httpx.AsyncClient(timeout=90) as client:
-            r = await client.post(f"{base_url}/responses", headers=headers, json=payload)
-            if r.status_code >= 400:
-                from fastapi.responses import JSONResponse as _JR
-                return _JR({"error": "provider_error", "detail": r.text[:400]}, status_code=200)
-            provider_json = r.json()
+        content = await client.generate(
+            system_prompt,
+            [
+                {"role": m.role, "content": m.content}
+                for m in req.messages
+            ],
+            max_tokens=reply_max_tokens,
+        )
+        content = _sanitize_final_text(content)
     except Exception as e:
         from fastapi.responses import JSONResponse as _JR
         return _JR({"error": "provider_error", "detail": str(e)[:400]}, status_code=200)
-    # Extract text robustly
-    def _extract_text(obj: Any) -> Optional[str]:
-        if isinstance(obj, dict):
-            for key in ("output_text", "text"):
-                val = obj.get(key)
-                if isinstance(val, str) and val.strip():
-                    return val.strip()
-            out = obj.get("output")
-            if isinstance(out, list):
-                parts: List[str] = []
-                for item in out:
-                    if isinstance(item, dict):
-                        content = item.get("content")
-                        if isinstance(content, list):
-                            for ch in content:
-                                if isinstance(ch, dict):
-                                    if ch.get("type") in ("output_text", "text", "input_text"):
-                                        t = ch.get("text") or ch.get("content")
-                                        if isinstance(t, str) and t.strip():
-                                            parts.append(t.strip())
-                if parts:
-                    return " ".join(parts)[:4000]
-            if obj.get("choices"):
-                try:
-                    return obj["choices"][0]["message"]["content"].strip()
-                except Exception:
-                    pass
-        return None
-    content = _extract_text(provider_json)
-    # Retry once for reasoning-only / hit-cap cases with higher max_output_tokens
-    try:
-        usage = provider_json.get("usage") or {}
-        out_tokens = int((usage.get("output_tokens") or 0) or 0)
-        details = usage.get("output_tokens_details") or {}
-        reasoning_tokens = int((details.get("reasoning_tokens") or 0) or 0)
-        incomplete = (provider_json.get("incomplete_details") or {}).get("reason")
-        hit_cap = out_tokens >= int(reply_max_tokens)
-        reasoning_only = (reasoning_tokens > 0) and (not content)
-        if reasoning_only or hit_cap or incomplete == "max_output_tokens":
-            bigger = min(2400, max(int(reply_max_tokens) * 2, 1200))
-            payload_retry = {
-                "model": model,
-                "input": content_blocks,
-                "max_output_tokens": bigger,
-            }
-            try:
-                async with httpx.AsyncClient(timeout=90) as client:
-                    r3 = await client.post(f"{base_url}/responses", headers=headers, json=payload_retry)
-                    if r3.status_code < 400:
-                        provider_json = r3.json()
-                        content = _extract_text(provider_json) or content
-                    else:
-                        from fastapi.responses import JSONResponse as _JR
-                        return _JR({"error": "provider_error", "detail": r3.text[:400]}, status_code=200)
-            except Exception as e:
-                from fastapi.responses import JSONResponse as _JR
-                return _JR({"error": "provider_error", "detail": str(e)[:400]}, status_code=200)
-    except Exception:
-        pass
-    # If no text, attempt a simpler string input form
-    if not content:
-        simple_input = "\n".join([f"{m.role}: {m.content}" for m in req.messages]).strip()
-        alt_payload = {
-            "model": model,
-            "input": [{"role": "system", "content": [{"type": "input_text", "text": system_prompt}]}, {"role": "user", "content": [{"type": "input_text", "text": simple_input}]}],
-            "max_output_tokens": min(1200, reply_max_tokens),
-            
-        }
-        try:
-            async with httpx.AsyncClient(timeout=90) as client:
-                r2 = await client.post(f"{base_url}/responses", headers=headers, json=alt_payload)
-                if r2.status_code < 400:
-                    provider_json = r2.json()
-                    content = _extract_text(provider_json)
-                else:
-                    from fastapi.responses import JSONResponse as _JR
-                    return _JR({"error": "provider_error", "detail": r2.text[:400]}, status_code=200)
-        except Exception as e:
-            from fastapi.responses import JSONResponse as _JR
-            return _JR({"error": "provider_error", "detail": str(e)[:400]}, status_code=200)
-    if not content or not isinstance(content, str) or not content.strip():
-        from fastapi.responses import JSONResponse as _JR
-        excerpt = json.dumps({k: provider_json.get(k) for k in ("status", "incomplete_details", "usage")})
-        return _JR({"error": "provider_error", "detail": "no_text_output", "provider_excerpt": excerpt}, status_code=200)
-    # Redact internal artifacts and ensure plain text output only
-    try:
-        content = _sanitize_final_text(content)
-    except Exception:
-        pass
+    if not isinstance(content, str):
+        content = str(content or "")
+    _record_ai_usage(ctx.tenant_id, est_tokens)
     # Apply tenant chat exposure for names; always mask emails/phones
     try:
         import re as _re
@@ -12341,6 +12339,7 @@ def billing_apply_referral(
 ) -> Dict[str, object]:
     if ctx.tenant_id != req.tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
+    
     # Load settings
     row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == req.tenant_id).first()
     data = {}
@@ -12349,61 +12348,132 @@ def billing_apply_referral(
             data = json.loads(row.data_json or "{}")
         except Exception:
             data = {}
-    count = int(data.get("referral_count", 0)) + int(req.delta or 0)
-    if count < 0:
-        count = 0
-    data["referral_count"] = count
-    # Persist now; we will attempt price adjustments best-effort below
+    
+    # Calculate new referral count
+    old_count = int(data.get("referral_count", 0))
+    new_count = old_count + int(req.delta or 0)
+    if new_count < 0:
+        new_count = 0
+    
+    # Get target price for the new count
+    target_price = _get_target_price_for_count(new_count)
+    
+    # Calculate savings
+    monthly_savings_cents = _calculate_monthly_savings(new_count)
+    
+    # Handle coupon logic for 3+ referrals
+    coupon_id = None
+    coupon_amount_cents = None
+    
+    try:
+        cust_id = (data.get("stripe_customer_id") or "").strip()
+        if cust_id:
+            s = _stripe_client()
+            subs = s.Subscription.list(customer=cust_id, limit=1)  # type: ignore
+            sub = (subs.get("data") or [None])[0]
+            
+            if sub:
+                sub_id = sub.get("id")
+                item = (sub.get("items", {}).get("data") or [None])[0]
+                item_id = item.get("id") if item else None
+                current_price = (item.get("price") or {}).get("id") if item else None
+                
+                # Update price if different
+                if target_price and item_id and current_price != target_price:
+                    s.Subscription.modify(  # type: ignore
+                        sub_id,
+                        cancel_at_period_end=False,
+                        proration_behavior="none",
+                        items=[{"id": item_id, "price": target_price}],
+                    )
+                
+                # Handle coupons for 3+ referrals
+                if new_count >= 3:
+                    # Calculate coupon amount: $30 per referral beyond 2
+                    coupon_amount_cents = (new_count - 2) * 3000
+                    
+                    # Check if tenant already has a referral coupon
+                    existing_coupon_id = data.get("referral_coupon_id")
+                    
+                    if existing_coupon_id:
+                        # Try to retrieve and update existing coupon
+                        try:
+                            existing_coupon = s.Coupon.retrieve(existing_coupon_id)  # type: ignore
+                            # Coupons can't be modified, need to create new one
+                            # Delete old coupon from subscription
+                            s.Subscription.modify(sub_id, coupon="")  # type: ignore
+                        except Exception:
+                            pass
+                    
+                    # Create new "forever" coupon
+                    coupon_name = f"referral_{req.tenant_id}_{new_count}"
+                    
+                    try:
+                        coupon = s.Coupon.create(  # type: ignore
+                            amount_off=coupon_amount_cents,
+                            currency="usd",
+                            duration="forever",
+                            name=coupon_name,
+                            metadata={"tenant_id": req.tenant_id, "referral_count": new_count}
+                        )
+                        coupon_id = coupon.get("id")
+                        
+                        # Attach coupon to subscription
+                        s.Subscription.modify(sub_id, coupon=coupon_id)  # type: ignore
+                    except Exception as e:
+                        logger.error(f"Failed to create/attach referral coupon: {e}")
+                        # Don't fail the whole request
+                
+                elif new_count < 3 and old_count >= 3:
+                    # Dropping below 3 referrals, remove coupon
+                    try:
+                        s.Subscription.modify(sub_id, coupon="")  # type: ignore
+                    except Exception as e:
+                        logger.error(f"Failed to remove referral coupon: {e}")
+    
+    except Exception as e:
+        logger.error(f"Stripe operations failed: {e}")
+        # Continue anyway, at least update the database
+    
+    # Update all settings metadata
+    data["referral_count"] = new_count
+    data["stripe_price_id"] = target_price
+    data["subscription_price_id"] = target_price
+    
+    # Update or clear coupon metadata
+    if new_count >= 3 and coupon_id:
+        data["referral_coupon_id"] = coupon_id
+        data["referral_coupon_amount_cents"] = coupon_amount_cents
+    else:
+        data.pop("referral_coupon_id", None)
+        data.pop("referral_coupon_amount_cents", None)
+    
+    # Update referral bucket with savings
+    if "referral" not in data:
+        data["referral"] = {}
+    data["referral"]["monthly_savings_cents"] = monthly_savings_cents
+    
+    # Persist to database
     if not row:
         row = dbm.Settings(tenant_id=req.tenant_id, data_json=json.dumps(data))
         db.add(row)
     else:
         row.data_json = json.dumps(data)
-    db.commit()
-    # Attempt subscription price adjustment based on thresholds
+    
     try:
-        cust_id = (data.get("stripe_customer_id") or "").strip()
-        if not cust_id:
-            return {"status": "ok", "referral_count": count}
-        s = _stripe_client()
-        subs = s.Subscription.list(customer=cust_id, limit=1)  # type: ignore
-        sub = (subs.get("data") or [None])[0]
-        if not sub:
-            return {"status": "ok", "referral_count": count}
-        item = (sub.get("items", {}).get("data") or [None])[0]
-        item_id = item.get("id") if item else None
-        current_price = (item.get("price") or {}).get("id") if item else None
-        target = None
-        price_127 = _env("STRIPE_PRICE_127", "").strip()
-        price_97 = _env("STRIPE_PRICE_97", "").strip()
-        if count >= 2 and price_97 and current_price != price_97:
-            target = price_97
-        elif count >= 1 and price_127 and current_price != price_127:
-            target = price_127
-        if target and item_id:
-            s.Subscription.modify(  # type: ignore
-                sub.get("id"),
-                cancel_at_period_end=False,
-                proration_behavior="none",
-                items=[{"id": item_id, "price": target}],
-            )
-            # Update cached settings hint
-            try:
-                row = db.query(dbm.Settings).filter(dbm.Settings.tenant_id == req.tenant_id).first()
-                if row:
-                    d = json.loads(row.data_json or "{}")
-                    d["subscription_price_id"] = target
-                    row.data_json = json.dumps(d)
-                    db.commit()
-            except Exception:
-                pass
-        return {"status": "ok", "referral_count": count, "target_price": target or current_price}
+        db.commit()
     except Exception as e:
-        try:
-            db.rollback()
-        except Exception:
-            pass
-        return {"status": "error", "detail": str(e), "referral_count": count}
+        db.rollback()
+        return {"status": "error", "detail": str(e), "referral_count": new_count}
+    
+    return {
+        "status": "ok",
+        "referral_count": new_count,
+        "target_price": target_price,
+        "monthly_savings_cents": monthly_savings_cents,
+        "coupon_id": coupon_id,
+        "coupon_amount_cents": coupon_amount_cents
+    }
 
 
 @app.get("/r/{code}", include_in_schema=False)
