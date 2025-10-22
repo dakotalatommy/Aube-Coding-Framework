@@ -714,9 +714,10 @@ def import_appointments(
                     print(f"[acuity] contacts_pagination_complete: tenant={tenant_id}, new_this_page={new_contacts_this_page}, fetched={len(arr)}, limit={limit}")
                     break
                 
-                # Acuity API may return all records regardless of offset - break after reasonable pages
-                if client_pages >= 20:
-                    print(f"[acuity] contacts_max_pages_reached: tenant={tenant_id}, pages={client_pages}, unique_contacts={len(seen_client_ids)}")
+                # Acuity API may return all records regardless of offset - break after safety ceiling
+                max_pages = int(os.getenv("ACUITY_MAX_PAGES", "200"))
+                if client_pages >= max_pages:
+                    print(f"[acuity] contacts_max_pages_reached: tenant={tenant_id}, pages={client_pages}, max={max_pages}, unique_contacts={len(seen_client_ids)}")
                     break
                 
                 offset += len(arr)  # Use actual records returned, not limit
@@ -833,12 +834,13 @@ def import_appointments(
             
             # Use long-lived connection for appointment writes with explicit transaction boundaries
             # Appointments fetching and writing loop
-            print(f"[acuity] DEBUG: Starting appointments loop, page_limit={page_limit}, max_pages=20")
+            max_pages = int(os.getenv("ACUITY_MAX_PAGES", "200"))
+            print(f"[acuity] DEBUG: Starting appointments loop, page_limit={page_limit}, max_pages={max_pages}")
             while True:
-                print(f"[acuity] DEBUG: Loop iteration start, appt_pages={appt_pages}, offset={offset}")
+                print(f"[acuity] DEBUG: Loop iteration start, appt_pages={appt_pages}, offset={offset}, cumulative_processed={appointments_processed}")
                 # Safety guard: prevent infinite pagination
-                if appt_pages >= 20:
-                    print(f"[acuity] appointments_max_pages_reached: tenant={tenant_id}, pages={appt_pages}, processed={appointments_processed}")
+                if appt_pages >= max_pages:
+                    print(f"[acuity] appointments_max_pages_reached: tenant={tenant_id}, pages={appt_pages}, max={max_pages}, cumulative_processed={appointments_processed}, cumulative_offset={offset}")
                     break
                 
                 params: Dict[str, object] = {"limit": limit, "offset": offset}
@@ -1094,11 +1096,11 @@ def import_appointments(
                 if len(arr) < limit:
                     print(
                         f"[acuity] PAGINATION_END: Last page reached (fetched {len(arr)} < limit {limit}), "
-                        f"total_pages={appt_pages}, total_appointments={appointments_processed}"
+                        f"total_pages={appt_pages}, total_appointments={appointments_processed}, final_offset={offset}"
                     )
                     break
-                print(f"[acuity] pagination_continue: offset {offset} -> {offset + limit}")
-                offset += limit
+                print(f"[acuity] pagination_continue: offset {offset} -> {offset + len(arr)}, cumulative_appointments={appointments_processed}")
+                offset += len(arr)  # Use actual records returned for accurate offset tracking
 
             print(f"[acuity] DEBUG: Exited appointments loop, appt_pages={appt_pages}, total_processed={appointments_processed}")
             print(f"[acuity] appointments_fetched: tenant={tenant_id}, pages={appt_pages}, count={dbg_appts_count}, payments_checked={payments_checked}, seconds={round(perf_counter() - appointments_started, 2)}")
