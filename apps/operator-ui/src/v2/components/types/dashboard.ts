@@ -37,6 +37,7 @@ export interface DashboardReferralInfo {
   qrUrl?: string
   code?: string
   monthlySavingsCents?: number
+  referralCount?: number
 }
 
 export interface DashboardAppointmentItem {
