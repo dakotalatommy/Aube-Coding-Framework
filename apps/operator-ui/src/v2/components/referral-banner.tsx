@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Copy, DollarSign, Gift, Share2, Sparkles } from 'lucide-react'
+import { Check, Copy, DollarSign, Gift, QrCode, Share2, Sparkles } from 'lucide-react'
 
 import { Card, CardContent } from './ui/card'
 import { Button } from './ui/button'
@@ -33,6 +33,42 @@ export function ReferralBanner({ referral, loading = false }: ReferralBannerProp
       window.setTimeout(() => setCopied(false), 2000)
     } catch (error) {
       toast.error('Failed to copy link')
+    }
+  }
+
+  const downloadQrCode = async () => {
+    const qrUrl = referral?.qrUrl
+    if (!qrUrl) {
+      toast.error('QR code not available')
+      return
+    }
+    
+    try {
+      // Fetch the QR image
+      const response = await fetch(qrUrl)
+      if (!response.ok) throw new Error('Failed to fetch QR code')
+      
+      // Convert to blob
+      const blob = await response.blob()
+      
+      // Create download link
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `brandvx-referral-${referral?.code || 'qr'}.png`
+      
+      // Trigger download
+      document.body.appendChild(link)
+      link.click()
+      
+      // Cleanup
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      
+      toast.success('QR code downloaded!')
+    } catch (error) {
+      console.error('QR download error:', error)
+      toast.error('Failed to download QR code')
     }
   }
 
@@ -79,6 +115,14 @@ export function ReferralBanner({ referral, loading = false }: ReferralBannerProp
               <Button className="flex items-center space-x-2 bg-primary text-white" onClick={copyToClipboard}>
                 <Share2 className="h-4 w-4" />
                 <span>Share Link</span>
+              </Button>
+              <Button 
+                className="flex items-center space-x-2 bg-primary text-white" 
+                onClick={downloadQrCode}
+                disabled={!referral?.qrUrl}
+              >
+                <QrCode className="h-4 w-4" />
+                <span>Share QR Code</span>
               </Button>
               <div className="flex items-center space-x-1 text-xs text-accent">
                 <DollarSign className="h-3 w-3" />
