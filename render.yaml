@@ -38,7 +38,7 @@ services:
   - key: SUPABASE_SERVICE_ROLE_KEY
     sync: false
   - key: SUPABASE_READ_ONLY
-    value: "true"
+    value: "false"
   - key: ENABLE_SCHEDULER
     value: "1"
   - key: SCHEDULER_INTERVAL_SECS
