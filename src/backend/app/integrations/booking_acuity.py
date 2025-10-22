@@ -956,36 +956,47 @@ def import_appointments(
                             # Try to create contact in database
                             try:
                                 with _with_conn(tenant_id) as auto_conn:
-                                    # Insert new contact
-                                    result = auto_conn.execute(
-                                        _sql_text("""
-                                            INSERT INTO contacts (tenant_id, contact_id, email, phone, first_name, last_name, creation_source, created_at, updated_at)
-                                            VALUES (CAST(:t AS uuid), :cid, :email, :phone, :fname, :lname, 'acuity_auto', EXTRACT(EPOCH FROM now())::bigint, EXTRACT(EPOCH FROM now())::bigint)
-                                            ON CONFLICT (tenant_id, contact_id) DO UPDATE SET updated_at = EXTRACT(EPOCH FROM now())::bigint
-                                            RETURNING id, contact_id
-                                        """),
-                                        {
-                                            "t": tenant_id,
-                                            "cid": auto_contact_id,
-                                            "email": a.get("email") or None,
-                                            "phone": a.get("phone") or None,
-                                            "fname": a.get("firstName") or None,
-                                            "lname": a.get("lastName") or None,
-                                        }
-                                    )
-                                    row = result.fetchone()
-                                    if row:
-                                        contact_uuid = str(row[0])
+                                    # First check if contact already exists
+                                    existing = auto_conn.execute(
+                                        _sql_text("SELECT id FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND contact_id = :cid"),
+                                        {"t": tenant_id, "cid": auto_contact_id}
+                                    ).fetchone()
+                                    
+                                    if existing:
+                                        # Contact already exists, use it
+                                        contact_uuid = str(existing[0])
                                         external_contact_id = auto_contact_id
-                                        matched_by = "auto_created"
-                                        match_stats["no_match"] += 1  # Track these for reporting
-                                        
-                                        # Log auto-creation (first 10 only)
-                                        if match_stats["no_match"] <= 10:
-                                            print(
-                                                f"[acuity] AUTO_CREATED_CONTACT: aid={aid}, contact_id={auto_contact_id}, "
-                                                f"email={a.get('email')}, phone={a.get('phone')}"
-                                            )
+                                        matched_by = "existing_auto"
+                                    else:
+                                        # Insert new contact
+                                        result = auto_conn.execute(
+                                            _sql_text("""
+                                                INSERT INTO contacts (tenant_id, contact_id, email, phone, first_name, last_name, creation_source, created_at, updated_at)
+                                                VALUES (CAST(:t AS uuid), :cid, :email, :phone, :fname, :lname, 'acuity_auto', EXTRACT(EPOCH FROM now())::bigint, EXTRACT(EPOCH FROM now())::bigint)
+                                                RETURNING id, contact_id
+                                            """),
+                                            {
+                                                "t": tenant_id,
+                                                "cid": auto_contact_id,
+                                                "email": a.get("email") or None,
+                                                "phone": a.get("phone") or None,
+                                                "fname": a.get("firstName") or None,
+                                                "lname": a.get("lastName") or None,
+                                            }
+                                        )
+                                        row = result.fetchone()
+                                        if row:
+                                            contact_uuid = str(row[0])
+                                            external_contact_id = auto_contact_id
+                                            matched_by = "auto_created"
+                                            match_stats["no_match"] += 1  # Track these for reporting
+                                            
+                                            # Log auto-creation (first 10 only)
+                                            if match_stats["no_match"] <= 10:
+                                                print(
+                                                    f"[acuity] AUTO_CREATED_CONTACT: aid={aid}, contact_id={auto_contact_id}, "
+                                                    f"email={a.get('email')}, phone={a.get('phone')}"
+                                                )
                             except Exception as exc:
                                 # If auto-create fails, skip this appointment
                                 print(f"[acuity] AUTO_CREATE_FAILED: aid={aid}, error={str(exc)[:100]}")
