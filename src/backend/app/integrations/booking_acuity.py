@@ -959,9 +959,9 @@ def import_appointments(
                                     # Insert new contact
                                     result = auto_conn.execute(
                                         _sql_text("""
-                                            INSERT INTO contacts (tenant_id, contact_id, email, phone, first_name, last_name, source, created_at, updated_at)
-                                            VALUES (CAST(:t AS uuid), :cid, :email, :phone, :fname, :lname, 'acuity_auto', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-                                            ON CONFLICT (tenant_id, contact_id) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+                                            INSERT INTO contacts (tenant_id, contact_id, email, phone, first_name, last_name, creation_source, created_at, updated_at)
+                                            VALUES (CAST(:t AS uuid), :cid, :email, :phone, :fname, :lname, 'acuity_auto', EXTRACT(EPOCH FROM now())::bigint, EXTRACT(EPOCH FROM now())::bigint)
+                                            ON CONFLICT (tenant_id, contact_id) DO UPDATE SET updated_at = EXTRACT(EPOCH FROM now())::bigint
                                             RETURNING id, contact_id
                                         """),
                                         {
