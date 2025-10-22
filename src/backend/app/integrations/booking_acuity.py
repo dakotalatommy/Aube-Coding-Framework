@@ -5,6 +5,7 @@ from time import perf_counter
 from typing import Dict, Any, Optional, List, Tuple, Set
 from contextlib import contextmanager
 import base64
+import json
 import os
 import httpx
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
@@ -226,9 +227,18 @@ def _collect_appointment_payments(
     client: httpx.Client,
     base: str,
     appointment_id: str,
-) -> None:
+    *,
+    tenant_id: Optional[str] = None,
+    conn = None,
+    payment_records: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, int]:
+    metrics = {
+        "payments_processed": 0,
+        "transactions_created": 0,
+        "transactions_skipped": 0,
+    }
     if not appointment_id:
-        return
+        return metrics
     try:
         resp = client.get(f"{base}/appointments/{appointment_id}/payments")
     except httpx.HTTPError as exc:
@@ -236,7 +246,7 @@ def _collect_appointment_payments(
             "Acuity appointment payments request failed",
             extra={"appointment_id": appointment_id, "error": str(exc)},
         )
-        return
+        return metrics
     if resp.status_code >= 400:
         logger.warning(
             "Acuity appointment payments returned error",
@@ -246,13 +256,14 @@ def _collect_appointment_payments(
                 "body": (resp.text or "")[:200],
             },
         )
-        return
+        return metrics
     payments = resp.json() or []
     if not isinstance(payments, list) or not payments:
-        return
+        return metrics
     entry = _get_entry(ledger, contact_id)
     txn_ids: Set[str] = entry["_txn_ids"]  # type: ignore[assignment]
     for payment in payments:
+        metrics["payments_processed"] += 1
         amount_raw = payment.get("amount")
         cents = _parse_amount_to_cents(amount_raw)
         transaction_id = str(payment.get("transactionID") or "").strip()
@@ -266,6 +277,72 @@ def _collect_appointment_payments(
         created_ts = _parse_epoch(payment.get("created"))
         _apply_visit(entry, created_ts)
 
+        if payment_records is not None:
+            payment_records.append(
+                {
+                    "contact_id": contact_id,
+                    "amount_cents": cents,
+                    "created_ts": created_ts,
+                    "timestamp_iso": payment.get("created") or payment.get("paidDate") or payment.get("datePaid"),
+                    "payment": payment,
+                    "transaction_id": transaction_id,
+                    "appointment_id": appointment_id,
+                    "payment_method": payment.get("paymentType") or payment.get("paymentMethod") or "appointment",
+                    "payment_source": "appointment",
+                }
+            )
+
+        if conn is not None and tenant_id and cents > 0:
+            try:
+                paid_date = payment.get("created") or payment.get("paidDate") or payment.get("datePaid")
+                external_ref = transaction_id or f"acuity_appt_payment_{appointment_id}_{created_ts or int(time.time())}"
+                payment_method = payment.get("paymentType") or payment.get("paymentMethod") or "appointment"
+
+                result = conn.execute(
+                    _sql_text(
+                        """
+                        INSERT INTO transactions 
+                        (tenant_id, contact_id, amount_cents, transaction_date, source, external_ref, metadata)
+                        VALUES (
+                            CAST(:t AS uuid), :cid, :amt, CAST(:tdate AS timestamp), 'acuity', :ref,
+                            CAST(:meta AS jsonb)
+                        )
+                        ON CONFLICT (tenant_id, external_ref) DO NOTHING
+                        """
+                    ),
+                    {
+                        "t": tenant_id,
+                        "cid": contact_id,
+                        "amt": cents,
+                        "tdate": paid_date or None,
+                        "ref": external_ref,
+                        "meta": json.dumps(
+                            {
+                                "appointment_id": appointment_id,
+                                "payment_method": payment_method,
+                                "transaction_id": transaction_id,
+                            }
+                        ),
+                    },
+                )
+                if int(getattr(result, "rowcount", 0) or 0) > 0:
+                    metrics["transactions_created"] += 1
+                else:
+                    metrics["transactions_skipped"] += 1
+            except Exception as exc:
+                logger.warning(
+                    "Failed to insert Acuity appointment payment",
+                    extra={
+                        "appointment_id": appointment_id,
+                        "transaction_id": transaction_id,
+                        "error": str(exc),
+                    },
+                )
+                metrics["transactions_skipped"] += 1
+        elif conn is not None and tenant_id and cents == 0:
+            metrics["transactions_skipped"] += 1
+    return metrics
+
 
 def _collect_orders_payments(
     ledger: Dict[str, Dict[str, Any]],
@@ -274,7 +351,12 @@ def _collect_orders_payments(
     email_to_contact: Dict[str, str],
     conn = None,
     tenant_id: Optional[str] = None,
-) -> None:
+    *,
+    allow_phone_lookup: bool = False,
+    phone_map: Optional[Dict[str, str]] = None,
+    client_contact_map: Optional[Dict[str, str]] = None,
+    payment_records: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, int]:
     """
     Collect payment data from Acuity Orders API.
     If conn and tenant_id are provided, also creates transaction records in database.
@@ -282,6 +364,12 @@ def _collect_orders_payments(
     """
     offset = 0
     page_size = 100
+    metrics = {
+        "orders_processed": 0,
+        "transactions_created": 0,
+        "transactions_skipped": 0,
+    }
+
     while True:
         try:
             resp = client.get(f"{base}/orders", params={"max": page_size, "offset": offset})
@@ -290,7 +378,7 @@ def _collect_orders_payments(
                 "Acuity orders request failed",
                 extra={"offset": offset, "error": str(exc)},
             )
-            return
+            return metrics
         if resp.status_code >= 400:
             logger.warning(
                 "Acuity orders returned error",
@@ -300,14 +388,33 @@ def _collect_orders_payments(
                     "body": (resp.text or "")[:200],
                 },
             )
-            return
+            return metrics
         orders = resp.json() or []
         if not isinstance(orders, list) or not orders:
             break
         for order in orders:
+            metrics["orders_processed"] += 1
             email_key = str(order.get("email") or "").strip().lower()
             contact_id = email_to_contact.get(email_key)
+
+            if not contact_id and allow_phone_lookup and phone_map is not None:
+                phone_raw = order.get("phone") or order.get("phoneNumber") or order.get("phone_number")
+                phone_normalized = "".join(c for c in str(phone_raw) if c and str(c).isdigit())
+                if phone_normalized:
+                    contact_id = phone_map.get(phone_normalized) or contact_id
+
+            if not contact_id and client_contact_map:
+                raw_client_id = order.get("clientID") or order.get("clientId") or order.get("client_id")
+                if raw_client_id:
+                    fallback = f"acuity:{raw_client_id}"
+                    contact_id = (
+                        client_contact_map.get(raw_client_id)
+                        or client_contact_map.get(fallback)
+                        or contact_id
+                    )
+
             if not contact_id:
+                metrics["transactions_skipped"] += 1
                 continue
             entry = _get_entry(ledger, contact_id)
             order_id = str(order.get("id") or "").strip()
@@ -322,6 +429,20 @@ def _collect_orders_payments(
             entry["txn_count"] = int(entry.get("txn_count", 0)) + 1
             created_ts = _parse_epoch(order.get("time"))
             _apply_visit(entry, created_ts)
+
+            if payment_records is not None:
+                payment_records.append(
+                    {
+                        "contact_id": contact_id,
+                        "amount_cents": cents,
+                        "created_ts": created_ts,
+                        "timestamp_iso": order.get("time") or order.get("paidDate"),
+                        "order_id": order_id,
+                        "payment_method": order.get("paymentType", "unknown"),
+                        "payment_source": "order",
+                        "order": order,
+                    }
+                )
             
             # NEW: Create transaction record if database connection provided
             if conn is not None and tenant_id is not None and cents > 0:
@@ -331,32 +452,45 @@ def _collect_orders_payments(
                     payment_method = order.get("paymentType", "unknown")
                     
                     # Insert transaction record with idempotency (ON CONFLICT DO NOTHING)
-                    import json
-                    conn.execute(_sql_text("""
-                        INSERT INTO transactions 
-                        (tenant_id, contact_id, amount_cents, transaction_date, source, external_ref, metadata)
-                        VALUES (
-                            CAST(:t AS uuid), :cid, :amt, CAST(:tdate AS timestamp), 'acuity', :ref, 
-                            CAST(:meta AS jsonb)
-                        )
-                        ON CONFLICT (tenant_id, external_ref) DO NOTHING
-                    """), {
-                        "t": tenant_id,
-                        "cid": contact_id,
-                        "amt": cents,
-                        "tdate": paid_date,
-                        "ref": external_ref,
-                        "meta": json.dumps({"payment_method": payment_method, "order_id": order_id})
-                    })
+                    result = conn.execute(
+                        _sql_text(
+                            """
+                            INSERT INTO transactions 
+                            (tenant_id, contact_id, amount_cents, transaction_date, source, external_ref, metadata)
+                            VALUES (
+                                CAST(:t AS uuid), :cid, :amt, CAST(:tdate AS timestamp), 'acuity', :ref, 
+                                CAST(:meta AS jsonb)
+                            )
+                            ON CONFLICT (tenant_id, external_ref) DO NOTHING
+                            """
+                        ),
+                        {
+                            "t": tenant_id,
+                            "cid": contact_id,
+                            "amt": cents,
+                            "tdate": paid_date,
+                            "ref": external_ref,
+                            "meta": json.dumps({"payment_method": payment_method, "order_id": order_id}),
+                        },
+                    )
+                    if int(getattr(result, "rowcount", 0) or 0) > 0:
+                        metrics["transactions_created"] += 1
+                    else:
+                        metrics["transactions_skipped"] += 1
                 except Exception as exc:
                     # Log error but continue processing other orders
                     logger.warning(
                         "Failed to insert Acuity transaction",
                         extra={"order_id": order_id, "error": str(exc)},
                     )
+                    metrics["transactions_skipped"] += 1
+            elif conn is not None and tenant_id is not None and cents == 0:
+                metrics["transactions_skipped"] += 1
         if len(orders) < page_size:
             break
         offset += page_size
+
+    return metrics
 
 
 # -----------------------------------------------------------------------------
@@ -371,6 +505,7 @@ def import_appointments(
     *,
     page_limit: Optional[int] = None,
     skip_appt_payments: Optional[bool] = None,
+    allow_historical: bool = False,
 ) -> Dict[str, Any]:
     base = (os.getenv("ACUITY_API_BASE", "https://acuityscheduling.com/api/v1").strip().rstrip(" /."))
     headers = _acuity_headers(tenant_id)
@@ -395,27 +530,37 @@ def import_appointments(
     dbg_appts_count = 0
     dbg_appts_error: Optional[str] = None
     payments_map: Dict[str, Dict[str, Any]] = {}
+    appointment_payment_metrics = {
+        "payments_processed": 0,
+        "transactions_created": 0,
+        "transactions_skipped": 0,
+    }
+    orders_metrics = {
+        "orders_processed": 0,
+        "transactions_created": 0,
+        "transactions_skipped": 0,
+    }
+    payment_records: List[Dict[str, Any]] = []
+    payments_checked = 0
 
     if skip_appt_payments is None:
         skip_appt_payments = os.getenv("ACUITY_SKIP_APPOINTMENT_PAYMENTS", "1") == "1"  # Default to True
+
+    if allow_historical:
+        skip_appt_payments = False
     if page_limit is None:
         page_limit = int(os.getenv("ACUITY_PAGE_LIMIT", "100") or "100")
-
-    try:
-        with _with_conn(tenant_id) as conn:  # type: ignore
-            conn.execute(
-                _sql_text("INSERT INTO public.tenants(id,name,created_at) VALUES (CAST(:t AS uuid), 'Workspace', NOW()) ON CONFLICT(id) DO NOTHING"),
-                {"t": tenant_id},
-            )
-    except Exception:
-        pass
 
     # Default to importing only future appointments (from today onward) for CRM relevance
     # Revenue data will still be collected for all historical transactions via orders API
     from datetime import datetime, timezone
     if not since:
-        since = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        print(f"[acuity] appointments_filter: importing future appointments only (from {since} onward)")
+        if allow_historical:
+            since = "1900-01-01"
+            print("[acuity] appointments_filter: allow_historical enabled, fetching all appointments")
+        else:
+            since = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            print(f"[acuity] appointments_filter: importing future appointments only (from {since} onward)")
     
     print(f"[acuity] import_started: tenant={tenant_id}, since={since}, until={until}, cursor={cursor}, page_limit={page_limit}, skip_appt_payments={skip_appt_payments}")
     if skip_appt_payments:
@@ -604,6 +749,12 @@ def import_appointments(
             appointments_started = perf_counter()
             payments_checked = 0
             appointments_processed = 0
+            payment_records: List[Dict[str, Any]] = []
+            appointment_payment_metrics = {
+                "payments_processed": 0,
+                "transactions_created": 0,
+                "transactions_skipped": 0,
+            }
             
             # Build contact_id -> UUID mapping to avoid per-appointment DB lookups
             # Also build email and phone-based lookups with normalization for robust matching
@@ -611,7 +762,9 @@ def import_appointments(
             email_to_uuid_map: Dict[str, str] = {}
             email_to_contact_id_map: Dict[str, str] = {}
             phone_to_uuid_map: Dict[str, str] = {}
+            phone_to_contact_id_map: Dict[str, str] = {}
             uuid_to_contact_id: Dict[str, str] = {}
+            client_contact_map: Dict[str, str] = {}
             try:
                 with _with_conn(tenant_id) as conn:  # type: ignore
                     rows = conn.execute(
@@ -623,6 +776,11 @@ def import_appointments(
                         contact_id_value = str(row[1])
                         contact_uuid_map[contact_id_value] = uuid
                         uuid_to_contact_id[uuid] = contact_id_value
+                        client_contact_map[contact_id_value] = contact_id_value
+                        if contact_id_value.startswith("acuity:"):
+                            raw_identifier = contact_id_value.split(":", 1)[1]
+                            if raw_identifier:
+                                client_contact_map[raw_identifier] = contact_id_value
                         
                         # Build email lookup with NORMALIZED (lowercase) keys for case-insensitive matching
                         if row[2]:
@@ -636,6 +794,7 @@ def import_appointments(
                             phone_normalized = ''.join(c for c in str(row[3]) if c.isdigit())
                             if phone_normalized:
                                 phone_to_uuid_map[phone_normalized] = uuid
+                                phone_to_contact_id_map[phone_normalized] = contact_id_value
                 print(
                     "[acuity] contact_maps_built: "
                     f"tenant={tenant_id}, contact_ids={len(contact_uuid_map)}, "
@@ -703,7 +862,7 @@ def import_appointments(
                             appointments_skipped_missing_time += 1
                             skipped += 1
                             continue
-                        if start_ts < now_ts:
+                        if not allow_historical and start_ts < now_ts:
                             appointments_skipped_historical += 1
                             skipped += 1
                             continue
@@ -752,19 +911,13 @@ def import_appointments(
                             match_stats[f"by_{matched_by}"] += 1
                         appointments_attempted += 1
                         
+                        fetch_appt_payments = False
                         if external_contact_id:
                             entry = _get_entry(payments_map, external_contact_id)
                             if start_ts:
                                 _apply_visit(entry, int(start_ts))
                             if not skip_appt_payments:
-                                try:
-                                    _collect_appointment_payments(payments_map, external_contact_id, client, base, aid)
-                                    payments_checked += 1
-                                except Exception as exc:
-                                    logger.debug(
-                                        "Acuity appointment payment fetch failed",
-                                        extra={"appointment_id": aid, "error": str(exc)},
-                                    )
+                                fetch_appt_payments = True
                         
                         appt_batch.append(
                             {
@@ -774,6 +927,9 @@ def import_appointments(
                                 "start_ts": int(start_ts or 0),
                                 "end_ts": (int(end_ts) if end_ts else 0),
                                 "status": status,
+                                "contact_id": external_contact_id,
+                                "appointment_id": aid,
+                                "fetch_payments": fetch_appt_payments,
                             }
                         )
                     except Exception:
@@ -849,6 +1005,27 @@ def import_appointments(
                                 else:
                                     appointments_skipped_write_failures += 1
                                     skipped += 1
+
+                                if appt_data.get("fetch_payments") and appt_data.get("contact_id"):
+                                    try:
+                                        appt_metrics = _collect_appointment_payments(
+                                            payments_map,
+                                            appt_data["contact_id"],
+                                            client,
+                                            base,
+                                            appt_data["appointment_id"],
+                                            tenant_id=tenant_id,
+                                            conn=conn,
+                                            payment_records=payment_records,
+                                        )
+                                        payments_checked += 1
+                                        for k, v in appt_metrics.items():
+                                            appointment_payment_metrics[k] = appointment_payment_metrics.get(k, 0) + (v or 0)
+                                    except Exception as exc:
+                                        logger.debug(
+                                            "Acuity appointment payment fetch failed",
+                                            extra={"appointment_id": appt_data.get("appointment_id"), "error": str(exc)},
+                                        )
                             # end for appt_data
                         # end with _with_conn
                             
@@ -857,7 +1034,7 @@ def import_appointments(
                 print(f"[acuity] DEBUG: Finished database writes for page {appt_pages}")
                 
                 # Early exit: If we had zero inserts, all future appointments are up-to-date
-                if inserts_this_page == 0 and appt_pages > 0:
+                if not allow_historical and inserts_this_page == 0 and appt_pages > 0:
                     print(f"[acuity] appointments_up_to_date: All future appointments exist, stopping import after page {appt_pages}")
                     break
                 
@@ -874,14 +1051,43 @@ def import_appointments(
             # Collect ALL historical revenue data via orders API (not date-filtered)
             # This gives complete financial history even though appointments are future-only
             print(f"[acuity] DEBUG: About to start revenue collection")
+            if client_map:
+                for cid_key, contact_id_value in client_map.items():
+                    if not contact_id_value:
+                        continue
+                    client_contact_map.setdefault(cid_key, contact_id_value)
+                    if cid_key and not str(cid_key).startswith("acuity:"):
+                        client_contact_map.setdefault(f"acuity:{cid_key}", contact_id_value)
+            orders_metrics = {
+                "orders_processed": 0,
+                "transactions_created": 0,
+                "transactions_skipped": 0,
+            }
             try:
                 payments_started = perf_counter()
                 print(f"[acuity] revenue_collection_started: fetching ALL historical payment data from orders API, creating transaction records")
                 # Create transaction records by passing database connection
                 with _with_conn(tenant_id) as conn:
-                    _collect_orders_payments(payments_map, client, base, email_map, conn, tenant_id)
+                    orders_metrics = _collect_orders_payments(
+                        payments_map,
+                        client,
+                        base,
+                        email_map,
+                        conn,
+                        tenant_id,
+                        allow_phone_lookup=True,
+                        phone_map=phone_to_contact_id_map,
+                        client_contact_map=client_contact_map,
+                        payment_records=payment_records,
+                    )
                 print(f"[acuity] DEBUG: Revenue collection completed")
-                print(f"[acuity] orders_processed: tenant={tenant_id}, contacts_with_payments={len(payments_map)}, seconds={round(perf_counter() - payments_started, 2)}")
+                print(
+                    f"[acuity] orders_processed: tenant={tenant_id}, payments={orders_metrics.get('orders_processed', 0)}, "
+                    f"transactions_created={orders_metrics.get('transactions_created', 0)}, "
+                    f"transactions_skipped={orders_metrics.get('transactions_skipped', 0)}, "
+                    f"contacts_with_payments={len(payments_map)}, "
+                    f"seconds={round(perf_counter() - payments_started, 2)}"
+                )
             except Exception as exc:
                 print(f"[acuity] DEBUG: Revenue collection failed with exception: {exc}")
                 logger.debug(
@@ -952,7 +1158,13 @@ def import_appointments(
                     )
                 
                 # Summary logging
-                print(f"[acuity] revenue_update_complete: tenant={tenant_id}, total_payments={len(payments_map)}, successful_updates={update_success}, failed_updates={update_failed}")
+                print(
+                    "[acuity] revenue_update_complete: "
+                    f"tenant={tenant_id}, total_payments={len(payments_map)}, successful_updates={update_success}, "
+                    f"failed_updates={update_failed}, "
+                    f"appt_transactions_created={appointment_payment_metrics['transactions_created']}, "
+                    f"order_transactions_created={orders_metrics.get('transactions_created', 0)}"
+                )
                 if failed_samples:
                     print(f"[acuity] revenue_update_failures: failed_sample={failed_samples[:3]}")
         except Exception as exc:
@@ -977,6 +1189,21 @@ def import_appointments(
         emit_event("AcuityImportCompleted", {"tenant_id": tenant_id, "contacts": int(contacts_processed), "appointments": int(appointments_persisted)})
     except Exception:
         pass
+    total_transactions_created = appointment_payment_metrics["transactions_created"] + orders_metrics["transactions_created"]
+    total_transactions_skipped = appointment_payment_metrics["transactions_skipped"] + orders_metrics["transactions_skipped"]
+    payment_records_sample = [
+        {
+            "contact_id": record.get("contact_id"),
+            "amount_cents": record.get("amount_cents"),
+            "timestamp_iso": record.get("timestamp_iso"),
+            "payment_method": record.get("payment_method"),
+            "payment_source": record.get("payment_source"),
+            "appointment_id": record.get("appointment_id"),
+            "order_id": record.get("order_id"),
+            "transaction_id": record.get("transaction_id"),
+        }
+        for record in payment_records[:5]
+    ]
     print(
         "[acuity] import_summary: "
         f"tenant={tenant_id}, contacts_processed={contacts_processed}, contacts_updated={updated}, "
@@ -984,7 +1211,12 @@ def import_appointments(
         f"skipped_historical={appointments_skipped_historical}, skipped_unmatched={appointments_skipped_unmatched}, "
         f"skipped_write_failures={appointments_skipped_write_failures}, skipped_missing_time={appointments_skipped_missing_time}, "
         f"appointments_fetched={dbg_appts_count}, payments_contacts={len(payments_map)}, "
-        f"clients_status={dbg_clients_status}, appointments_status={dbg_appts_status}, skipped_total={total_skipped}"
+        f"clients_status={dbg_clients_status}, appointments_status={dbg_appts_status}, skipped_total={total_skipped}, "
+        f"appointment_transactions_created={appointment_payment_metrics['transactions_created']}, "
+        f"appointment_transactions_skipped={appointment_payment_metrics['transactions_skipped']}, "
+        f"order_transactions_created={orders_metrics['transactions_created']}, "
+        f"order_transactions_skipped={orders_metrics['transactions_skipped']}, "
+        f"transactions_created_total={total_transactions_created}, transactions_skipped_total={total_transactions_skipped}"
     )
     print(f"[acuity] DEBUG: About to return result dictionary")
     return {
@@ -1005,6 +1237,16 @@ def import_appointments(
         "auth_mode": auth_mode,
         "page_limit": page_limit,
         "skip_appt_payments": skip_appt_payments,
+        "transactions_created": total_transactions_created,
+        "transactions_skipped": total_transactions_skipped,
+        "appointment_transactions_created": appointment_payment_metrics["transactions_created"],
+        "appointment_transactions_skipped": appointment_payment_metrics["transactions_skipped"],
+        "appointment_payments_checked": payments_checked,
+        "orders_processed": orders_metrics["orders_processed"],
+        "order_transactions_created": orders_metrics["transactions_created"],
+        "order_transactions_skipped": orders_metrics["transactions_skipped"],
+        "payment_records_total": len(payment_records),
+        "payment_records_sample": payment_records_sample,
         **({"clients_error": dbg_clients_error} if dbg_clients_error else {}),
         **({"appointments_error": dbg_appts_error} if dbg_appts_error else {}),
         "next_cursor": None,

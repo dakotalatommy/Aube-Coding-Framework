@@ -998,6 +998,10 @@ def _process_acuity_import_job(job_id: str, record: Dict[str, Any], payload: Dic
                 "tenant_id": tenant_id,
                 "imported": result.get("imported", 0),
                 "appointments_count": result.get("appointments_count", 0),
+                "transactions_created": result.get("transactions_created", 0),
+                "appointment_transactions_created": result.get("appointment_transactions_created", 0),
+                "order_transactions_created": result.get("order_transactions_created", 0),
+                "orders_processed": result.get("orders_processed", 0),
             },
         )
     except Exception as e:
@@ -1006,198 +1010,59 @@ def _process_acuity_import_job(job_id: str, record: Dict[str, Any], payload: Dic
 
 
 def _process_acuity_backfill_job(job_id: str, record: Dict[str, Any], payload: Dict[str, Any]) -> None:
-    """
-    Backfill historical Acuity transactions into transactions table.
-    Fetches historical appointments and their payments, creating transaction records.
-    """
+    """Backfill historical Acuity transactions using the shared importer."""
     tenant_id = str(payload.get("tenant_id") or record.get("tenant_id") or "")
     if not tenant_id:
         update_job_record(job_id, status="error", error="missing_tenant_id", tenant_id=None)
         return
-    
-    print(f"[acuity-backfill] Starting job: job_id={job_id}, tenant={tenant_id}")
-    
+
+    since = payload.get("since")
+    until = payload.get("until")
+
+    print(
+        f"[acuity-backfill] Starting job: job_id={job_id}, tenant={tenant_id}, since={since or 'ALL'}, until={until or 'now'}"
+    )
+
     try:
-        import httpx
-        from datetime import datetime
-        from ..integrations.booking_acuity import _acuity_headers
-        
-        since = payload.get("since", "2025-10-01")
-        until = payload.get("until")
-        
-        print(f"[acuity-backfill] Date range: {since} to {until or 'now'}")
-        print(f"[acuity-backfill] Using Orders API (includes Cash, Stripe, PayPal)")
-        
-        # Fetch Acuity credentials
-        headers = _acuity_headers(tenant_id)
-        base = "https://acuityscheduling.com/api/v1"
-        
-        # Build email map from database
-        email_map = {}
-        with engine.begin() as conn:
-            conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
-            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :tenant_id, true)"), {"tenant_id": tenant_id})
-            rows = conn.execute(
-                _sql_text("SELECT contact_id, email FROM contacts WHERE tenant_id = CAST(:t AS uuid) AND email IS NOT NULL"),
-                {"t": tenant_id}
-            ).fetchall()
-            for row in rows:
-                email_lower = str(row[1]).strip().lower()
-                if email_lower:
-                    email_map[email_lower] = str(row[0])
-        
-        print(f"[acuity-backfill] Email map built: {len(email_map)} contacts")
-        
-        # DIAGNOSTIC: Fetch sample appointments to see what payment fields they have
-        print(f"[acuity-backfill] DIAGNOSTIC - Fetching sample appointments to check for payment fields...")
-        with httpx.Client(timeout=120, headers=headers) as test_client:
-            try:
-                test_r = test_client.get(f"{base}/appointments", params={"max": 5, "minDate": "2025-10-01", "maxDate": "2025-10-31"})
-                test_appts = test_r.json() if test_r.status_code == 200 else []
-                if test_appts and isinstance(test_appts, list) and len(test_appts) > 0:
-                    sample_appt = test_appts[0]
-                    print(f"[acuity-backfill] DIAGNOSTIC - Appointment fields: {list(sample_appt.keys())}")
-                    print(f"[acuity-backfill] DIAGNOSTIC - Sample appointment payment fields:")
-                    for key in ['paid', 'amountPaid', 'price', 'priceSold', 'paymentMethod', 'paymentType', 'paidDate', 'datePaid']:
-                        if key in sample_appt:
-                            print(f"[acuity-backfill] DIAGNOSTIC -   {key}: {sample_appt.get(key)}")
-                else:
-                    print(f"[acuity-backfill] DIAGNOSTIC - No appointments found in October")
-            except Exception as e:
-                print(f"[acuity-backfill] DIAGNOSTIC - Error fetching sample appointments: {e}")
-        
-        # Fetch orders from Orders API (includes Cash, Stripe, PayPal)
-        transactions_created = 0
-        transactions_skipped = 0
-        orders_processed = 0
-        
-        with httpx.Client(timeout=120, headers=headers) as client:
-            offset = 0
-            page_size = 100
-            
-            with engine.begin() as conn:
-                conn.execute(_sql_text("SELECT set_config('app.role', 'owner_admin', true)"))
-                conn.execute(_sql_text("SELECT set_config('app.tenant_id', :tenant_id, true)"), {"tenant_id": tenant_id})
-                
-                while True:
-                    print(f"[acuity-backfill] Fetching orders page, offset={offset}")
-                    
-                    try:
-                        r = client.get(f"{base}/orders", params={"max": page_size, "offset": offset})
-                        r.raise_for_status()
-                        orders = r.json()
-                    except Exception as e:
-                        print(f"[acuity-backfill] ERROR fetching orders: {e}")
-                        raise
-                    
-                    if not orders or not isinstance(orders, list):
-                        break
-                    
-                    for order in orders:
-                        orders_processed += 1
-                        
-                        # DIAGNOSTIC: Log first order to see fields
-                        if orders_processed == 1:
-                            print(f"[acuity-backfill] DIAGNOSTIC - First order fields: {list(order.keys())}")
-                            print(f"[acuity-backfill] DIAGNOSTIC - Sample order: {order}")
-                        
-                        # Filter by date range (Orders API doesn't support minDate/maxDate params)
-                        paid_date = order.get("paidDate") or order.get("time")
-                        if paid_date and (since or until):
-                            # Parse date and check if in range
-                            try:
-                                order_date = datetime.fromisoformat(paid_date.replace('Z', '+00:00'))
-                                if since:
-                                    since_date = datetime.fromisoformat(since + 'T00:00:00+00:00')
-                                    if order_date < since_date:
-                                        transactions_skipped += 1
-                                        continue
-                                if until:
-                                    until_date = datetime.fromisoformat(until + 'T23:59:59+00:00')
-                                    if order_date > until_date:
-                                        transactions_skipped += 1
-                                        continue
-                            except Exception:
-                                pass  # Skip date filtering if parsing fails
-                        
-                        # Match contact by email
-                        email = str(order.get("email", "")).strip().lower()
-                        contact_id = email_map.get(email)
-                        
-                        if not contact_id:
-                            transactions_skipped += 1
-                            continue
-                        
-                        # Parse amount
-                        try:
-                            amount_cents = int(float(order.get("total", 0)) * 100)
-                        except (ValueError, TypeError):
-                            transactions_skipped += 1
-                            continue
-                        
-                        if amount_cents <= 0:
-                            transactions_skipped += 1
-                            continue
-                        
-                        # Create transaction record
-                        order_id = str(order.get("id", ""))
-                        external_ref = f"acuity_order_{order_id}"
-                        payment_method = order.get("paymentType", "unknown")
-                        
-                        try:
-                            conn.execute(_sql_text("""
-                                INSERT INTO transactions 
-                                (tenant_id, contact_id, amount_cents, transaction_date, source, external_ref, metadata)
-                                VALUES (
-                                    CAST(:t AS uuid), :cid, :amt, CAST(:tdate AS timestamp), 'acuity', :ref, 
-                                    CAST(:meta AS jsonb)
-                                )
-                                ON CONFLICT (tenant_id, external_ref) DO NOTHING
-                            """), {
-                                "t": tenant_id,
-                                "cid": contact_id,
-                                "amt": amount_cents,
-                                "tdate": paid_date,
-                                "ref": external_ref,
-                                "meta": json.dumps({"payment_method": payment_method, "order_id": order_id})
-                            })
-                            transactions_created += 1
-                            
-                            if transactions_created % 50 == 0:
-                                print(f"[acuity-backfill] Progress: {transactions_created} transactions created")
-                        except Exception as e:
-                            logger.error(f"Failed to insert transaction: {e}")
-                            transactions_skipped += 1
-                    
-                    if len(orders) < page_size:
-                        break
-                    
-                    offset += page_size
-        
-        result = {
-            "status": "ok",
-            "transactions_created": transactions_created,
-            "transactions_skipped": transactions_skipped,
-            "orders_processed": orders_processed,
-            "date_range": f"{since} to {until or 'now'}"
-        }
-        
-        print(f"[acuity-backfill] Complete: created={transactions_created}, skipped={transactions_skipped}, orders={orders_processed}")
-        
+        result = booking_acuity.import_appointments(
+            tenant_id=tenant_id,
+            since=since,
+            until=until,
+            skip_appt_payments=False,
+            allow_historical=True,
+            page_limit=payload.get("page_limit"),
+        )
+
         update_job_record(job_id, status="done", result=result, tenant_id=tenant_id)
+        print(
+            "[acuity-backfill] Completed job: "
+            f"job_id={job_id}, tenant={tenant_id}, "
+            f"appointment_transactions_created={result.get('appointment_transactions_created', 0)}, "
+            f"order_transactions_created={result.get('order_transactions_created', 0)}, "
+            f"transactions_created_total={result.get('transactions_created', 0)}, "
+            f"transactions_skipped_total={result.get('transactions_skipped', 0)}, "
+            f"orders_processed={result.get('orders_processed', 0)}, "
+            f"appointment_payments_checked={result.get('appointment_payments_checked', 0)}"
+        )
         logger.info(
             "acuity_backfill_completed",
             extra={
                 "job_id": job_id,
                 "tenant_id": tenant_id,
-                "transactions_created": transactions_created,
-                "orders_processed": orders_processed,
+                "transactions_created": result.get("transactions_created", 0),
+                "orders_processed": result.get("orders_processed", 0),
+                "appointment_transactions_created": result.get("appointment_transactions_created", 0),
+                "order_transactions_created": result.get("order_transactions_created", 0),
+                "order_transactions_skipped": result.get("order_transactions_skipped", 0),
+                "appointment_transactions_skipped": result.get("appointment_transactions_skipped", 0),
+                "transactions_skipped_total": result.get("transactions_skipped", 0),
+                "appointment_payments_checked": result.get("appointment_payments_checked", 0),
             },
         )
-    except Exception as e:
-        print(f"[acuity-backfill] ERROR: {e}")
+    except Exception as exc:
+        print(f"[acuity-backfill] ERROR: {exc}")
         logger.exception("acuity_backfill_failed", extra={"job_id": job_id, "tenant_id": tenant_id})
-        update_job_record(job_id, status="error", error=str(e)[:500], tenant_id=tenant_id)
+        update_job_record(job_id, status="error", error=str(exc)[:500], tenant_id=tenant_id)
 
 
 def _process_job(job_id: str, tenant_id: Optional[str]) -> None:
