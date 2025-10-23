@@ -14,7 +14,6 @@ import { ReferralBanner } from './components/referral-banner'
 import { QuickstartAgenda } from './components/quickstart-agenda'
 import { ClientsPreview } from './components/clients-preview'
 import { ClientReminders } from './components/client-reminders'
-import { SplashScreen } from './components/splash-screen'
 import { SignIn } from './components/sign-in'
 import { SignUp } from './components/sign-up'
 import { Onboarding } from './components/onboarding'
@@ -269,7 +268,6 @@ function DashboardContent({
 export default function App() {
   const [session, setSession] = useState<Session | null>(null)
   const [userData, setUserData] = useState<UserProfile | null>(null)
-  const [showSplash, setShowSplash] = useState(false)
   const [isLoadingSession, setIsLoadingSession] = useState(true)
   const hasBootedRef = useRef(false)
   const lastUserIdRef = useRef<string | null>(null)
@@ -291,7 +289,6 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState('dashboard')
   const [consultationData, setConsultationData] = useState<ConsultationData | null>(null)
   const [currentTrialDay, setCurrentTrialDay] = useState<number | undefined>(undefined)
-  const [showSplashGuard, setShowSplashGuard] = useState(false)
   const [settingsInitialTab, setSettingsInitialTab] = useState('onboarding')
   const [clientSearchPrefill, setClientSearchPrefill] = useState<string | undefined>(undefined)
   const firstNavigationRef = useRef(true)
@@ -306,30 +303,6 @@ export default function App() {
   }, [session])
 
   // Session guard helpers using existing key format
-  const getSessionSplashKey = (userId: string) => `bvx_splash_shown_${userId}`
-
-  // Commented out - no longer using session-based splash tracking
-  // const hasShownSplashThisSession = useCallback((userId: string): boolean => {
-  //   try {
-  //     return sessionStorage.getItem(getSessionSplashKey(userId)) === '1'
-  //   } catch {
-  //     return false
-  //   }
-  // }, [])
-
-  // const markSplashShown = useCallback((userId: string) => {
-  //   try {
-  //     sessionStorage.setItem(getSessionSplashKey(userId), '1')
-  //   } catch {}
-  // }, [])
-
-  const clearSplashGuard = useCallback((userId: string | null) => {
-    if (!userId) return
-    try {
-      sessionStorage.removeItem(getSessionSplashKey(userId))
-    } catch {}
-  }, [])
-
   // Centralized navigation function that dispatches events for pane synchronization
   const navigateToPage = useCallback(
     (nextPage: string, payload?: any, options?: { emit?: boolean }) => {
@@ -609,17 +582,10 @@ export default function App() {
         setClientsLoading(false)
         setRemindersLoading(false)
         setReferralLoading(false)
-        handleSplashComplete()
       }
     },
     [],
   )
-
-  const handleSplashComplete = useCallback(() => {
-    setShowSplash(false)
-    setShowSplashGuard(false)
-    setIsLoadingSession(false)
-  }, [])
 
   const bootstrapSession = useCallback(async (activeSession: Session | null) => {
     if (activeSession?.user?.id && bootstrappedUserIdRef.current === activeSession.user.id && hasBootedRef.current) {
@@ -630,7 +596,6 @@ export default function App() {
       setCachedAccessToken(null)  // Clear cached token when no session
       setUserData(null)
       setOnboardingRequired(false)
-      setShowSplash(false)
       setCurrentTrialDay(undefined)
       setDashboardStats(null)
       setDashboardStatsError(null)
@@ -780,8 +745,6 @@ export default function App() {
         bootstrappedUserIdRef.current = null
         setOnboardingRequired(false)
         setCurrentTrialDay(undefined)
-        setShowSplash(false)
-        setShowSplashGuard(false)
         if (typeof window !== 'undefined') {
           window.location.replace('/login')
         }
@@ -797,8 +760,6 @@ export default function App() {
       setOnboardingRequired(false)
       setCurrentTrialDay(prev => prev)
     } finally {
-      setShowSplash(false)
-      setShowSplashGuard(false)
       setIsLoadingSession(false)  // ALWAYS clear loading state, even if bootstrap hangs/fails
       hasBootedRef.current = true
     }
@@ -812,8 +773,6 @@ export default function App() {
       if (!cancelled) {
         console.error('[v2] FORCED RECOVERY: Initial load exceeded 15 seconds, forcing UI render')
         setIsLoadingSession(false)
-        setShowSplash(false)
-        setShowSplashGuard(false)
         hasBootedRef.current = true
         isInitialLoadRef.current = false
       }
@@ -825,8 +784,6 @@ export default function App() {
         if (cancelled) return
         if (!data.session) {
           setSession(null)
-          setShowSplash(false)
-          setShowSplashGuard(false)
           setIsLoadingSession(false)
           hasBootedRef.current = true
           isInitialLoadRef.current = false  // Mark initial load complete
@@ -838,8 +795,6 @@ export default function App() {
         setCachedAccessToken(data.session.access_token)
         
         setSession(data.session)
-        // Delay splash teardown until after bootstrap completes to avoid
-        // intermediate renders that race with route changes.
         await bootstrapSession(data.session)
         if (cancelled) return
         setIsLoadingSession(false)
@@ -850,8 +805,6 @@ export default function App() {
       } catch (error) {
         console.warn('Initial session bootstrap failed', error)
         setSession(null)
-        setShowSplash(false)
-        setShowSplashGuard(false)
         setIsLoadingSession(false)
         hasBootedRef.current = true
         isInitialLoadRef.current = false  // Mark initial load complete
@@ -868,31 +821,22 @@ export default function App() {
         
         setSession(newSession)
         
-        // Only show splash and bootstrap if this is a REAL sign-in event
+        // Only rerun bootstrap if this is a REAL sign-in event
         // (not initial load, not tab return, not token refresh)
         const isRealSignIn = !isInitialLoadRef.current && !hasBootedRef.current
         
         if (isRealSignIn) {
-          setShowSplash(true)
-          setShowSplashGuard(true)
-          
           await bootstrapSession(newSession)
-          
-          setShowSplash(false)
-          setShowSplashGuard(false)
         }
         
         setIsLoadingSession(false)
         isInitialLoadRef.current = false  // Mark initial load complete
       } else if (event === 'SIGNED_OUT' || !newSession) {
-        clearSplashGuard(lastUserIdRef.current)
         setCachedAccessToken(null)  // Clear cached token on sign out
         setSession(null)
         setUserData(null)
         bootstrappedUserIdRef.current = null
         setOnboardingRequired(false)
-        setShowSplash(false)
-        setShowSplashGuard(false)
         setIsLoadingSession(false)
         hasBootedRef.current = true
         if (!newSession) {
@@ -930,11 +874,9 @@ export default function App() {
     if (!import.meta.env.DEV) return
     console.info('[v2] shell state', {
       isLoadingSession,
-      showSplash,
-      showSplashGuard,
       hasSession: Boolean(session?.user),
     })
-  }, [isLoadingSession, showSplash, showSplashGuard, session])
+  }, [isLoadingSession, session])
 
   useEffect(() => {
     if (!import.meta.env.DEV) return
@@ -1212,11 +1154,6 @@ export default function App() {
   const handleIntroComplete = useCallback(() => {
     setIntroComplete(true)
   }, [])
-
-  // Show splash only during explicit auth cycles or guard fade-out state
-  if (showSplash || showSplashGuard) {
-    return <SplashScreen onComplete={handleSplashComplete} />
-  }
 
   // Wait for session bootstrap to complete before rendering app
   // This prevents race condition where workspace loads before tenant_id is set

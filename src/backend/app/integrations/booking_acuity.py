@@ -397,6 +397,8 @@ def _collect_orders_payments(
     phone_map: Optional[Dict[str, str]] = None,
     client_contact_map: Optional[Dict[str, str]] = None,
     payment_records: Optional[List[Dict[str, Any]]] = None,
+    since: Optional[str] = None,
+    until: Optional[str] = None,
 ) -> Dict[str, int]:
     """
     Collect payment data from Acuity Orders API.
@@ -414,6 +416,21 @@ def _collect_orders_payments(
     # Add page limit to prevent infinite loops
     max_pages = int(os.getenv("ACUITY_MAX_PAGES", "200"))
     order_pages = 0
+    
+    # Parse date range for filtering
+    from datetime import datetime
+    since_dt = None
+    until_dt = None
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since.replace('Z', '+00:00'))
+        except:
+            pass
+    if until:
+        try:
+            until_dt = datetime.fromisoformat(until.replace('Z', '+00:00'))
+        except:
+            pass
 
     while True:
         order_pages += 1
@@ -441,7 +458,23 @@ def _collect_orders_payments(
         orders = resp.json() or []
         if not isinstance(orders, list) or not orders:
             break
+        
+        orders_in_range = 0
         for order in orders:
+            # Filter by date range if specified
+            if since_dt or until_dt:
+                order_date_str = order.get("time") or order.get("paidDate")
+                if order_date_str:
+                    try:
+                        order_dt = datetime.fromisoformat(order_date_str.replace('Z', '+00:00'))
+                        if since_dt and order_dt < since_dt:
+                            continue  # Skip orders before range
+                        if until_dt and order_dt > until_dt:
+                            continue  # Skip orders after range
+                        orders_in_range += 1
+                    except:
+                        pass  # If date parsing fails, process it anyway
+            
             metrics["orders_processed"] += 1
             email_key = str(order.get("email") or "").strip().lower()
             contact_id = email_to_contact.get(email_key)
@@ -535,6 +568,12 @@ def _collect_orders_payments(
                     metrics["transactions_skipped"] += 1
             elif conn is not None and tenant_id is not None and cents == 0:
                 metrics["transactions_skipped"] += 1
+        
+        # If we have date filtering and no orders in this page were in range, we've gone past the data we need
+        if (since_dt or until_dt) and orders_in_range == 0 and len(orders) > 0:
+            print(f"[acuity] Orders pagination: No orders in date range on this page, stopping early at offset={offset}")
+            break
+        
         if len(orders) < page_size:
             break
         offset += len(orders)
@@ -1219,6 +1258,8 @@ def import_appointments(
                         phone_map=phone_to_contact_id_map,
                         client_contact_map=client_contact_map,
                         payment_records=payment_records,
+                        since=since,
+                        until=until,
                     )
                 print(f"[acuity] DEBUG: Revenue collection completed")
                 print(
