@@ -24,7 +24,7 @@ from .cache import cache_get, cache_set, cache_del, cache_incr
 from .metrics_counters import CACHE_HIT, CACHE_MISS, AI_CHAT_USED, INSIGHTS_SERVED
 from .messaging import send_message
 from .integrations import crm_hubspot, booking_acuity
-from .integrations import instagram_graph as ig_basic
+from .integrations import instagram_login as ig_basic
 from .workers.followups import _update_todo_details
 FOLLOWUPS_MAX_CHUNK = max(1, int(os.getenv("FOLLOWUPS_MAX_CHUNK", "25")))
 
