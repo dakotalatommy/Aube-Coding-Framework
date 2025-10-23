@@ -188,10 +188,11 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
       }
 
       const providers = response.providers ?? {}
-      // Only show Square and Acuity for now - other integrations will be added later
+      // Show Square, Acuity, and Instagram
       const items: IntegrationStatusItem[] = Object.keys({
         square: true,
         acuity: true,
+        instagram: true,
       }).map((key) => {
         const providerData = providers[key] ?? { linked: false }
         return {
@@ -306,6 +307,9 @@ export function Settings({ userData, initialTab = 'profile' }: SettingsProps): R
                       if (providerLower === 'square' || providerLower === 'acuity') {
                         toast.info(`Redirecting to ${integration.provider} authentication...`)
                         await startOAuth(providerLower as 'square' | 'acuity', { returnTo: 'workspace' })
+                      } else if (providerLower === 'instagram') {
+                        toast.info('Redirecting to Instagram authentication...')
+                        window.location.href = '/oauth/instagram'
                       } else {
                         toast.error(`${integration.provider} connection not configured yet.`)
                       }

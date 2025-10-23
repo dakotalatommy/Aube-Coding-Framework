@@ -48,20 +48,35 @@ export function ReferralBanner({ referral, loading = false }: ReferralBannerProp
       const response = await fetch(qrUrl)
       if (!response.ok) throw new Error('Failed to fetch QR code')
       
-      // Convert to blob
       const blob = await response.blob()
+      const file = new File([blob], `brandvx-referral-${referral?.code || 'qr'}.png`, { type: 'image/png' })
       
-      // Create download link
+      // Check if Web Share API is available (mobile)
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: 'Share to Instagram Story',
+            text: 'Join BrandVX and save on your subscription!'
+          })
+          toast.success('Shared successfully!')
+          return
+        } catch (shareError) {
+          // User cancelled share or error - fall through to download
+          if ((shareError as Error).name !== 'AbortError') {
+            console.warn('Share failed, falling back to download:', shareError)
+          }
+        }
+      }
+      
+      // Fallback: Direct download (desktop or share not available)
       const url = window.URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url
       link.download = `brandvx-referral-${referral?.code || 'qr'}.png`
       
-      // Trigger download
       document.body.appendChild(link)
       link.click()
-      
-      // Cleanup
       document.body.removeChild(link)
       window.URL.revokeObjectURL(url)
       

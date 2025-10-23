@@ -410,8 +410,16 @@ def _collect_orders_payments(
         "transactions_created": 0,
         "transactions_skipped": 0,
     }
+    
+    # Add page limit to prevent infinite loops
+    max_pages = int(os.getenv("ACUITY_MAX_PAGES", "200"))
+    order_pages = 0
 
     while True:
+        order_pages += 1
+        if order_pages >= max_pages:
+            print(f"[acuity] WARNING: Orders pagination hit max_pages={max_pages} limit at offset={offset}")
+            break
         try:
             resp = client.get(f"{base}/orders", params={"max": page_size, "offset": offset})
         except httpx.HTTPError as exc:
@@ -529,7 +537,7 @@ def _collect_orders_payments(
                 metrics["transactions_skipped"] += 1
         if len(orders) < page_size:
             break
-        offset += page_size
+        offset += len(orders)
 
     return metrics
 

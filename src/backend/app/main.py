@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, Depends, Response, Request, HTTPException, UploadFile, Header, Query
+from fastapi import FastAPI, Depends, Response, Request, HTTPException, UploadFile, Header, Query, Cookie
 from fastapi.responses import PlainTextResponse, RedirectResponse, FileResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -14205,3 +14205,403 @@ def acuity_backfill_transactions(
         "message": "Backfill job queued. Check Render logs for progress: [acuity-backfill]",
         "date_range": f"{since} to {until or 'now'}"
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Instagram OAuth (Instagram Login - New API)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/oauth/instagram")
+async def instagram_oauth_start(request: Request, tenant_id: str = Cookie(None)):
+    """Start Instagram Login OAuth flow."""
+    if not tenant_id:
+        return RedirectResponse("/login")
+    
+    from integrations.instagram_login import get_auth_url
+    
+    # Generate state token for CSRF protection
+    state = _secrets.token_urlsafe(32)
+    
+    # Store state in session/cache (use existing pattern from Square)
+    # For now, encode tenant_id in state
+    state_data = f"{tenant_id}:{state}"
+    
+    redirect_uri = f"{os.getenv('API_BASE_URL', 'https://api.brandvx.io')}/oauth/instagram/callback"
+    auth_url = get_auth_url(redirect_uri, state_data)
+    
+    logger.info(f"[instagram-oauth] Starting flow for tenant {tenant_id}")
+    return RedirectResponse(auth_url)
+
+@app.get("/oauth/instagram/callback")
+async def instagram_oauth_callback(
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+    error_reason: Optional[str] = None,
+    error_description: Optional[str] = None
+):
+    """Handle Instagram OAuth callback."""
+    from integrations.instagram_login import (
+        exchange_code_for_token,
+        exchange_for_long_lived_token,
+        get_user_profile
+    )
+    
+    # Handle errors
+    if error:
+        logger.error(f"[instagram-oauth] Error: {error} - {error_description}")
+        return RedirectResponse(f"{os.getenv('FRONTEND_URL', 'https://app.brandvx.io')}/settings?instagram_error={error}")
+    
+    if not code or not state:
+        logger.error("[instagram-oauth] Missing code or state")
+        return RedirectResponse(f"{os.getenv('FRONTEND_URL')}/settings?instagram_error=missing_params")
+    
+    # Extract tenant_id from state
+    try:
+        tenant_id, _ = state.split(":", 1)
+    except:
+        logger.error(f"[instagram-oauth] Invalid state format: {state}")
+        return RedirectResponse(f"{os.getenv('FRONTEND_URL')}/settings?instagram_error=invalid_state")
+    
+    try:
+        # Exchange code for short-lived token
+        redirect_uri = f"{os.getenv('API_BASE_URL')}/oauth/instagram/callback"
+        token_data = await exchange_code_for_token(code, redirect_uri)
+        
+        short_token = token_data["access_token"]
+        ig_user_id = token_data["user_id"]
+        
+        logger.info(f"[instagram-oauth] Got short-lived token for IG user {ig_user_id}")
+        
+        # Exchange for long-lived token
+        long_token_data = await exchange_for_long_lived_token(short_token)
+        access_token = long_token_data["access_token"]
+        expires_in = long_token_data.get("expires_in", 5183944)  # 60 days default
+        
+        logger.info(f"[instagram-oauth] Got long-lived token (expires in {expires_in}s)")
+        
+        # Get profile info
+        profile = await get_user_profile(access_token)
+        username = profile.get("username")
+        
+        logger.info(f"[instagram-oauth] Profile: @{username}, ID: {ig_user_id}")
+        
+        # Store in database
+        with engine.begin() as conn:
+            conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
+            
+            # Upsert connected_accounts_v2
+            conn.execute(
+                _sql_text("""
+                    INSERT INTO connected_accounts_v2 (tenant_id, provider, provider_account_id, access_token, metadata, created_at, updated_at)
+                    VALUES (:tenant_id, 'instagram', :ig_user_id, :token, :metadata, NOW(), NOW())
+                    ON CONFLICT (tenant_id, provider) 
+                    DO UPDATE SET 
+                        provider_account_id = EXCLUDED.provider_account_id,
+                        access_token = EXCLUDED.access_token,
+                        metadata = EXCLUDED.metadata,
+                        updated_at = NOW()
+                """),
+                {
+                    "tenant_id": tenant_id,
+                    "ig_user_id": ig_user_id,
+                    "token": access_token,
+                    "metadata": json.dumps({
+                        "username": username,
+                        "user_id": ig_user_id,
+                        "account_type": profile.get("account_type"),
+                        "profile_picture_url": profile.get("profile_picture_url"),
+                        "followers_count": profile.get("followers_count"),
+                        "expires_in": expires_in,
+                        "token_obtained_at": datetime.utcnow().isoformat()
+                    })
+                }
+            )
+        
+        logger.info(f"[instagram-oauth] Saved connection for tenant {tenant_id}")
+        
+        # Enable webhook subscriptions
+        try:
+            from integrations.instagram_login import BASE_URL, API_VERSION
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    f"{BASE_URL}/{API_VERSION}/{ig_user_id}/subscribed_apps",
+                    params={
+                        "subscribed_fields": "comments,messages,messaging_postbacks,messaging_optins,messaging_reactions,messaging_referrals,messaging_seen",
+                        "access_token": access_token
+                    }
+                )
+                logger.info(f"[instagram-oauth] Webhook subscription: {resp.status_code}")
+        except Exception as e:
+            logger.warning(f"[instagram-oauth] Webhook subscription failed (non-critical): {e}")
+        
+        return RedirectResponse(f"{os.getenv('FRONTEND_URL')}/settings?instagram_connected=true")
+        
+    except Exception as e:
+        logger.error(f"[instagram-oauth] Callback error: {e}", exc_info=True)
+        return RedirectResponse(f"{os.getenv('FRONTEND_URL')}/settings?instagram_error=callback_failed")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Instagram Webhooks
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/webhooks/instagram")
+async def instagram_webhook_verify(
+    request: Request,
+    hub_mode: Optional[str] = Query(None, alias="hub.mode"),
+    hub_verify_token: Optional[str] = Query(None, alias="hub.verify_token"),
+    hub_challenge: Optional[str] = Query(None, alias="hub.challenge")
+):
+    """Verify Instagram webhook subscription (Meta sends GET request)."""
+    expected_token = os.getenv("INSTAGRAM_WEBHOOK_VERIFY_TOKEN", "brandvx_instagram_webhook_2025")
+    
+    logger.info(f"[instagram-webhook] Verification request: mode={hub_mode}, token={hub_verify_token}")
+    
+    if hub_mode == "subscribe" and hub_verify_token == expected_token:
+        logger.info("[instagram-webhook] Verification successful!")
+        return PlainTextResponse(hub_challenge)
+    else:
+        logger.error(f"[instagram-webhook] Verification failed! Expected: {expected_token}, Got: {hub_verify_token}")
+        raise HTTPException(status_code=403, detail="Verification failed")
+
+@app.post("/webhooks/instagram")
+async def instagram_webhook_event(request: Request):
+    """Handle Instagram webhook events (messages, comments, etc)."""
+    try:
+        body = await request.body()
+        signature = request.headers.get("X-Hub-Signature-256", "")
+        
+        # Verify signature
+        app_secret = os.getenv("META_INSTAGRAM_APP_SECRET")
+        expected_sig = "sha256=" + _hmac.new(
+            app_secret.encode(),
+            body,
+            _hashlib.sha256
+        ).hexdigest()
+        
+        if not _hmac.compare_digest(signature, expected_sig):
+            logger.error("[instagram-webhook] Invalid signature")
+            raise HTTPException(status_code=401, detail="Invalid signature")
+        
+        payload = json.loads(body)
+        logger.info(f"[instagram-webhook] Event received: {json.dumps(payload)}")
+        
+        # Process entries
+        for entry in payload.get("entry", []):
+            ig_user_id = entry.get("id")
+            
+            # Find tenant for this IG account
+            with engine.begin() as conn:
+                result = conn.execute(
+                    _sql_text("""
+                        SELECT tenant_id, access_token, metadata 
+                        FROM connected_accounts_v2 
+                        WHERE provider = 'instagram' 
+                        AND provider_account_id = :ig_id
+                    """),
+                    {"ig_id": ig_user_id}
+                ).fetchone()
+                
+                if not result:
+                    logger.warning(f"[instagram-webhook] No tenant found for IG user {ig_user_id}")
+                    continue
+                
+                tenant_id = result[0]
+                access_token = result[1]
+                
+                # Set tenant context
+                conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
+                
+                # Process changes
+                for change in entry.get("changes", []):
+                    field = change.get("field")
+                    value = change.get("value", {})
+                    
+                    if field == "messages":
+                        await _handle_instagram_message(conn, tenant_id, ig_user_id, value, access_token)
+                    elif field == "comments":
+                        await _handle_instagram_comment(conn, tenant_id, ig_user_id, value, access_token)
+                    elif field == "mentions":
+                        await _handle_instagram_mention(conn, tenant_id, ig_user_id, value, access_token)
+                    else:
+                        logger.info(f"[instagram-webhook] Unhandled field: {field}")
+        
+        return {"status": "ok"}
+        
+    except Exception as e:
+        logger.error(f"[instagram-webhook] Error processing event: {e}", exc_info=True)
+        return {"status": "error"}
+
+async def _handle_instagram_message(conn, tenant_id: str, ig_user_id: str, value: dict, access_token: str):
+    """Handle incoming Instagram message."""
+    logger.info(f"[instagram-message] Tenant {tenant_id}, data: {value}")
+    
+    # Extract message details
+    sender_igsid = value.get("sender", {}).get("id")
+    message_id = value.get("mid")
+    message_text = value.get("text")
+    timestamp = value.get("timestamp")
+    
+    if not sender_igsid:
+        return
+    
+    # Store in database (future: messages table)
+    # For now, just log
+    logger.info(f"[instagram-message] From {sender_igsid}: {message_text}")
+    
+    # TODO: Store message, trigger AI response, etc.
+
+async def _handle_instagram_comment(conn, tenant_id: str, ig_user_id: str, value: dict, access_token: str):
+    """Handle Instagram comment."""
+    logger.info(f"[instagram-comment] Tenant {tenant_id}, data: {value}")
+    # TODO: Implement comment handling
+
+async def _handle_instagram_mention(conn, tenant_id: str, ig_user_id: str, value: dict, access_token: str):
+    """Handle Instagram mention."""
+    logger.info(f"[instagram-mention] Tenant {tenant_id}, data: {value}")
+    # TODO: Implement mention handling
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Instagram API Endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.get("/instagram/profile")
+async def get_instagram_profile(tenant_id: str = Cookie(None)):
+    """Get connected Instagram profile info."""
+    if not tenant_id:
+        raise HTTPException(401, "Not authenticated")
+    
+    from integrations.instagram_login import get_user_profile
+    
+    with engine.begin() as conn:
+        conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
+        
+        result = conn.execute(
+            _sql_text("""
+                SELECT access_token, metadata 
+                FROM connected_accounts_v2 
+                WHERE tenant_id = :t AND provider = 'instagram'
+            """),
+            {"t": tenant_id}
+        ).fetchone()
+    
+    if not result:
+        raise HTTPException(404, "Instagram not connected")
+    
+    access_token = result[0]
+    profile = await get_user_profile(access_token)
+    
+    return profile
+
+@app.get("/instagram/media")
+async def get_instagram_media(tenant_id: str = Cookie(None), limit: int = 25):
+    """Get Instagram media (posts/reels)."""
+    if not tenant_id:
+        raise HTTPException(401, "Not authenticated")
+    
+    from integrations.instagram_login import get_user_media
+    
+    with engine.begin() as conn:
+        conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
+        
+        result = conn.execute(
+            _sql_text("""
+                SELECT provider_account_id, access_token 
+                FROM connected_accounts_v2 
+                WHERE tenant_id = :t AND provider = 'instagram'
+            """),
+            {"t": tenant_id}
+        ).fetchone()
+    
+    if not result:
+        raise HTTPException(404, "Instagram not connected")
+    
+    ig_user_id, access_token = result[0], result[1]
+    media = await get_user_media(ig_user_id, access_token, limit)
+    
+    return media
+
+class InstagramMessageRequest(BaseModel):
+    recipient_igsid: str
+    message: dict  # {text: "..."} or {attachment: {...}}
+
+@app.post("/instagram/send-message")
+async def send_instagram_message(req: InstagramMessageRequest, tenant_id: str = Cookie(None)):
+    """Send Instagram DM."""
+    if not tenant_id:
+        raise HTTPException(401, "Not authenticated")
+    
+    from integrations.instagram_login import send_message
+    
+    with engine.begin() as conn:
+        conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
+        
+        result = conn.execute(
+            _sql_text("""
+                SELECT provider_account_id, access_token 
+                FROM connected_accounts_v2 
+                WHERE tenant_id = :t AND provider = 'instagram'
+            """),
+            {"t": tenant_id}
+        ).fetchone()
+    
+    if not result:
+        raise HTTPException(404, "Instagram not connected")
+    
+    ig_user_id, access_token = result[0], result[1]
+    result = await send_message(ig_user_id, req.recipient_igsid, req.message, access_token)
+    
+    return result
+
+class InstagramPublishRequest(BaseModel):
+    media_type: str  # "IMAGE", "VIDEO", "REELS", "STORIES"
+    media_url: str
+    caption: Optional[str] = None
+
+@app.post("/instagram/publish")
+async def publish_instagram_content(req: InstagramPublishRequest, tenant_id: str = Cookie(None)):
+    """Publish content to Instagram."""
+    if not tenant_id:
+        raise HTTPException(401, "Not authenticated")
+    
+    from integrations.instagram_login import create_media_container, publish_media_container
+    
+    with engine.begin() as conn:
+        conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
+        
+        result = conn.execute(
+            _sql_text("""
+                SELECT provider_account_id, access_token 
+                FROM connected_accounts_v2 
+                WHERE tenant_id = :t AND provider = 'instagram'
+            """),
+            {"t": tenant_id}
+        ).fetchone()
+    
+    if not result:
+        raise HTTPException(404, "Instagram not connected")
+    
+    ig_user_id, access_token = result[0], result[1]
+    
+    # Create container
+    container_data = {
+        "media_type": req.media_type,
+        "caption": req.caption
+    }
+    
+    if req.media_type in ["IMAGE", "STORIES"]:
+        container_data["image_url"] = req.media_url
+    else:
+        container_data["video_url"] = req.media_url
+    
+    container = await create_media_container(ig_user_id, access_token, **container_data)
+    container_id = container["id"]
+    
+    logger.info(f"[instagram-publish] Container created: {container_id}")
+    
+    # Publish
+    published = await publish_media_container(ig_user_id, container_id, access_token)
+    
+    return published

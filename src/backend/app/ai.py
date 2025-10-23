@@ -258,7 +258,6 @@ class AIClient:
             "model": self.model,
             "input": content_blocks,
             "max_output_tokens": max_tokens,
-            "temperature": 0.4,
         }
         backoff_seconds = 1.0
         for attempt in range(3):
@@ -271,6 +270,9 @@ class AIClient:
                             backoff_seconds *= 2
                             continue
                     if r.status_code in (404, 405):
+                        return None
+                    # Don't retry 400 errors - they indicate invalid request parameters
+                    if r.status_code == 400:
                         return None
                     r.raise_for_status()
                     data = r.json()
@@ -352,7 +354,6 @@ class AIClient:
                                 payload_retry = {
                                     **payload,
                                     "max_output_tokens": bigger,
-                                    "temperature": 0.3,
                                 }
                                 r2 = await client.post(f"{self.base_url}/responses", headers=headers, json=payload_retry)
                                 r2.raise_for_status()
