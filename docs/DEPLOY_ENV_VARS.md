@@ -37,8 +37,7 @@ Backend (Render)
   - `GEMINI_IMAGE_MODEL=gemini-2.5-flash`
   - `NANO_BANANA_API_URL`, `NANO_BANANA_API_KEY` (optional fallback)
 - Providers (optional):
-  - Instagram Basic: `INSTAGRAM_CLIENT_ID`, `INSTAGRAM_CLIENT_SECRET`
-  - Facebook Login/Graph: `FACEBOOK_CLIENT_ID`, `FACEBOOK_CLIENT_SECRET`
+  - Meta (Facebook/Instagram Graph): `META_APP_ID`, `META_APP_SECRET`, `FACEBOOK_CLIENT_ID`, `FACEBOOK_CLIENT_SECRET`, `FB_APP_SECRET`
   - Square: `SQUARE_CLIENT_ID`, `SQUARE_CLIENT_SECRET`, `SQUARE_WEBHOOK_SECRET`
   - Twilio/SendGrid as needed
 - Observability (optional):
@@ -61,9 +60,14 @@ Frontend (Cloudflare Pages)
 
 Meta (Instagram/Facebook) Setup
 - Meta Developers → your app → Settings → Basic: copy App ID/Secret; set App Domains (api/app.brandvx.io)
-- Add Products: Facebook Login, Instagram Graph API (and/or Instagram Basic Display)
+- Add Products: Facebook Login, Instagram Graph API
 - Valid OAuth Redirect URIs:
   - Facebook: `https://api.brandvx.io/oauth/facebook/callback`
-  - Instagram Basic: `https://api.brandvx.io/oauth/instagram/callback`
-- For IG Graph, ensure IG account is Business/Creator and connected to a FB Page; request relevant permissions for Live use.
-
+  - Instagram (Graph): `https://api.brandvx.io/oauth/instagram/callback`
+- Recommended env vars:
+  - `META_APP_ID`, `META_APP_SECRET` (or legacy `FACEBOOK_CLIENT_ID`/`FACEBOOK_CLIENT_SECRET`)
+  - `FB_APP_SECRET` (reuse Meta app secret for webhook signature verification)
+  - `FB_GRAPH_API_VERSION` (e.g. `v18.0`)
+  - `WEBHOOK_VERIFY_TOKEN` (must match value configured in Meta Webhooks)
+  - `WEBHOOK_DESTINATION_URL` (documented target for Meta webhooks)
+- For IG Graph, ensure IG account is Business/Creator and linked to a FB Page; request/manage advanced permissions (`instagram_business_*`, `pages_manage_*`, `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`, `pages_messaging`).

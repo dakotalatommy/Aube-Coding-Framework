@@ -179,7 +179,7 @@ Audience: senior engineers and operator/owner stakeholders who need an authorita
   - SMS send via REST `Messages.json`, circuit breaker.
   - Webhook verification: HMAC-SHA1 with auth token.
 
-- **Instagram Basic (`instagram_basic.py`)** – stub for future social posting.
+- **Instagram Graph (`instagram_graph.py`)** – Graph API helpers for OAuth exchange, refresh, and profile/media fetch.
 
 ### 3.4 Jobs System
 - Table `jobs`: stores `id`, `tenant_id`, `kind`, `status`, `payload_json`, `result_json`, `created_at`, `updated_at`.
@@ -323,7 +323,7 @@ Audience: senior engineers and operator/owner stakeholders who need an authorita
 - Policies enforce tenant scoping by path (prefix with tenant UUID).
 
 ### 5.9 Additional Providers
-- `instagram_basic.py`: stub for future IG Basic Display API (document required scopes). 
+- `instagram_graph.py`: Instagram Graph API integration (OAuth exchange/refresh, profile + media helpers).
 - `calendar_apple.py`: placeholder; future integration should respect Apple CalDAV auth tokens stored per tenant.
 
 ---

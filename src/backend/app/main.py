@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, Depends, Response, Request, HTTPException, UploadFile, Header
+from fastapi import FastAPI, Depends, Response, Request, HTTPException, UploadFile, Header, Query
 from fastapi.responses import PlainTextResponse, RedirectResponse, FileResponse, JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -24,7 +24,7 @@ from .cache import cache_get, cache_set, cache_del, cache_incr
 from .metrics_counters import CACHE_HIT, CACHE_MISS, AI_CHAT_USED, INSIGHTS_SERVED
 from .messaging import send_message
 from .integrations import crm_hubspot, booking_acuity
-from .integrations import instagram_basic as ig_basic
+from .integrations import instagram_graph as ig_basic
 from .workers.followups import _update_todo_details
 FOLLOWUPS_MAX_CHUNK = max(1, int(os.getenv("FOLLOWUPS_MAX_CHUNK", "25")))
 
@@ -4273,7 +4273,7 @@ def _oauth_authorize_url(provider: str, tenant_id: Optional[str] = None, return_
     if provider == "facebook":
         auth = _env("FACEBOOK_AUTH_URL", "https://www.facebook.com/v18.0/dialog/oauth")
         client_id = _env("FACEBOOK_CLIENT_ID", "")
-        scope = _env("FACEBOOK_SCOPES", "public_profile,email,pages_show_list,instagram_basic")
+        scope = _env("FACEBOOK_SCOPES", "public_profile,email,pages_show_list,pages_manage_metadata,pages_read_engagement,instagram_business_basic")
         return (
             f"{auth}?client_id={client_id}&response_type=code&scope={_url.quote(scope)}"
             f"&redirect_uri={_url.quote(_redirect_uri('facebook'))}&state={_state}"
@@ -4283,7 +4283,9 @@ def _oauth_authorize_url(provider: str, tenant_id: Optional[str] = None, return_
         client_id = _meta_app_id()
         scope = _env(
             "INSTAGRAM_SCOPES",
-            "pages_manage_metadata,pages_read_engagement,pages_show_list,pages_messaging,instagram_basic,instagram_manage_messages,instagram_content_publish",
+            "pages_manage_metadata,pages_read_engagement,pages_show_list,pages_manage_posts,pages_messaging,"
+            "instagram_business_basic,instagram_business_manage_messages,instagram_business_content_publish,"
+            "instagram_business_manage_insights,instagram_business_manage_comments",
         )
         return (
             f"{auth}?client_id={client_id}&response_type=code&scope={_url.quote(scope)}"
@@ -12617,8 +12619,8 @@ def onboarding_analyze(req: AnalyzeRequest, db: Session = Depends(get_db), ctx: 
             "square": bool(_env("SQUARE_CLIENT_ID", "")),
             "acuity": bool(_env("ACUITY_CLIENT_ID", "")),
             "hubspot": bool(_env("HUBSPOT_CLIENT_ID", "")),
-            "facebook": bool(_env("FACEBOOK_CLIENT_ID", "")),
-            "instagram": bool(_env("INSTAGRAM_CLIENT_ID", "")),
+            "facebook": bool(_env("META_APP_ID", "") or _env("FACEBOOK_CLIENT_ID", "")),
+            "instagram": bool(_env("META_APP_ID", "") or _env("FACEBOOK_CLIENT_ID", "") or _env("INSTAGRAM_CLIENT_ID", "")),
             "shopify": bool(_env("SHOPIFY_CLIENT_ID", "")),
         },
         "connected": connected,
@@ -12664,34 +12666,63 @@ def onboarding_status(
     return {"connected": connected, "first_sync_done": first_sync_done, "counts": counts}
 
 
-# -------------------- Instagram API (Basic Display) helpers --------------------
-def _get_provider_access_token(tenant_id: str, provider: str) -> str:
-    token = ""
-    # Prefer v2 token vault
+# -------------------- Instagram Graph helpers --------------------
+def _get_connected_account(tenant_id: str, provider: str) -> Dict[str, Any]:
+    info: Dict[str, Any] = {
+        "access_token": "",
+        "refresh_token": "",
+        "scopes": "",
+        "extra": {},
+    }
     try:
         with engine.begin() as conn:
             row = conn.execute(
-                _sql_text("SELECT access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider = :p ORDER BY id DESC LIMIT 1"),
+                _sql_text(
+                    "SELECT access_token_enc, refresh_token_enc, scopes, extra_json "
+                    "FROM connected_accounts_v2 "
+                    "WHERE tenant_id = CAST(:t AS uuid) AND provider = :p "
+                    "ORDER BY id DESC LIMIT 1"
+                ),
                 {"t": tenant_id, "p": provider},
             ).fetchone()
-        if row and row[0]:
-            try:
-                token = decrypt_text(str(row[0])) or ""
-            except Exception:
-                token = str(row[0])
     except Exception:
-        token = ""
-    return token
+        row = None
+    if not row:
+        return info
+    access_token_enc, refresh_token_enc, scopes, extra_json = row
+    try:
+        info["access_token"] = decrypt_text(str(access_token_enc or "")) or ""
+    except Exception:
+        info["access_token"] = str(access_token_enc or "")
+    try:
+        info["refresh_token"] = decrypt_text(str(refresh_token_enc or "")) or ""
+    except Exception:
+        info["refresh_token"] = str(refresh_token_enc or "")
+    info["scopes"] = str(scopes or "")
+    try:
+        if extra_json:
+            info["extra"] = json.loads(str(extra_json))
+    except Exception:
+        info["extra"] = {}
+    return info
+
+
+def _get_provider_access_token(tenant_id: str, provider: str) -> str:
+    info = _get_connected_account(tenant_id, provider)
+    return str(info.get("access_token") or "")
 
 
 @app.get("/instagram/profile", tags=["Integrations"])
 def instagram_profile(tenant_id: str, ctx: UserContext = Depends(get_user_context)):
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
-    at = _get_provider_access_token(tenant_id, "instagram")
-    if not at:
+    info = _get_connected_account(tenant_id, "instagram")
+    access_token = str(info.get("access_token") or "")
+    extra = info.get("extra") or {}
+    ig_id = str(extra.get("instagram_business_account_id") or "")
+    if not access_token or not ig_id:
         return {"status": "not_connected"}
-    res = ig_basic.get_profile(at)
+    res = ig_basic.get_profile(access_token, ig_id)
     return res
 
 
@@ -12699,10 +12730,13 @@ def instagram_profile(tenant_id: str, ctx: UserContext = Depends(get_user_contex
 def instagram_media(tenant_id: str, limit: int = 12, ctx: UserContext = Depends(get_user_context)):
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
-    at = _get_provider_access_token(tenant_id, "instagram")
-    if not at:
+    info = _get_connected_account(tenant_id, "instagram")
+    access_token = str(info.get("access_token") or "")
+    extra = info.get("extra") or {}
+    ig_id = str(extra.get("instagram_business_account_id") or "")
+    if not access_token or not ig_id:
         return {"status": "not_connected", "items": []}
-    res = ig_basic.get_media(at, limit=limit)
+    res = ig_basic.get_media(access_token, ig_id, limit=limit)
     return res
 
 
@@ -12907,6 +12941,20 @@ async def webhook_facebook(
         pass
     emit_event("ProviderWebhookReceived", {"tenant_id": req.tenant_id, "provider": "facebook"})
     return {"status": "ok"}
+
+
+@app.get("/webhooks/instagram", tags=["Integrations"])
+def webhook_instagram_verify(
+    hub_mode: Optional[str] = Query(None, alias="hub.mode"),
+    hub_challenge: Optional[str] = Query(None, alias="hub.challenge"),
+    hub_verify_token: Optional[str] = Query(None, alias="hub.verify_token"),
+):
+    expected = os.getenv("WEBHOOK_VERIFY_TOKEN", "")
+    if expected and str(hub_verify_token or "") != expected:
+        raise HTTPException(status_code=403, detail="invalid_verify_token")
+    if (hub_mode or "").lower() != "subscribe":
+        return {"status": "ignored"}
+    return Response(content=str(hub_challenge or ""), media_type="text/plain")
 
 
 @app.post("/webhooks/instagram", tags=["Integrations"])

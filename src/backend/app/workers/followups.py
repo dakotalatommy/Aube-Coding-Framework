@@ -1125,3 +1125,4 @@ def run_forever(sleep_seconds: float = 2.0) -> None:
 if __name__ == "__main__":  # pragma: no cover
     logging.basicConfig(level=logging.INFO)
     run_forever()
+# Trigger worker restart - 20251023-040612

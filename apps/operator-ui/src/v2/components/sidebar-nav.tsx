@@ -30,6 +30,7 @@ interface NavItem {
   icon: LucideIcon
   href: string
   requiresPro?: boolean
+  requiresFullPlan?: boolean
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -67,6 +68,7 @@ const NAV_ITEMS: NavItem[] = [
     title: 'Follow Ups',
     icon: UserCheck,
     href: '/follow-ups',
+    requiresFullPlan: true,
   },
   {
     title: 'Fill Your Chair',
@@ -84,6 +86,7 @@ const NAV_ITEMS: NavItem[] = [
     title: 'Inventory',
     icon: Package,
     href: '/inventory',
+    requiresFullPlan: true,
   },
   {
     title: 'Tutorials',
@@ -118,9 +121,16 @@ const isTrialUser = (userData?: SidebarNavProps['userData']) => {
   return !plan || plan === 'trial' || plan === 'essentials'
 }
 
+const isLitePlan = (userData?: SidebarNavProps['userData']) => {
+  if (isFounderTier(userData)) return false
+  const plan = userData?.plan?.toLowerCase() ?? ''
+  return plan === 'lite' || plan === 'brandvx_lite' || plan.includes('lite')
+}
+
 export function SidebarNav({ currentPage, onNavigate, userData, onNavigateToSettings }: SidebarNavProps) {
   const navigate = useNavigate()
   const userIsOnTrial = isTrialUser(userData)
+  const userIsLite = isLitePlan(userData)
   const BOOKING_URL = 'http://aube-creative-labs.square.site/'
 
   const handleNavClick = (page: string) => {
@@ -183,8 +193,8 @@ export function SidebarNav({ currentPage, onNavigate, userData, onNavigateToSett
           {visibleNavItems.map((item) => {
             const page = item.href.slice(1) || 'dashboard'
             const isActive = currentPage === page
-            const isLocked = userIsOnTrial && item.requiresPro
-            const isProFeature = item.requiresPro && !userIsOnTrial
+            const isLocked = (userIsOnTrial && item.requiresPro) || (userIsLite && (item.requiresPro || item.requiresFullPlan))
+            const isProFeature = (item.requiresPro || item.requiresFullPlan) && !userIsOnTrial && !userIsLite
             
             return (
               <div key={item.href} className="relative">

@@ -96,17 +96,29 @@ const hasAccessToFeature = (featureName: string, profile?: UserProfile | null) =
   if (isFounderTier(profile)) return true
   
   const plan = (profile?.plan || '').toLowerCase()
-  if (!isTrialUser(profile)) {
+  const isLite = plan === 'lite' || plan.includes('lite')
+  const isTrial = isTrialUser(profile)
+  
+  // Features gated for BOTH trial AND lite users
+  const fullPlanFeatures = ['grow-your-list', 'grow-with-vx', 'follow-ups', 'inventory']
+  if ((isTrial || isLite) && fullPlanFeatures.includes(featureName)) {
+    return false
+  }
+  
+  // For paid users (not lite, not trial), check specific access map
+  if (!isTrial && !isLite) {
     const accessMap: Record<string, string[]> = {
-      'grow-your-list': ['pro', 'premium'],
-      'grow-with-vx': ['pro', 'premium'],
-      inventory: ['pro', 'premium'],
-      tutorials: ['essentials', 'pro', 'premium']
+      'grow-your-list': ['pro', 'premium', 'starter', 'growth'],
+      'grow-with-vx': ['pro', 'premium', 'starter', 'growth'],
+      inventory: ['pro', 'premium', 'starter', 'growth'],
+      'follow-ups': ['pro', 'premium', 'starter', 'growth'],
+      tutorials: ['essentials', 'pro', 'premium', 'starter', 'growth']
     }
     const allowed = accessMap[featureName]
     return allowed ? allowed.includes(plan) : true
   }
-  return !['grow-your-list', 'grow-with-vx'].includes(featureName)
+  
+  return true
 }
 
 const computeTrialDay = (profile?: UserProfile | null): number | undefined => {
@@ -261,6 +273,7 @@ export default function App() {
   const [isLoadingSession, setIsLoadingSession] = useState(true)
   const hasBootedRef = useRef(false)
   const lastUserIdRef = useRef<string | null>(null)
+  const bootstrappedUserIdRef = useRef<string | null>(null)
   const isInitialLoadRef = useRef(true)
   const [onboardingRequired, setOnboardingRequired] = useState(false)
   const [dashboardStats, setDashboardStats] = useState<DashboardStat[] | null>(null)
@@ -283,13 +296,7 @@ export default function App() {
   const [clientSearchPrefill, setClientSearchPrefill] = useState<string | undefined>(undefined)
   const firstNavigationRef = useRef(true)
   const settingsPrefetchedRef = useRef(false)
-
-  const logSplash = useCallback((event: string, detail?: Record<string, unknown>) => {
-    try {
-      const payload = { isLoadingSession, showSplash, showSplashGuard, hasBooted: hasBootedRef.current, ...detail }
-      console.info(`[v2:splash] ${event}`, payload)
-    } catch {}
-  }, [isLoadingSession, showSplash, showSplashGuard])
+  const isProfileLoading = Boolean(session && !userData)
 
   // Keep lastUserIdRef in sync with session for sign-out cleanup
   useEffect(() => {
@@ -609,13 +616,16 @@ export default function App() {
   )
 
   const handleSplashComplete = useCallback(() => {
-    logSplash('complete')
     setShowSplash(false)
     setShowSplashGuard(false)
     setIsLoadingSession(false)
-  }, [logSplash])
+  }, [])
 
   const bootstrapSession = useCallback(async (activeSession: Session | null) => {
+    if (activeSession?.user?.id && bootstrappedUserIdRef.current === activeSession.user.id && hasBootedRef.current) {
+      return
+    }
+
     if (!activeSession) {
       setCachedAccessToken(null)  // Clear cached token when no session
       setUserData(null)
@@ -633,6 +643,7 @@ export default function App() {
       setRemindersLoading(false)
       setReferralInfo(null)
       setReferralLoading(false)
+      bootstrappedUserIdRef.current = null
       return
     }
 
@@ -736,10 +747,17 @@ export default function App() {
         trialEndTs,
         trialLengthDays: typeof settingsData?.trial_length_days === 'number' ? settingsData.trial_length_days : undefined,
       }
+      
+      // Override for testing: Force lite tier UI for all tenants
+      if (import.meta.env.VITE_FORCE_LITE_UI === 'true') {
+        profile.plan = 'lite'
+      }
+      
       setUserData(profile)
       const trialDay = computeTrialDay(profile)
       setCurrentTrialDay(trialDay)
       setOnboardingRequired(!Boolean(settingsData?.onboarding_completed))
+      bootstrappedUserIdRef.current = activeSession.user?.id ?? null
 
       console.info('[bvx:auth] bootstrap completed', {
         tenantId,
@@ -759,6 +777,7 @@ export default function App() {
         setCachedAccessToken(null)  // Clear cached token on 401
         setSession(null)
         setUserData(null)
+        bootstrappedUserIdRef.current = null
         setOnboardingRequired(false)
         setCurrentTrialDay(undefined)
         setShowSplash(false)
@@ -778,13 +797,12 @@ export default function App() {
       setOnboardingRequired(false)
       setCurrentTrialDay(prev => prev)
     } finally {
-      logSplash('disable', { reason: 'bootstrap-finally' })
       setShowSplash(false)
       setShowSplashGuard(false)
       setIsLoadingSession(false)  // ALWAYS clear loading state, even if bootstrap hangs/fails
       hasBootedRef.current = true
     }
-  }, [fetchDashboardData, logSplash])
+  }, [fetchDashboardData])
 
   useEffect(() => {
     let cancelled = false
@@ -807,7 +825,6 @@ export default function App() {
         if (cancelled) return
         if (!data.session) {
           setSession(null)
-          logSplash('disable', { reason: 'bootstrap:no-session' })
           setShowSplash(false)
           setShowSplashGuard(false)
           setIsLoadingSession(false)
@@ -833,7 +850,6 @@ export default function App() {
       } catch (error) {
         console.warn('Initial session bootstrap failed', error)
         setSession(null)
-        logSplash('disable', { reason: 'bootstrap:error' })
         setShowSplash(false)
         setShowSplashGuard(false)
         setIsLoadingSession(false)
@@ -857,13 +873,11 @@ export default function App() {
         const isRealSignIn = !isInitialLoadRef.current && !hasBootedRef.current
         
         if (isRealSignIn) {
-          logSplash('enable', { reason: 'SIGNED_IN' })
           setShowSplash(true)
           setShowSplashGuard(true)
           
           await bootstrapSession(newSession)
           
-          logSplash('disable', { reason: 'SIGNED_IN-complete' })
           setShowSplash(false)
           setShowSplashGuard(false)
         }
@@ -875,8 +889,8 @@ export default function App() {
         setCachedAccessToken(null)  // Clear cached token on sign out
         setSession(null)
         setUserData(null)
+        bootstrappedUserIdRef.current = null
         setOnboardingRequired(false)
-        logSplash('disable', { reason: 'SIGNED_OUT' })
         setShowSplash(false)
         setShowSplashGuard(false)
         setIsLoadingSession(false)
@@ -898,7 +912,7 @@ export default function App() {
       clearTimeout(maxLoadTimeout)
       authListener?.subscription?.unsubscribe()
     }
-  }, [bootstrapSession, logSplash, navigateToPage])
+  }, [bootstrapSession, navigateToPage])
 
   // Dashboard data is already fetched in bootstrapSession after tenant_id is resolved
   // Remove this duplicate fetch to prevent race conditions
@@ -1244,46 +1258,57 @@ export default function App() {
                       <OnboardingProvider>
                         <ClientRemindersProvider>
                           <AgendaProvider>
-                            <div className="min-h-screen bg-background flex">
-                              <SidebarNav
-                                currentPage={currentPage}
-                                onNavigate={navigateToPage}
-                                userData={userData}
-                                onNavigateToSettings={handleNavigateToSettings}
-                              />
-
-                              <div className="flex-1 flex flex-col">
-                                <DashboardHeader
-                                  onNotificationClick={handleNotificationClick}
-                                  onOpenSettings={handleNavigateToSettings}
-                                  onNavigate={(pane, payload) => {
-                                    navigateToPage(pane, payload)
-                                    if (pane === 'clients' && payload?.search) {
-                                      setClientSearchPrefill(payload.search)
-                                    }
-                                  }}
-                                  userData={userData}
-                                />
-
-                                <main className="flex-1 p-6">
-                                  {renderPageContent()}
-                                </main>
+                            {isProfileLoading ? (
+                              <div className="min-h-screen bg-background flex">
+                                <div className="w-64 bg-card border-r" />
+                                <div className="flex-1 flex items-center justify-center">
+                                  <LoadingSpinner />
+                                </div>
                               </div>
-                            </div>
+                            ) : (
+                              <>
+                                <div className="min-h-screen bg-background flex">
+                                  <SidebarNav
+                                    currentPage={currentPage}
+                                    onNavigate={navigateToPage}
+                                    userData={userData}
+                                    onNavigateToSettings={handleNavigateToSettings}
+                                  />
 
-                            {(() => {
-                              const getOnboardingPageId = (page: string) => {
-                                const pageMap: Record<string, string> = {
-                                  'grow-your-list': 'grow-your-list',
-                                  'grow-with-vx': 'grow-with-vx',
-                                  'follow-ups': 'follow-ups',
-                                  'consultation-results': 'brandvzn',
-                                }
-                                return pageMap[page] || page
-                              }
+                                  <div className="flex-1 flex flex-col">
+                                    <DashboardHeader
+                                      onNotificationClick={handleNotificationClick}
+                                      onOpenSettings={handleNavigateToSettings}
+                                      onNavigate={(pane, payload) => {
+                                        navigateToPage(pane, payload)
+                                        if (pane === 'clients' && payload?.search) {
+                                          setClientSearchPrefill(payload.search)
+                                        }
+                                      }}
+                                      userData={userData}
+                                    />
 
-                              return <OnboardingTooltip pageId={getOnboardingPageId(currentPage) as any} />
-                            })()}
+                                    <main className="flex-1 p-6">
+                                      {renderPageContent()}
+                                    </main>
+                                  </div>
+                                </div>
+
+                                {(() => {
+                                  const getOnboardingPageId = (page: string) => {
+                                    const pageMap: Record<string, string> = {
+                                      'grow-your-list': 'grow-your-list',
+                                      'grow-with-vx': 'grow-with-vx',
+                                      'follow-ups': 'follow-ups',
+                                      'consultation-results': 'brandvzn',
+                                    }
+                                    return pageMap[page] || page
+                                  }
+
+                                  return <OnboardingTooltip pageId={getOnboardingPageId(currentPage) as any} />
+                                })()}
+                              </>
+                            )}
 
                             <Toaster />
                             <SupportBubble hideTrigger />

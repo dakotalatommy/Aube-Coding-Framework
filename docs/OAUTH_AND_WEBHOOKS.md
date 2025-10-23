@@ -14,8 +14,8 @@ Replace {API} with your API base (e.g., https://api.brandvx.io).
 
 ## Webhooks
 - Stripe: {API}/billing/webhook
+- Instagram (Meta): {API}/webhooks/instagram (GET verify with `hub.challenge`, POST events; requires `WEBHOOK_VERIFY_TOKEN` + `FB_APP_SECRET`)
 
 ## Console notes
 - Ensure app domains and redirect URIs match exactly.
 - Use staging credentials for staging; production for prod.
-
