@@ -222,7 +222,7 @@ export function AskVX() {
             session_id: sessionId,
             messages: payloadMessages,
           },
-          { timeoutMs: 60000 },
+          { timeoutMs: 120000 },
         )
 
         const assistantContent = String(response?.text || '').trim()

@@ -516,10 +516,16 @@ def _append_askvx_message(tenant_id: str, session_id: str, role: str, content: s
                 _sql_text(
                     "INSERT INTO askvx_messages (tenant_id, session_id, role, content) VALUES (CAST(:t AS uuid), :sid, :role, :content)"
                 ),
-                {"t": tenant_id, "sid": session_id[:64], "role": role[:32], "content": content[:8000]},
+                {"t": tenant_id, "sid": session_id[:255], "role": role[:32], "content": content[:8000]},
             )
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.error(f"Failed to append askvx message for tenant {tenant_id}: {e}", exc_info=True)
+        try:
+            import sentry_sdk
+            sentry_sdk.capture_exception(e)
+        except Exception:
+            pass
 
 
 def _upsert_trainvx_memory(tenant_id: str, key: str, value: str) -> None:
@@ -6122,14 +6128,16 @@ async def ai_chat_raw(
             last = req.messages[-1]
             user_text = str(last.content)
             _append_askvx_message(ctx.tenant_id, sid, str(last.role), user_text)
-            _safe_audit_log(db, tenant_id=ctx.tenant_id, session_id=sid, role=str(last.role), content=user_text)
         assistant_text = content or ''
         _append_askvx_message(ctx.tenant_id, sid, 'assistant', assistant_text)
-        _safe_audit_log(db, tenant_id=ctx.tenant_id, session_id=sid, role="assistant", content=assistant_text)
         db.commit()
-    except Exception:
-        try: db.rollback()
-        except Exception: pass
+    except Exception as e:
+        import logging
+        logging.error(f"Failed to persist chat logs for tenant {ctx.tenant_id}: {e}", exc_info=True)
+        try: 
+            db.rollback()
+        except Exception: 
+            pass
     try:
         AI_CHAT_USED.labels(tenant_id=str(ctx.tenant_id)).inc()  # type: ignore
         # Rough classification: if we added context snippets, count as insights served
