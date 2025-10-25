@@ -10141,12 +10141,12 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                             _sql_text(
                                 f"""
                                 INSERT INTO contacts (
-                                  tenant_id, contact_id, email_hash, phone_hash, consent_sms, consent_email,
+                                  tenant_id, contact_id, email, phone, email_hash, phone_hash, consent_sms, consent_email,
                                   square_customer_id, birthday, creation_source, email_subscription_status, instant_profile,
                                   first_name, last_name, display_name, created_at
                                 )
                                 VALUES (
-                                  CAST(:t AS uuid), :cid, :eh, :ph, :csms, :cemail,
+                                  CAST(:t AS uuid), :cid, :email, :phone, :eh, :ph, :csms, :cemail,
                                   :sqcid, :bday, :csrc, :esub, :ip,
                                   :fname, :lname, :dname, {ts_insert_expr}
                                 )
@@ -10155,6 +10155,8 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                             {
                                 "t": req.tenant_id,
                                 "cid": contact_id,
+                                "email": email,
+                                "phone": phone,
                                 "eh": email,
                                 "ph": phone_norm,
                                 "csms": bool(phone_norm),
@@ -10176,6 +10178,8 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                                 f"""
                                 UPDATE contacts
                                 SET
+                                    email = COALESCE(email, :email),
+                                    phone = COALESCE(phone, :phone),
                                     email_hash = COALESCE(email_hash, :eh),
                                     phone_hash = COALESCE(phone_hash, :ph),
                                     consent_sms = (consent_sms OR :csms),
@@ -10199,6 +10203,8 @@ def square_sync_contacts(req: SquareSyncContactsRequest, db: Session = Depends(g
                             {
                                 "t": req.tenant_id,
                                 "cid": contact_id,
+                                "email": email,
+                                "phone": phone,
                                 "eh": email,
                                 "ph": phone_norm,
                                 "csms": bool(phone_norm),
