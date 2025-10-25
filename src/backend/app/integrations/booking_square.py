@@ -19,20 +19,29 @@ def verify_square_signature(body: bytes, signature: str, secret: str) -> bool:
         return False
 
 
-def _load_square_token(tenant_id: str) -> Optional[str]:
+def _load_square_token(tenant_id: str, auto_refresh: bool = True) -> Optional[str]:
+    """Load Square access token with automatic refresh support."""
     try:
-        with engine.begin() as conn:
-            row = conn.execute(
-                _sql_text(
-                    "SELECT access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider='square' ORDER BY id DESC LIMIT 1"
-                ),
-                {"t": tenant_id},
-            ).fetchone()
-        if row and row[0]:
-            return decrypt_text(str(row[0])) or str(row[0])
+        # Import here to avoid circular dependency
+        from ..main import _get_connected_account
+        
+        info = _get_connected_account(tenant_id, "square", auto_refresh=auto_refresh)
+        return str(info.get("access_token") or "") or None
     except Exception:
+        # Fallback to direct DB query if helper function fails
+        try:
+            with engine.begin() as conn:
+                row = conn.execute(
+                    _sql_text(
+                        "SELECT access_token_enc FROM connected_accounts_v2 WHERE tenant_id = CAST(:t AS uuid) AND provider='square' ORDER BY id DESC LIMIT 1"
+                    ),
+                    {"t": tenant_id},
+                ).fetchone()
+            if row and row[0]:
+                return decrypt_text(str(row[0])) or str(row[0])
+        except Exception:
+            return None
         return None
-    return None
 
 
 def fetch_bookings(tenant_id: str) -> List[Dict[str, object]]:

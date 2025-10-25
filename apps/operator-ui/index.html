@@ -49,16 +49,14 @@
           NP.removeChild = function(child){
             if (child && child.parentNode !== this) {
               try { console.warn('[bvx] removeChild mismatch', { node: this, child: child, stack: (new Error('stack')).stack }); } catch(_e) {}
-              return child;
             }
-            try { return _remove.call(this, child); } catch(err) { try{ console.warn('[bvx] removeChild error bypassed', err, { stack: (new Error('stack')).stack }); }catch(_e){} return child; }
+            try { return _remove.call(this, child); } catch(err) { try{ console.warn('[bvx] removeChild original error', err, { stack: (new Error('stack')).stack }); }catch(_e){} throw err; }
           };
           NP.insertBefore = function(newNode, ref){
             if (ref && ref.parentNode !== this) {
               try { console.warn('[bvx] insertBefore mismatch', { node: this, ref: ref, stack: (new Error('stack')).stack }); } catch(_e) {}
-              try { return _insert.call(this, newNode, null); } catch(err) { try{ console.warn('[bvx] insertBefore error bypassed', err, { stack: (new Error('stack')).stack }); }catch(_e){} return newNode; }
             }
-            return _insert.call(this, newNode, ref||null);
+            try { return _insert.call(this, newNode, ref||null); } catch(err) { try{ console.warn('[bvx] insertBefore original error', err, { stack: (new Error('stack')).stack }); }catch(_e){} throw err; }
           };
           // Monitor navigation mutations
           try {

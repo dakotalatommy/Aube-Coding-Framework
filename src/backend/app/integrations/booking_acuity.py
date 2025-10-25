@@ -84,8 +84,24 @@ def _read_one(conn, sql: str, params: Dict[str, object]) -> Optional[Tuple[objec
         return None
 
 
-def _fetch_acuity_token(tenant_id: str) -> str:
+def _fetch_acuity_token(tenant_id: str, auto_refresh: bool = True) -> str:
+    """Fetch Acuity access token with automatic refresh support."""
     token = ""
+    
+    # Try using the auto-refresh helper first
+    if auto_refresh:
+        try:
+            # Import here to avoid circular dependency
+            from ..main import _get_connected_account
+            
+            info = _get_connected_account(tenant_id, "acuity", auto_refresh=True)
+            token = str(info.get("access_token") or "").strip()
+            if token:
+                return token
+        except Exception:
+            pass  # Fall back to direct DB query
+    
+    # Fallback to direct DB query
     for attempt in range(2):
         try:
             with _with_conn(tenant_id) as conn:  # type: ignore

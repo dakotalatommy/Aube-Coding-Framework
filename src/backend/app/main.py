@@ -12681,18 +12681,28 @@ def onboarding_status(
 
 
 # -------------------- Instagram Graph helpers --------------------
-def _get_connected_account(tenant_id: str, provider: str) -> Dict[str, Any]:
+def _get_connected_account(tenant_id: str, provider: str, auto_refresh: bool = False) -> Dict[str, Any]:
+    """
+    Get connected account info for a provider.
+    
+    Args:
+        tenant_id: Tenant UUID
+        provider: Provider name (instagram, square, acuity, etc.)
+        auto_refresh: If True, automatically refresh token if it's expired or expiring soon
+    """
     info: Dict[str, Any] = {
         "access_token": "",
         "refresh_token": "",
         "scopes": "",
         "extra": {},
+        "expires_at": 0,
+        "row_id": None,
     }
     try:
         with engine.begin() as conn:
             row = conn.execute(
                 _sql_text(
-                    "SELECT access_token_enc, refresh_token_enc, scopes, extra_json "
+                    "SELECT id, access_token_enc, refresh_token_enc, scopes, extra_json, COALESCE(expires_at, 0) AS expires_at "
                     "FROM connected_accounts_v2 "
                     "WHERE tenant_id = CAST(:t AS uuid) AND provider = :p "
                     "ORDER BY id DESC LIMIT 1"
@@ -12703,7 +12713,9 @@ def _get_connected_account(tenant_id: str, provider: str) -> Dict[str, Any]:
         row = None
     if not row:
         return info
-    access_token_enc, refresh_token_enc, scopes, extra_json = row
+    row_id, access_token_enc, refresh_token_enc, scopes, extra_json, expires_at = row
+    info["row_id"] = row_id
+    info["expires_at"] = int(expires_at or 0)
     try:
         info["access_token"] = decrypt_text(str(access_token_enc or "")) or ""
     except Exception:
@@ -12718,11 +12730,107 @@ def _get_connected_account(tenant_id: str, provider: str) -> Dict[str, Any]:
             info["extra"] = json.loads(str(extra_json))
     except Exception:
         info["extra"] = {}
+    
+    # Auto-refresh if requested and token is expiring soon
+    if auto_refresh and info.get("refresh_token"):
+        info = _ensure_fresh_token(tenant_id, provider, info)
+    
     return info
 
 
-def _get_provider_access_token(tenant_id: str, provider: str) -> str:
-    info = _get_connected_account(tenant_id, provider)
+def _ensure_fresh_token(tenant_id: str, provider: str, info: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Check if token is expired or expiring soon, and refresh if needed.
+    
+    Token refresh thresholds:
+    - Instagram: Refresh if < 7 days remaining (60-day expiry)
+    - Square: Refresh if < 7 days remaining (30-day expiry)
+    - Acuity: Refresh if < 2 hours remaining (24-hour expiry)
+    """
+    now = int(_time.time())
+    expires_at = info.get("expires_at") or 0
+    refresh_token = info.get("refresh_token") or ""
+    row_id = info.get("row_id")
+    
+    if not refresh_token or not row_id:
+        return info
+    
+    # Determine refresh threshold based on provider
+    refresh_thresholds = {
+        "instagram": 7 * 86400,  # 7 days
+        "square": 7 * 86400,     # 7 days
+        "acuity": 2 * 3600,      # 2 hours
+    }
+    threshold = refresh_thresholds.get(provider, 86400)  # Default 1 day
+    
+    # Check if token needs refresh
+    if expires_at == 0 or (expires_at - now) > threshold:
+        # Token is still fresh
+        return info
+    
+    # Token needs refresh
+    try:
+        new_token_data: Dict[str, object] = {}
+        
+        if provider == "instagram":
+            # Use Instagram-specific refresh (async)
+            import asyncio
+            from .integrations import instagram_login as ig_login
+            token = info.get("access_token") or ""
+            if token:
+                refresh_result = asyncio.run(ig_login.refresh_long_lived_token(token))
+                new_token_data = {
+                    "access_token": refresh_result.get("access_token"),
+                    "expires_in": refresh_result.get("expires_in"),
+                }
+        elif provider in ["square", "acuity"]:
+            # Use OAuth refresh
+            new_token_data = _oauth_refresh_token(provider, refresh_token, _redirect_uri(provider))
+        
+        if not new_token_data or not new_token_data.get("access_token"):
+            # Refresh failed, return original info
+            return info
+        
+        # Update database with new token
+        new_access = str(new_token_data.get("access_token") or "")
+        new_refresh = new_token_data.get("refresh_token")
+        expires_in = new_token_data.get("expires_in")
+        
+        update_parts = ["status='connected'", "last_error=NULL"]
+        params: Dict[str, Any] = {"id": row_id}
+        
+        if new_access:
+            params["access_token_enc"] = encrypt_text(new_access)
+            update_parts.append("access_token_enc=:access_token_enc")
+            info["access_token"] = new_access
+        
+        if new_refresh:
+            params["refresh_token_enc"] = encrypt_text(str(new_refresh))
+            update_parts.append("refresh_token_enc=:refresh_token_enc")
+            info["refresh_token"] = str(new_refresh)
+        
+        if isinstance(expires_in, (int, float)):
+            new_expires_at = now + int(expires_in)
+            params["expires_at"] = new_expires_at
+            update_parts.append("expires_at=:expires_at")
+            info["expires_at"] = new_expires_at
+        
+        with engine.begin() as conn:
+            conn.execute(
+                _sql_text(f"UPDATE connected_accounts_v2 SET {', '.join(update_parts)} WHERE id=:id"),
+                params,
+            )
+        
+        return info
+    except Exception as e:
+        # Log error but return original info to allow operation to proceed
+        print(f"Token refresh failed for {provider}: {e}")
+        return info
+
+
+def _get_provider_access_token(tenant_id: str, provider: str, auto_refresh: bool = True) -> str:
+    """Get access token for a provider, with automatic refresh by default."""
+    info = _get_connected_account(tenant_id, provider, auto_refresh=auto_refresh)
     return str(info.get("access_token") or "")
 
 
@@ -12730,7 +12838,7 @@ def _get_provider_access_token(tenant_id: str, provider: str) -> str:
 def instagram_profile(tenant_id: str, ctx: UserContext = Depends(get_user_context)):
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
-    info = _get_connected_account(tenant_id, "instagram")
+    info = _get_connected_account(tenant_id, "instagram", auto_refresh=True)
     access_token = str(info.get("access_token") or "")
     extra = info.get("extra") or {}
     ig_id = str(extra.get("instagram_business_account_id") or "")
@@ -12744,7 +12852,7 @@ def instagram_profile(tenant_id: str, ctx: UserContext = Depends(get_user_contex
 def instagram_media(tenant_id: str, limit: int = 12, ctx: UserContext = Depends(get_user_context)):
     if ctx.tenant_id != tenant_id and ctx.role != "owner_admin":
         return {"status": "forbidden"}
-    info = _get_connected_account(tenant_id, "instagram")
+    info = _get_connected_account(tenant_id, "instagram", auto_refresh=True)
     access_token = str(info.get("access_token") or "")
     extra = info.get("extra") or {}
     ig_id = str(extra.get("instagram_business_account_id") or "")
@@ -14489,22 +14597,12 @@ async def get_instagram_profile(tenant_id: str = Cookie(None)):
     
     from integrations.instagram_login import get_user_profile
     
-    with engine.begin() as conn:
-        conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
-        
-        result = conn.execute(
-            _sql_text("""
-                SELECT access_token, metadata 
-                FROM connected_accounts_v2 
-                WHERE tenant_id = :t AND provider = 'instagram'
-            """),
-            {"t": tenant_id}
-        ).fetchone()
+    info = _get_connected_account(tenant_id, "instagram", auto_refresh=True)
+    access_token = str(info.get("access_token") or "")
     
-    if not result:
+    if not access_token:
         raise HTTPException(404, "Instagram not connected")
     
-    access_token = result[0]
     profile = await get_user_profile(access_token)
     
     return profile
@@ -14517,22 +14615,14 @@ async def get_instagram_media(tenant_id: str = Cookie(None), limit: int = 25):
     
     from integrations.instagram_login import get_user_media
     
-    with engine.begin() as conn:
-        conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
-        
-        result = conn.execute(
-            _sql_text("""
-                SELECT provider_account_id, access_token 
-                FROM connected_accounts_v2 
-                WHERE tenant_id = :t AND provider = 'instagram'
-            """),
-            {"t": tenant_id}
-        ).fetchone()
+    info = _get_connected_account(tenant_id, "instagram", auto_refresh=True)
+    access_token = str(info.get("access_token") or "")
+    extra = info.get("extra") or {}
+    ig_user_id = str(extra.get("instagram_user_id") or extra.get("user_id") or "")
     
-    if not result:
+    if not access_token or not ig_user_id:
         raise HTTPException(404, "Instagram not connected")
     
-    ig_user_id, access_token = result[0], result[1]
     media = await get_user_media(ig_user_id, access_token, limit)
     
     return media
@@ -14549,22 +14639,14 @@ async def send_instagram_message(req: InstagramMessageRequest, tenant_id: str = 
     
     from integrations.instagram_login import send_message
     
-    with engine.begin() as conn:
-        conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
-        
-        result = conn.execute(
-            _sql_text("""
-                SELECT provider_account_id, access_token 
-                FROM connected_accounts_v2 
-                WHERE tenant_id = :t AND provider = 'instagram'
-            """),
-            {"t": tenant_id}
-        ).fetchone()
+    info = _get_connected_account(tenant_id, "instagram", auto_refresh=True)
+    access_token = str(info.get("access_token") or "")
+    extra = info.get("extra") or {}
+    ig_user_id = str(extra.get("instagram_user_id") or extra.get("user_id") or "")
     
-    if not result:
+    if not access_token or not ig_user_id:
         raise HTTPException(404, "Instagram not connected")
     
-    ig_user_id, access_token = result[0], result[1]
     result = await send_message(ig_user_id, req.recipient_igsid, req.message, access_token)
     
     return result
@@ -14582,22 +14664,13 @@ async def publish_instagram_content(req: InstagramPublishRequest, tenant_id: str
     
     from integrations.instagram_login import create_media_container, publish_media_container
     
-    with engine.begin() as conn:
-        conn.execute(_sql_text("SELECT set_config('app.tenant_id', :t, true)"), {"t": tenant_id})
-        
-        result = conn.execute(
-            _sql_text("""
-                SELECT provider_account_id, access_token 
-                FROM connected_accounts_v2 
-                WHERE tenant_id = :t AND provider = 'instagram'
-            """),
-            {"t": tenant_id}
-        ).fetchone()
+    info = _get_connected_account(tenant_id, "instagram", auto_refresh=True)
+    access_token = str(info.get("access_token") or "")
+    extra = info.get("extra") or {}
+    ig_user_id = str(extra.get("instagram_user_id") or extra.get("user_id") or "")
     
-    if not result:
+    if not access_token or not ig_user_id:
         raise HTTPException(404, "Instagram not connected")
-    
-    ig_user_id, access_token = result[0], result[1]
     
     # Create container
     container_data = {
