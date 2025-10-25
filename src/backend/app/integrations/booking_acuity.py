@@ -846,6 +846,9 @@ def import_appointments(
                 "transactions_skipped": 0,
             }
             
+            # Date-based pagination cursor (workaround for broken Acuity API offset)
+            current_max_date = until  # Start from the end date
+            
             # Build contact_id -> UUID mapping to avoid per-appointment DB lookups
             # Also build email and phone-based lookups with normalization for robust matching
             contact_uuid_map: Dict[str, str] = {}
@@ -903,19 +906,22 @@ def import_appointments(
             # Use long-lived connection for appointment writes with explicit transaction boundaries
             # Appointments fetching and writing loop
             max_pages = int(os.getenv("ACUITY_MAX_PAGES", "200"))
-            print(f"[acuity] DEBUG: Starting appointments loop, page_limit={page_limit}, max_pages={max_pages}")
+            print(f"[acuity] DEBUG: Starting appointments loop with DATE-BASED pagination (Acuity offset is broken)")
+            print(f"[acuity] DEBUG: Date range: since={since}, until={until}, page_limit={page_limit}, max_pages={max_pages}")
             while True:
-                print(f"[acuity] DEBUG: Loop iteration start, appt_pages={appt_pages}, offset={offset}, cumulative_processed={appointments_processed}")
+                print(f"[acuity] DEBUG: Loop iteration start, appt_pages={appt_pages}, current_max_date={current_max_date}, cumulative_processed={appointments_processed}")
                 # Safety guard: prevent infinite pagination
                 if appt_pages >= max_pages:
-                    print(f"[acuity] appointments_max_pages_reached: tenant={tenant_id}, pages={appt_pages}, max={max_pages}, cumulative_processed={appointments_processed}, cumulative_offset={offset}")
+                    print(f"[acuity] appointments_max_pages_reached: tenant={tenant_id}, pages={appt_pages}, max={max_pages}, cumulative_processed={appointments_processed}")
                     break
                 
-                params: Dict[str, object] = {"limit": limit, "offset": offset}
+                # DATE-BASED PAGINATION: Acuity's offset parameter is broken and returns duplicate results.
+                # Instead, we fetch appointments sorted by date DESC and use maxDate cursor to walk backward.
+                params: Dict[str, object] = {"limit": limit, "direction": "DESC"}
                 if since:
                     params["minDate"] = since
-                if until:
-                    params["maxDate"] = until
+                if current_max_date:
+                    params["maxDate"] = current_max_date
                 print(f"[acuity] DEBUG: Fetching appointments from API, params={params}")
                 fetch_started = perf_counter()
                 r = client.get(f"{base}/appointments", params=params)
@@ -1218,11 +1224,34 @@ def import_appointments(
                 if len(arr) < limit:
                     print(
                         f"[acuity] PAGINATION_END: Last page reached (fetched {len(arr)} < limit {limit}), "
-                        f"total_pages={appt_pages}, total_appointments={appointments_processed}, final_offset={offset}"
+                        f"total_pages={appt_pages}, total_appointments={appointments_processed}"
                     )
                     break
-                print(f"[acuity] pagination_continue: offset {offset} -> {offset + len(arr)}, cumulative_appointments={appointments_processed}")
-                offset += len(arr)  # Use actual records returned for accurate offset tracking
+                
+                # DATE-BASED CURSOR: Find the oldest appointment datetime from this batch
+                # and use it as the maxDate for the next fetch (walking backward in time)
+                oldest_date = None
+                for a in arr:
+                    appt_datetime = a.get("datetime") or a.get("startTime")
+                    if appt_datetime:
+                        if oldest_date is None or appt_datetime < oldest_date:
+                            oldest_date = appt_datetime
+                
+                if oldest_date:
+                    # Move cursor to just before the oldest appointment in this batch
+                    try:
+                        from datetime import datetime, timedelta
+                        oldest_dt = datetime.fromisoformat(oldest_date.replace('Z', '+00:00'))
+                        # Subtract 1 second to avoid re-fetching the same appointment
+                        next_cursor = oldest_dt - timedelta(seconds=1)
+                        current_max_date = next_cursor.strftime('%Y-%m-%d %H:%M:%S')
+                        print(f"[acuity] pagination_continue: Moving date cursor backward, current_max_date={current_max_date}, oldest_in_batch={oldest_date}")
+                    except Exception as e:
+                        print(f"[acuity] WARNING: Failed to parse date for cursor: {oldest_date}, error={str(e)}")
+                        break
+                else:
+                    print(f"[acuity] WARNING: No datetime found in batch, stopping pagination")
+                    break
 
             print(f"[acuity] DEBUG: Exited appointments loop, appt_pages={appt_pages}, total_processed={appointments_processed}")
             print(f"[acuity] appointments_fetched: tenant={tenant_id}, pages={appt_pages}, count={dbg_appts_count}, payments_checked={payments_checked}, seconds={round(perf_counter() - appointments_started, 2)}")
